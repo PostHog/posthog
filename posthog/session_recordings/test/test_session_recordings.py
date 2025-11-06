@@ -62,6 +62,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             first_timestamp=timestamp,
             last_timestamp=timestamp,
             ensure_analytics_event_in_session=False,
+            retention_period_days=90,
         )
 
     @parameterized.expand(
@@ -360,6 +361,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "console_warn_count": 0,
                 "distinct_id": "user",
                 "end_time": ANY,
+                "expiry_time": ANY,
                 "id": "current_team",
                 "inactive_seconds": ANY,
                 "keypress_count": 0,
@@ -380,6 +382,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "start_time": ANY,
                 "start_url": "https://not-provided-by-test.com",
                 "storage": "object_storage",
+                "retention_period_days": 90,
+                "recording_ttl": 89,
                 "viewed": False,
                 "viewers": [],
                 "ongoing": True,
@@ -579,6 +583,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             first_timestamp=base_time.isoformat(),
             last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
             distinct_id="d1",
+            retention_period_days=30,
         )
 
         other_user = User.objects.create(email="paul@not-first-user.com")
@@ -598,6 +603,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "recording_duration": 30,
             "start_time": base_time.replace(tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "expiry_time": (base_time + relativedelta(days=30))
+            .replace(microsecond=0, second=0, minute=0, hour=0)
+            .strftime("%Y-%m-%dT%H:%M:%SZ"),
             "click_count": 0,
             "keypress_count": 0,
             "start_url": "https://not-provided-by-test.com",
@@ -616,6 +624,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "uuid": ANY,
             },
             "storage": "object_storage",
+            "retention_period_days": 30,
+            "recording_ttl": 29,
             "snapshot_source": "web",
             "ongoing": None,
             "activity_score": None,
@@ -807,8 +817,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch(
-        "ee.session_recordings.session_recording_extensions.object_storage.copy_objects",
-        return_value=2,
+        "posthog.session_recordings.session_recording_v2_service.copy_to_lts",
+        return_value="some-lts-path",
     )
     def test_persist_session_recording(self, _mock_copy_objects: MagicMock) -> None:
         self.produce_replay_summary("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
@@ -930,7 +940,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"results": [event_id]}
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["uuid"] == event_id
+        assert "timestamp" in results[0]
 
     def test_get_matching_events(self) -> None:
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
@@ -980,8 +993,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        # TODO: right now we don't care about the order of events in the response
-        assert sorted(response.json()["results"]) == sorted([event_id_one, event_id_three, event_id_two])
+        results = response.json()["results"]
+        assert len(results) == 3
+        result_uuids = sorted([r["uuid"] for r in results])
+        expected_uuids = sorted([event_id_one, event_id_three, event_id_two])
+        assert result_uuids == expected_uuids
+        # Verify all results have timestamps
+        for result in results:
+            assert "timestamp" in result
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_400_when_invalid_list_query(self) -> None:

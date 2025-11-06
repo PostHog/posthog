@@ -6,8 +6,6 @@ view source builders, including mixins for ClickHouse queries, snapshots,
 and API testing.
 """
 
-from typing import cast
-
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 from posthog.hogql import ast
@@ -31,7 +29,14 @@ class RevenueAnalyticsViewSourceBaseTest(ClickhouseTestMixin, QueryMatchingTest,
         super().setUp()
         # Common setup for revenue analytics tests can go here
 
-    def assertBuiltQueryStructure(self, built_query: BuiltQuery | None, expected_key: str, expected_prefix: str):
+    def assertBuiltQueryStructure(
+        self,
+        built_query: BuiltQuery,
+        expected_key: str,
+        expected_prefix: str,
+        *,
+        expected_test_comments: str | None = "<SENTINEL_VALUE>",
+    ):
         """
         Assert that a BuiltQuery has the expected structure.
 
@@ -40,11 +45,11 @@ class RevenueAnalyticsViewSourceBaseTest(ClickhouseTestMixin, QueryMatchingTest,
             expected_key: Expected key value
             expected_prefix: Expected prefix value
         """
-        self.assertIsNotNone(built_query)
-
-        built_query = cast(BuiltQuery, built_query)
         self.assertEqual(built_query.key, expected_key)
         self.assertEqual(built_query.prefix, expected_prefix)
+
+        if expected_test_comments != "<SENTINEL_VALUE>":
+            self.assertEqual(built_query.test_comments, expected_test_comments)
 
     def assertQueryContainsFields(self, query: ast.Expr, schema: Schema):
         """

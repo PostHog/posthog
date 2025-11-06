@@ -40,6 +40,7 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                     totalCostUsd={eventProperties.$ai_total_cost_usd}
                     model={eventProperties.$ai_model}
                     latency={eventProperties.$ai_latency}
+                    timestamp={eventProperties.timestamp}
                 />
 
                 {showPlaygroundButton && (
@@ -49,6 +50,7 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                         icon={<IconChat />}
                         onClick={handleTryInPlayground}
                         tooltip="Try this prompt in the playground"
+                        data-attr="try-in-playground-conversation"
                     >
                         Try in Playground
                     </LemonButton>

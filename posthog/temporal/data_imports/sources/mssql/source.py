@@ -22,7 +22,8 @@ from posthog.temporal.data_imports.sources.mssql.mssql import (
     get_schemas as get_mssql_schemas,
     mssql_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
+
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
 
 MSSQLErrors = {
     "Login failed for user": "Login failed for database",
@@ -43,6 +44,8 @@ class MSSQLSource(BaseSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabas
             name=SchemaExternalDataSourceType.MSSQL,
             label="Microsoft SQL Server",
             caption="Enter your Microsoft SQL Server/Azure SQL Server credentials to automatically pull your SQL data into the PostHog Data warehouse.",
+            iconPath="/static/services/sql-azure.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/azure-db",
             fields=cast(
                 list[FieldType],
                 [
@@ -89,7 +92,7 @@ class MSSQLSource(BaseSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabas
             ),
         )
 
-    def get_schemas(self, config: MSSQLSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: MSSQLSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         schemas = []
 
         with self.with_ssh_tunnel(config) as (host, port):

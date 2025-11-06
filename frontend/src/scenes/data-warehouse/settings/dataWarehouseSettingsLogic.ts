@@ -5,12 +5,14 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
-import { ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { DataWarehouseViewLink, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
+import { dataWarehouseJoinsLogic } from '../external/dataWarehouseJoinsLogic'
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
 const REFRESH_INTERVAL = 10000
@@ -27,6 +29,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         actions: [
             databaseTableListLogic,
             ['loadDatabase'],
+            dataWarehouseJoinsLogic,
+            ['loadJoins'],
             externalDataSourcesLogic,
             ['loadSources', 'loadSourcesSuccess', 'updateSource', 'updateSourceRevenueAnalyticsConfig'],
         ],
@@ -39,6 +43,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
         refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setManagedSearchTerm: (managedSearchTerm: string) => ({ managedSearchTerm }),
+        deleteJoin: (join: DataWarehouseViewLink) => ({ join }),
     }),
     loaders(({ actions, values }) => ({
         schemas: [
@@ -99,6 +105,12 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
+        managedSearchTerm: [
+            '' as string,
+            {
+                setManagedSearchTerm: (_, { managedSearchTerm }) => managedSearchTerm,
+            },
+        ],
     })),
     selectors({
         selfManagedTables: [
@@ -118,6 +130,32 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 }
                 const normalizedSearch = searchTerm.toLowerCase()
                 return selfManagedTables.filter((table) => table.name.toLowerCase().includes(normalizedSearch))
+            },
+        ],
+        filteredManagedSources: [
+            (s) => [s.dataWarehouseSources, s.managedSearchTerm],
+            (dataWarehouseSources, managedSearchTerm): ExternalDataSource[] => {
+                const sources = dataWarehouseSources?.results ?? []
+                if (!managedSearchTerm?.trim()) {
+                    return sources
+                }
+                const normalizedSearch = managedSearchTerm.toLowerCase()
+                return sources.filter(
+                    (source) =>
+                        source.source_type.toLowerCase().includes(normalizedSearch) ||
+                        source.prefix?.toLowerCase().includes(normalizedSearch)
+                )
+            },
+        ],
+        hasZendeskSource: [
+            (s) => [s.dataWarehouseSources],
+            (dataWarehouseSources): boolean => {
+                const sources = dataWarehouseSources?.results
+                if (!sources) {
+                    return false
+                }
+
+                return !!sources.some((source) => source?.source_type === 'Zendesk')
             },
         ],
     }),
@@ -185,28 +223,45 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             posthog.capture('schema updated', { shouldSync: schema.should_sync, syncType: schema.sync_type })
         },
         loadSourcesSuccess: () => {
-            clearTimeout(cache.refreshTimeout)
-
             if (router.values.location.pathname.includes('data-warehouse')) {
-                cache.refreshTimeout = setTimeout(() => {
-                    actions.loadSources(null)
-                }, REFRESH_INTERVAL)
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSources(null)
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
             }
         },
         loadSourcesFailure: () => {
-            clearTimeout(cache.refreshTimeout)
-
             if (router.values.location.pathname.includes('data-warehouse')) {
-                cache.refreshTimeout = setTimeout(() => {
-                    actions.loadSources(null)
-                }, REFRESH_INTERVAL)
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSources(null)
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
             }
+        },
+        deleteJoin: ({ join }): void => {
+            void deleteWithUndo({
+                endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
+                object: {
+                    id: join.id,
+                    name: `${join.field_name} on ${join.source_table_name}`,
+                },
+                callback: () => {
+                    actions.loadDatabase()
+                    actions.loadJoins()
+                },
+            }).catch((e) => {
+                lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
+            })
         },
     })),
     afterMount(({ actions }) => {
         actions.loadSources(null)
     }),
-    beforeUnmount(({ cache }) => {
-        clearTimeout(cache.refreshTimeout)
+    beforeUnmount(() => {
+        // Disposables plugin handles cleanup automatically
     }),
 ])

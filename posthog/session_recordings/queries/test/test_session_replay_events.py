@@ -13,6 +13,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self.base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        self.base_expiry_time = (now() + relativedelta(days=29)).replace(microsecond=0, second=0, minute=0, hour=0)
         produce_replay_summary(
             session_id="1",
             team_id=self.team.pk,
@@ -24,6 +25,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             keypress_count=2,
             mouse_activity_count=2,
             active_milliseconds=50 * 1000 * 0.5,
+            retention_period_days=30,
         )
         produce_replay_summary(
             session_id="2",
@@ -39,6 +41,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             block_urls=["s3://block-1"],
             block_first_timestamps=[self.base_time],
             block_last_timestamps=[self.base_time + relativedelta(seconds=2)],
+            retention_period_days=90,
         )
         produce_replay_summary(
             session_id="3",
@@ -60,10 +63,11 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
                 self.base_time + relativedelta(seconds=2),
                 self.base_time + relativedelta(seconds=3),
             ],
+            retention_period_days=365,
         )
 
     def test_get_metadata(self) -> None:
-        metadata = SessionReplayEvents().get_metadata(session_id="1", team_id=self.team.id)
+        metadata = SessionReplayEvents().get_metadata(session_id="1", team=self.team)
         assert metadata == {
             "active_seconds": 25.0,
             "block_first_timestamps": [],
@@ -76,19 +80,23 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "distinct_id": "u1",
             "duration": 0,
             "end_time": self.base_time,
+            "expiry_time": self.base_expiry_time,
             "first_url": "https://example.io/home",
             "keypress_count": 2,
             "mouse_activity_count": 2,
+            "retention_period_days": 30,
+            "recording_ttl": 29,
             "start_time": self.base_time,
             "snapshot_source": "web",
         }
 
     def test_get_metadata_with_block(self) -> None:
-        metadata = SessionReplayEvents().get_metadata(session_id="2", team_id=self.team.id)
+        metadata = SessionReplayEvents().get_metadata(session_id="2", team=self.team)
         assert metadata == {
             "active_seconds": 1.234,
             "start_time": self.base_time,
             "end_time": self.base_time + relativedelta(seconds=2),
+            "expiry_time": self.base_expiry_time + relativedelta(days=60),
             "block_first_timestamps": [self.base_time],
             "block_last_timestamps": [self.base_time + relativedelta(seconds=2)],
             "block_urls": ["s3://block-1"],
@@ -100,16 +108,19 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "duration": 2,
             "first_url": "https://example.io/home",
             "keypress_count": 200,
+            "retention_period_days": 90,
+            "recording_ttl": 89,
             "mouse_activity_count": 300,
             "snapshot_source": "web",
         }
 
     def test_get_metadata_with_multiple_blocks(self) -> None:
-        metadata = SessionReplayEvents().get_metadata(session_id="3", team_id=self.team.id)
+        metadata = SessionReplayEvents().get_metadata(session_id="3", team=self.team)
         assert metadata == {
             "active_seconds": 2.345,
             "start_time": self.base_time + relativedelta(seconds=1),
             "end_time": self.base_time + relativedelta(seconds=3),
+            "expiry_time": self.base_expiry_time + relativedelta(days=335),
             "block_first_timestamps": [
                 self.base_time + relativedelta(seconds=1),
                 self.base_time + relativedelta(seconds=2),
@@ -128,22 +139,24 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "first_url": "https://example.io/1",
             "keypress_count": 20,
             "mouse_activity_count": 30,
+            "retention_period_days": 365,
+            "recording_ttl": 364,
             "snapshot_source": "web",
         }
 
     def test_get_nonexistent_metadata(self) -> None:
-        metadata = SessionReplayEvents().get_metadata(session_id="not a session", team_id=self.team.id)
+        metadata = SessionReplayEvents().get_metadata(session_id="not a session", team=self.team)
         assert metadata is None
 
     def test_get_metadata_does_not_leak_between_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization, name="Another Team")
-        metadata = SessionReplayEvents().get_metadata(session_id="1", team_id=another_team.id)
+        metadata = SessionReplayEvents().get_metadata(session_id="1", team=another_team)
         assert metadata is None
 
     def test_get_metadata_filters_by_date(self) -> None:
         metadata = SessionReplayEvents().get_metadata(
             session_id="1",
-            team_id=self.team.id,
+            team=self.team,
             recording_start_time=self.base_time + relativedelta(days=2),
         )
         assert metadata is None
@@ -151,7 +164,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
     def test_get_group_metadata(self) -> None:
         metadata_dict = SessionReplayEvents().get_group_metadata(
             session_ids=["1", "2"],
-            team_id=self.team.id,
+            team=self.team,
         )
         assert len(metadata_dict) == 2
         assert metadata_dict["1"] == {
@@ -166,9 +179,12 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "distinct_id": "u1",
             "duration": 0,
             "end_time": self.base_time,
+            "expiry_time": self.base_expiry_time,
             "first_url": "https://example.io/home",
             "keypress_count": 2,
             "mouse_activity_count": 2,
+            "retention_period_days": 30,
+            "recording_ttl": 29,
             "start_time": self.base_time,
             "snapshot_source": "web",
         }
@@ -176,6 +192,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "active_seconds": 1.234,
             "start_time": self.base_time,
             "end_time": self.base_time + relativedelta(seconds=2),
+            "expiry_time": self.base_expiry_time + relativedelta(days=60),
             "block_first_timestamps": [self.base_time],
             "block_last_timestamps": [self.base_time + relativedelta(seconds=2)],
             "block_urls": ["s3://block-1"],
@@ -188,13 +205,15 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "first_url": "https://example.io/home",
             "keypress_count": 200,
             "mouse_activity_count": 300,
+            "retention_period_days": 90,
+            "recording_ttl": 89,
             "snapshot_source": "web",
         }
 
     def test_get_group_metadata_handles_nonexistent_sessions(self) -> None:
         metadata_dict = SessionReplayEvents().get_group_metadata(
             session_ids=["1", "nonexistent", "3"],
-            team_id=self.team.id,
+            team=self.team,
         )
         assert len(metadata_dict) == 3
         assert metadata_dict["1"] is not None

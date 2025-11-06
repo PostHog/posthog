@@ -12,6 +12,7 @@ use limiters::redis::QuotaResource;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::billing_limiters::SessionReplayLimiter;
+use crate::database_pools::DatabasePools;
 
 use super::{error_tracking, session_recording, types::RequestContext};
 
@@ -20,7 +21,7 @@ use super::{error_tracking, session_recording, types::RequestContext};
 /// redis client, billing limiter, and headers) rather than carrying around the entire RequestContext.
 pub struct ConfigContext {
     pub config: Config,
-    pub reader: Arc<dyn common_database::Client + Send + Sync>,
+    pub database_pools: Arc<DatabasePools>,
     pub redis: Arc<dyn common_redis::Client + Send + Sync>,
     pub session_replay_billing_limiter: SessionReplayLimiter,
     pub headers: HeaderMap,
@@ -30,7 +31,7 @@ impl ConfigContext {
     pub fn from_request_context(context: &RequestContext) -> Self {
         Self {
             config: context.state.config.clone(),
-            reader: context.state.reader.clone(),
+            database_pools: context.state.database_pools.clone(),
             redis: context.state.redis_reader.clone(),
             session_replay_billing_limiter: context.state.session_replay_billing_limiter.clone(),
             headers: context.headers.clone(),
@@ -39,14 +40,14 @@ impl ConfigContext {
 
     pub fn new(
         config: Config,
-        reader: Arc<dyn common_database::Client + Send + Sync>,
+        database_pools: Arc<DatabasePools>,
         redis: Arc<dyn common_redis::Client + Send + Sync>,
         session_replay_billing_limiter: SessionReplayLimiter,
         headers: HeaderMap,
     ) -> Self {
         Self {
             config,
-            reader,
+            database_pools,
             redis,
             session_replay_billing_limiter,
             headers,
@@ -113,7 +114,10 @@ async fn apply_config_fields(
     // Handle fields that require database access
     // I test this config field in isolation in site_apps/mod.rs and have integration tests for it in tests/test_flags.rs
     response.config.site_apps = if team.inject_web_apps.unwrap_or(false) {
-        Some(get_decide_site_apps(context.reader.clone(), team.id).await?)
+        Some(
+            get_decide_site_apps(context.database_pools.non_persons_reader.clone(), team.id)
+                .await?,
+        )
     } else {
         Some(vec![])
     };
@@ -121,18 +125,22 @@ async fn apply_config_fields(
     // Handle error tracking configuration
     response.config.error_tracking = if team.autocapture_exceptions_opt_in.unwrap_or(false) {
         // Try to get suppression rules, but don't fail if database is unavailable
-        let suppression_rules =
-            match error_tracking::get_suppression_rules(context.reader.clone(), team).await {
-                Ok(rules) => rules,
-                Err(_) => {
-                    // Log error but continue with empty rules, similar to Django behavior
-                    tracing::warn!(
-                        "Failed to fetch suppression rules for team {}, using empty rules",
-                        team.id
-                    );
-                    vec![]
-                }
-            };
+        let suppression_rules = match error_tracking::get_suppression_rules(
+            context.database_pools.non_persons_reader.clone(),
+            team,
+        )
+        .await
+        {
+            Ok(rules) => rules,
+            Err(_) => {
+                // Log error but continue with empty rules, similar to Django behavior
+                tracing::warn!(
+                    "Failed to fetch suppression rules for team {}, using empty rules",
+                    team.id
+                );
+                vec![]
+            }
+        };
 
         Some(ErrorTrackingConfig {
             autocapture_exceptions: true,
@@ -183,12 +191,18 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
             let mut perf_map = HashMap::new();
             perf_map.insert("network_timing".to_string(), serde_json::json!(network));
             perf_map.insert("web_vitals".to_string(), serde_json::json!(web_vitals));
-            if web_vitals {
-                perf_map.insert(
-                    "web_vitals_allowed_metrics".to_string(),
-                    serde_json::json!(autocapture_web_vitals_allowed_metrics.cloned()),
-                );
-            }
+            // Always include web_vitals_allowed_metrics field for parity with Python decide endpoint
+            // When web_vitals is false, it's null
+            // When web_vitals is true, it's the team's configured metrics (which could also be null)
+            let metrics_value = if web_vitals {
+                autocapture_web_vitals_allowed_metrics.cloned()
+            } else {
+                None
+            };
+            perf_map.insert(
+                "web_vitals_allowed_metrics".to_string(),
+                serde_json::json!(metrics_value),
+            );
             Some(serde_json::json!(perf_map))
         }
     };
@@ -235,8 +249,9 @@ mod tests {
             id: 1,
             name: "Test Team".to_string(),
             api_token: "test-token".to_string(),
-            project_id: 1,
+            project_id: Some(1),
             uuid: Uuid::new_v4(),
+            organization_id: None,
             autocapture_opt_out: None,
             autocapture_exceptions_opt_in: None,
             autocapture_web_vitals_opt_in: None,
@@ -262,7 +277,7 @@ mod tests {
             session_recording_event_trigger_config: None,
             session_recording_trigger_match_type_config: None,
             recording_domains: None,
-            cookieless_server_hash_mode: 0,
+            cookieless_server_hash_mode: Some(0),
             timezone: "UTC".to_string(),
         }
     }
@@ -415,7 +430,8 @@ mod tests {
 
         let expected = json!({
             "network_timing": true,
-            "web_vitals": false
+            "web_vitals": false,
+            "web_vitals_allowed_metrics": null
         });
         assert_eq!(response.config.capture_performance, Some(expected));
     }

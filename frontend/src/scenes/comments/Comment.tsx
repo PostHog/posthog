@@ -1,14 +1,20 @@
+import { generateText } from '@tiptap/core'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { IconCheck, IconEllipsis, IconPencil, IconShare } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonTextAreaMarkdown, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, ProfilePicture } from '@posthog/lemon-ui'
 
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import {
+    DEFAULT_EXTENSIONS,
+    LemonRichContentEditor,
+    serializationOptions,
+} from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { CommentType } from '~/types'
@@ -20,10 +26,24 @@ export type CommentProps = {
 }
 
 const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { editingComment, commentsLoading, replyingCommentId, emojiReactionsByComment, isMyComment } =
-        useValues(commentsLogic)
-    const { deleteComment, setEditingComment, persistEditedComment, setReplyingComment, sendEmojiReaction } =
-        useActions(commentsLogic)
+    const {
+        editingComment,
+        commentsLoading,
+        replyingCommentId,
+        emojiReactionsByComment,
+        isMyComment,
+        editingCommentRichContentEditor,
+        isEditingCommentEmpty,
+    } = useValues(commentsLogic)
+    const {
+        deleteComment,
+        setEditingComment,
+        persistEditedComment,
+        setReplyingComment,
+        sendEmojiReaction,
+        setEditingCommentRichContentEditor,
+        onEditingCommentRichContentEditorUpdate,
+    } = useActions(commentsLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 
@@ -47,7 +67,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
 
                 <div className="flex flex-col flex-1">
                     <div className="flex items-center gap-2">
-                        <span className="flex-1 font-semibold ">
+                        <span className="ph-no-capture flex-1 font-semibold">
                             {comment.created_by?.first_name ?? 'Unknown user'}
                         </span>
                         {comment.created_at ? (
@@ -79,7 +99,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                             <LemonButton icon={<IconEllipsis />} size="xsmall" />
                         </LemonMenu>
                     </div>
-                    <LemonMarkdown lowKeyHeadings>{comment.content}</LemonMarkdown>
+                    <LemonMarkdown lowKeyHeadings>{getText(comment)}</LemonMarkdown>
                     <div className="flex flex-row items-center justify-between">
                         <span className="text-xs text-secondary italic">
                             {comment.version ? <span>(edited)</span> : null}
@@ -132,19 +152,30 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
 
             {editingComment?.id === comment.id ? (
                 <div className="deprecated-space-y-2 border-t p-2">
-                    <LemonTextAreaMarkdown
-                        data-attr="comment-composer"
+                    <LemonRichContentEditor
                         placeholder="Edit comment"
-                        value={editingComment.content}
-                        onChange={(value) => setEditingComment({ ...editingComment, content: value })}
-                        disabled={commentsLoading}
+                        initialContent={comment.rich_content}
+                        onCreate={setEditingCommentRichContentEditor}
+                        onUpdate={(isEmpty) => {
+                            if (editingCommentRichContentEditor) {
+                                setEditingComment({
+                                    ...editingComment,
+                                    rich_content: editingCommentRichContentEditor.getJSON(),
+                                })
+                                onEditingCommentRichContentEditorUpdate(isEmpty)
+                            }
+                        }}
                         onPressCmdEnter={persistEditedComment}
+                        disabled={commentsLoading}
                     />
                     <div className="flex justify-between items-center gap-2">
                         <div className="flex-1" />
                         <LemonButton
                             type="secondary"
-                            onClick={() => setEditingComment(null)}
+                            onClick={() => {
+                                setEditingComment(null)
+                                setEditingCommentRichContentEditor(null)
+                            }}
                             disabled={commentsLoading}
                         >
                             Cancel
@@ -152,9 +183,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                         <LemonButton
                             type="primary"
                             onClick={persistEditedComment}
-                            disabledReason={
-                                !editingComment.content ? 'No message' : commentsLoading ? 'Saving...' : null
-                            }
+                            disabledReason={isEditingCommentEmpty ? 'No message' : commentsLoading ? 'Saving...' : null}
                             sideIcon={<KeyboardShortcut command enter />}
                         >
                             Save changes
@@ -195,4 +224,26 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
             </div>
         </div>
     )
+}
+
+export function getText(comment: CommentType): string {
+    // This is only temporary until all comments are backfilled to rich content
+    const content = comment.rich_content
+        ? comment.rich_content
+        : {
+              type: 'doc',
+              content: [
+                  {
+                      type: 'paragraph',
+                      content: [
+                          {
+                              type: 'text',
+                              text: comment.content || '',
+                          },
+                      ],
+                  },
+              ],
+          }
+
+    return generateText(content, DEFAULT_EXTENSIONS, serializationOptions)
 }

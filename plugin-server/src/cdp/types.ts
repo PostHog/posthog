@@ -95,11 +95,32 @@ export type HogFunctionInvocationGlobals = {
 
     // Unique to sources - will be modified later
     request?: {
+        method: string
         headers: Record<string, string | undefined>
+        query: Record<string, string | undefined>
         ip?: string
         body: Record<string, any>
         stringBody: string
     }
+
+    unsubscribe_url?: string // For email actions, the unsubscribe URL to use
+
+    actions?: HogFunctionInvocationActionVariables
+    variables?: Record<string, any> // For HogFlows, workflow-level variables
+}
+
+/**
+ * A map of key value variables that persist across actions in a flow
+ * These variables can be used to store loop state or pass data between actions
+ *
+ * Action's can read and write to these variables. Any value stored in the variables
+ * map must be JSON serializable, and limited to 1KB in size.
+ *
+ * After execution, every action will have a corresponding entry in the map with
+ * the key `$action/{actionId}` containing the result of the action.
+ */
+export type HogFunctionInvocationActionVariables = {
+    [key: string]: { result: any; error?: any }
 }
 
 export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobals & {
@@ -109,6 +130,7 @@ export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobal
 export type HogFunctionFilterGlobals = {
     // Filter Hog is built in the same way as analytics so the global object is meant to be an event
     event: string
+    uuid: string
     timestamp: string
     elements_chain: string
     elements_chain_href: string
@@ -183,11 +205,15 @@ export type MinimalAppMetric = {
     instance_id?: string // The specific instance of the item (can be the invocation ID or a sub item like an action ID)
     metric_kind: 'failure' | 'success' | 'other' | 'email' | 'billing'
     metric_name:
+        | 'early_exit'
+        | 'triggered'
+        | 'trigger_failed'
         | 'succeeded'
         | 'failed'
         | 'filtered'
         | 'disabled_temporarily'
         | 'disabled_permanently'
+        | 'rate_limited'
         | 'masked'
         | 'filtering_failed'
         | 'inputs_failed'
@@ -216,10 +242,18 @@ export interface HogFunctionTiming {
     duration_ms: number
 }
 
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hog_overflow', 'hogflow'] as const
+// IMPORTANT: All queue names should be lowercase and only [A-Z0-9] characters are allowed.
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
+    'hog',
+    'hogoverflow',
+    'hogflow',
+    'delay10m',
+    'delay60m',
+    'delay24h',
+] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
-export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka'] as const
+export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka', 'delay'] as const
 export type CyclotronJobQueueSource = (typeof CYCLOTRON_JOB_QUEUE_SOURCES)[number]
 
 // Agnostic job invocation type
@@ -227,7 +261,7 @@ export type CyclotronJobInvocation = {
     id: string
     teamId: Team['id']
     functionId: string
-    state: object | null
+    state: Record<string, any> | null
     // The queue that the invocation is on
     queue: CyclotronJobQueueKind
     // Optional parameters for that queue to use
@@ -275,12 +309,12 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     actionStepCount: number
-    // variables: Record<string, any> // NOTE: not used yet but
     currentAction?: {
         id: string
         startedAtTimestamp: number
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
     }
+    variables?: Record<string, any>
 }
 
 // Mostly copied from frontend types
@@ -309,7 +343,11 @@ export type HogFunctionInputSchemaType = {
     requires_field?: string
     integration_field?: string
     requiredScopes?: string
-    templating?: boolean
+    /**
+     * templating: true indicates the field supports templating. Alternatively
+     * it can be set to 'hog' or 'liquid' to specify the default templating engine to use.
+     */
+    templating?: boolean | 'hog' | 'liquid'
 }
 
 export type HogFunctionTypeType =

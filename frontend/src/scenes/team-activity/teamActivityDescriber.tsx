@@ -96,7 +96,7 @@ function createArrayChangeHandler(
             return null
         }
 
-        const array = change.after as any[]
+        const array = (change.after || []) as any[]
         const displayArray = map ? array.map(map).filter(Boolean) : array
         const fieldNameElement = useEmphasis ? <em>{fieldName}</em> : fieldName
 
@@ -355,6 +355,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         }
         return { description: [<>{recordCanvasAfter ? 'enabled' : 'disabled'} canvas recording in session replay</>] }
     },
+    session_recording_retention_period: createSimpleValueHandler('session replay data retention'),
 
     // Survey config
     surveys_opt_in: createBooleanToggleHandler('surveys'),
@@ -404,6 +405,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     // Feature flag confirmation config
     feature_flag_confirmation_enabled: createBooleanToggleHandler('feature flag confirmation'),
     feature_flag_confirmation_message: createSimpleValueHandler('feature flag confirmation message'),
+    default_evaluation_environments_enabled: createBooleanToggleHandler('default evaluation environments'),
 
     // Autocapture
     autocapture_exceptions_errors_to_ignore: createArrayChangeHandler('autocapture exceptions errors to ignore'),
@@ -432,6 +434,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     person_display_name_properties: createArrayChangeHandler('person display name properties'),
     person_on_events_querying_enabled: createBooleanToggleHandler('querying person on events'),
     human_friendly_comparison_periods: createBooleanToggleHandler('human friendly comparison periods'),
+    receive_org_level_activity_logs: createBooleanToggleHandler('organization-level activity logs'),
     test_account_filters: (change) => {
         // change.after is an array of property filters
         // change.before is an array o property filters
@@ -728,9 +731,11 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     effective_membership_level: () => null,
     default_modifiers: () => null,
     is_demo: () => null,
-    access_control: () => null,
     has_group_types: () => null,
     web_analytics_pre_aggregated_tables_enabled: () => null,
+    web_analytics_pre_aggregated_tables_version: () => null,
+    experiment_recalculation_time: () => null,
+    managed_viewsets: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
@@ -779,7 +784,7 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         suffix={changeSuffix}
                     />
                 ),

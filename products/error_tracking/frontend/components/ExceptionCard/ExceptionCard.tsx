@@ -11,6 +11,7 @@ import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/T
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
+import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { SessionTab } from './Tabs/SessionTab'
 import { StacktraceTab } from './Tabs/StacktraceTab'
@@ -29,28 +30,30 @@ export interface ExceptionCardProps extends Omit<ExceptionCardContentProps, 'tim
 }
 
 export function ExceptionCard({ issue, issueLoading, event, eventLoading, label }: ExceptionCardProps): JSX.Element {
-    const { setLoading } = useActions(exceptionCardLogic)
+    const cardLogicProps = { issueId: issue?.id ?? 'no-issue' }
+    const { setLoading } = useActions(exceptionCardLogic(cardLogicProps))
 
     useEffect(() => {
         setLoading(eventLoading)
     }, [setLoading, eventLoading])
 
+    const props = {
+        properties: event?.properties,
+        id: event?.uuid ?? issue?.id ?? 'error',
+    } as ErrorPropertiesLogicProps
+
     return (
-        <BindLogic
-            logic={errorPropertiesLogic}
-            props={
-                {
-                    properties: event?.properties,
-                    id: event?.uuid ?? issue?.id ?? 'error',
-                } as ErrorPropertiesLogicProps
-            }
-        >
-            <ExceptionCardContent
-                issue={issue}
-                timestamp={event?.timestamp}
-                issueLoading={issueLoading}
-                label={label}
-            />
+        <BindLogic logic={exceptionCardLogic} props={cardLogicProps}>
+            <BindLogic logic={errorPropertiesLogic} props={props}>
+                <BindLogic logic={releasePreviewLogic} props={props}>
+                    <ExceptionCardContent
+                        issue={issue}
+                        timestamp={event?.timestamp}
+                        issueLoading={issueLoading}
+                        label={label}
+                    />
+                </BindLogic>
+            </BindLogic>
         </BindLogic>
     )
 }
@@ -58,6 +61,7 @@ export function ExceptionCard({ issue, issueLoading, event, eventLoading, label 
 function ExceptionCardContent({ issue, issueLoading, timestamp, label }: ExceptionCardContentProps): JSX.Element {
     const { currentTab } = useValues(exceptionCardLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
+
     return (
         <LemonCard hoverEffect={false} className="p-0 relative overflow-hidden">
             <TabsPrimitive value={currentTab} onValueChange={setCurrentTab}>

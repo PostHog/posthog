@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { IconArrowLeft, IconArrowRight, IconChatHelp, IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonModal, LemonTabs, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { InviteMembersButton } from 'lib/components/Account/InviteMembersButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -11,7 +12,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
 import { OnboardingStepKey, ProductKey, type SDK, SDKInstructionsMap, SDKTag, SidePanelTab } from '~/types'
 
 import { OnboardingStep } from '../OnboardingStep'

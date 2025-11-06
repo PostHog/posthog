@@ -91,7 +91,7 @@ export function StartupProgram(): JSX.Element {
                         It looks like your organization {wasPreviouslyOnStartupPlan ? 'was' : 'is'} already part of our{' '}
                         {programName}. If you have any questions, please contact our support team.
                     </p>
-                    <LemonButton type="primary" to={urls.projectHomepage()} className="mt-2">
+                    <LemonButton type="primary" to={urls.projectRoot()} className="mt-2">
                         Return to PostHog
                     </LemonButton>
                 </LemonBanner>
@@ -111,7 +111,7 @@ export function StartupProgram(): JSX.Element {
                             ? `your PostHog human ${accountOwner.name.split(' ')[0]} at ${accountOwner.email}`
                             : 'our support team'}
                     </p>
-                    <LemonButton type="primary" to={urls.projectHomepage()} className="mt-2">
+                    <LemonButton type="primary" to={urls.projectRoot()} className="mt-2">
                         Return to PostHog
                     </LemonButton>
                 </LemonBanner>
@@ -128,7 +128,7 @@ export function StartupProgram(): JSX.Element {
                         You need to be an organization admin or owner to apply for the startup program. Please contact
                         your organization admin for assistance.
                     </p>
-                    <LemonButton type="primary" to={urls.projectHomepage()} className="mt-2">
+                    <LemonButton type="primary" to={urls.projectRoot()} className="mt-2">
                         Return to PostHog
                     </LemonButton>
                 </LemonBanner>
@@ -195,8 +195,8 @@ export function StartupProgram(): JSX.Element {
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
                                 <h4 className="font-semibold">
-                                    $50,000 in PostHog credit{' '}
-                                    <span className="text-[0.66em] align-super text-muted">1</span>
+                                    $50,000 in PostHog credit
+                                    {isYC && <span className="text-[0.66em] align-super text-muted"> 1</span>}
                                 </h4>
                                 <p className="text-muted text-sm">Valid for 1 year to use across all products</p>
                             </div>
@@ -205,8 +205,8 @@ export function StartupProgram(): JSX.Element {
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
                                 <h4 className="font-semibold">
-                                    Exclusive founder merch{' '}
-                                    <span className="text-[0.66em] align-super text-muted">2</span>
+                                    Exclusive founder merch
+                                    {isYC && <span className="text-[0.66em] align-super text-muted"> 2</span>}
                                 </h4>
                                 <p className="text-muted text-sm">
                                     Who wouldn't want free laptop stickers, hats, or t-shirts?
@@ -216,8 +216,22 @@ export function StartupProgram(): JSX.Element {
                         <div className="flex items-start">
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
-                                <h4 className="font-semibold">50% off Mintlify and Speakeasy for 6 months</h4>
-                                <p className="text-muted text-sm">The best products deserve the best documentation</p>
+                                <h4 className="font-semibold">50% off Mintlify for 6 months</h4>
+                                <p className="text-muted text-sm">So you can build better documentation</p>
+                            </div>
+                        </div>
+                        <div className="flex items-start">
+                            <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                            <div>
+                                <h4 className="font-semibold">50% off Speakeasy for 6 months</h4>
+                                <p className="text-muted text-sm">So you can build better APIs, faster</p>
+                            </div>
+                        </div>
+                        <div className="flex items-start">
+                            <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                            <div>
+                                <h4 className="font-semibold">$5,000 in Chroma credit</h4>
+                                <p className="text-muted text-sm">Great for building better AI agents</p>
                             </div>
                         </div>
                         {isYC && (
@@ -318,7 +332,7 @@ export function StartupProgram(): JSX.Element {
                                     Thank you for your application! We'll review it and get back to you as soon as
                                     possible. In the meantime, you can continue using PostHog.
                                 </p>
-                                <LemonButton type="primary" to={urls.projectHomepage()}>
+                                <LemonButton type="primary" to={urls.projectRoot()}>
                                     Return to PostHog
                                 </LemonButton>
                             </div>

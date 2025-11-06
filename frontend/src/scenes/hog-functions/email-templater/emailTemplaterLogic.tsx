@@ -11,7 +11,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
-import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
+import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 
 import { EmailTemplaterType } from './EmailTemplater'
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
@@ -37,6 +37,9 @@ export interface EmailTemplaterLogicProps {
     onChange: (value: EmailTemplate) => void
     variables?: Record<string, any>
     type: EmailTemplaterType
+    defaultValue?: EmailTemplate | null
+    templating?: boolean | 'hog' | 'liquid'
+    onChangeTemplating?: (templating: 'hog' | 'liquid') => void
 }
 
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
@@ -51,6 +54,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
         applyTemplate: (template: MessageTemplate) => ({ template }),
         closeWithConfirmation: true,
+        setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
     }),
     reducers({
         emailEditorRef: [
@@ -76,6 +80,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             null as MessageTemplate | null,
             {
                 applyTemplate: (_, { template }) => template,
+            },
+        ],
+        templatingEngine: [
+            'liquid' as 'hog' | 'liquid',
+            {
+                setTemplatingEngine: (_, { templating }) => {
+                    return templating
+                },
             },
         ],
     }),
@@ -141,26 +153,23 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
     forms(({ actions, values, props }) => ({
         emailTemplate: {
-            defaults: {
-                from: '',
-                subject: '',
-                to: '',
-                html: '',
-                design: null as object | null,
-                text: '',
-            } as EmailTemplate,
-            submit: async (value) => {
+            defaults: props.defaultValue as EmailTemplate,
+            submit: async (formValues: EmailTemplate | undefined) => {
+                if (!formValues) {
+                    return
+                }
                 const editor = values.emailEditorRef?.editor
                 if (!editor || !values.isEmailEditorReady) {
                     return
                 }
-                const [htmlData, textData] = await Promise.all([
-                    new Promise<any>((res) => editor.exportHtml(res)),
-                    new Promise<any>((res) => editor.exportPlainText(res)),
-                ])
+                const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
+                    await Promise.all([
+                        new Promise<any>((res) => editor.exportHtml(res)),
+                        new Promise<any>((res) => editor.exportPlainText(res)),
+                    ])
 
-                const finalValues = {
-                    ...value,
+                const finalValues: EmailTemplate = {
+                    ...formValues,
                     html: escapeHTMLStringCurlies(htmlData.html),
                     text: textData.text,
                     design: htmlData.design,

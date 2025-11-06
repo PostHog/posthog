@@ -2,7 +2,7 @@ import { connect, kea, path, props, selectors } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagLookupKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
@@ -36,16 +36,32 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
 
     selectors({
         hogFunctionTemplatesDataWarehouseSources: [
-            (s) => [s.connectors, s.manualConnectors],
-            (connectors, manualConnectors): HogFunctionTemplateType[] => {
-                const managed = connectors.map(
-                    (connector: SourceConfig): HogFunctionTemplateType => ({
+            (s) => [s.connectors, s.manualConnectors, s.featureFlags],
+            (connectors, manualConnectors, featureFlags): HogFunctionTemplateType[] => {
+                const managed = connectors.map((connector: SourceConfig): HogFunctionTemplateType => {
+                    const featureFlagKey = Object.keys(FEATURE_FLAGS).find(
+                        (k) => FEATURE_FLAGS[k as FeatureFlagLookupKey] === connector.featureFlag
+                    )
+                    const featureFlagEnabledForUser =
+                        featureFlagKey && featureFlags[FEATURE_FLAGS[featureFlagKey as FeatureFlagLookupKey]]
+                    // explicitly checks for no provided or no matching feature flag
+                    const isUnreleasedAndShouldntAccess =
+                        (connector.unreleasedSource && !featureFlagKey) ||
+                        (connector.unreleasedSource && !featureFlagEnabledForUser)
+                    return {
                         id: `managed-${connector.name}`,
                         type: 'source',
-                        name: connector.name,
-                        icon_url: DATA_WAREHOUSE_SOURCE_ICON_MAP[connector.name],
-                        status: connector.unreleasedSource ? 'coming_soon' : 'stable',
-                        description: (
+                        name: connector.label ?? connector.name,
+                        icon_url: connector.iconPath,
+                        icon_class_name: connector.iconClassName,
+                        status: isUnreleasedAndShouldntAccess
+                            ? 'coming_soon'
+                            : connector.betaSource
+                              ? 'beta'
+                              : 'stable',
+                        description: isUnreleasedAndShouldntAccess ? (
+                            'Get notified when this source is available to connect'
+                        ) : (
                             <>
                                 Data will be synced to PostHog and regularly refreshed.{' '}
                                 <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
@@ -57,9 +73,9 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         filters: null,
                         masking: null,
                         free: true,
-                    })
-                )
-
+                        flag: connector.featureFlag,
+                    }
+                })
                 const selfManaged = manualConnectors.map(
                     (source): HogFunctionTemplateType => ({
                         id: `self-managed-${source.type}`,
@@ -89,11 +105,16 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
         hogFunctionTemplatesBatchExports: [
             (s) => [s.featureFlags, s.user],
             (featureFlags, user): HogFunctionTemplateType[] => {
+                // HTTP is currently only used for Cloud to Cloud migrations and shouldn't be accessible to users
                 const httpEnabled =
                     featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
-                // HTTP is currently only used for Cloud to Cloud migrations and shouldn't be accessible to users
-                const services = BATCH_EXPORT_SERVICE_NAMES.filter((service) =>
-                    httpEnabled ? true : service !== ('HTTP' as const)
+                // Databricks is currently behind a feature flag
+                const databricksEnabled = featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_DATABRICKS]
+
+                const services = BATCH_EXPORT_SERVICE_NAMES.filter(
+                    (service) =>
+                        (httpEnabled ? true : service !== ('HTTP' as const)) &&
+                        (databricksEnabled ? true : service !== ('Databricks' as const))
                 )
 
                 return services.map(
@@ -102,7 +123,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         type: 'destination',
                         name: humanizeBatchExportName(service),
                         icon_url: BATCH_EXPORT_ICON_MAP[service],
-                        status: 'stable',
+                        status: service === 'Databricks' ? 'beta' : 'stable',
                         code: '',
                         code_language: 'hog',
                         inputs_schema: [],

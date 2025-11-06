@@ -1,11 +1,11 @@
 use crate::{
     api::{
-        errors::FlagError,
+        errors::{ClientFacingError, FlagError},
         types::{
             ConfigResponse, FlagsQueryParams, FlagsResponse, LegacyFlagsResponse, ServiceResponse,
         },
     },
-    handler::{process_request, RequestContext},
+    handler::{decoding, process_request, RequestContext},
     router,
 };
 // TODO: stream this instead
@@ -15,7 +15,9 @@ use axum::response::{IntoResponse, Response};
 use axum::{debug_handler, Json};
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
+use serde_json;
 use std::collections::HashMap;
+use std::net::IpAddr;
 use tracing::Instrument;
 use uuid::Uuid;
 
@@ -28,27 +30,79 @@ struct LogContext<'a> {
     request_id: Uuid,
     is_from_decide: bool,
     query_version: Option<i32>,
-    mapped_version: Option<i32>,
+    response_format: &'a str,
 }
 
-/// Maps decide endpoint versions to flags endpoint versions
-/// decide v3 -> flags v1
-/// decide v4 -> flags v2
-/// All other versions pass through unchanged
-fn map_decide_version(query_version: Option<i32>, is_from_decide: bool) -> Option<i32> {
-    if is_from_decide {
-        match query_version {
-            Some(3) => Some(1),
-            Some(4) => Some(2),
-            other => other,
+/// Extracts request ID from X-REQUEST-ID header, falling back to generating a new UUID if not present or invalid
+/// Good for tracing logs from the Contour layer all the way to the property evaluation
+fn extract_request_id(headers: &HeaderMap) -> Uuid {
+    headers
+        .get("X-REQUEST-ID")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<Uuid>().ok())
+        .unwrap_or_else(Uuid::new_v4)
+}
+
+/// Extracts client IP address from request headers, checking X-Forwarded-For first
+/// then falling back to the direct client IP. Matches Python's get_ip_address function.
+fn extract_client_ip(headers: &HeaderMap, fallback_ip: IpAddr) -> IpAddr {
+    // Check X-Forwarded-For header first (case-insensitive)
+    if let Some(forwarded_for) = headers.get("X-Forwarded-For") {
+        if let Ok(forwarded_str) = forwarded_for.to_str() {
+            // Take the first IP from the comma-separated list
+            if let Some(first_ip) = forwarded_str.split(',').next() {
+                let trimmed = first_ip.trim();
+
+                // Strip port from IP address if present (Azure gateway compatibility)
+                let ip_without_port = if trimmed.starts_with('[') {
+                    // IPv6 with port (e.g., "[::1]:8080")
+                    trimmed
+                        .split(']')
+                        .next()
+                        .and_then(|s| s.strip_prefix('['))
+                        .unwrap_or(trimmed)
+                } else if trimmed.contains('.') {
+                    // Likely IPv4 - check for port after the last dot
+                    if let Some(colon_idx) = trimmed.rfind(':') {
+                        if let Some(last_dot_idx) = trimmed.rfind('.') {
+                            if colon_idx > last_dot_idx {
+                                // Port comes after the last dot, so this is IPv4:port
+                                &trimmed[..colon_idx]
+                            } else {
+                                // Colon before last dot? Malformed, return as-is
+                                trimmed
+                            }
+                        } else {
+                            // Has colon but no dot? Shouldn't happen for IPv4
+                            trimmed
+                        }
+                    } else {
+                        // No colon, just return the IP
+                        trimmed
+                    }
+                } else {
+                    // No dots and no brackets - assume IPv6 without port
+                    // IPv6 can have colons as part of the address, so don't strip
+                    trimmed
+                };
+
+                // Try to parse the IP address
+                if let Ok(parsed_ip) = ip_without_port.parse::<IpAddr>() {
+                    return parsed_ip;
+                }
+            }
         }
-    } else {
-        query_version
     }
+
+    // Fall back to the direct client IP
+    fallback_ip
 }
 
-fn get_minimal_flags_response(version: Option<&str>) -> Result<Json<ServiceResponse>, FlagError> {
-    let request_id = Uuid::new_v4();
+fn get_minimal_flags_response(
+    headers: &HeaderMap,
+    version: Option<&str>,
+) -> Result<Json<ServiceResponse>, FlagError> {
+    let request_id = extract_request_id(headers);
 
     // Parse version string to determine response format
     let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1)).unwrap_or(1);
@@ -56,6 +110,10 @@ fn get_minimal_flags_response(version: Option<&str>) -> Result<Json<ServiceRespo
     // Create minimal config response
     let config = ConfigResponse {
         supported_compression: vec!["gzip".to_string(), "gzip-js".to_string()],
+        config: Some(serde_json::json!({"enable_collect_everything": true})),
+        toolbar_params: Some(serde_json::json!({})),
+        is_authenticated: Some(false),
+        session_recording: Some(crate::api::types::SessionRecordingField::Disabled(false)),
         ..Default::default()
     };
 
@@ -78,25 +136,89 @@ fn get_minimal_flags_response(version: Option<&str>) -> Result<Json<ServiceRespo
     Ok(Json(service_response))
 }
 
+/// Determines the response format based on whether the request came from decide and the version parameter.
+///
+/// When the request is from decide (X-Original-Endpoint: decide):
+/// - v=1 or missing -> DecideV1 response format
+/// - v=2 -> DecideV2 response format  
+/// - v=3 -> FlagsV1 response format
+/// - v>=4 -> FlagsV2 response format
+///
+/// When the request is not from decide:
+/// - v>=2 -> FlagsV2 response format
+/// - v=1 or missing -> FlagsV1 response format
+///
+/// Returns a tuple of (response, format_name) for logging purposes
+fn get_versioned_response(
+    is_from_decide: bool,
+    version: Option<i32>,
+    response: FlagsResponse,
+) -> Result<(ServiceResponse, &'static str), FlagError> {
+    if is_from_decide {
+        match version {
+            Some(1) | None => Ok((
+                ServiceResponse::DecideV1(crate::api::types::DecideV1Response::from_response(
+                    response,
+                )),
+                "DecideV1",
+            )),
+            Some(2) => Ok((
+                ServiceResponse::DecideV2(crate::api::types::DecideV2Response::from_response(
+                    response,
+                )),
+                "DecideV2",
+            )),
+            Some(3) => Ok((
+                ServiceResponse::Default(LegacyFlagsResponse::from_response(response)),
+                "FlagsV1",
+            )),
+            Some(v) if v >= 4 => Ok((ServiceResponse::V2(response), "FlagsV2")),
+            Some(_) => {
+                // Any other version defaults to DecideV1
+                Ok((
+                    ServiceResponse::DecideV1(crate::api::types::DecideV1Response::from_response(
+                        response,
+                    )),
+                    "DecideV1",
+                ))
+            }
+        }
+    } else {
+        match version {
+            Some(v) if v >= 2 => Ok((ServiceResponse::V2(response), "FlagsV2")),
+            _ => Ok((
+                ServiceResponse::Default(LegacyFlagsResponse::from_response(response)),
+                "FlagsV1",
+            )),
+        }
+    }
+}
+
 /// Feature flag evaluation endpoint.
 /// Only supports a specific shape of data, and rejects any malformed data.
 #[debug_handler]
 pub async fn flags(
     state: State<router::State>,
-    InsecureClientIp(ip): InsecureClientIp,
+    InsecureClientIp(direct_ip): InsecureClientIp,
     Query(query_params): Query<FlagsQueryParams>,
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
     body: Bytes,
 ) -> Result<Response, FlagError> {
-    let request_id = Uuid::new_v4();
+    let request_id = extract_request_id(&headers);
+
+    // Extract client IP, checking X-Forwarded-For header first
+    let ip = extract_client_ip(&headers, direct_ip);
 
     // Handle different HTTP methods
     match method {
         Method::GET => {
             // GET requests return minimal flags response
-            return Ok(get_minimal_flags_response(query_params.version.as_deref())?.into_response());
+            return Ok(
+                get_minimal_flags_response(&headers, query_params.version.as_deref())?
+                    .into_response(),
+            );
         }
         Method::POST => {
             // POST requests continue with full processing logic below
@@ -153,12 +275,31 @@ pub async fn flags(
 
     let context = RequestContext {
         request_id,
-        state,
+        state: state.clone(),
         ip,
         headers: headers.clone(),
         meta: modified_query_params,
         body,
     };
+
+    // Rate limiting strategy (order matters for security):
+    // 1. IP-based rate limiting first - prevents DDoS with rotating tokens
+    // 2. Token-based rate limiting second - enforces per-project limits
+    //
+    // This order ensures that an attacker cannot bypass rate limiting by
+    // simply rotating through fake tokens from the same IP address.
+
+    // Check IP-based rate limit first
+    if !state.ip_rate_limiter.allow_request(&ip.to_string()) {
+        return Err(FlagError::ClientFacing(ClientFacingError::RateLimited));
+    }
+
+    // Check token-based rate limit
+    // Extract token from body, use IP as fallback if extraction fails
+    let rate_limit_key = decoding::extract_token(&context.body).unwrap_or_else(|| ip.to_string());
+    if !state.flags_rate_limiter.allow_request(&rate_limit_key) {
+        return Err(FlagError::ClientFacing(ClientFacingError::RateLimited));
+    }
 
     // Parse version from query params
     let query_version = context
@@ -167,23 +308,6 @@ pub async fn flags(
         .clone()
         .as_deref()
         .map(|v| v.parse::<i32>().unwrap_or(1));
-
-    // Apply version mapping for decide endpoint
-    let version = map_decide_version(query_version, is_from_decide);
-
-    // Log request info at info level for visibility
-    let log_context = LogContext {
-        headers: &headers,
-        query_params: &query_params,
-        method: &method,
-        path: &path,
-        ip: &ip.to_string(),
-        request_id,
-        is_from_decide,
-        query_version,
-        mapped_version: version,
-    };
-    log_request_info(log_context);
 
     // Create debug span for detailed tracing when debugging
     let _span = create_request_span(
@@ -199,14 +323,24 @@ pub async fn flags(
         .instrument(_span)
         .await?;
 
-    let versioned_response: Result<ServiceResponse, FlagError> = match version {
-        Some(v) if v >= 2 => Ok(ServiceResponse::V2(response)),
-        _ => Ok(ServiceResponse::Default(
-            LegacyFlagsResponse::from_response(response),
-        )),
-    };
+    // Determine the response format based on whether request is from decide and version
+    let (versioned_response, response_format) =
+        get_versioned_response(is_from_decide, query_version, response)?;
 
-    Ok(Json(versioned_response?).into_response())
+    let log_context = LogContext {
+        headers: &headers,
+        query_params: &query_params,
+        method: &method,
+        path: &path,
+        ip: &ip.to_string(),
+        request_id,
+        is_from_decide,
+        query_version,
+        response_format,
+    };
+    log_request_info(log_context);
+
+    Ok(Json(versioned_response).into_response())
 }
 
 fn log_request_info(ctx: LogContext) {
@@ -238,7 +372,7 @@ fn log_request_info(ctx: LogContext) {
         request_id = %ctx.request_id,
         is_from_decide = %ctx.is_from_decide,
         query_version = ?ctx.query_version,
-        mapped_version = ?ctx.mapped_version,
+        response_format = %ctx.response_format,
         "Processing request"
     );
 }
@@ -288,30 +422,6 @@ mod tests {
         extract::{FromRequest, Request},
         http::Uri,
     };
-
-    #[test]
-    fn test_map_decide_version() {
-        // Test decide v3 -> flags v1
-        assert_eq!(map_decide_version(Some(3), true), Some(1));
-
-        // Test decide v4 -> flags v2
-        assert_eq!(map_decide_version(Some(4), true), Some(2));
-
-        // Test non-decide v3 stays v3
-        assert_eq!(map_decide_version(Some(3), false), Some(3));
-
-        // Test non-decide v4 stays v4
-        assert_eq!(map_decide_version(Some(4), false), Some(4));
-
-        // Test decide with other versions unchanged
-        assert_eq!(map_decide_version(Some(1), true), Some(1));
-        assert_eq!(map_decide_version(Some(2), true), Some(2));
-        assert_eq!(map_decide_version(Some(5), true), Some(5));
-
-        // Test None version stays None
-        assert_eq!(map_decide_version(None, true), None);
-        assert_eq!(map_decide_version(None, false), None);
-    }
 
     #[tokio::test]
     async fn test_query_param_extraction() {
@@ -418,5 +528,127 @@ mod tests {
 
         assert_eq!(params_config_missing.version, Some("1".to_string()));
         assert_eq!(params_config_missing.config, None);
+    }
+
+    #[test]
+    fn test_extract_client_ip() {
+        use axum::http::HeaderValue;
+        use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+        let fallback = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+
+        // Test case 1: X-Forwarded-For with single IP
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("192.168.1.1").unwrap(),
+        );
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)));
+
+        // Test case 2: X-Forwarded-For with multiple IPs (should take the first)
+        headers.clear();
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("10.0.0.1, 192.168.1.1, 172.16.0.1").unwrap(),
+        );
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
+
+        // Test case 3: X-Forwarded-For with IPv4 and port (Azure gateway compatibility)
+        headers.clear();
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("203.0.113.195:8080").unwrap(),
+        );
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(203, 0, 113, 195)));
+
+        // Test case 4: X-Forwarded-For with IPv6
+        headers.clear();
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("2001:db8::8a2e:370:7334").unwrap(),
+        );
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(
+            ip,
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0x8a2e, 0x370, 0x7334))
+        );
+
+        // Test case 5: X-Forwarded-For with IPv6 and port
+        headers.clear();
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("[2001:db8::1]:8080").unwrap(),
+        );
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(
+            ip,
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))
+        );
+
+        // Test case 6: No X-Forwarded-For header (should use fallback)
+        headers.clear();
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, fallback);
+
+        // Test case 7: Invalid IP in X-Forwarded-For (should use fallback)
+        headers.clear();
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("invalid-ip").unwrap(),
+        );
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, fallback);
+
+        // Test case 8: Empty X-Forwarded-For (should use fallback)
+        headers.clear();
+        headers.insert("X-Forwarded-For", HeaderValue::from_str("").unwrap());
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, fallback);
+
+        // Test case 9: IPv6 address that could be confused with IPv4:port
+        headers.clear();
+        headers.insert("X-Forwarded-For", HeaderValue::from_str("::1").unwrap());
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)));
+
+        // Test case 10: Compact IPv6 address with few colons
+        headers.clear();
+        headers.insert("X-Forwarded-For", HeaderValue::from_str("fe80::1").unwrap());
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, IpAddr::V6(Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)));
+    }
+
+    #[test]
+    fn test_extract_request_id() {
+        use axum::http::HeaderValue;
+
+        // Test with valid UUID in header
+        let mut headers = HeaderMap::new();
+        let valid_uuid = "550e8400-e29b-41d4-a716-446655440000";
+        headers.insert("x-request-id", HeaderValue::from_static(valid_uuid));
+
+        let extracted_id = extract_request_id(&headers);
+        assert_eq!(extracted_id.to_string(), valid_uuid);
+
+        // Test with invalid UUID in header - should generate new UUID
+        let mut headers_invalid = HeaderMap::new();
+        headers_invalid.insert("x-request-id", HeaderValue::from_static("invalid-uuid"));
+
+        let extracted_id_invalid = extract_request_id(&headers_invalid);
+        // Should be a valid UUID (not the invalid string)
+        assert_ne!(extracted_id_invalid.to_string(), "invalid-uuid");
+        assert!(extracted_id_invalid.to_string().len() == 36); // UUID format
+
+        // Test without header - should generate new UUID
+        let empty_headers = HeaderMap::new();
+        let extracted_id_empty = extract_request_id(&empty_headers);
+        assert!(extracted_id_empty.to_string().len() == 36); // UUID format
+
+        // Two calls without header should generate different UUIDs
+        let extracted_id_empty2 = extract_request_id(&empty_headers);
+        assert_ne!(extracted_id_empty, extracted_id_empty2);
     }
 }

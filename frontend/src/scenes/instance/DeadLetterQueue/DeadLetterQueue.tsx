@@ -1,9 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { PageHeader } from 'lib/components/PageHeader'
+import { IconDatabase } from '@posthog/icons'
+
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { MetricsTab } from './MetricsTab'
 import { DeadLetterQueueTab, deadLetterQueueLogic } from './deadLetterQueueLogic'
@@ -20,40 +24,45 @@ export function DeadLetterQueue(): JSX.Element {
 
     if (!user?.is_staff) {
         return (
-            <PageHeader
-                caption={
-                    <>
-                        <p>
-                            Only users with staff access can manage the dead letter queue. Please contact your instance
-                            admin.
-                        </p>
-                        <p>
-                            If you're an admin and don't have access, set <code>is_staff=true</code> for your user on
-                            the PostgreSQL <code>posthog_user</code> table.
-                        </p>
-                    </>
-                }
-            />
+            <>
+                <SceneTitleSection
+                    name="Dead Letter Queue"
+                    description="Manage your instance's dead letter queue."
+                    resourceType={{
+                        type: 'dead_letter_queue',
+                        forceIcon: <IconDatabase />,
+                    }}
+                />
+                <p>
+                    Only users with staff access can manage the dead letter queue. Please contact your instance admin.
+                </p>
+                <p>
+                    If you're an admin and don't have access, set <code>is_staff=true</code> for your user on the
+                    PostgreSQL <code>posthog_user</code> table.
+                </p>
+            </>
         )
     }
 
     return (
-        <div>
-            <PageHeader
-                caption={
-                    <>
-                        <p>Manage your instance's dead letter queue.</p>
-                    </>
-                }
+        <SceneContent>
+            <SceneTitleSection
+                name="Dead Letter Queue"
+                description="Manage your instance's dead letter queue."
+                resourceType={{
+                    type: 'dead_letter_queue',
+                    forceIcon: <IconDatabase />,
+                }}
             />
 
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(key) => setActiveTab(key as DeadLetterQueueTab)}
                 tabs={[{ label: 'Metrics', key: DeadLetterQueueTab.Metrics }]}
+                sceneInset
             />
 
             {activeTab === DeadLetterQueueTab.Metrics ? <MetricsTab /> : null}
-        </div>
+        </SceneContent>
     )
 }

@@ -3,15 +3,15 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
-import { PipelineNodeMetrics } from 'scenes/pipeline/PipelineNodeMetrics'
-import { PipelinePluginConfiguration } from 'scenes/pipeline/PipelinePluginConfiguration'
+import { PipelinePluginConfiguration } from 'scenes/data-pipelines/legacy-plugins/PipelinePluginConfiguration'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, Breadcrumb, PipelineStage } from '~/types'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 import type { legacyPluginSceneLogicType } from './LegacyPluginSceneType'
+import { PipelineNodeLogs } from './PipelineNodeLogs'
+import { PipelineNodeMetrics } from './PipelineNodeMetrics'
 
 const LEGACY_PLUGIN_SCENE_TABS = ['configuration', 'metrics', 'logs', 'history'] as const
 export type LegacyPluginSceneTab = (typeof LEGACY_PLUGIN_SCENE_TABS)[number]
@@ -45,16 +45,19 @@ export const legacyPluginSceneLogic = kea<legacyPluginSceneLogicType>([
                         key: Scene.DataPipelines,
                         name: 'Data pipelines',
                         path: urls.dataPipelines(),
+                        iconType: 'data_pipeline',
                     },
                     {
                         key: [Scene.DataPipelines, 'destinations'],
                         name: 'Destinations',
                         path: urls.dataPipelines('destinations'),
+                        iconType: 'data_pipeline',
                     },
 
                     {
                         key: Scene.LegacyPlugin,
                         name: 'Plugin destination (deprecated)',
+                        iconType: 'data_pipeline',
                     },
                 ]
             },
@@ -109,7 +112,7 @@ export function LegacyPluginScene(): JSX.Element {
         {
             label: 'Configuration',
             key: 'configuration',
-            content: <PipelinePluginConfiguration stage={PipelineStage.Destination} pluginConfigId={pluginConfigId} />,
+            content: <PipelinePluginConfiguration pluginConfigId={pluginConfigId} />,
         },
         {
             label: 'Metrics',
@@ -119,7 +122,7 @@ export function LegacyPluginScene(): JSX.Element {
         {
             label: 'Logs',
             key: 'logs',
-            content: <PipelineNodeLogs id={pluginConfigId} stage={PipelineStage.Destination} />,
+            content: <PipelineNodeLogs id={pluginConfigId} />,
         },
         {
             label: 'History',

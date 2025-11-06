@@ -77,7 +77,7 @@ impl S3Sink {
         s3_endpoint: Option<String>,
         liveness: HealthHandle,
     ) -> anyhow::Result<S3Sink> {
-        info!("Initializing S3 sink with bucket: {}", bucket);
+        info!("Initializing S3 sink with bucket: {bucket}");
 
         // Load base config
         let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest());
@@ -251,7 +251,7 @@ impl Inner {
                 Ok(())
             }
             Err(err) => {
-                error!("Failed to write to S3: {}", err);
+                error!("Failed to write to S3: {err}");
                 counter!("capture_s3_write_errors_total").increment(1);
                 Err(CaptureError::RetryableSinkError)
             }
@@ -325,11 +325,18 @@ mod tests {
                 now: "2024-01-01T00:00:00Z".to_string(),
                 sent_at: None,
                 token: "test_token".to_string(),
+                event: "test_event".to_string(),
+                timestamp: chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&chrono::Utc),
                 is_cookieless_mode: false,
+                historical_migration: false,
             },
             metadata: ProcessedEventMetadata {
                 data_type: DataType::AnalyticsMain,
                 session_id: None,
+                computed_timestamp: None,
+                event_name: "test_event".to_string(),
             },
         }
     }

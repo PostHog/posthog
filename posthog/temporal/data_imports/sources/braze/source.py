@@ -8,7 +8,8 @@ from posthog.schema import (
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.generated_configs import BrazeSourceConfig
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -21,8 +22,7 @@ class BrazeSource(BaseSource[BrazeSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BRAZE,
-            label="Braze",
-            caption="",
+            iconPath="/static/services/braze.png",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
         )

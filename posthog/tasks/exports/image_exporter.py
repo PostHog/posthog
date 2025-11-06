@@ -34,7 +34,7 @@ logger = structlog.get_logger(__name__)
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
 ScreenWidth = Literal[800, 1920, 1400]
-CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper"]
+CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
 
 
 # NOTE: We purposefully DON'T re-use the driver. It would be slightly faster but would keep an in-memory browser
@@ -74,7 +74,7 @@ def get_driver() -> webdriver.Chrome:
     )
 
 
-def _export_to_png(exported_asset: ExportedAsset) -> None:
+def _export_to_png(exported_asset: ExportedAsset, max_height_pixels: Optional[int] = None) -> None:
     """
     Exporting an Insight means:
     1. Loading the Insight from the web app in a dedicated rendering mode
@@ -127,6 +127,22 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
                 css_selector=wait_for_css_selector,
                 token_preview=access_token[:10],
             )
+        elif exported_asset.export_context and exported_asset.export_context.get("heatmap_url"):
+            # Handle replay export using /exporter route (same as insights/dashboards)
+            url_to_render = absolute_uri(
+                f"/exporter?token={access_token}&pageURL={exported_asset.export_context.get('heatmap_url')}&dataURL={exported_asset.export_context.get('heatmap_data_url')}"
+            )
+            wait_for_css_selector = exported_asset.export_context.get("css_selector", ".heatmaps-ready")
+            screenshot_width = exported_asset.export_context.get("width", 1400)
+            screenshot_height = exported_asset.export_context.get("height", 600)
+
+            logger.info(
+                "exporting_heatmap",
+                heatmap_url=exported_asset.export_context.get("heatmap_url"),
+                url_to_render=url_to_render,
+                css_selector=wait_for_css_selector,
+                token_preview=access_token[:10],
+            )
         else:
             raise Exception(
                 f"Export is missing required dashboard, insight ID, or session_recording_id in export_context"
@@ -134,7 +150,9 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
-        _screenshot_asset(image_path, url_to_render, screenshot_width, wait_for_css_selector, screenshot_height)
+        _screenshot_asset(
+            image_path, url_to_render, screenshot_width, wait_for_css_selector, screenshot_height, max_height_pixels
+        )
 
         with open(image_path, "rb") as image_file:
             image_data = image_file.read()
@@ -165,6 +183,7 @@ def _screenshot_asset(
     screenshot_width: ScreenWidth,
     wait_for_css_selector: CSSSelector,
     screenshot_height: int = 600,
+    max_height_pixels: Optional[int] = None,
 ) -> None:
     driver: Optional[webdriver.Chrome] = None
     try:
@@ -174,8 +193,14 @@ def _screenshot_asset(
         driver.get(url_to_render)
         posthoganalytics.tag("url_to_render", url_to_render)
 
+        timeout = 20
+
+        # For heatmaps, we need to wait until the heatmap is ready
+        if wait_for_css_selector == ".heatmap-exporter":
+            timeout = 100
+
         try:
-            WebDriverWait(driver, 20).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
+            WebDriverWait(driver, timeout).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
         except TimeoutException:
             with posthoganalytics.new_context():
                 posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
@@ -206,7 +231,8 @@ def _screenshot_asset(
             """
             const element = document.querySelector('.InsightCard__viz') ||
                           document.querySelector('.ExportedInsight__content') ||
-                          document.querySelector('.replayer-wrapper');
+                          document.querySelector('.replayer-wrapper') ||
+                          document.querySelector('.heatmap-exporter');
             if (element) {
                 const rect = element.getBoundingClientRect();
                 return Math.max(rect.height, document.body.scrollHeight);
@@ -214,6 +240,15 @@ def _screenshot_asset(
             return document.body.scrollHeight;
         """
         )
+
+        if max_height_pixels and height > max_height_pixels:
+            logger.warning(
+                "screenshot_height_capped",
+                original_height=height,
+                capped_height=max_height_pixels,
+                url=url_to_render,
+            )
+            height = max_height_pixels
 
         # For example funnels use a table that can get very wide, so try to get its width
         # For replay players, check for player width
@@ -247,7 +282,8 @@ def _screenshot_asset(
             """
             const element = document.querySelector('.InsightCard__viz') ||
                           document.querySelector('.ExportedInsight__content') ||
-                          document.querySelector('.replayer-wrapper');
+                          document.querySelector('.replayer-wrapper') ||
+                          document.querySelector('.heatmap-exporter');
             if (element) {
                 const rect = element.getBoundingClientRect();
                 return Math.max(rect.height, document.body.scrollHeight);
@@ -255,6 +291,15 @@ def _screenshot_asset(
             return document.body.scrollHeight;
         """
         )
+
+        if max_height_pixels and final_height > max_height_pixels:
+            logger.warning(
+                "screenshot_final_height_capped",
+                original_final_height=final_height,
+                capped_height=max_height_pixels,
+                url=url_to_render,
+            )
+            final_height = max_height_pixels
 
         # Set final window size
         driver.set_window_size(width, final_height + HEIGHT_OFFSET)
@@ -278,7 +323,7 @@ def _screenshot_asset(
             driver.quit()
 
 
-def export_image(exported_asset: ExportedAsset) -> None:
+def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int] = None) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("team_id", exported_asset.team_id if exported_asset else "unknown")
         posthoganalytics.tag("asset_id", exported_asset.id if exported_asset else "unknown")
@@ -300,7 +345,7 @@ def export_image(exported_asset: ExportedAsset) -> None:
 
             if exported_asset.export_format == "image/png":
                 with EXPORT_TIMER.labels(type="image").time():
-                    _export_to_png(exported_asset)
+                    _export_to_png(exported_asset, max_height_pixels=max_height_pixels)
                 EXPORT_SUCCEEDED_COUNTER.labels(type="image").inc()
             else:
                 raise NotImplementedError(

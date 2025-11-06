@@ -5,8 +5,6 @@ import { IconCheckCircle, IconPlus, IconX } from '@posthog/icons'
 import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
-import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -14,110 +12,48 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 
 import { NodeKind } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, BatchExportConfigurationTest, BatchExportConfigurationTestStep } from '~/types'
+
 import {
-    AnyPropertyFilter,
-    BATCH_EXPORT_SERVICE_NAMES,
-    BatchExportConfigurationTest,
-    BatchExportConfigurationTestStep,
-    BatchExportService,
-} from '~/types'
-
+    BatchExportConfigurationClearChangesButton,
+    BatchExportConfigurationSaveButton,
+} from './BatchExportConfigurationButtons'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
-import { RenderBatchExportIcon } from './BatchExportIcon'
-import { batchExportConfigurationLogic, getDefaultConfiguration } from './batchExportConfigurationLogic'
+import { batchExportSceneLogic } from './BatchExportScene'
+import { BatchExportConfigurationLogicProps, batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { BatchExportConfigurationForm } from './types'
-import { humanizeBatchExportName, normalizeBatchExportService } from './utils'
 
-export function BatchExportConfiguration({ service, id }: { service?: string; id?: string }): JSX.Element {
-    service = normalizeBatchExportService(service ?? '')
-    const logicProps = { service: (service as BatchExportService['type']) || null, id: id || null }
-    const logic = batchExportConfigurationLogic(logicProps)
-
+export function BatchExportConfiguration(): JSX.Element {
+    const { logicProps } = useValues(batchExportSceneLogic)
+    const logic = batchExportConfigurationLogic(logicProps as BatchExportConfigurationLogicProps)
     const {
         isNew,
         batchExportConfigTest,
         batchExportConfigTestLoading,
         configuration,
-        tables,
-        savedConfiguration,
-        isConfigurationSubmitting,
-        batchExportConfigLoading,
         configurationChanged,
+        tables,
         batchExportConfig,
         selectedModel,
         runningStep,
     } = useValues(logic)
-    const {
-        resetConfiguration,
-        submitConfiguration,
-        setSelectedModel,
-        setConfigurationValue,
-        runBatchExportConfigTestStep,
-    } = useActions(logic)
+    const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
     const sessionsBatchExports = featureFlags[FEATURE_FLAGS.SESSIONS_BATCH_EXPORTS]
 
-    if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service as BatchExportService['type'])) {
-        return <NotFound object={`batch export service ${service}`} />
-    }
-
-    if (!batchExportConfig && batchExportConfigLoading) {
-        return <SpinnerOverlay />
-    }
-
-    if (!batchExportConfigTest && batchExportConfigTestLoading) {
-        return <SpinnerOverlay />
-    }
-
     const requiredFields = ['interval']
     const requiredFieldsMissing = requiredFields.filter((field) => !configuration[field])
-
-    const buttons = (
-        <>
-            <LemonButton
-                type="secondary"
-                htmlType="reset"
-                onClick={() =>
-                    isNew && service
-                        ? resetConfiguration(getDefaultConfiguration(service))
-                        : resetConfiguration(savedConfiguration)
-                }
-                disabledReason={
-                    !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
-                }
-            >
-                {isNew ? 'Reset' : 'Cancel'}
-            </LemonButton>
-            <LemonButton
-                type="primary"
-                htmlType="submit"
-                onClick={submitConfiguration}
-                loading={isConfigurationSubmitting}
-                disabledReason={
-                    !configurationChanged
-                        ? 'No changes to save'
-                        : isConfigurationSubmitting
-                          ? 'Saving in progress…'
-                          : undefined
-                }
-            >
-                {isNew ? 'Create' : 'Save'}
-            </LemonButton>
-        </>
-    )
 
     return (
         <div className="deprecated-space-y-3">
             <>
-                <PageHeader buttons={buttons} />
                 <Form
                     logic={batchExportConfigurationLogic}
                     props={logicProps}
@@ -127,39 +63,20 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
                     <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex flex-col flex-1 min-w-100 deprecated-space-y-3">
                             <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
-                                <div className="flex flex-row gap-2 items-center min-h-16">
-                                    {configuration.destination ? (
-                                        <>
-                                            <RenderBatchExportIcon size="medium" type={configuration.destination} />
-                                            <div className="flex-1 text-sm font-semibold">
-                                                {humanizeBatchExportName(configuration.destination)}
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <div className="flex-1" />
-                                    )}
-
-                                    <LemonField
-                                        name="paused"
-                                        info="Start in a paused state or continuously exporting from now"
-                                    >
-                                        {({ value, onChange }) => (
-                                            <LemonSwitch
-                                                label="Enabled"
-                                                onChange={() => onChange(!value)}
-                                                checked={!value}
-                                                bordered
-                                            />
-                                        )}
-                                    </LemonField>
-                                </div>
-
                                 <LemonField
-                                    name="name"
-                                    label="Name"
-                                    info="Customizing the name can be useful if multiple instances of the same type are used."
+                                    label="Status"
+                                    name="paused"
+                                    info="Start in a paused state or continuously exporting from now"
                                 >
-                                    <LemonInput type="text" />
+                                    {({ value, onChange }) => (
+                                        <LemonSwitch
+                                            label="Enabled"
+                                            onChange={() => onChange(!value)}
+                                            checked={!value}
+                                            fullWidth
+                                            bordered
+                                        />
+                                    )}
                                 </LemonField>
 
                                 <div className="flex gap-2 min-h-16">
@@ -326,6 +243,7 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
                                 <BatchExportConfigurationFields
                                     isNew={isNew}
                                     formValues={configuration as BatchExportConfigurationForm}
+                                    configurationChanged={configurationChanged}
                                 />
                             </div>
                             {batchExportConfigTest && (
@@ -341,7 +259,10 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
                             )}
                         </div>
                     </div>
-                    <div className="flex gap-2 justify-end">{buttons}</div>
+                    <div className="flex gap-2 justify-end">
+                        <BatchExportConfigurationClearChangesButton />
+                        <BatchExportConfigurationSaveButton />
+                    </div>
                 </Form>
             </>
         </div>
@@ -351,14 +272,20 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
 function BatchExportConfigurationFields({
     isNew,
     formValues,
+    configurationChanged,
 }: {
     isNew: boolean
     formValues: BatchExportConfigurationForm
+    configurationChanged: boolean
 }): JSX.Element {
     return (
         <>
             <BatchExportGeneralEditFields isNew={isNew} isPipeline batchExportConfigForm={formValues} />
-            <BatchExportsEditFields isNew={isNew} batchExportConfigForm={formValues} />
+            <BatchExportsEditFields
+                isNew={isNew}
+                batchExportConfigForm={formValues}
+                configurationChanged={configurationChanged}
+            />
         </>
     )
 }

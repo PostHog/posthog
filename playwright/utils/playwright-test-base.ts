@@ -1,84 +1,15 @@
-import { Page, test as base } from '@playwright/test'
+import '@playwright/test'
 
 import { urls } from 'scenes/urls'
 
-import { AppContext } from '~/types'
-
-import { Identifier, Navigation } from './navigation'
-
-export const LOGIN_USERNAME = process.env.LOGIN_USERNAME || 'test@posthog.com'
-export const LOGIN_PASSWORD = process.env.LOGIN_PASSWORD || '12345678'
-
-export type WindowWithPostHog = typeof globalThis & {
-    POSTHOG_APP_CONTEXT: AppContext
-}
-
-declare module '@playwright/test' {
-    interface Page {
-        setAppContext<K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void>
-        goToMenuItem(name: string): Promise<void>
-        // resetCapturedEvents(): Promise<void>
-        //
-        // capturedEvents(): Promise<CaptureResult[]>
-        //
-        // waitingForNetworkCausedBy: (urlPatterns: (string | RegExp)[], action: () => Promise<void>) => Promise<void>
-        //
-        // expectCapturedEventsToBe(expectedEvents: string[]): Promise<void>
-    }
-}
+import { LOGIN_PASSWORD, LOGIN_USERNAME, test as coreTest } from './playwright-test-core'
 
 /**
- * we override the base playwright test to add things useful to us
- * */
-export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
-    page: async ({ page }, use) => {
-        // Add custom methods to the page object
-        page.setAppContext = async function <K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void> {
-            await page.evaluate(
-                ([key, value]) => {
-                    const appContext = (window as WindowWithPostHog).POSTHOG_APP_CONTEXT
-                    // @ts-expect-error - Type safety is handled by the generic constraint
-                    appContext[key] = value
-                },
-                [key, value]
-            )
-        }
-        page.goToMenuItem = async function (name: Identifier): Promise<void> {
-            await new Navigation(page).openMenuItem(name)
-        }
-        // page.resetCapturedEvents = async function () {
-        //     await this.evaluate(() => {
-        //         ;(window as WindowWithPostHog).capturedEvents = []
-        //     })
-        // }
-        // page.capturedEvents = async function () {
-        //     return this.evaluate(() => {
-        //         return (window as WindowWithPostHog).capturedEvents || []
-        //     })
-        // }
-        // page.waitingForNetworkCausedBy = async function (
-        //     urlPatterns: (string | RegExp)[],
-        //     action: () => Promise<void>
-        // ) {
-        //     const responsePromises = urlPatterns.map((urlPattern) => {
-        //         return this.waitForResponse(urlPattern)
-        //     })
-        //
-        //     await action()
-        //
-        //     // eslint-disable-next-line compat/compat
-        //     await Promise.allSettled(responsePromises)
-        // }
-        // page.expectCapturedEventsToBe = async function (expectedEvents: string[]) {
-        //     const capturedEvents = await this.capturedEvents()
-        //     expect(capturedEvents.map((x) => x.event)).toEqual(expectedEvents)
-        // }
-
-        // Pass the extended page to the test
-        // eslint-disable-next-line react-hooks/rules-of-hooks
-        await use(page)
-    },
-    // this auto fixture makes sure we log in before every test
+ * Legacy Playwright test base with automatic login
+ * This maintains backwards compatibility for existing tests
+ */
+export const test = coreTest.extend<{ loginBeforeTests: void }>({
+    // this auto fixture makes sure we log in before every test (maintains legacy behavior)
     loginBeforeTests: [
         async ({ page }, use) => {
             // Perform authentication via API
@@ -88,7 +19,7 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
                     password: LOGIN_PASSWORD,
                 },
             })
-            await page.goto(urls.projectHomepage())
+            await page.goto(urls.projectRoot())
 
             // Continue with tests
             // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -147,4 +78,7 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
     //     { auto: true },
     // ],
 })
+
+// Re-export everything for backwards compatibility
 export { expect } from '@playwright/test'
+export { LOGIN_USERNAME, LOGIN_PASSWORD } from './playwright-test-core'

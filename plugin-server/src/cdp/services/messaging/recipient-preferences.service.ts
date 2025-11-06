@@ -1,3 +1,5 @@
+import { logger } from '~/utils/logger'
+
 import { HogFlowAction } from '../../../schema/hogflow'
 import { CyclotronJobInvocationHogFunction } from '../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
@@ -67,8 +69,7 @@ export class RecipientPreferencesService {
              */
             return messageCategoryPreference === 'OPTED_OUT' || allMarketingPreferences === 'OPTED_OUT'
         } catch (error) {
-            // Log error but don't fail the execution
-            console.error(`Failed to fetch recipient preferences for ${identifier}:`, error)
+            logger.error(`Failed to fetch recipient preferences for ${identifier}:`, error)
             return false
         }
     }

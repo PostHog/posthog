@@ -5,9 +5,11 @@ import { gunzip } from 'zlib'
 
 import { parseJSON } from '../../../../utils/json-parse'
 import { logger } from '../../../../utils/logger'
+import { TopTracker } from '../top-tracker'
 import { KafkaMetrics } from './metrics'
 import { EventSchema, ParsedMessageData, RawEventMessageSchema, SnapshotEvent, SnapshotEventSchema } from './types'
 
+const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
 const decompressWithGzip = promisify(gunzip)
 
@@ -53,14 +55,17 @@ function getValidEvents(events: unknown[]): {
 }
 
 export class KafkaMessageParser {
+    constructor(private topTracker?: TopTracker) {}
+
     public async parseBatch(messages: Message[]): Promise<ParsedMessageData[]> {
         const parsedMessages = await Promise.all(messages.map((message) => this.parseMessage(message)))
         return parsedMessages.filter((msg): msg is ParsedMessageData => msg !== null)
     }
 
     private async parseMessage(message: Message): Promise<ParsedMessageData | null> {
+        const parseStartTime = performance.now()
         const dropMessage = (reason: string, extra?: Record<string, any>) => {
-            KafkaMetrics.incrementMessageDropped('session_recordings_blob_ingestion', reason)
+            KafkaMetrics.incrementMessageDropped('session_recordings_blob_ingestion_v2', reason)
 
             logger.warn('⚠️', 'invalid_message', {
                 reason,
@@ -121,7 +126,13 @@ export class KafkaMessageParser {
         }
         const { validEvents, startDateTime, endDateTime } = result
 
-        return {
+        const startDiff = Math.abs(startDateTime.diffNow('day').days)
+        const endDiff = Math.abs(endDateTime.diffNow('day').days)
+        if (startDiff >= MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS || endDiff >= MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS) {
+            return dropMessage('message_timestamp_diff_too_large')
+        }
+
+        const parsedMessage = {
             metadata: {
                 partition: message.partition,
                 topic: message.topic,
@@ -142,6 +153,16 @@ export class KafkaMessageParser {
             snapshot_source: $snapshot_source ?? null,
             snapshot_library: $lib ?? null,
         }
+
+        // Track parsing time per session_id
+        if (this.topTracker) {
+            const parseEndTime = performance.now()
+            const parseDurationMs = parseEndTime - parseStartTime
+            const trackingKey = `session_id:${$session_id}`
+            this.topTracker.increment('parse_time_ms_by_session_id', trackingKey, parseDurationMs)
+        }
+
+        return parsedMessage
     }
 
     private isGzipped(buffer: Buffer): boolean {

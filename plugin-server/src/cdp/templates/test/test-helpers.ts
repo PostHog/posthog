@@ -1,16 +1,17 @@
 import Chance from 'chance'
 import merge from 'deepmerge'
-import { DateTime, Settings } from 'luxon'
+import { Settings } from 'luxon'
 
+import { getTransformationFunctions } from '~/cdp/hog-transformations/transformation-functions'
+import { formatLiquidInput } from '~/cdp/services/hog-inputs.service'
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
+import { isNativeHogFunction } from '~/cdp/utils'
 import { defaultConfig } from '~/config/config'
 import { CyclotronInputType } from '~/schema/cyclotron'
 import { GeoIPService, GeoIp } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
-import { cleanNullValues } from '../../hog-transformations/transformation-functions'
 import { HogExecutorService } from '../../services/hog-executor.service'
-import { HogInputsService } from '../../services/hog-inputs.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -20,10 +21,40 @@ import {
     HogFunctionTemplate,
     HogFunctionTemplateCompiled,
     HogFunctionType,
+    MinimalLogEntry,
     NativeTemplate,
 } from '../../types'
 import { cloneInvocation, createInvocation } from '../../utils/invocation-utils'
 import { compileHog } from '../compiler'
+
+/**
+ * Sets templating value of 'hog' or 'liquid' on hog inputs based on the template used.
+ */
+export function propagateTemplatingFromSchema(template: any, input: any): any {
+    const templatedInputs = { ...input }
+
+    for (const field of template.inputs_schema) {
+        if ('templating' in field) {
+            const templating_val = field['templating']
+            if (typeof templating_val === 'boolean') {
+                if (templating_val) {
+                    if (!templatedInputs[field.key] || typeof templatedInputs[field.key] !== 'object') {
+                        templatedInputs[field.key] = { value: templatedInputs[field.key] }
+                    }
+                    templatedInputs[field.key]['templating'] = 'hog'
+                }
+                // If False, do not set templating field
+            } else {
+                if (!templatedInputs[field.key] || typeof templatedInputs[field.key] !== 'object') {
+                    templatedInputs[field.key] = { value: templatedInputs[field.key] }
+                }
+                templatedInputs[field.key]['templating'] = templating_val
+            }
+        }
+    }
+
+    return templatedInputs
+}
 
 export type DeepPartialHogFunctionInvocationGlobals = {
     event?: Partial<HogFunctionInvocationGlobals['event']>
@@ -32,16 +63,25 @@ export type DeepPartialHogFunctionInvocationGlobals = {
     request?: HogFunctionInvocationGlobals['request']
 }
 
-const compileObject = async (obj: any): Promise<any> => {
+const compileObject = async (
+    obj: any,
+    globals?: any,
+    templating_engine: boolean | 'hog' | 'liquid' = 'hog'
+): Promise<any> => {
     if (Array.isArray(obj)) {
-        return Promise.all(obj.map((item) => compileObject(item)))
-    } else if (typeof obj === 'object') {
+        return Promise.all(obj.map((item) => compileObject(item, globals, templating_engine)))
+    } else if (typeof obj === 'object' && obj !== null) {
         const res: Record<string, any> = {}
         for (const [key, value] of Object.entries(obj)) {
-            res[key] = await compileObject(value)
+            res[key] = await compileObject(value, globals, templating_engine)
         }
         return res
     } else if (typeof obj === 'string') {
+        // If the string looks like a Liquid template, render it first
+        if (templating_engine === 'liquid') {
+            const rendered = formatLiquidInput(obj, globals || createGlobals())
+            return await compileHog(`return f'${rendered}'`)
+        }
         return await compileHog(`return f'${obj}'`)
     } else {
         return obj
@@ -50,7 +90,8 @@ const compileObject = async (obj: any): Promise<any> => {
 
 export const compileInputs = async (
     template: HogFunctionTemplate | NativeTemplate,
-    _inputs: Record<string, any>
+    _inputs: Record<string, any>,
+    globals?: any
 ): Promise<Record<string, CyclotronInputType>> => {
     const defaultInputs = template.inputs_schema.reduce(
         (acc, input) => {
@@ -64,14 +105,14 @@ export const compileInputs = async (
 
     const allInputs = { ...defaultInputs, ..._inputs }
 
-    // Don't compile inputs that don't suppport templating
+    // Don't compile inputs that don't support templating
     const compiledEntries = await Promise.all(
         Object.entries(allInputs).map(async ([key, value]) => {
             const schema = template.inputs_schema.find((input) => input.key === key)
             if (schema?.templating === false) {
                 return [key, value]
             }
-            return [key, await compileObject(value)]
+            return [key, await compileObject(value, globals, schema?.templating || 'hog')]
         })
     )
 
@@ -121,7 +162,8 @@ const createGlobals = (
 
 export class TemplateTester {
     public template: HogFunctionTemplateCompiled
-    private executor: HogExecutorService
+    private hogExecutor: HogExecutorService
+    private nativeExecutor: NativeDestinationExecutorService
     private mockHub: Hub
 
     private geoipService?: GeoIPService
@@ -135,9 +177,14 @@ export class TemplateTester {
             bytecode: [],
         }
 
-        this.mockHub = {} as any
+        this.mockHub = { ...defaultConfig } as any
 
-        this.executor = new HogExecutorService(this.mockHub)
+        this.hogExecutor = new HogExecutorService(this.mockHub)
+        this.nativeExecutor = new NativeDestinationExecutorService(defaultConfig)
+    }
+
+    private getExecutor(): HogExecutorService | NativeDestinationExecutorService {
+        return isNativeHogFunction({ template_id: this.template.id }) ? this.nativeExecutor : this.hogExecutor
     }
 
     /*
@@ -159,7 +206,8 @@ export class TemplateTester {
             bytecode: await compileHog(this._template.code),
         }
 
-        this.executor = new HogExecutorService(this.mockHub)
+        this.hogExecutor = new HogExecutorService(this.mockHub)
+        this.nativeExecutor = new NativeDestinationExecutorService(this.mockHub)
     }
 
     afterEach() {
@@ -178,8 +226,9 @@ export class TemplateTester {
             throw new Error('Mapping templates found. Use invokeMapping instead.')
         }
 
-        const compiledInputs = await compileInputs(this.template, _inputs)
         const globals = this.createGlobals(_globals)
+        // Pass globals to compileInputs so Liquid templates are rendered before hog compilation
+        const compiledInputs = await compileInputs(this.template, _inputs, globals)
 
         const { code, ...partialTemplate } = this.template
         const hogFunction: HogFunctionType = {
@@ -193,21 +242,15 @@ export class TemplateTester {
             created_at: '2024-01-01T00:00:00Z',
             updated_at: '2024-01-01T00:00:00Z',
             deleted: false,
+            template_id: this.template.id,
         }
 
-        const globalsWithInputs = await this.executor.buildInputsWithGlobals(hogFunction, globals)
+        const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
-
-        const transformationFunctions = {
-            geoipLookup: (val: unknown): any => {
-                return typeof val === 'string' ? this.geoIp?.city(val) : null
-            },
-            cleanNullValues,
-        }
-
+        const transformationFunctions = getTransformationFunctions(this.geoIp!)
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}
 
-        return this.executor.execute(invocation, { functions: extraFunctions })
+        return this.getExecutor().execute(invocation, { functions: extraFunctions })
     }
 
     async invokeMapping(
@@ -270,7 +313,7 @@ export class TemplateTester {
             mappings: [compiledMappingInputs],
         }
 
-        const globalsWithInputs = await this.executor.buildInputsWithGlobals(
+        const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(
             hogFunction,
             this.createGlobals(_globals),
             compiledMappingInputs.inputs
@@ -278,7 +321,7 @@ export class TemplateTester {
 
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
-        return this.executor.execute(invocation)
+        return this.getExecutor().execute(invocation)
     }
 
     async invokeFetchResponse(
@@ -292,103 +335,19 @@ export class TemplateTester {
             body: response.body,
         })
 
-        const result = await this.executor.execute(modifiedInvocation)
-
-        result.logs.forEach((x) => {
-            if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
-                x.message = 'Function completed in [REPLACED]'
-            }
-        })
+        const result = await this.hogExecutor.execute(modifiedInvocation)
+        result.logs = this.logsForSnapshot(result.logs)
 
         return result
     }
-}
 
-export class DestinationTester {
-    private executor: NativeDestinationExecutorService
-    private inputsService: HogInputsService
-    private mockFetch = jest.fn()
-
-    constructor(private template: NativeTemplate) {
-        this.template = template
-        this.executor = new NativeDestinationExecutorService({} as any)
-        this.inputsService = new HogInputsService({} as any)
-
-        this.executor.fetch = this.mockFetch
-
-        this.mockFetch.mockResolvedValue({
-            status: 200,
-            json: () => Promise.resolve({ status: 'OK' }),
-            text: () => Promise.resolve(JSON.stringify({ status: 'OK' })),
-            headers: { 'content-type': 'application/json' },
-        })
-    }
-
-    createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {
-        return createGlobals(globals)
-    }
-
-    mockFetchResponse(response?: { status?: number; body?: Record<string, any>; headers?: Record<string, string> }) {
-        const defaultResponse = {
-            status: 200,
-            body: { status: 'OK' },
-            headers: { 'content-type': 'application/json' },
-        }
-
-        const finalResponse = { ...defaultResponse, ...response }
-
-        this.mockFetch.mockResolvedValue({
-            status: finalResponse.status,
-            json: () => Promise.resolve(finalResponse.body),
-            text: () => Promise.resolve(JSON.stringify(finalResponse.body)),
-            headers: finalResponse.headers,
-        })
-    }
-
-    beforeEach() {
-        Settings.defaultZone = 'UTC'
-        const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
-        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
-    }
-
-    afterEach() {
-        Settings.defaultZone = 'system'
-        jest.useRealTimers()
-    }
-
-    async invoke(globals: HogFunctionInvocationGlobals, inputs: Record<string, any>) {
-        const compiledInputs = await compileInputs(this.template, inputs)
-
-        const globalsWithInputs = await this.inputsService.buildInputsWithGlobals(
-            {
-                ...this.template,
-                inputs: compiledInputs,
-            } as unknown as HogFunctionType,
-            this.createGlobals(globals)
-        )
-        const invocation = createInvocation(globalsWithInputs, {
-            ...this.template,
-            template_id: this.template.id,
-            hog: 'return event',
-            bytecode: [],
-            team_id: 1,
-            enabled: true,
-            created_at: '2024-01-01T00:00:00Z',
-            updated_at: '2024-01-01T00:00:00Z',
-            deleted: false,
-            inputs: compiledInputs,
-        })
-
-        const result = await this.executor.execute(invocation)
-
-        result.logs.forEach((x) => {
+    logsForSnapshot(logs: MinimalLogEntry[]): MinimalLogEntry[] {
+        return logs.map((x) => {
             if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
                 x.message = 'Function completed in [REPLACED]'
             }
+            return x
         })
-        result.invocation.id = 'invocation-id'
-
-        return result
     }
 }
 

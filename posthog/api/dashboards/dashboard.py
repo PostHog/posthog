@@ -4,7 +4,9 @@ from contextlib import nullcontext
 from typing import Any, Optional, cast
 
 from django.conf import settings
-from django.db.models import Prefetch
+from django.db.models import CharField, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
+from django.db.models.functions import Cast
+from django.dispatch import receiver
 from django.http import StreamingHttpResponse
 from django.utils.timezone import now
 
@@ -34,10 +36,12 @@ from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Text
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
+from posthog.models.signals import model_activity_signal
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -49,6 +53,34 @@ from posthog.utils import filters_override_requested_by_client, variables_overri
 from ee.hogai.utils.aio import async_to_sync
 
 logger = structlog.get_logger(__name__)
+
+DASHBOARD_SHARED_FIELDS = [
+    "id",
+    "name",
+    "description",
+    "pinned",
+    "created_at",
+    "created_by",
+    "last_accessed_at",
+    "last_viewed_at",
+    "is_shared",
+    "deleted",
+    "creation_mode",
+    "filters",
+    "variables",
+    "breakdown_colors",
+    "data_color_theme_id",
+    "tags",
+    "restriction_level",
+    "effective_restriction_level",
+    "effective_privilege_level",
+    "user_access_level",
+    "access_control_version",
+    "last_refresh",
+    "persisted_filters",
+    "persisted_variables",
+    "team_id",
+]
 
 
 tracer = trace.get_tracer(__name__)
@@ -97,6 +129,13 @@ class CanEditDashboard(BasePermission):
 class TextSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+    body = serializers.CharField(
+        max_length=4000,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        error_messages={"max_length": "Text body cannot exceed 4000 characters"},
+    )
 
     class Meta:
         model = Text
@@ -146,6 +185,7 @@ class DashboardBasicSerializer(
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
+    last_viewed_at = serializers.DateTimeField(read_only=True, required=False, allow_null=True)
 
     class Meta:
         model = Dashboard
@@ -157,6 +197,7 @@ class DashboardBasicSerializer(
             "created_at",
             "created_by",
             "last_accessed_at",
+            "last_viewed_at",
             "is_shared",
             "deleted",
             "creation_mode",
@@ -167,6 +208,7 @@ class DashboardBasicSerializer(
             "user_access_level",
             "access_control_version",
             "last_refresh",
+            "team_id",
         ]
         read_only_fields = fields
 
@@ -188,8 +230,6 @@ class DashboardBasicSerializer(
 
 
 class DashboardMetadataSerializer(DashboardBasicSerializer):
-    """Serializer for dashboard metadata only - no tiles included for streaming mode."""
-
     filters = serializers.SerializerMethodField()
     variables = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
@@ -199,31 +239,12 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
     breakdown_colors = serializers.JSONField(required=False)
     data_color_theme_id = serializers.IntegerField(required=False, allow_null=True)
+    persisted_filters = serializers.SerializerMethodField()
+    persisted_variables = serializers.SerializerMethodField()
 
     class Meta:
         model = Dashboard
-        fields = [
-            "id",
-            "name",
-            "description",
-            "pinned",
-            "created_at",
-            "created_by",
-            "is_shared",
-            "deleted",
-            "creation_mode",
-            "filters",
-            "variables",
-            "breakdown_colors",
-            "data_color_theme_id",
-            "tags",
-            "restriction_level",
-            "effective_restriction_level",
-            "effective_privilege_level",
-            "user_access_level",
-            "access_control_version",
-            "last_refresh",
-        ]
+        fields = DASHBOARD_SHARED_FIELDS
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 
     def get_filters(self, dashboard: Dashboard) -> dict:
@@ -234,55 +255,29 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         request = self.context.get("request")
         return variables_override_requested_by_client(request, dashboard, list(self.context["insight_variables"]))
 
+    def get_persisted_filters(self, dashboard: Dashboard) -> dict | None:
+        return dashboard.filters if dashboard.filters else None
 
-class DashboardSerializer(DashboardBasicSerializer):
+    def get_persisted_variables(self, dashboard: Dashboard) -> dict | None:
+        return dashboard.variables if dashboard.variables else None
+
+
+class DashboardSerializer(DashboardMetadataSerializer):
     tiles = serializers.SerializerMethodField()
-    filters = serializers.SerializerMethodField()
-    variables = serializers.SerializerMethodField()
-    created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
     delete_insights = serializers.BooleanField(write_only=True, required=False, default=False)
-    effective_privilege_level = serializers.SerializerMethodField()
-    effective_restriction_level = serializers.SerializerMethodField()
-    access_control_version = serializers.SerializerMethodField()
-    is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
-    breakdown_colors = serializers.JSONField(required=False)
-    data_color_theme_id = serializers.IntegerField(required=False, allow_null=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
-    persisted_filters = serializers.SerializerMethodField()
-    persisted_variables = serializers.SerializerMethodField()
 
     class Meta:
         model = Dashboard
         fields = [
-            "id",
-            "name",
-            "description",
-            "pinned",
-            "created_at",
-            "created_by",
-            "is_shared",
-            "deleted",
-            "creation_mode",
+            *DASHBOARD_SHARED_FIELDS,
+            "tiles",
             "use_template",
             "use_dashboard",
             "delete_insights",
-            "filters",
-            "variables",
-            "breakdown_colors",
-            "data_color_theme_id",
-            "tags",
-            "tiles",
-            "restriction_level",
-            "effective_restriction_level",
-            "effective_privilege_level",
-            "user_access_level",
-            "access_control_version",
             "_create_in_folder",
-            "last_refresh",
-            "persisted_filters",
-            "persisted_variables",
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 
@@ -394,6 +389,7 @@ class DashboardSerializer(DashboardBasicSerializer):
                 insight=insight,
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,
+                filters_overrides=existing_tile.filters_overrides,
             )
         elif existing_tile.text:
             new_data = {
@@ -410,6 +406,7 @@ class DashboardSerializer(DashboardBasicSerializer):
                 text=text,
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,
+                filters_overrides=existing_tile.filters_overrides,
             )
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
@@ -456,6 +453,12 @@ class DashboardSerializer(DashboardBasicSerializer):
         for tile_data in tiles:
             self._update_tiles(instance, tile_data, user)
 
+        duplicate_tiles = initial_data.pop("duplicate_tiles", [])
+        for tile_data in duplicate_tiles:
+            existing_tile = DashboardTile.objects.get(dashboard=instance, id=tile_data["id"])
+            existing_tile.layouts = {}
+            self._deep_duplicate_tiles(instance, existing_tile)
+
         if "request" in self.context:
             report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
 
@@ -476,21 +479,25 @@ class DashboardSerializer(DashboardBasicSerializer):
             else:
                 created_by = user
                 last_modified_by = None
-            text_defaults = {
-                **tile_data["text"],
-                "team_id": instance.team_id,
-                "created_by": created_by,
-                "last_modified_by": last_modified_by,
-                "last_modified_at": now(),
-            }
-            if "team" in text_defaults:
-                text_defaults.pop("team")  # We're already setting `team_id`
-            text, _ = Text.objects.update_or_create(id=text_json.get("id", None), defaults=text_defaults)
+
+            text_data = {**tile_data["text"], "team": instance.team_id}
+            text_serializer = TextSerializer(data=text_data)
+            if not text_serializer.is_valid():
+                raise serializers.ValidationError({"text": text_serializer.errors})
+
+            validated_data = text_serializer.validated_data
+            validated_data["created_by"] = created_by
+            validated_data["last_modified_by"] = last_modified_by
+            validated_data["last_modified_at"] = now()
+
+            text, _ = Text.objects.update_or_create(id=text_json.get("id", None), defaults=validated_data)
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
                 defaults={**tile_data, "text": text, "dashboard": instance},
             )
-        elif "deleted" in tile_data or "color" in tile_data or "layouts" in tile_data:
+        elif (
+            "deleted" in tile_data or "color" in tile_data or "layouts" in tile_data or "filters_overrides" in tile_data
+        ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
 
             DashboardTile.objects.update_or_create(
@@ -575,20 +582,6 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         return serialized_tiles
 
-    def get_filters(self, dashboard: Dashboard) -> dict:
-        request = self.context.get("request")
-        return filters_override_requested_by_client(request, dashboard)
-
-    def get_variables(self, dashboard: Dashboard) -> dict | None:
-        request = self.context.get("request")
-        return variables_override_requested_by_client(request, dashboard, list(self.context["insight_variables"]))
-
-    def get_persisted_filters(self, dashboard: Dashboard) -> dict | None:
-        return dashboard.filters if dashboard.filters else None
-
-    def get_persisted_variables(self, dashboard: Dashboard) -> dict | None:
-        return dashboard.variables if dashboard.variables else None
-
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
             raise serializers.ValidationError("`use_dashboard` and `use_template` cannot be used together")
@@ -625,12 +618,34 @@ class DashboardsViewSet(
     def get_serializer_class(self) -> type[BaseSerializer]:
         return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
 
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = super().filter_queryset(queryset)
+        tags = self.request.query_params.getlist("tags")
+        if not tags:
+            return queryset
+
+        return queryset.filter(tagged_items__tag__name__in=tags).distinct()
+
     @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
     def dangerously_get_queryset(self):
         # Dashboards are retrieved under /environments/ because they include team-specific query results,
         # but they are in fact project-level, rather than environment-level
         assert self.team.project_id is not None
         queryset = self.queryset.filter(team__project_id=self.team.project_id)
+
+        if self.request.user.is_authenticated:
+            queryset = queryset.alias(
+                recent_dashboard_views=FilteredRelation(
+                    "team__filesystemviewlog",  # team_id condition comes from "team__"
+                    condition=(
+                        Q(team__filesystemviewlog__user_id=self.request.user.id)
+                        & Q(team__filesystemviewlog__type="dashboard")
+                        & Q(team__filesystemviewlog__ref=Cast(F("id"), output_field=CharField()))
+                    ),
+                )
+            ).annotate(last_viewed_at=F("recent_dashboard_views__viewed_at"))
+        else:
+            queryset = queryset.annotate(last_viewed_at=Value(None, output_field=DateTimeField()))
 
         include_deleted = (
             self.action == "partial_update"
@@ -688,7 +703,8 @@ class DashboardsViewSet(
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
-        return Response(serializer.data)
+        response = Response(serializer.data)
+        return response
 
     # ******************************************
     # /projects/:id/dashboard/:id/stream_tiles
@@ -873,3 +889,23 @@ class LegacyDashboardsViewSet(DashboardsViewSet):
 
 class LegacyInsightViewSet(InsightViewSet):
     param_derived_from_user_current_team = "project_id"
+
+
+@receiver(model_activity_signal, sender=Dashboard)
+def handle_dashboard_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=after_update.name,
+            type="dashboard",
+        ),
+    )

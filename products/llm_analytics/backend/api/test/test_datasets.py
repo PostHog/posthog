@@ -1,10 +1,34 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.models import Team
+from posthog.models import Organization, Project, Team, User
 
 from products.llm_analytics.backend.models.datasets import Dataset, DatasetItem
+
+
+def _setup_team():
+    org = Organization.objects.create(name="test")
+    project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=org)
+    team = Team.objects.create(
+        id=project.id,
+        project=project,
+        organization=org,
+        api_token=str(uuid4()),
+        test_account_filters=[
+            {
+                "key": "email",
+                "value": "@posthog.com",
+                "operator": "not_icontains",
+                "type": "person",
+            }
+        ],
+        has_completed_onboarding_for={"product_analytics": True},
+    )
+    User.objects.create_and_join(org, "test-datasets@posthog.com", "testpassword123")
+    return team
 
 
 class TestDatasetsApi(APIBaseTest):
@@ -135,15 +159,18 @@ class TestDatasetsApi(APIBaseTest):
         self.assertTrue(dataset.deleted)  # Still deleted unless explicitly undeleted
 
     def test_cannot_create_dataset_for_another_team(self):
-        another_team = Team.objects.create(name="Another Team", organization=self.organization)
+        another_team = _setup_team()
 
         response = self.client.post(
             f"/api/environments/{another_team.id}/datasets/", {"name": "Test Dataset", "team": another_team.id}
         )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/datasets/", {"name": "Test Dataset", "team": another_team.id}
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        dataset = Dataset.objects.first()
-        assert dataset is not None
-        self.assertEqual(dataset.team, self.team)
+        self.assertEqual(response.data["team"], self.team.id)
 
     def test_cannot_access_another_teams_dataset(self):
         another_team = Team.objects.create(name="Another Team", organization=self.organization)
@@ -461,6 +488,32 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(results[0]["name"], "Training Alpha")
         self.assertEqual(results[1]["name"], "Training Beta")
 
+    def test_can_filter_datasets_by_array_of_ids(self):
+        item1 = Dataset.objects.create(name="Training Alpha", description="First", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Training Beta", description="Second", team=self.team, created_by=self.user)
+        item3 = Dataset.objects.create(name="Test Dataset", team=self.team, created_by=self.user)
+
+        # Test filtering by a single id
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"id__in": str(item1.id)})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["id"], str(item1.id))
+
+        # Test filtering by multiple ids
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/datasets/", {"id__in": ",".join([str(item1.id), str(item3.id)])}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 2)
+        returned_ids = {result["id"] for result in response.data["results"]}
+        self.assertEqual(returned_ids, {str(item1.id), str(item3.id)})
+
+        # Test that non-existent ids return empty results
+        fake_id = uuid4()
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"id__in": str(fake_id)})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 0)
+
 
 class TestDatasetItemsApi(APIBaseTest):
     def setUp(self):
@@ -601,7 +654,8 @@ class TestDatasetItemsApi(APIBaseTest):
         self.assertTrue(item.deleted)  # Still deleted unless explicitly undeleted
 
     def test_cannot_create_dataset_item_for_another_team(self):
-        another_team = Team.objects.create(name="Another Team", organization=self.organization)
+        another_team = _setup_team()
+
         # Note: We still create items against the user's current team dataset
         response = self.client.post(
             f"/api/environments/{another_team.id}/dataset_items/",
@@ -610,10 +664,18 @@ class TestDatasetItemsApi(APIBaseTest):
                 "input": {"prompt": "Hi"},
             },
         )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/dataset_items/",
+            {
+                "dataset": str(self.dataset.id),
+                "input": {"prompt": "Hi"},
+                "team": another_team.id,
+            },
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        item = DatasetItem.objects.first()
-        assert item is not None
-        self.assertEqual(item.team, self.team)
+        self.assertEqual(response.data["team"], self.team.id)
 
     def test_cannot_access_another_teams_dataset_item(self):
         another_team = Team.objects.create(name="Another Team", organization=self.organization)

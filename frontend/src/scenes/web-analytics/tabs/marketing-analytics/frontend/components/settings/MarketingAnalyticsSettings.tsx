@@ -1,44 +1,63 @@
-import { IconApps } from '@posthog/icons'
+import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { cn } from 'lib/utils/css-classes'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { AttributionSettings } from './AttributionSettings'
+import { CampaignNameMappingsConfiguration } from './CampaignNameMappingsConfiguration'
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
-import { NativeExternalDataSourceConfiguration } from './NativeExternalDataSourceConfiguration'
-import { NonNativeExternalDataSourceConfiguration } from './NonNativeExternalDataSourceConfiguration'
-import { SelfManagedExternalDataSourceConfiguration } from './SelfManagedExternalDataSourceConfiguration'
+import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
 
-export function MarketingAnalyticsSettings(): JSX.Element {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
+export function MarketingAnalyticsSettings({
+    hideTitle = false,
+    hideBaseCurrency = false,
+}: {
+    hideTitle?: boolean
+    hideBaseCurrency?: boolean
+}): JSX.Element {
     return (
-        <SceneContent className={cn(!newSceneLayout && 'gap-8 mb-10')}>
-            {newSceneLayout && (
+        <SceneContent>
+            {!hideTitle && (
                 <SceneTitleSection
-                    name="Marketing analytics"
-                    description={null}
+                    name={sceneConfigurations[Scene.WebAnalyticsMarketing].name}
+                    description={sceneConfigurations[Scene.WebAnalyticsMarketing].description}
                     resourceType={{
-                        type: 'marketing',
-                        typePlural: 'marketing',
-                        forceIcon: <IconApps />,
+                        type: sceneConfigurations[Scene.WebAnalyticsMarketing].iconType || 'default_icon_type',
                     }}
                 />
             )}
-            <SceneDivider />
-            <BaseCurrency />
+            <ExternalDataSourceConfiguration />
             <SceneDivider />
             <ConversionGoalsConfiguration />
             <SceneDivider />
-            <NativeExternalDataSourceConfiguration />
+            <AttributionSettings />
             <SceneDivider />
-            <NonNativeExternalDataSourceConfiguration />
-            <SceneDivider />
-            <SelfManagedExternalDataSourceConfiguration />
+            {!hideBaseCurrency && (
+                <>
+                    <SceneDivider />
+                    <BaseCurrency />
+                </>
+            )}
+            <FlaggedFeature flag="advance-marketing-analytics-settings">
+                <>
+                    <SceneDivider />
+                    <LemonCollapse
+                        panels={[
+                            {
+                                key: 'advanced-marketing-settings',
+                                header: 'Advanced marketing settings',
+                                content: <CampaignNameMappingsConfiguration />,
+                            },
+                        ]}
+                    />
+                </>
+            </FlaggedFeature>
         </SceneContent>
     )
 }

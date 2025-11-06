@@ -10,6 +10,7 @@ import { BillingProductV2AddonType, BillingProductV2Type, ProductKey } from '~/t
 
 import { BillingAddonFeaturesList } from './BillingAddonFeaturesList'
 import { billingLogic } from './billingLogic'
+import { billingProductLogic } from './billingProductLogic'
 
 interface AddonFeatureLossNoticeProps {
     product: BillingProductV2Type | BillingProductV2AddonType
@@ -19,9 +20,13 @@ export const AddonFeatureLossNotice = ({ product }: AddonFeatureLossNoticeProps)
     const [isExpanded, setIsExpanded] = useState(false)
     const { billing } = useValues(billingLogic)
 
-    // Current addon plan and features
-    const addonPlan = product.plans.find((plan) => plan.current_plan)
-    const addonFeatures = addonPlan?.features || []
+    const { currentAndUpgradePlans } = useValues(billingProductLogic({ product }))
+    const addonFeatures = (
+        currentAndUpgradePlans?.upgradePlan?.features ||
+        currentAndUpgradePlans?.currentPlan?.features ||
+        product.features ||
+        []
+    ).filter((f) => !f.entitlement_only)
 
     // Current base platform and support plan and features
     const platformAndSupportProduct = billing?.products?.find((p) => p.type === ProductKey.PLATFORM_AND_SUPPORT)

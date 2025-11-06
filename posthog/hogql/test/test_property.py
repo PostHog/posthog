@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from posthog.schema import EmptyPropertyFilter, HogQLPropertyFilter, RetentionEntity
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import (
     entity_to_expr,
@@ -21,7 +22,8 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENT
 from posthog.models import Cohort, Property, PropertyDefinition, Team
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
-from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
+
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
@@ -938,3 +940,31 @@ class TestProperty(BaseTest):
             chain=["person", "properties", 42]
         )
         assert map_virtual_properties(ast.Field(chain=["properties", 42])) == ast.Field(chain=["properties", 42])
+
+    def test_property_to_expr_event_metadata_group_scope_basic(self):
+        assert self._property_to_expr(
+            {"type": "event_metadata", "key": "$group_0", "operator": "exact", "value": "1234-abcd"},
+            scope="group",
+        ) == self._parse_expr("key = '1234-abcd' and index = 0")
+
+    def test_property_to_expr_event_metadata_group_scope_list_single_value(self):
+        assert self._property_to_expr(
+            {"type": "event_metadata", "key": "$group_2", "operator": "exact", "value": ["1"]},
+            scope="group",
+        ) == self._parse_expr("key = '1' and index = 2")
+
+    def test_property_to_expr_event_metadata_group_scope_invalid_key(self):
+        with self.assertRaisesMessage(
+            QueryError, "The 'event_metadata' property filter does not work in 'group' scope"
+        ):
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "$group_invalid", "operator": "exact", "value": "test"}, scope="group"
+            )
+
+    def test_property_to_expr_event_metadata_group_scope_multiple_values(self):
+        with self.assertRaisesMessage(
+            QueryError, "The '$group_3' property filter only supports one value in 'group' scope"
+        ):
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "$group_3", "operator": "exact", "value": ["1", "2"]}, scope="group"
+            )

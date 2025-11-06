@@ -27,10 +27,11 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
+    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
@@ -48,6 +49,11 @@ from products.batch_exports.backend.temporal.pipeline.consumer import (
 )
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
+from products.batch_exports.backend.temporal.pipeline.transformer import (
+    ChunkTransformerProtocol,
+    JSONLStreamTransformer,
+    ParquetStreamTransformer,
+)
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
@@ -82,7 +88,7 @@ NON_RETRYABLE_ERROR_TYPES = (
 )
 
 LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 class MissingRequiredPermissionsError(Exception):
@@ -783,7 +789,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> BatchEx
                 update_key = ["end_timestamp"]
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}"
+        attempt = activity.info().attempt
+        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
 
         with bigquery_client(inputs) as bq_client:
             async with bq_client.managed_table(
@@ -880,7 +887,7 @@ class BigQueryConsumerFromStage(ConsumerFromStage):
         self.table_schema = table_schema
         self.file_format = file_format
 
-        self.logger.bind(table=self.table)
+        self.logger = self.logger.bind(table=self.table)
 
         self.current_file_index = 0
         self.current_buffer = io.BytesIO()
@@ -1068,7 +1075,8 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         merge_settings = _get_merge_settings(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}"
+        attempt = activity.info().attempt
+        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
 
         with bigquery_client(inputs) as bq_client:
             async with bq_client.managed_table(
@@ -1105,15 +1113,19 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         file_format="Parquet" if can_perform_merge else "JSONLines",
                     )
 
+                    if can_perform_merge:
+                        transformer: ChunkTransformerProtocol = ParquetStreamTransformer(
+                            compression="zstd",
+                            max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                        )
+                    else:
+                        transformer = JSONLStreamTransformer()
+
                     result = await run_consumer_from_stage(
                         queue=queue,
                         consumer=consumer,
                         producer_task=producer_task,
-                        schema=record_batch_schema,
-                        file_format="Parquet" if can_perform_merge else "JSONLines",
-                        compression="zstd" if can_perform_merge else None,
-                        include_inserted_at=False,
-                        max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                        transformer=transformer,
                         json_columns=() if can_perform_merge else table_schemas.json_columns,
                     )
 
@@ -1163,17 +1175,20 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
-        run_id = await workflow.execute_activity(
-            start_batch_export_run,
-            start_batch_export_run_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
-                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-            ),
-        )
+        try:
+            run_id = await workflow.execute_activity(
+                start_batch_export_run,
+                start_batch_export_run_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
+                ),
+            )
+        except OverBillingLimitError:
+            return
 
         finish_inputs = FinishBatchExportRunInputs(
             id=run_id,

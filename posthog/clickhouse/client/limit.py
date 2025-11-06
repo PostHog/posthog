@@ -185,19 +185,17 @@ __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG: Optional[RateLimit] = None
 __WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 
 
-def get_api_personal_rate_limiter():
+def get_api_team_rate_limiter():
     global __API_CONCURRENT_QUERY_PER_TEAM
 
     def __applicable(
         *args,
-        org_id: Optional[str] = None,
         team_id: Optional[int] = None,
         is_api: Optional[bool] = None,
         **kwargs,
     ) -> bool:
         return bool(
             not TEST
-            and org_id
             and is_api
             and team_id
             and (
@@ -210,8 +208,8 @@ def get_api_personal_rate_limiter():
         __API_CONCURRENT_QUERY_PER_TEAM = RateLimit(
             max_concurrency=3,
             applicable=__applicable,
-            limit_name="api_per_org",
-            get_task_name=lambda *args, **kwargs: f"api:query:per-org:{kwargs.get('org_id')}",
+            limit_name="api_per_team",
+            get_task_name=lambda *args, **kwargs: f"api:query:per-team:{kwargs.get('team_id')}",
             get_task_id=lambda *args, **kwargs: (
                 current_task.request.id if current_task else (kwargs.get("task_id") or generate_short_id())
             ),
@@ -253,8 +251,17 @@ def get_app_org_rate_limiter():
 
 def get_app_dashboard_queries_rate_limiter():
     """
-    Limits the number of concurrent queries (running outside celery) per organization.
+    Limits the number of concurrent queries (running outside celery/temporal) per organization.
     """
+
+    def _is_in_temporal() -> bool:
+        try:
+            from temporalio import activity, workflow
+
+            return workflow.in_workflow() or activity.in_activity()
+        except ImportError:
+            return False
+
     global __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG
     if __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG is None:
         __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG = RateLimit(
@@ -266,6 +273,9 @@ def get_app_dashboard_queries_rate_limiter():
                 # if running in celery, we don't want rate limit to apply
                 # as celery tasks have their own limits on the queues + using @limit_concurrency
                 and not current_task
+                # if running in temporal workflow, don't apply rate limit
+                # as temporal activities have their own concurrency controls
+                and not _is_in_temporal()
             ),
             limit_name="app_dashboard_queries_per_org",
             get_task_name=lambda *args, **kwargs: f"app:dashboard_query:per-org:{kwargs.get('org_id')}",

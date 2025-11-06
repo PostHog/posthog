@@ -4,7 +4,7 @@ import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Literal, Optional, Union, get_args
+from typing import Any, Literal, Optional, Union, cast, get_args
 
 from posthog.hogql.base import AST, CTE, ConstantType, Expr, Type, UnknownType
 from posthog.hogql.constants import ConstantDataType, HogQLQuerySettings
@@ -19,6 +19,7 @@ from posthog.hogql.database.models import (
     StringArrayDatabaseField,
     StringJSONDatabaseField,
     Table,
+    UnknownDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
@@ -177,9 +178,7 @@ class BaseTableType(Type):
         raise QueryError(f"Field not found: {name}")
 
 
-TableOrSelectType = Union[
-    BaseTableType, "SelectSetQueryType", "SelectQueryType", "SelectQueryAliasType", "SelectViewType"
-]
+TableOrSelectType = Union[BaseTableType, "SelectSetQueryType", "SelectQueryType", "SelectQueryAliasType"]
 
 
 @dataclass(kw_only=True)
@@ -300,51 +299,28 @@ class SelectSetQueryType(Type):
 
 
 @dataclass(kw_only=True)
-class SelectViewType(Type):
+class SelectViewType(BaseTableType):
     view_name: str
     alias: str
     select_query_type: SelectQueryType | SelectSetQueryType
 
-    def get_child(self, name: str, context: HogQLContext) -> Type:
-        if name == "*":
-            return AsteriskType(table_type=self)
-        if self.select_query_type.has_child(name, context):
-            return FieldType(name=name, table_type=self)
-        if self.view_name:
-            if context.database is None:
-                raise ResolutionError("Database must be set for queries with views")
-
-            field = context.database.get_table(self.view_name).get_field(name)
-
-            if isinstance(field, LazyJoin):
-                return LazyJoinType(table_type=self, field=name, lazy_join=field)
-            if isinstance(field, LazyTable):
-                return LazyTableType(table=field)
-            if isinstance(field, FieldTraverser):
-                return FieldTraverserType(table_type=self, chain=field.chain)
-            if isinstance(field, VirtualTable):
-                return VirtualTableType(table_type=self, field=name, virtual_table=field)
-            if isinstance(field, ExpressionField):
-                return ExpressionFieldType(
-                    table_type=self, name=name, expr=field.expr, isolate_scope=field.isolate_scope or False
-                )
-            return FieldType(name=name, table_type=self)
-        raise ResolutionError(f"Field {name} not found on view query with name {self.view_name}")
-
     def has_child(self, name: str, context: HogQLContext) -> bool:
-        if self.view_name:
-            if context.database is None:
-                raise ResolutionError("Database must be set for queries with views")
-            try:
-                context.database.get_table(self.view_name).get_field(name)
-                return True
-            except Exception:
-                pass
+        try:
+            self.resolve_database_table(context).get_field(name)
+            return True
+        except:
+            return False
 
-        return self.select_query_type.has_child(name, context)
+    def resolve_database_table(self, context: HogQLContext) -> Table:
+        if context.database is None:
+            raise ResolutionError("Database must be set for queries with views")
+        return context.database.get_table(self.view_name)
 
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
-        return self.select_query_type.resolve_column_constant_type(name, context)
+        field = self.resolve_database_table(context).get_field(name)
+        if isinstance(field, DatabaseField):
+            return field.get_constant_type()
+        return UnknownType()
 
 
 @dataclass(kw_only=True)
@@ -397,6 +373,16 @@ class StringType(ConstantType):
 
     def print_type(self) -> str:
         return "String"
+
+
+class StringJSONType(StringType):
+    def print_type(self) -> str:
+        return "JSON"
+
+
+class StringArrayType(StringType):
+    def print_type(self) -> str:
+        return "Array"
 
 
 @dataclass(kw_only=True)
@@ -604,6 +590,7 @@ class Alias(Expr):
     Hidden aliases are printed only when printing the columns of a SELECT query in the ClickHouse dialect.
     """
     hidden: bool = False
+    from_asterisk: bool = False
 
 
 class ArithmeticOperationOp(StrEnum):
@@ -683,6 +670,15 @@ class Not(Expr):
 
 
 @dataclass(kw_only=True)
+class BetweenExpr(Expr):
+    expr: Expr
+    low: Expr
+    high: Expr
+    negated: bool = False
+    type: Optional[ConstantType] = None
+
+
+@dataclass(kw_only=True)
 class OrderExpr(Expr):
     expr: Expr
     order: Literal["ASC", "DESC"] = "ASC"
@@ -731,6 +727,7 @@ class Constant(Expr):
 @dataclass(kw_only=True)
 class Field(Expr):
     chain: list[str | int]
+    from_asterisk: bool = False
 
 
 @dataclass(kw_only=True)
@@ -844,16 +841,26 @@ class SelectQuery(Expr):
     view_name: Optional[str] = None
 
     @classmethod
-    def empty(cls, *, columns: list[str] | None = None) -> "SelectQuery":
+    def empty(
+        cls,
+        *,
+        columns: dict[str, FieldOrTable] | None = None,
+    ) -> "SelectQuery":
         """Returns an empty SelectQuery that evaluates to no rows.
 
         Creates a query that selects NULL with a WHERE clause that is always false,
         effectively returning zero rows while maintaining valid SQL syntax.
         """
+
         if columns is None:
-            columns = ["_"]
+            columns = {"_": UnknownDatabaseField(name="_")}
+
         return SelectQuery(
-            select=[Alias(alias=column, expr=Constant(value=None)) for column in columns], where=Constant(value=False)
+            select=[
+                Alias(alias=column, expr=Constant(value=cast(DatabaseField, field).default_value()))
+                for (column, field) in columns.items()
+            ],
+            where=Constant(value=False),
         )
 
 

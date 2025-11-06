@@ -28,11 +28,13 @@ const meta: Meta<typeof SharingModal> = {
 }
 export default meta
 
-const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JSX.Element => {
-    const { licensed = false, ...props } = args
+const Template = (
+    args: Partial<SharingModalProps> & { licensed?: boolean; passwordRequired?: boolean }
+): JSX.Element => {
+    const { licensed = false, passwordRequired = false, ...props } = args
     const [modalOpen, setModalOpen] = useState(false)
 
-    useAvailableFeatures(licensed ? [AvailableFeature.WHITE_LABELLING] : [])
+    useAvailableFeatures(licensed ? [AvailableFeature.WHITE_LABELLING, AvailableFeature.ADVANCED_PERMISSIONS] : [])
 
     useStorybookMocks({
         get: {
@@ -47,6 +49,7 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
                             created_at: '2022-06-28T12:30:51.459746Z',
                             enabled: true,
                             access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
+                            password_required: passwordRequired,
                         },
                     }),
                 {}
@@ -67,6 +70,7 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
                                 created_at: '2022-06-28T12:30:51.459746Z',
                                 enabled: true,
                                 access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
+                                password_required: passwordRequired,
                                 ...req.body,
                             },
                         ]
@@ -112,7 +116,7 @@ export const DashboardSharing = (): JSX.Element => {
 export const DashboardSharingLicensed = (): JSX.Element => {
     return (
         <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
-            <Template title="Dashboard permissions" licensed dashboardId={123} />
+            <Template title="Dashboard permissions" licensed passwordRequired dashboardId={123} />
         </BindLogic>
     )
 }
@@ -135,6 +139,7 @@ export const InsightSharingLicensed = (): JSX.Element => {
             insightShortId={fakeInsight.short_id}
             insight={fakeInsight}
             licensed
+            passwordRequired
             previewIframe
         />
     )

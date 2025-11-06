@@ -3,6 +3,7 @@ import { Field as KeaField, FieldProps as KeaFieldProps } from 'kea-forms/lib/co
 
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 
 export type LemonPureFieldProps = {
     /** The label name to be displayed */
@@ -55,7 +56,7 @@ const LemonPureField = ({
     return (
         <div
             onClick={onClick}
-            className={clsx(
+            className={cn(
                 'Field flex',
                 { 'gap-2': className ? className.indexOf('gap-') === -1 : true },
                 className,
@@ -94,6 +95,7 @@ export const LemonField = ({
     inline,
     info,
     renderError,
+    labelClassName,
     ...keaFieldProps
 }: LemonFieldProps): JSX.Element => {
     const template: KeaFieldProps['template'] = ({ label, kids, error }) => {
@@ -107,6 +109,7 @@ export const LemonField = ({
                 inline={inline}
                 info={info}
                 renderError={renderError}
+                labelClassName={labelClassName}
             >
                 {kids}
             </LemonPureField>

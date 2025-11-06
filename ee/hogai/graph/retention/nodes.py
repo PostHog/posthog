@@ -4,6 +4,8 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AssistantRetentionQuery
 
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ..schema_generator.utils import SchemaGeneratorOutput
@@ -18,7 +20,12 @@ class RetentionGeneratorNode(SchemaGeneratorNode[AssistantRetentionQuery]):
     OUTPUT_MODEL = RetentionSchemaGeneratorOutput
     OUTPUT_SCHEMA = RETENTION_SCHEMA
 
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.RETENTION_GENERATOR
+
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        self.dispatcher.update("Creating retention query")
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", RETENTION_SYSTEM_PROMPT),
@@ -29,4 +36,6 @@ class RetentionGeneratorNode(SchemaGeneratorNode[AssistantRetentionQuery]):
 
 
 class RetentionGeneratorToolsNode(SchemaGeneratorToolsNode):
-    pass
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.RETENTION_GENERATOR_TOOLS

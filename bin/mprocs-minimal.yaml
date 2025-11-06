@@ -1,8 +1,6 @@
 procs:
     backend:
         shell: 'uv sync --active && bin/check_kafka_clickhouse_up && python manage.py migrate && ./bin/start-backend'
-        env:
-            POSTHOG_USE_VITE: '1'
 
     celery-worker:
         shell: 'uv sync --active && bin/check_kafka_clickhouse_up && ./bin/start-celery worker'
@@ -15,9 +13,7 @@ procs:
         shell: 'bin/check_postgres_up && bin/check_kafka_clickhouse_up && SESSION_RECORDING_V2_METADATA_SWITCHOVER=1970-01-01 ./bin/plugin-server --no-restart-loop'
 
     frontend:
-        shell: './bin/start-frontend-vite'
-        env:
-            POSTHOG_USE_VITE: '1'
+        shell: './bin/start-frontend'
 
     docker-compose:
         # docker-compose makes sure the stack is up, and then follows its logs - but doesn't tear down on exit for speed
@@ -47,10 +43,19 @@ procs:
             bin/check_postgres_up posthog && \
             bin/start-rust-service feature-flags
 
+    migrate-postgres:
+        shell: 'bin/check_postgres_up && python manage.py migrate' # This takes ~10 s
+
     migrate-clickhouse:
         # These migrations are not in the `backend` service, because they typically aren't blocking for backend startup,
         # but unfortunately they DO take 10-30 s just to check if there's any migration to run (haven't profiled why)
         shell: 'bin/check_kafka_clickhouse_up && python manage.py migrate_clickhouse'
+
+    migrate-persons-db:
+        shell: 'bin/check_postgres_up posthog_persons && cd rust && DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog_persons sqlx migrate run --source persons_migrations'
+
+    migrate-behavioral-cohorts:
+        shell: 'bin/check_postgres_up behavioral_cohorts && rust/bin/migrate-behavioral-cohorts'
 
     storybook:
         shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'

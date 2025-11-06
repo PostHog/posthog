@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
+import { IconUpload } from '@posthog/icons'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -22,7 +23,7 @@ export const scene: SceneExport = {
 
 export function SessionRecordingFilePlaybackScene(): JSX.Element {
     const { loadFromFile, resetSessionRecording } = useActions(sessionRecordingFilePlaybackSceneLogic)
-    const { sessionRecording, sessionRecordingLoading, playerKey } = useValues(sessionRecordingFilePlaybackSceneLogic)
+    const { sessionRecording, sessionRecordingLoading, playerProps } = useValues(sessionRecordingFilePlaybackSceneLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const filePlaybackEnabled = hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)
 
@@ -53,7 +54,7 @@ export function SessionRecordingFilePlaybackScene(): JSX.Element {
                     >
                         You are viewing a recording loaded from a file.
                     </LemonBanner>
-                    <SessionRecordingPlayer sessionRecordingId="" playerKey={playerKey} />
+                    <SessionRecordingPlayer {...playerProps} />
                 </div>
             ) : (
                 <div
@@ -68,7 +69,7 @@ export function SessionRecordingFilePlaybackScene(): JSX.Element {
                         callToAction={
                             <div className="flex flex-col items-center justify-center deprecated-space-y-2">
                                 <span className="flex items-center gap-2 font-semibold">
-                                    <IconUploadFile className="text-2xl" /> Load recording
+                                    <IconUpload className="text-2xl" /> Load recording
                                 </span>
                                 <div>Drag and drop your exported recording here or click to open the file browser.</div>
                             </div>

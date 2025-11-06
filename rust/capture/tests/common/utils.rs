@@ -16,6 +16,7 @@ use rand::Rng;
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::config::{ClientConfig, FromClientConfig};
 use rdkafka::consumer::{BaseConsumer, Consumer};
+use rdkafka::message::Headers;
 use rdkafka::util::Timeout;
 use rdkafka::{Message, TopicPartitionList};
 use redis::{Client, Commands};
@@ -42,7 +43,6 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     drop_events_by_token_distinct_id: None,
     enable_historical_rerouting: false,
     historical_rerouting_threshold_days: 1_i64,
-    historical_tokens_keys: None,
     is_mirror_deploy: false,
     log_level: Level::INFO,
     verbose_sample_percent: 0.0_f32,
@@ -79,6 +79,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_endpoint: None,
     s3_fallback_prefix: String::new(),
     healthcheck_strategy: HealthStrategy::All,
+    ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
 });
 
 static TRACING_INIT: Once = Once::new();
@@ -92,6 +93,7 @@ pub fn setup_tracing() {
 pub struct ServerHandle {
     pub addr: SocketAddr,
     shutdown: Arc<Notify>,
+    client: reqwest::Client,
 }
 
 impl ServerHandle {
@@ -116,15 +118,21 @@ impl ServerHandle {
         tokio::spawn(async move {
             serve(config, listener, async move { notify.notified().await }).await
         });
-        Self { addr, shutdown }
-    }
 
-    pub async fn capture_events<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(3000))
             .build()
             .unwrap();
-        client
+
+        Self {
+            addr,
+            shutdown,
+            client,
+        }
+    }
+
+    pub async fn capture_events<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
+        self.client
             .post(format!("http://{:?}/i/v0/e", self.addr))
             .body(body)
             .send()
@@ -133,11 +141,7 @@ impl ServerHandle {
     }
 
     pub async fn capture_to_batch<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_millis(3000))
-            .build()
-            .unwrap();
-        client
+        self.client
             .post(format!("http://{:?}/batch", self.addr))
             .body(body)
             .send()
@@ -150,11 +154,7 @@ impl ServerHandle {
         body: T,
         user_agent: Option<&str>,
     ) -> reqwest::Response {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_millis(3000))
-            .build()
-            .unwrap();
-        client
+        self.client
             .post(format!("http://{:?}/s/", self.addr))
             .body(body)
             .header("User-Agent", user_agent.unwrap_or("test-client"))
@@ -307,6 +307,53 @@ impl EphemeralTopic {
                     } else {
                         return Ok(None);
                     }
+                }
+                Some(Err(err)) => {
+                    // Check if it's a transient error that should be retried
+                    let err_str = err.to_string();
+                    if (err_str.contains("NotCoordinator") || err_str.contains("Unknown partition"))
+                        && retries < MAX_RETRIES
+                    {
+                        retries += 1;
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                    bail!("kafka read error: {}", err);
+                }
+                None => bail!("kafka read timeout"),
+            }
+        }
+    }
+
+    pub fn next_message_with_headers(
+        &self,
+    ) -> anyhow::Result<(serde_json::Value, std::collections::HashMap<String, String>)> {
+        use std::collections::HashMap;
+
+        // Retry on transient Kafka errors like NotCoordinator
+        let mut retries = 0;
+        const MAX_RETRIES: u32 = 10;
+
+        loop {
+            match self.consumer.poll(self.read_timeout) {
+                Some(Ok(message)) => {
+                    // Parse the payload
+                    let body = message.payload().expect("empty kafka message");
+                    let event = serde_json::from_slice(body)?;
+
+                    // Parse the headers
+                    let mut headers = HashMap::new();
+                    if let Some(message_headers) = message.headers() {
+                        for header in message_headers.iter() {
+                            if let Some(value) = header.value {
+                                if let Ok(value_str) = std::str::from_utf8(value) {
+                                    headers.insert(header.key.to_string(), value_str.to_string());
+                                }
+                            }
+                        }
+                    }
+
+                    return Ok((event, headers));
                 }
                 Some(Err(err)) => {
                     // Check if it's a transient error that should be retried

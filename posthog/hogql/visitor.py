@@ -67,6 +67,11 @@ class TraversingVisitor(Visitor[None]):
     def visit_not(self, node: ast.Not):
         self.visit(node.expr)
 
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        self.visit(node.expr)
+        self.visit(node.low)
+        self.visit(node.high)
+
     def visit_order_expr(self, node: ast.OrderExpr):
         self.visit(node.expr)
 
@@ -221,7 +226,16 @@ class TraversingVisitor(Visitor[None]):
     def visit_float_type(self, node: ast.FloatType):
         pass
 
+    def visit_decimal_type(self, node: ast.DecimalType):
+        pass
+
     def visit_string_type(self, node: ast.StringType):
+        pass
+
+    def visit_string_json_type(self, node: ast.StringJSONType):
+        pass
+
+    def visit_string_array_type(self, node: ast.StringArrayType):
         pass
 
     def visit_boolean_type(self, node: ast.BooleanType):
@@ -444,6 +458,17 @@ class CloningVisitor(Visitor[Any]):
             expr=self.visit(node.expr),
         )
 
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        return ast.BetweenExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+            low=self.visit(node.low),
+            high=self.visit(node.high),
+            negated=node.negated,
+        )
+
     def visit_order_expr(self, node: ast.OrderExpr):
         return ast.OrderExpr(
             start=None if self.clear_locations else node.start,
@@ -520,6 +545,7 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             chain=node.chain.copy(),
+            from_asterisk=node.from_asterisk,
         )
         if (
             self.inline_subquery_field_names

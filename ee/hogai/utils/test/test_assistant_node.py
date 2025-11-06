@@ -4,6 +4,8 @@ from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models.assistant import CoreMemory
 
 
@@ -14,6 +16,10 @@ class TestAssistantNode(BaseTest):
         class Node(AssistantNode):
             def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
                 raise NotImplementedError
+
+            @property
+            def node_name(self) -> MaxNodeName:
+                return AssistantNodeName.ROOT
 
         self.node = Node(self.team, self.user)
 

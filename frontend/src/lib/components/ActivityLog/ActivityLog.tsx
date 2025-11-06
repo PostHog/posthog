@@ -61,12 +61,12 @@ export const SkeletonLog = (): JSX.Element => {
 
 const Loading = (): JSX.Element => {
     return (
-        <>
+        <div className="space-y-4">
             <SkeletonLog />
             <SkeletonLog />
             <SkeletonLog />
             <SkeletonLog />
-        </>
+        </div>
     )
 }
 
@@ -111,6 +111,14 @@ const JsonDiffViewer = ({ field, before, after }: JsonDiffViewerProps): JSX.Elem
                 width={width}
                 options={{
                     renderOverviewRuler: false,
+                    scrollBeyondLastLine: false,
+                    hideUnchangedRegions: {
+                        enabled: true,
+                        contextLineCount: 3,
+                        minimumLineCount: 3,
+                        revealLineCount: 20,
+                    },
+                    diffAlgorithm: 'advanced',
                 }}
             />
         </div>

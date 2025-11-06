@@ -13,9 +13,11 @@ from rest_framework_extensions.settings import extensions_api_settings
 from posthog.api.utils import get_token
 from posthog.auth import (
     JwtAuthentication,
+    OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
 )
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models.organization import Organization
@@ -99,7 +101,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         except NotImplementedError:
             pass
 
-        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+        if isinstance(
+            self.request.successful_authenticator,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+        ):
             return [SharingTokenPermission()]
 
         # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
@@ -121,9 +126,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         ]
 
         if self.sharing_enabled_actions:
+            authentication_classes.append(SharingPasswordProtectedAuthentication)
             authentication_classes.append(SharingAccessTokenAuthentication)
 
-        authentication_classes.extend([JwtAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication])
+        authentication_classes.extend(
+            [JwtAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
+        )
 
         return [auth() for auth in authentication_classes]
 
@@ -264,7 +272,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         else:
             try:
                 team = Team.objects.get(id=self.team_id)
-            except Team.DoesNotExist:
+            except (Team.DoesNotExist, ValueError):
                 raise NotFound(
                     detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
                 )
@@ -298,7 +306,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             return team.project
         try:
             return Project.objects.get(id=self.project_id)
-        except Project.DoesNotExist:
+        except (Project.DoesNotExist, ValueError):
             raise NotFound(detail="Project not found.")
 
     @cached_property
@@ -324,10 +332,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     def organization(self) -> Organization:
         try:
             return Organization.objects.get(id=self.organization_id)
-        except Organization.DoesNotExist:
+        except (Organization.DoesNotExist, ValueError):
             raise NotFound(detail="Organization not found.")
 
     def _filter_queryset_by_parents_lookups(self, queryset):
+        if hasattr(self, "_should_skip_parents_filter") and callable(self._should_skip_parents_filter):
+            if self._should_skip_parents_filter():
+                return queryset
+
         parents_query_dict = self.parents_query_dict.copy()
 
         for source, destination in self.filter_rewrite_rules.items():

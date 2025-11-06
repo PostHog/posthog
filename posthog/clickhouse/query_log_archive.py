@@ -1,12 +1,7 @@
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
 QUERY_LOG_ARCHIVE_MV = "query_log_archive_mv"
-
-
-def QUERY_LOG_ARCHIVE_TABLE_ENGINE():
-    return MergeTreeEngine("query_log_archive", replication_scheme=ReplicationScheme.REPLICATED)
 
 
 def QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW():
@@ -14,7 +9,7 @@ def QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW():
 
 
 CREATE_QUERY_LOG_ARCHIVE_BASE_TABLE = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
+CREATE TABLE IF NOT EXISTS {table_name} (
     hostname                              LowCardinality(String), -- comment 'Hostname of the server executing the query.',
     user                                  LowCardinality(String), -- comment 'Name of the user who initiated the current query.',
     query_id                              String, -- comment 'ID of the query.',
@@ -43,6 +38,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     query_kind                            LowCardinality(String), -- comment 'Type of the query.',
 
     exception_code                        Int32, -- comment 'Code of an exception.',
+    exception_name                        String ALIAS errorCodeToName(exception_code), -- comment 'Name of an exception.',
     exception                             String, -- comment 'Exception message.',
     stack_trace                           String, -- comment 'Stack trace. An empty string, if the query was completed successfully.',
 
@@ -75,7 +71,10 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     lc_kind LowCardinality(String), -- comment 'log_comment[kind]',
     lc_id String, -- comment 'log_comment[id]',
     lc_route_id String, -- comment 'log_comment[route_id]',
+
     lc_access_method LowCardinality(String), -- comment 'log_comment[access_method]',
+    lc_api_key_label String,
+    lc_api_key_mask String,
 
     lc_query_type LowCardinality(String), -- comment 'log_comment[query_type]',
     lc_product LowCardinality(String), -- comment 'log_comment[product]',
@@ -117,24 +116,10 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
 ) ENGINE = {engine}
 """
 
-MODIFY_QUERY_LOG_ARCHIVE_TABLE_V2 = [
-    "ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_access_method LowCardinality(String) AFTER lc_route_id",
-    "ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_dagster__job_name String",
-    "ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_dagster__run_id String",
-    "ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_dagster__owner LowCardinality(String)",
-]
 
-MODIFY_QUERY_LOG_ARCHIVE_TABLE_V3_SQL = [
-    "ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_api_key_label String AFTER lc_access_method",
-    "ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_api_key_mask String AFTER lc_api_key_label",
-]
-
-ADD_TEAM_ID_ALIAS_COLUMN = "ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS team_id Int64 ALIAS lc_team_id"
-
-
-def QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name="query_log_archive_new", on_cluster=True):
+def QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name="query_log_archive_new"):
     return """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
+CREATE TABLE IF NOT EXISTS {table_name} (
     hostname                              LowCardinality(String),
     user                                  LowCardinality(String),
     query_id                              String,
@@ -163,6 +148,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     query_kind                            LowCardinality(String),
 
     exception_code                        Int32,
+    exception_name                        String ALIAS errorCodeToName(exception_code),
     exception                             String,
     stack_trace                           String,
 
@@ -189,6 +175,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     lc_kind LowCardinality(String),
     lc_id String,
     lc_route_id String,
+
     lc_access_method LowCardinality(String),
     lc_api_key_label String,
     lc_api_key_mask String,
@@ -197,6 +184,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     lc_product LowCardinality(String),
     lc_chargeable Bool,
     lc_name String,
+    lc_request_name String,
     lc_client_query_id String,
 
     lc_org_id String,
@@ -239,267 +227,11 @@ ORDER BY (team_id, event_date, event_time, query_id)
 PRIMARY KEY (team_id, event_date, event_time, query_id)
     """.format(
         table_name=table_name,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW(),
     )
 
 
-def QUERY_LOG_ARCHIVE_NEW_MV_SQL(
-    view_name="query_log_archive_new_mv", dest_table="query_log_archive_new", on_cluster=True
-):
-    return """CREATE MATERIALIZED VIEW IF NOT EXISTS {view_name} {on_cluster_clause}
-TO {dest_table}
-AS SELECT
-    hostname,
-    user,
-    query_id,
-    type,
-
-    event_date,
-    event_time,
-    event_time_microseconds,
-    query_start_time,
-    query_start_time_microseconds,
-    query_duration_ms,
-
-    read_rows,
-    read_bytes,
-    written_rows,
-    written_bytes,
-    result_rows,
-    result_bytes,
-    memory_usage,
-    peak_threads_usage,
-
-    current_database,
-    query,
-    formatted_query,
-    normalized_query_hash,
-    query_kind,
-
-    exception_code,
-    exception,
-    stack_trace,
-
-    ProfileEvents['RealTimeMicroseconds'] as ProfileEvents_RealTimeMicroseconds,
-    ProfileEvents['OSCPUVirtualTimeMicroseconds'] as ProfileEvents_OSCPUVirtualTimeMicroseconds,
-
-    ProfileEvents['S3Clients'] as ProfileEvents_S3Clients,
-    ProfileEvents['S3DeleteObjects'] as ProfileEvents_S3DeleteObjects,
-    ProfileEvents['S3CopyObject'] as ProfileEvents_S3CopyObject,
-    ProfileEvents['S3ListObjects'] as ProfileEvents_S3ListObjects,
-    ProfileEvents['S3HeadObject'] as ProfileEvents_S3HeadObject,
-    ProfileEvents['S3GetObjectAttributes'] as ProfileEvents_S3GetObjectAttributes,
-    ProfileEvents['S3CreateMultipartUpload'] as ProfileEvents_S3CreateMultipartUpload,
-    ProfileEvents['S3UploadPartCopy'] as ProfileEvents_S3UploadPartCopy,
-    ProfileEvents['S3UploadPart'] as ProfileEvents_S3UploadPart,
-    ProfileEvents['S3AbortMultipartUpload'] as ProfileEvents_S3AbortMultipartUpload,
-    ProfileEvents['S3CompleteMultipartUpload'] as ProfileEvents_S3CompleteMultipartUpload,
-    ProfileEvents['S3PutObject'] as ProfileEvents_S3PutObject,
-    ProfileEvents['S3GetObject'] as ProfileEvents_S3GetObject,
-    ProfileEvents['ReadBufferFromS3Bytes'] as ProfileEvents_ReadBufferFromS3Bytes,
-    ProfileEvents['WriteBufferFromS3Bytes'] as ProfileEvents_WriteBufferFromS3Bytes,
-
-    JSONExtractString(log_comment, 'workflow') as lc_workflow,
-    JSONExtractString(log_comment, 'kind') as lc_kind,
-    JSONExtractString(log_comment, 'id') as lc_id,
-    JSONExtractString(log_comment, 'route_id') as lc_route_id,
-    JSONExtractString(log_comment, 'access_method') as lc_access_method,
-
-    JSONExtractString(log_comment, 'query_type') as lc_query_type,
-    JSONExtractString(log_comment, 'product') as lc_product,
-    JSONExtractInt(log_comment, 'chargeable') == 1 as lc_chargeable,
-    JSONExtractString(log_comment, 'name') as lc_name,
-    JSONExtractString(log_comment, 'client_query_id') as lc_client_query_id,
-
-    JSONExtractString(log_comment, 'org_id') as lc_org_id,
-    JSONExtractInt(log_comment, 'team_id') as team_id,
-    JSONExtractInt(log_comment, 'user_id') as lc_user_id,
-    JSONExtractString(log_comment, 'session_id') as lc_session_id,
-
-    JSONExtractInt(log_comment, 'dashboard_id') as lc_dashboard_id,
-    JSONExtractInt(log_comment, 'insight_id') as lc_insight_id,
-    JSONExtractInt(log_comment, 'cohort_id') as lc_cohort_id,
-    JSONExtractString(log_comment, 'batch_export_id') as lc_batch_export_id,
-    JSONExtractInt(log_comment, 'experiment_id') as lc_experiment_id,
-    JSONExtractString(log_comment, 'experiment_feature_flag_key') as lc_experiment_feature_flag_key,
-
-    JSONExtractString(log_comment, 'alert_config_id') as lc_alert_config_id,
-    JSONExtractString(log_comment, 'feature') as lc_feature,
-    JSONExtractString(log_comment, 'table_id') as lc_table_id,
-    JSONExtractInt(log_comment, 'warehouse_query') == 1 as lc_warehouse_query,
-    JSONExtractString(log_comment, 'person_on_events_mode') as lc_person_on_events_mode,
-    JSONExtractString(log_comment, 'service_name') as lc_service_name,
-    JSONExtractString(log_comment, 'workload') as lc_workload,
-
-    if(JSONHas(log_comment, 'query', 'source'),
-        JSONExtractString(log_comment, 'query', 'source', 'kind'),
-        JSONExtractString(log_comment, 'query', 'kind')) as lc_query__kind,
-    if(JSONHas(log_comment, 'query', 'source'),
-        JSONExtractString(log_comment, 'query', 'source', 'query'),
-        JSONExtractString(log_comment, 'query', 'query')) as lc_query__query,
-
-    JSONExtractString(log_comment, 'temporal', 'workflow_namespace') as lc_temporal__workflow_namespace,
-    JSONExtractString(log_comment, 'temporal', 'workflow_type') as lc_temporal__workflow_type,
-    JSONExtractString(log_comment, 'temporal', 'workflow_id') as lc_temporal__workflow_id,
-    JSONExtractString(log_comment, 'temporal', 'workflow_run_id') as lc_temporal__workflow_run_id,
-    JSONExtractString(log_comment, 'temporal', 'activity_type') as lc_temporal__activity_type,
-    JSONExtractString(log_comment, 'temporal', 'activity_id') as lc_temporal__activity_id,
-    JSONExtractInt(log_comment, 'temporal', 'attempt') as lc_temporal__attempt,
-
-    JSONExtractString(log_comment, 'dagster', 'job_name') as lc_dagster__job_name,
-    JSONExtractString(log_comment, 'dagster', 'run_id') as lc_dagster__run_id,
-    JSONExtractString(log_comment, 'dagster', 'tags', 'owner') as lc_dagster__owner
-FROM system.query_log
-WHERE
-    type != 'QueryStart'
-    AND is_initial_query
-    """.format(
-        view_name=view_name,
-        dest_table=dest_table,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-    )
-
-
-def DROP_QUERY_LOG_ARCHIVE_MV(on_cluster=True):
-    return f"DROP VIEW IF EXISTS query_log_archive_mv {ON_CLUSTER_CLAUSE(on_cluster)}"
-
-
-def EXCHANGE_QUERY_LOG_ARCHIVE_TABLES(on_cluster=True):
-    return f"EXCHANGE TABLES query_log_archive_new AND query_log_archive {ON_CLUSTER_CLAUSE(on_cluster)}"
-
-
-def RENAME_QUERY_LOG_ARCHIVE_MV(on_cluster=True):
-    return f"RENAME TABLE query_log_archive_new_mv TO query_log_archive_mv {ON_CLUSTER_CLAUSE(on_cluster)}"
-
-
-def DROP_QUERY_LOG_ARCHIVE_OLD_TABLE(on_cluster=True):
-    return f"DROP TABLE IF EXISTS query_log_archive_new {ON_CLUSTER_CLAUSE(on_cluster)}"
-
-
-def QUERY_LOG_ARCHIVE_TABLE_SQL(on_cluster=True):
-    return (
-        CREATE_QUERY_LOG_ARCHIVE_BASE_TABLE
-        + """
-PARTITION BY toYYYYMM(event_date)
-ORDER BY (event_date, event_time)
-    """
-    ).format(
-        table_name=QUERY_LOG_ARCHIVE_DATA_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE(),
-    )
-
-
-def QUERY_LOG_ARCHIVE_MV_SQL(on_cluster=True):
-    return """CREATE MATERIALIZED VIEW query_log_archive_mv {on_cluster_clause}
-TO {table_name}
-AS SELECT
-    hostname,
-    user,
-    query_id,
-    type,
-
-    event_date,
-    event_time,
-    event_time_microseconds,
-    query_start_time,
-    query_start_time_microseconds,
-    query_duration_ms,
-
-    read_rows,
-    read_bytes,
-    written_rows,
-    written_bytes,
-    result_rows,
-    result_bytes,
-    memory_usage,
-    peak_threads_usage,
-
-    current_database,
-    query,
-    formatted_query,
-    normalized_query_hash,
-    query_kind,
-
-    exception_code,
-    exception,
-    stack_trace,
-
-    ProfileEvents['RealTimeMicroseconds'] as ProfileEvents_RealTimeMicroseconds,
-    ProfileEvents['OSCPUVirtualTimeMicroseconds'] as ProfileEvents_OSCPUVirtualTimeMicroseconds,
-
-    ProfileEvents['S3Clients'] as ProfileEvents_S3Clients,
-    ProfileEvents['S3DeleteObjects'] as ProfileEvents_S3DeleteObjects,
-    ProfileEvents['S3CopyObject'] as ProfileEvents_S3CopyObject,
-    ProfileEvents['S3ListObjects'] as ProfileEvents_S3ListObjects,
-    ProfileEvents['S3HeadObject'] as ProfileEvents_S3HeadObject,
-    ProfileEvents['S3GetObjectAttributes'] as ProfileEvents_S3GetObjectAttributes,
-    ProfileEvents['S3CreateMultipartUpload'] as ProfileEvents_S3CreateMultipartUpload,
-    ProfileEvents['S3UploadPartCopy'] as ProfileEvents_S3UploadPartCopy,
-    ProfileEvents['S3UploadPart'] as ProfileEvents_S3UploadPart,
-    ProfileEvents['S3AbortMultipartUpload'] as ProfileEvents_S3AbortMultipartUpload,
-    ProfileEvents['S3CompleteMultipartUpload'] as ProfileEvents_S3CompleteMultipartUpload,
-    ProfileEvents['S3PutObject'] as ProfileEvents_S3PutObject,
-    ProfileEvents['S3GetObject'] as ProfileEvents_S3GetObject,
-    ProfileEvents['ReadBufferFromS3Bytes'] as ProfileEvents_ReadBufferFromS3Bytes,
-    ProfileEvents['WriteBufferFromS3Bytes'] as ProfileEvents_WriteBufferFromS3Bytes,
-
-    JSONExtractString(log_comment, 'workflow') as lc_workflow,
-    JSONExtractString(log_comment, 'kind') as lc_kind,
-    JSONExtractString(log_comment, 'id') as lc_id,
-    JSONExtractString(log_comment, 'route_id') as lc_route_id,
-    JSONExtractString(log_comment, 'access_method') as lc_access_method,
-
-    JSONExtractString(log_comment, 'query_type') as lc_query_type,
-    JSONExtractString(log_comment, 'product') as lc_product,
-    JSONExtractInt(log_comment, 'chargeable') == 1 as lc_chargeable,
-    JSONExtractString(log_comment, 'name') as lc_name,
-    JSONExtractString(log_comment, 'client_query_id') as lc_client_query_id,
-
-    JSONExtractString(log_comment, 'org_id') as lc_org_id,
-    JSONExtractInt(log_comment, 'team_id') as lc_team_id,
-    JSONExtractInt(log_comment, 'user_id') as lc_user_id,
-    JSONExtractString(log_comment, 'session_id') as lc_session_id,
-
-    JSONExtractInt(log_comment, 'dashboard_id') as lc_dashboard_id,
-    JSONExtractInt(log_comment, 'insight_id') as lc_insight_id,
-    JSONExtractInt(log_comment, 'cohort_id') as lc_cohort_id,
-    JSONExtractString(log_comment, 'batch_export_id') as lc_batch_export_id,
-    JSONExtractInt(log_comment, 'experiment_id') as lc_experiment_id,
-    JSONExtractString(log_comment, 'experiment_feature_flag_key') as lc_experiment_feature_flag_key,
-
-    -- for entries with 'query' tag, some queries have source, we should use this
-    if(JSONHas(log_comment, 'query', 'source'),
-        JSONExtractString(log_comment, 'query', 'source', 'kind'),
-        JSONExtractString(log_comment, 'query', 'kind')) as lc_query__kind,
-    if(JSONHas(log_comment, 'query', 'source'),
-        JSONExtractString(log_comment, 'query', 'source', 'query'),
-        JSONExtractString(log_comment, 'query', 'query')) as lc_query__query,
-
-    JSONExtractString(log_comment, 'temporal', 'workflow_namespace') as lc_temporal__workflow_namespace,
-    JSONExtractString(log_comment, 'temporal', 'workflow_type') as lc_temporal__workflow_type,
-    JSONExtractString(log_comment, 'temporal', 'workflow_id') as lc_temporal__workflow_id,
-    JSONExtractString(log_comment, 'temporal', 'workflow_run_id') as lc_temporal__workflow_run_id,
-    JSONExtractString(log_comment, 'temporal', 'activity_type') as lc_temporal__activity_type,
-    JSONExtractString(log_comment, 'temporal', 'activity_id') as lc_temporal__activity_id,
-    JSONExtractInt(log_comment, 'temporal', 'attempt') as lc_temporal__attempt,
-
-    JSONExtractString(log_comment, 'dagster', 'job_name') as lc_dagster__job_name,
-    JSONExtractString(log_comment, 'dagster', 'run_id') as lc_dagster__run_id,
-    JSONExtractString(log_comment, 'dagster', 'tags', 'owner') as lc_dagster__owner
-FROM system.query_log
-WHERE
-    type != 'QueryStart'
-    AND is_initial_query
-    """.format(
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        table_name=QUERY_LOG_ARCHIVE_DATA_TABLE,
-    )
-
-
-def QUERY_LOG_ARCHIVE_MV_V2():
-    return """ALTER TABLE query_log_archive_mv MODIFY QUERY
+MV_SELECT_SQL = """
 SELECT
     hostname,
     user,
@@ -555,110 +287,7 @@ SELECT
     JSONExtractString(log_comment, 'kind') as lc_kind,
     JSONExtractString(log_comment, 'id') as lc_id,
     JSONExtractString(log_comment, 'route_id') as lc_route_id,
-    JSONExtractString(log_comment, 'access_method') as lc_access_method,
 
-    JSONExtractString(log_comment, 'query_type') as lc_query_type,
-    JSONExtractString(log_comment, 'product') as lc_product,
-    JSONExtractInt(log_comment, 'chargeable') == 1 as lc_chargeable,
-    JSONExtractString(log_comment, 'name') as lc_name,
-    JSONExtractString(log_comment, 'client_query_id') as lc_client_query_id,
-
-    JSONExtractString(log_comment, 'org_id') as lc_org_id,
-    JSONExtractInt(log_comment, 'team_id') as lc_team_id,
-    JSONExtractInt(log_comment, 'user_id') as lc_user_id,
-    JSONExtractString(log_comment, 'session_id') as lc_session_id,
-
-    JSONExtractInt(log_comment, 'dashboard_id') as lc_dashboard_id,
-    JSONExtractInt(log_comment, 'insight_id') as lc_insight_id,
-    JSONExtractInt(log_comment, 'cohort_id') as lc_cohort_id,
-    JSONExtractString(log_comment, 'batch_export_id') as lc_batch_export_id,
-    JSONExtractInt(log_comment, 'experiment_id') as lc_experiment_id,
-    JSONExtractString(log_comment, 'experiment_feature_flag_key') as lc_experiment_feature_flag_key,
-
-    -- for entries with 'query' tag, some queries have source, we should use this
-    if(JSONHas(log_comment, 'query', 'source'),
-        JSONExtractString(log_comment, 'query', 'source', 'kind'),
-        JSONExtractString(log_comment, 'query', 'kind')) as lc_query__kind,
-    if(JSONHas(log_comment, 'query', 'source'),
-        JSONExtractString(log_comment, 'query', 'source', 'query'),
-        JSONExtractString(log_comment, 'query', 'query')) as lc_query__query,
-
-    JSONExtractString(log_comment, 'temporal', 'workflow_namespace') as lc_temporal__workflow_namespace,
-    JSONExtractString(log_comment, 'temporal', 'workflow_type') as lc_temporal__workflow_type,
-    JSONExtractString(log_comment, 'temporal', 'workflow_id') as lc_temporal__workflow_id,
-    JSONExtractString(log_comment, 'temporal', 'workflow_run_id') as lc_temporal__workflow_run_id,
-    JSONExtractString(log_comment, 'temporal', 'activity_type') as lc_temporal__activity_type,
-    JSONExtractString(log_comment, 'temporal', 'activity_id') as lc_temporal__activity_id,
-    JSONExtractInt(log_comment, 'temporal', 'attempt') as lc_temporal__attempt,
-
-    JSONExtractString(log_comment, 'dagster', 'job_name') as lc_dagster__job_name,
-    JSONExtractString(log_comment, 'dagster', 'run_id') as lc_dagster__run_id,
-    JSONExtractString(log_comment, 'dagster', 'tags', 'owner') as lc_dagster__owner
-FROM system.query_log
-WHERE
-    type != 'QueryStart'
-    AND is_initial_query
-    """
-
-
-# based on QUERY_LOG_ARCHIVE_NEW_MV_SQL
-def QUERY_LOG_ARCHIVE_MV_V3_SQL():
-    return """ALTER TABLE query_log_archive_mv MODIFY QUERY
-SELECT
-    hostname,
-    user,
-    query_id,
-    type,
-
-    event_date,
-    event_time,
-    event_time_microseconds,
-    query_start_time,
-    query_start_time_microseconds,
-    query_duration_ms,
-
-    read_rows,
-    read_bytes,
-    written_rows,
-    written_bytes,
-    result_rows,
-    result_bytes,
-    memory_usage,
-    peak_threads_usage,
-
-    current_database,
-    query,
-    formatted_query,
-    normalized_query_hash,
-    query_kind,
-
-    exception_code,
-    exception,
-    stack_trace,
-
-    ProfileEvents['RealTimeMicroseconds'] as ProfileEvents_RealTimeMicroseconds,
-    ProfileEvents['OSCPUVirtualTimeMicroseconds'] as ProfileEvents_OSCPUVirtualTimeMicroseconds,
-
-    ProfileEvents['S3Clients'] as ProfileEvents_S3Clients,
-    ProfileEvents['S3DeleteObjects'] as ProfileEvents_S3DeleteObjects,
-    ProfileEvents['S3CopyObject'] as ProfileEvents_S3CopyObject,
-    ProfileEvents['S3ListObjects'] as ProfileEvents_S3ListObjects,
-    ProfileEvents['S3HeadObject'] as ProfileEvents_S3HeadObject,
-    ProfileEvents['S3GetObjectAttributes'] as ProfileEvents_S3GetObjectAttributes,
-    ProfileEvents['S3CreateMultipartUpload'] as ProfileEvents_S3CreateMultipartUpload,
-    ProfileEvents['S3UploadPartCopy'] as ProfileEvents_S3UploadPartCopy,
-    ProfileEvents['S3UploadPart'] as ProfileEvents_S3UploadPart,
-    ProfileEvents['S3AbortMultipartUpload'] as ProfileEvents_S3AbortMultipartUpload,
-    ProfileEvents['S3CompleteMultipartUpload'] as ProfileEvents_S3CompleteMultipartUpload,
-    ProfileEvents['S3PutObject'] as ProfileEvents_S3PutObject,
-    ProfileEvents['S3GetObject'] as ProfileEvents_S3GetObject,
-    ProfileEvents['ReadBufferFromS3Bytes'] as ProfileEvents_ReadBufferFromS3Bytes,
-    ProfileEvents['WriteBufferFromS3Bytes'] as ProfileEvents_WriteBufferFromS3Bytes,
-
-    JSONExtractString(log_comment, 'workflow') as lc_workflow,
-    JSONExtractString(log_comment, 'kind') as lc_kind,
-    JSONExtractString(log_comment, 'id') as lc_id,
-    JSONExtractString(log_comment, 'route_id') as lc_route_id,
     JSONExtractString(log_comment, 'access_method') as lc_access_method,
     JSONExtractString(log_comment, 'api_key_label') as lc_api_key_label,
     JSONExtractString(log_comment, 'api_key_mask') as lc_api_key_mask,
@@ -667,6 +296,7 @@ SELECT
     JSONExtractString(log_comment, 'product') as lc_product,
     JSONExtractInt(log_comment, 'chargeable') == 1 as lc_chargeable,
     JSONExtractString(log_comment, 'name') as lc_name,
+    JSONExtractString(log_comment, 'request_name') as lc_request_name,
     JSONExtractString(log_comment, 'client_query_id') as lc_client_query_id,
 
     JSONExtractString(log_comment, 'org_id') as lc_org_id,
@@ -712,4 +342,34 @@ FROM system.query_log
 WHERE
     type != 'QueryStart'
     AND is_initial_query
+"""
+
+
+def QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name="query_log_archive_new_mv", dest_table="query_log_archive_new"):
+    return """CREATE MATERIALIZED VIEW IF NOT EXISTS {view_name}
+TO {dest_table}
+AS {select_sql}
+    """.format(
+        view_name=view_name,
+        dest_table=dest_table,
+        select_sql=MV_SELECT_SQL,
+    )
+
+
+# V4 - adding lc_request_name
+ADD_LC_REQUEST_NAME_SQL = """
+ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_request_name String AFTER lc_name
+"""
+
+
+def QUERY_LOG_ARCHIVE_MV_V4_SQL():
+    return """
+ALTER TABLE query_log_archive_mv MODIFY QUERY
+{select_sql}
+    """.format(select_sql=MV_SELECT_SQL)
+
+
+# V5 - adding exception_name
+ADD_EXCEPTION_NAME_SQL = """
+ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS exception_name String ALIAS errorCodeToName(exception_code) AFTER exception_code
 """

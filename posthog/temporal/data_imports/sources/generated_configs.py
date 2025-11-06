@@ -4,8 +4,9 @@
 from typing import Literal
 
 from posthog.temporal.data_imports.sources.common import config
-from posthog.warehouse.models.ssh_tunnel import SSHTunnelConfig
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @config.config
@@ -26,6 +27,12 @@ class BigQueryKeyFileConfig(config.Config):
 @config.config
 class BigQueryTemporaryDatasetConfig(config.Config):
     temporary_dataset_id: str
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
+class GoogleAdsIsMccAccountConfig(config.Config):
+    mcc_client_id: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
 
 
@@ -66,14 +73,25 @@ class ChargebeeSourceConfig(config.Config):
 
 
 @config.config
+class CustomerIOSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class DoItSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class GithubSourceConfig(config.Config):
+    pass
 
 
 @config.config
 class GoogleAdsSourceConfig(config.Config):
     customer_id: str
     google_ads_integration_id: int = config.value(converter=config.str_to_int)
+    is_mcc_account: GoogleAdsIsMccAccountConfig | None = None
 
 
 @config.config
@@ -93,7 +111,8 @@ class KlaviyoSourceConfig(config.Config):
 
 @config.config
 class LinkedinAdsSourceConfig(config.Config):
-    pass
+    account_id: str
+    linkedin_ads_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -158,6 +177,12 @@ class PostgresSourceConfig(config.Config):
 
 
 @config.config
+class RedditAdsSourceConfig(config.Config):
+    account_id: str
+    reddit_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
 class RedshiftSourceConfig(config.Config):
     pass
 
@@ -170,6 +195,12 @@ class RevenueCatSourceConfig(config.Config):
 @config.config
 class SalesforceSourceConfig(config.Config):
     salesforce_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
+class ShopifySourceConfig(config.Config):
+    shopify_store_id: str
+    shopify_access_token: str
 
 
 @config.config
@@ -200,6 +231,12 @@ class TemporalIOSourceConfig(config.Config):
 
 
 @config.config
+class TikTokAdsSourceConfig(config.Config):
+    advertiser_id: str
+    tiktok_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
 class VitallySourceConfig(config.Config):
     secret_token: str
     region: VitallyRegionConfig
@@ -217,7 +254,9 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
+        ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
+        ExternalDataSourceType.GITHUB: GithubSourceConfig,
         ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,
         ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
         ExternalDataSourceType.HUBSPOT: HubspotSourceConfig,
@@ -231,12 +270,15 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.MYSQL: MySQLSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
+        ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
+        ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
+        ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
         ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
     }[source]

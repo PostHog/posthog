@@ -4,12 +4,12 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { actionsModel } from '~/models/actionsModel'
-import { ActionType, Breadcrumb } from '~/types'
+import { ActionType, ActivityScope, Breadcrumb } from '~/types'
 
 import type { actionsLogicType } from './actionsLogicType'
 
@@ -78,17 +78,19 @@ export const actionsLogic = kea<actionsLogicType>([
             (): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.DataManagement,
-                        name: `Data management`,
-                        path: urls.eventDefinitions(),
-                    },
-                    {
                         key: DataManagementTab.Actions,
                         name: 'Actions',
                         path: urls.actions(),
+                        iconType: 'action',
                     },
                 ]
             },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({
+                activity_scope: ActivityScope.ACTION,
+            }),
         ],
     }),
     subscriptions({

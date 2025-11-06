@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from langchain_core.messages import ToolMessage as LangchainToolMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
@@ -9,6 +11,9 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    DeepResearchNotebook,
+    DeepResearchType,
+    NotebookUpdateMessage,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -19,11 +24,12 @@ from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchNodeName,
     DeepResearchState,
-    InsightArtifact,
     PartialDeepResearchState,
 )
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.notebook.notebook_serializer import NotebookContext
+from ee.hogai.utils.types.base import InsightArtifact, TaskArtifact
+from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class FormattedInsight(BaseModel):
@@ -44,6 +50,10 @@ class DeepResearchReportNode(DeepResearchNode):
     2. Formats insight artifacts using the query executor
     3. Generates a final markdown report with embedded insight references
     """
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return DeepResearchNodeName.REPORT
 
     async def arun(self, state: DeepResearchState, config: RunnableConfig) -> PartialDeepResearchState:
         # Collect all artifacts from task results
@@ -78,10 +88,9 @@ class DeepResearchReportNode(DeepResearchNode):
 
         context = self._create_context(all_artifacts)
 
-        notebook_update_message = await self._astream_notebook(
+        notebook = await self._astream_notebook(
             chain,
             config,
-            DeepResearchNodeName.REPORT,
             stream_parameters={
                 "intermediate_results": intermediate_results_text,
                 "artifacts": artifacts_text,
@@ -89,13 +98,39 @@ class DeepResearchReportNode(DeepResearchNode):
             context=context,
         )
 
-        return PartialDeepResearchState(
-            messages=[notebook_update_message],
+        notebook_title = notebook.title if notebook else "Research Report"
+        current_notebook_info = DeepResearchNotebook(
+            notebook_type=DeepResearchType.REPORT,
+            notebook_id=notebook.short_id,
+            title=notebook_title,
         )
 
-    def _collect_all_artifacts(self, state: DeepResearchState) -> list[InsightArtifact]:
+        # Update current run notebooks with the report
+        current_run_notebooks = (state.current_run_notebooks or []) + [current_notebook_info]
+
+        # Combine all conversation notebooks with the current report for the final display
+        all_conversation_notebooks = [*state.conversation_notebooks, current_notebook_info]
+
+        notebook_update_message = NotebookUpdateMessage(
+            id=str(uuid4()),
+            notebook_id=notebook.short_id,
+            content=notebook.content,
+            notebook_type="deep_research",
+            conversation_notebooks=all_conversation_notebooks,
+            current_run_notebooks=current_run_notebooks,
+        )
+
+        self.dispatcher.message(notebook_update_message)
+
+        return PartialDeepResearchState(
+            messages=[notebook_update_message],
+            conversation_notebooks=[current_notebook_info],
+            current_run_notebooks=current_run_notebooks,
+        )
+
+    def _collect_all_artifacts(self, state: DeepResearchState) -> list[TaskArtifact]:
         """Collect all artifacts from task results."""
-        artifacts = []
+        artifacts: list[TaskArtifact] = []
         for result in state.task_results:
             artifacts.extend(result.artifacts)
 
@@ -103,15 +138,15 @@ class DeepResearchReportNode(DeepResearchNode):
         for intermediate_result in state.intermediate_results:
             valid_ids.update(intermediate_result.artifact_ids)
 
-        artifacts = [artifact for artifact in artifacts if artifact.id in valid_ids]
+        artifacts = [artifact for artifact in artifacts if artifact.task_id in valid_ids]
         return artifacts
 
-    def _format_insights(self, artifacts: list[InsightArtifact]) -> list[FormattedInsight]:
+    def _format_insights(self, artifacts: list[TaskArtifact]) -> list[FormattedInsight]:
         """Format insight artifacts using the query executor."""
         formatted_insights = []
 
         for artifact in artifacts:
-            if not artifact.query:
+            if not isinstance(artifact, InsightArtifact) or artifact.query is None:
                 # Skip artifacts without queries (shouldn't happen in production)
                 continue
 
@@ -125,8 +160,8 @@ class DeepResearchReportNode(DeepResearchNode):
 
                 formatted_insights.append(
                     FormattedInsight(
-                        id=artifact.id,
-                        description=artifact.description,
+                        id=artifact.task_id,
+                        description=artifact.content,
                         formatted_results=formatted_results,
                         query_type=query_type,
                     )
@@ -136,8 +171,8 @@ class DeepResearchReportNode(DeepResearchNode):
                 capture_exception(e)
                 formatted_insights.append(  # TODO: remove me
                     FormattedInsight(
-                        id=artifact.id,
-                        description=artifact.description,
+                        id=artifact.task_id,
+                        description=artifact.content,
                         formatted_results="",
                         query_type=self._get_query_type_name(artifact.query),
                     )
@@ -190,9 +225,11 @@ class DeepResearchReportNode(DeepResearchNode):
 
         return "\n".join(formatted_parts)
 
-    def _create_context(self, artifacts: list[InsightArtifact]) -> NotebookContext:
+    def _create_context(self, artifacts: list[TaskArtifact]) -> NotebookContext:
         """
         Create a context for the notebook serializer.
         """
-        context = NotebookContext(insights={artifact.id: artifact for artifact in artifacts})
+        context = NotebookContext(
+            insights={artifact.task_id: artifact for artifact in artifacts if isinstance(artifact, InsightArtifact)}
+        )
         return context

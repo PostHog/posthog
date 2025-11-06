@@ -1,11 +1,12 @@
 use crate::{
-    error::{Error, FrameError, JsResolveErr, UnhandledError},
+    error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
     frames::{Context, ContextLine, Frame},
     langs::CommonFrameMetadata,
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
 };
+use common_types::error_tracking::FrameId;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
@@ -13,7 +14,7 @@ use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition
 
 use super::{
     js::FrameLocation,
-    utils::{add_raw_to_junk, get_context},
+    utils::{add_raw_to_junk, get_sourcelocation_context},
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -22,7 +23,7 @@ pub struct RawNodeFrame {
     pub function: String,    // The name of the function the exception came from
     pub lineno: Option<u32>, // The line number of the context line
     pub colno: Option<u32>,  // The column number of the context line
-    pub module: Option<String>, // The python-import style module name the function is in
+    pub module: Option<String>, // The python-import style module name the function is in. TODO - this seems like a copy-paste error?
     pub context_line: Option<String>, // The line of code the exception came from
     #[serde(default)]
     pub pre_context: Vec<String>, // The lines of code before the context line
@@ -45,12 +46,15 @@ impl RawNodeFrame {
 
         match self.resolve_impl(team_id, catalog, chunk_id.clone()).await {
             Ok(frame) => Ok(frame),
-            Err(Error::ResolutionError(FrameError::JavaScript(e))) => Ok((self, e).into()),
-            Err(Error::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
+            Err(ResolveError::ResolutionError(FrameError::JavaScript(e))) => Ok((self, e).into()),
+            Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
                 Ok((self, JsResolveErr::NoSourcemapUploaded(chunk_id)).into())
             }
-            Err(Error::UnhandledError(e)) => Err(e),
-            Err(Error::EventError(_)) => unreachable!(),
+            Err(ResolveError::ResolutionError(e)) => {
+                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
+                unreachable!("Should not have received error {:?}", e)
+            }
+            Err(ResolveError::UnhandledError(e)) => Err(e),
         }
     }
 
@@ -59,7 +63,7 @@ impl RawNodeFrame {
         team_id: i32,
         catalog: &C,
         chunk_id: String,
-    ) -> Result<Frame, Error>
+    ) -> Result<Frame, ResolveError>
     where
         C: SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache>,
     {
@@ -146,7 +150,7 @@ impl RawNodeFrame {
 impl From<&RawNodeFrame> for Frame {
     fn from(raw: &RawNodeFrame) -> Self {
         Frame {
-            raw_id: String::new(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
             line: raw.lineno,
             column: None,
@@ -160,6 +164,9 @@ impl From<&RawNodeFrame> for Frame {
             context: raw.get_context(),
             release: None,
             synthetic: raw.meta.synthetic,
+            suspicious: false,
+            module: raw.module.clone(),
+            code_variables: None,
         }
     }
 }
@@ -184,7 +191,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             .unwrap_or(raw_frame.meta.in_app);
 
         let mut res = Self {
-            raw_id: String::new(), // We use placeholders here, as they're overriden at the RawFrame level
+            frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.function.clone(),
             line: Some(location.line()),
             column: Some(location.column()),
@@ -198,9 +205,12 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             resolved: true,
             resolve_failure: None,
             junk_drawer: None,
-            context: get_context(&location),
+            code_variables: None,
+            context: get_sourcelocation_context(&location),
             release: None,
             synthetic: raw_frame.meta.synthetic,
+            suspicious: false,
+            module: raw_frame.module.clone(),
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -226,7 +236,7 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
         };
 
         let mut res = Self {
-            raw_id: String::new(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.function.clone(),
             line: raw_frame.lineno,
             column: raw_frame.colno,
@@ -240,9 +250,12 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             // why we thought a frame wasn't minified, they can see the error message
             resolve_failure: Some(resolve_err.to_string()),
             junk_drawer: None,
+            code_variables: None,
             context: raw_frame.get_context(),
             release: None,
             synthetic: raw_frame.meta.synthetic,
+            suspicious: false,
+            module: raw_frame.module.clone(),
         };
 
         add_raw_to_junk(&mut res, raw_frame);

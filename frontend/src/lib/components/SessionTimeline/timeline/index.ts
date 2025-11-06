@@ -4,6 +4,7 @@ export enum ItemCategory {
     ERROR_TRACKING = 'exceptions',
     CUSTOM_EVENTS = 'custom events',
     PAGE_VIEWS = 'pageviews',
+    CONSOLE_LOGS = 'console logs',
 }
 
 export interface TimelineItem {
@@ -32,5 +33,4 @@ export type ItemLoader<T extends TimelineItem> = {
 }
 
 export type ItemLoaderFactory<T extends TimelineItem> = (sessionId: string, timestamp: Dayjs) => ItemLoader<T>
-export * from './item-cache'
 export * from './item-collector'

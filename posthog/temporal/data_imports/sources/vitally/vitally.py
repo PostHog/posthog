@@ -2,11 +2,12 @@ import base64
 from datetime import datetime
 from typing import Any, Optional
 
-import dlt
 import requests
 from dateutil import parser
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from requests import JSONDecodeError
+from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
@@ -275,6 +276,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
 class VitallyPaginator(BasePaginator):
     _incremental_start_value: Any
     _should_use_incremental_field: bool = False
+    _cursor: str | None = None
 
     def __init__(self, incremental_start_value: Any, should_use_incremental_field: bool) -> None:
         self._incremental_start_value = incremental_start_value
@@ -318,6 +320,89 @@ class VitallyPaginator(BasePaginator):
         request.params["from"] = self._cursor
 
 
+def get_messages(
+    secret_token: str,
+    region: str,
+    subdomain: Optional[str],
+    db_incremental_field_last_value: Optional[Any],
+    should_use_incremental_field: bool,
+    logger: FilteringBoundLogger,
+):
+    """Messages are a field on conversations which only get returned
+    when you request each conversation individually. This queries
+    for conversations and then gets and yields the messages for each
+    conversation."""
+
+    paginator = VitallyPaginator(
+        incremental_start_value=db_incremental_field_last_value,
+        should_use_incremental_field=should_use_incremental_field,
+    )
+    basic_token = base64.b64encode(f"{secret_token}:".encode("ascii")).decode("ascii")
+
+    params: dict[str, Any] = {
+        "limit": 100,
+        "sortBy": "updatedAt",
+    }
+
+    if should_use_incremental_field:
+        if db_incremental_field_last_value:
+            params["updatedAt"] = (
+                parser.parse(db_incremental_field_last_value).timestamp()
+                if not isinstance(db_incremental_field_last_value, datetime)
+                else db_incremental_field_last_value
+            )
+        else:
+            params["updatedAt"] = "1970-01-01"
+
+    request = requests.Request(
+        "get",
+        url=f"{get_base_url(region, subdomain)}resources/conversations",
+        params=params,
+        headers={"Authorization": f"Basic {basic_token}:"},
+    )
+
+    logger.debug("Requesting first page")
+
+    with requests.session() as session:
+        while paginator.has_next_page:
+            paginator.update_request(request)
+            prepared_request = session.prepare_request(request)
+            response = session.send(prepared_request)
+            logger.debug(f"Requesting {prepared_request.url}")
+
+            json = response.json()
+            results = json["results"]
+
+            for conversation in results:
+                id = conversation.get("id")
+                conversation_updated_at = conversation.get("updatedAt")
+                logger.debug(f"Requesting messages for conversation {id}")
+
+                conversation_response = requests.get(
+                    f"{get_base_url(region, subdomain)}resources/conversations/{id}",
+                    headers={"Authorization": f"Basic {basic_token}:"},
+                )
+
+                try:
+                    conversation_response.raise_for_status()
+
+                    messages = conversation_response.json().get("messages") or []
+                    logger.debug(f"Yielding {len(messages)} messages")
+                    for message in messages:
+                        message["conversation_updated_at"] = conversation_updated_at
+                        yield message
+                except requests.HTTPError as e:
+                    logger.debug(
+                        f"Failed to fetch messages for conversation {id}: {conversation_response.status_code} {e}. Body: {conversation_response.text}"
+                    )
+                except JSONDecodeError as e:
+                    logger.debug(
+                        f"Failed to decode JSON response for conversation {id}: {conversation_response.status_code} {e}. Body: {conversation_response.text}"
+                    )
+
+            paginator.update_state(response)
+
+
 def get_base_url(region: str, subdomain: Optional[str]) -> str:
     if region == "US" and subdomain:
         return f"https://{subdomain}.rest.vitally.io/"
@@ -325,7 +410,6 @@ def get_base_url(region: str, subdomain: Optional[str]) -> str:
     return "https://rest.vitally-eu.io/"
 
 
-@dlt.source(max_table_nesting=0)
 def vitally_source(
     secret_token: str,
     region: str,
@@ -333,9 +417,16 @@ def vitally_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
 ):
+    if endpoint == "Messages":
+        yield from get_messages(
+            secret_token, region, subdomain, db_incremental_field_last_value, should_use_incremental_field, logger
+        )
+        return
+
     config: RESTAPIConfig = {
         "client": {
             "base_url": get_base_url(region, subdomain),
@@ -361,7 +452,8 @@ def vitally_source(
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
-    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    dlt_resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    yield from dlt_resources[0]
 
 
 def validate_credentials(secret_token: str, region: str, subdomain: Optional[str]) -> bool:

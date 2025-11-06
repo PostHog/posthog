@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     _timestamp SimpleAggregateFunction(max, DateTime),
     -- retention period for this session, in days. Useful to show TTL for the recording
-    retention_period_days Nullable(Int64)
+    retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
 ) ENGINE = {engine}
 """
 
@@ -130,8 +130,37 @@ def KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
     )
 
 
-def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True):
-    return """
+def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True, exclude_columns=None):
+    exclude_columns = exclude_columns or []
+
+    target_table = "writable_session_replay_events"
+    on_cluster_clause = ON_CLUSTER_CLAUSE(on_cluster)
+    database = settings.CLICKHOUSE_DATABASE
+
+    # ClickHouse is incorrectly expanding the type of the snapshot source column
+    # Despite it being a LowCardinality(Nullable(String)) in writable_session_replay_events
+    # The column expansion picks only Nullable(String) and so we can't select it
+    explictly_specify_columns = f"""(
+`session_id` String, `team_id` Int64, `distinct_id` String,
+`min_first_timestamp` DateTime64(6, 'UTC'),
+`max_last_timestamp` DateTime64(6, 'UTC'),
+`block_first_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+`block_last_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+`block_urls` SimpleAggregateFunction(groupArrayArray, Array(String)),
+`first_url` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+`all_urls` SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+`click_count` Int64, `keypress_count` Int64,
+`mouse_activity_count` Int64, `active_milliseconds` Int64,
+`console_log_count` Int64, `console_warn_count` Int64,
+`console_error_count` Int64, `size` Int64, `message_count` Int64,
+`event_count` Int64,
+`snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+`snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+`_timestamp` Nullable(DateTime)
+{',`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))' if 'retention_period_days' not in exclude_columns else ''}
+)"""
+
+    return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv {on_cluster_clause}
 TO {database}.{target_table} {explictly_specify_columns}
 AS SELECT
@@ -167,39 +196,11 @@ sum(message_count) as message_count,
 sum(event_count) as event_count,
 argMinState(snapshot_source, first_timestamp) as snapshot_source,
 argMinState(snapshot_library, first_timestamp) as snapshot_library,
-max(_timestamp) as _timestamp,
--- CH will pick the retention period here, but only if there is a single unique non-null value across all blocks
--- ...otherwise this column will be NULL
-singleValueOrNull(retention_period_days) as retention_period_days
+max(_timestamp) as _timestamp
+{',max(retention_period_days) as retention_period_days' if 'retention_period_days' not in exclude_columns else ''}
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
-""".format(
-        target_table="writable_session_replay_events",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        database=settings.CLICKHOUSE_DATABASE,
-        # ClickHouse is incorrectly expanding the type of the snapshot source column
-        # Despite it being a LowCardinality(Nullable(String)) in writable_session_replay_events
-        # The column expansion picks only Nullable(String) and so we can't select it
-        explictly_specify_columns="""(
-`session_id` String, `team_id` Int64, `distinct_id` String,
-`min_first_timestamp` DateTime64(6, 'UTC'),
-`max_last_timestamp` DateTime64(6, 'UTC'),
-`block_first_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-`block_last_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-`block_urls` SimpleAggregateFunction(groupArrayArray, Array(String)),
-`first_url` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-`all_urls` SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-`click_count` Int64, `keypress_count` Int64,
-`mouse_activity_count` Int64, `active_milliseconds` Int64,
-`console_log_count` Int64, `console_warn_count` Int64,
-`console_error_count` Int64, `size` Int64, `message_count` Int64,
-`event_count` Int64,
-`snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-`snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-`_timestamp` Nullable(DateTime),
-`retention_period_days` Nullable(Int64)
-)""",
-    )
+"""
 
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
@@ -233,8 +234,16 @@ def DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False):
 
 
 def DROP_SESSION_REPLAY_EVENTS_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {SESSION_REPLAY_EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE(False)}"
+    return f"DROP TABLE IF EXISTS {SESSION_REPLAY_EVENTS_DATA_TABLE()}"
+
+
+def DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS kafka_session_replay_events"
+
+
+def DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL():
+    return f"DROP TABLE IF EXISTS session_replay_events_mv"
 
 
 def TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {SESSION_REPLAY_EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE(False)}"
+    return f"TRUNCATE TABLE IF EXISTS {SESSION_REPLAY_EVENTS_DATA_TABLE()}"

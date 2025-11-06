@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +15,6 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
         pageUrl: urls.revenueSettings(),
     },
     decorators: [
@@ -38,6 +36,16 @@ const meta: Meta = {
                                     },
                                 },
                             ],
+                        },
+                    ]
+                },
+                '/api/environments/:team_id/external_data_sources/wizard': () => {
+                    return [
+                        200,
+                        {
+                            Stripe: {
+                                iconPath: '/static/services/stripe.png',
+                            },
                         },
                     ]
                 },

@@ -20,8 +20,8 @@ use crate::{
     },
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     utils::test_utils::{
-        insert_flags_for_team_in_redis, insert_new_team_in_pg, insert_person_for_team_in_pg,
-        setup_pg_reader_client, setup_pg_writer_client, setup_redis_client,
+        insert_flags_for_team_in_redis, setup_pg_reader_client, setup_pg_writer_client,
+        setup_redis_client, TestContext,
     },
 };
 use axum::http::HeaderMap;
@@ -132,7 +132,9 @@ async fn test_evaluate_feature_flags() {
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
     let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-    let team = insert_new_team_in_pg(reader.clone(), None)
+    let context = TestContext::new(None).await;
+    let team = context
+        .insert_new_team(None)
         .await
         .expect("Failed to insert team in pg");
     let flag = FeatureFlag {
@@ -164,6 +166,7 @@ async fn test_evaluate_feature_flags() {
         ensure_experience_continuity: Some(false),
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
+        evaluation_tags: None,
     };
 
     let feature_flag_list = FeatureFlagList { flags: vec![flag] };
@@ -173,11 +176,13 @@ async fn test_evaluate_feature_flags() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: "user123".to_string(),
         feature_flags: feature_flag_list,
-        reader,
-        writer,
+        persons_reader: reader.clone(),
+        persons_writer: writer.clone(),
+        non_persons_reader: reader.clone(),
+        non_persons_writer: writer,
         cohort_cache,
         person_property_overrides: Some(person_properties),
         group_property_overrides: None,
@@ -205,15 +210,19 @@ async fn test_evaluate_feature_flags() {
 #[tokio::test]
 async fn test_evaluate_feature_flags_with_errors() {
     // Set up test dependencies
-    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-    let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-
-    let team = insert_new_team_in_pg(reader.clone(), None)
+    let context = TestContext::new(None).await;
+    let cohort_cache = Arc::new(CohortCacheManager::new(
+        context.non_persons_reader.clone(),
+        None,
+        None,
+    ));
+    let team = context
+        .insert_new_team(None)
         .await
         .expect("Failed to insert team in pg");
 
-    insert_person_for_team_in_pg(reader.clone(), team.id, "user123".to_string(), None)
+    context
+        .insert_person(team.id, "user123".to_string(), None)
         .await
         .expect("Failed to insert person");
 
@@ -248,6 +257,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         ensure_experience_continuity: Some(false),
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
+        evaluation_tags: None,
     }];
 
     let feature_flag_list = FeatureFlagList { flags };
@@ -255,11 +265,13 @@ async fn test_evaluate_feature_flags_with_errors() {
     // Set up evaluation context
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: "user123".to_string(),
         feature_flags: feature_flag_list,
-        reader,
-        writer,
+        persons_reader: context.persons_reader.clone(),
+        persons_writer: context.persons_writer.clone(),
+        non_persons_reader: context.non_persons_reader.clone(),
+        non_persons_writer: context.non_persons_writer.clone(),
         cohort_cache,
         person_property_overrides: Some(HashMap::new()),
         group_property_overrides: None,
@@ -587,12 +599,15 @@ async fn test_evaluate_feature_flags_multiple_flags() {
     let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
-    let team = insert_new_team_in_pg(reader.clone(), None)
+    let context = TestContext::new(None).await;
+    let team = context
+        .insert_new_team(None)
         .await
         .expect("Failed to insert team in pg");
 
     let distinct_id = "user_distinct_id".to_string();
-    insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .expect("Failed to insert person");
 
@@ -619,6 +634,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
         FeatureFlag {
             name: Some("Flag 2".to_string()),
@@ -642,6 +658,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
     ];
 
@@ -649,11 +666,13 @@ async fn test_evaluate_feature_flags_multiple_flags() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: distinct_id.clone(),
         feature_flags: feature_flag_list,
-        reader,
-        writer,
+        persons_reader: reader.clone(),
+        persons_writer: writer.clone(),
+        non_persons_reader: reader.clone(),
+        non_persons_writer: writer,
         cohort_cache,
         person_property_overrides: None,
         group_property_overrides: None,
@@ -685,9 +704,11 @@ async fn test_evaluate_feature_flags_details() {
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
     let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-    let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.unwrap();
     let distinct_id = "user123".to_string();
-    insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .expect("Failed to insert person");
 
@@ -714,6 +735,7 @@ async fn test_evaluate_feature_flags_details() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
         FeatureFlag {
             name: Some("Flag 2".to_string()),
@@ -737,6 +759,7 @@ async fn test_evaluate_feature_flags_details() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
     ];
 
@@ -744,11 +767,13 @@ async fn test_evaluate_feature_flags_details() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: distinct_id.clone(),
         feature_flags: feature_flag_list,
-        reader,
-        writer,
+        persons_reader: reader.clone(),
+        persons_writer: writer.clone(),
+        non_persons_reader: reader.clone(),
+        non_persons_writer: writer,
         cohort_cache,
         person_property_overrides: None,
         group_property_overrides: None,
@@ -842,10 +867,13 @@ fn test_flag_error_request_decoding() {
 
 #[tokio::test]
 async fn test_evaluate_feature_flags_with_overrides() {
-    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-    let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-    let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+    let context = TestContext::new(None).await;
+    let cohort_cache = Arc::new(CohortCacheManager::new(
+        context.non_persons_reader.clone(),
+        None,
+        None,
+    ));
+    let team = context.insert_new_team(None).await.unwrap();
 
     let flag = FeatureFlag {
         name: Some("Test Flag".to_string()),
@@ -876,6 +904,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         ensure_experience_continuity: Some(false),
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
+        evaluation_tags: None,
     };
     let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
@@ -890,11 +919,13 @@ async fn test_evaluate_feature_flags_with_overrides() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: "user123".to_string(),
         feature_flags: feature_flag_list,
-        reader,
-        writer,
+        persons_reader: context.persons_reader.clone(),
+        persons_writer: context.persons_writer.clone(),
+        non_persons_reader: context.non_persons_reader.clone(),
+        non_persons_writer: context.non_persons_writer.clone(),
         cohort_cache,
         person_property_overrides: None,
         group_property_overrides: Some(group_property_overrides),
@@ -936,12 +967,16 @@ async fn test_evaluate_feature_flags_with_overrides() {
 async fn test_long_distinct_id() {
     // distinct_id is CHAR(400)
     let long_id = "a".repeat(400);
-    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-    let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-    let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+    let context = TestContext::new(None).await;
+    let cohort_cache = Arc::new(CohortCacheManager::new(
+        context.non_persons_reader.clone(),
+        None,
+        None,
+    ));
+    let team = context.insert_new_team(None).await.unwrap();
     let distinct_id = long_id.to_string();
-    insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .expect("Failed to insert person");
     let flag = FeatureFlag {
@@ -966,17 +1001,20 @@ async fn test_long_distinct_id() {
         ensure_experience_continuity: Some(false),
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
+        evaluation_tags: None,
     };
 
     let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: long_id,
         feature_flags: feature_flag_list,
-        reader,
-        writer,
+        persons_reader: context.persons_reader.clone(),
+        persons_writer: context.persons_writer.clone(),
+        non_persons_reader: context.non_persons_reader.clone(),
+        non_persons_writer: context.non_persons_writer.clone(),
         cohort_cache,
         person_property_overrides: None,
         group_property_overrides: None,
@@ -1114,8 +1152,11 @@ async fn test_fetch_and_filter_flags() {
         redis_reader_client.clone(),
         redis_writer_client.clone(),
         reader.clone(),
+        432000, // team_cache_ttl_seconds
+        432000, // flags_cache_ttl_seconds
     );
-    let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.unwrap();
 
     // Create a mix of survey and non-survey flags
     let flags = vec![
@@ -1130,6 +1171,7 @@ async fn test_fetch_and_filter_flags() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
         FeatureFlag {
             name: Some("Survey Flag 2".to_string()),
@@ -1142,6 +1184,7 @@ async fn test_fetch_and_filter_flags() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
         FeatureFlag {
             name: Some("Regular Flag 1".to_string()),
@@ -1154,6 +1197,7 @@ async fn test_fetch_and_filter_flags() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
         FeatureFlag {
             name: Some("Regular Flag 2".to_string()),
@@ -1166,6 +1210,7 @@ async fn test_fetch_and_filter_flags() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
     ];
 
@@ -1174,7 +1219,7 @@ async fn test_fetch_and_filter_flags() {
     insert_flags_for_team_in_redis(
         redis_reader_client.clone(),
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flags_json),
     )
     .await
@@ -1185,11 +1230,12 @@ async fn test_fetch_and_filter_flags() {
         only_evaluate_survey_feature_flags: Some(true),
         ..Default::default()
     };
-    let (result, had_errors) = fetch_and_filter(
+    let result = fetch_and_filter(
         &flag_service,
-        team.project_id,
+        team.project_id(),
         &query_params,
         &axum::http::HeaderMap::new(),
+        None,
         None,
     )
     .await
@@ -1199,38 +1245,37 @@ async fn test_fetch_and_filter_flags() {
         .flags
         .iter()
         .all(|f| f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
-    assert!(!had_errors);
 
     // Test 2: only_evaluate_survey_feature_flags = false
     let query_params = FlagsQueryParams {
         only_evaluate_survey_feature_flags: Some(false),
         ..Default::default()
     };
-    let (result, had_errors) = fetch_and_filter(
+    let result = fetch_and_filter(
         &flag_service,
-        team.project_id,
+        team.project_id(),
         &query_params,
         &axum::http::HeaderMap::new(),
+        None,
         None,
     )
     .await
     .unwrap();
     assert_eq!(result.flags.len(), 4);
-    assert!(!had_errors);
 
     // Test 3: only_evaluate_survey_feature_flags not set
     let query_params = FlagsQueryParams::default();
-    let (result, had_errors) = fetch_and_filter(
+    let result = fetch_and_filter(
         &flag_service,
-        team.project_id,
+        team.project_id(),
         &query_params,
         &axum::http::HeaderMap::new(),
+        None,
         None,
     )
     .await
     .unwrap();
     assert_eq!(result.flags.len(), 4);
-    assert!(!had_errors);
     assert!(result
         .flags
         .iter()
@@ -1242,11 +1287,12 @@ async fn test_fetch_and_filter_flags() {
         ..Default::default()
     };
 
-    let (result, had_errors) = fetch_and_filter(
+    let result = fetch_and_filter(
         &flag_service,
-        team.project_id,
+        team.project_id(),
         &query_params,
         &axum::http::HeaderMap::new(),
+        None,
         None,
     )
     .await
@@ -1254,7 +1300,6 @@ async fn test_fetch_and_filter_flags() {
 
     // Should return all survey flags since flag_keys filtering now happens in evaluation logic
     // Survey filter keeps only survey flags, but flag_keys filtering is deferred to evaluation
-    assert!(!had_errors);
     assert_eq!(result.flags.len(), 2);
     assert!(result
         .flags

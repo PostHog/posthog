@@ -2,6 +2,9 @@ use anyhow::{anyhow, Result};
 use common_types::RawEvent;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use uuid::Uuid;
+
+use crate::utils::timestamp::parse_timestamp;
 
 /// Bincode-compatible version of RawEvent that stores JSON as strings
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -142,7 +145,7 @@ impl MetadataV1 {
             .timestamp
             .as_ref()
             .and_then(|t| t.parse::<u64>().ok())
-            .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
 
         let mut seen_uuids = HashSet::new();
         if let Some(uuid) = original_event.uuid {
@@ -174,6 +177,20 @@ impl MetadataV1 {
 /// Type alias for property differences
 type PropertyDifference = (String, Option<(String, String)>);
 
+/// Field names used in deduplication comparisons
+#[derive(Debug, Clone, PartialEq, strum_macros::Display, strum_macros::EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum DedupFieldName {
+    Event,
+    DistinctId,
+    Token,
+    Timestamp,
+    Set,
+    SetOnce,
+    Uuid,
+    Properties,
+}
+
 /// Represents the similarity between two events
 #[derive(Debug)]
 pub struct EventSimilarity {
@@ -182,7 +199,7 @@ pub struct EventSimilarity {
     /// Number of top-level fields that differ (excluding properties)
     pub different_field_count: u32,
     /// List of field names that differ with their values (original -> new)
-    pub different_fields: Vec<(String, String, String)>, // (field_name, original_value, new_value)
+    pub different_fields: Vec<(DedupFieldName, String, String)>, // (field_name, original_value, new_value)
     /// Properties similarity score (0.0 = completely different, 1.0 = identical)
     pub properties_similarity: f64,
     /// Number of properties that differ
@@ -190,6 +207,12 @@ pub struct EventSimilarity {
     /// List of properties that differ with values for $ properties, just key names for others
     /// Format: (property_name, Option<(original_value, new_value)>)
     pub different_properties: Vec<PropertyDifference>,
+}
+
+impl std::fmt::Display for EventSimilarity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:.2}", self.overall_score)
+    }
 }
 
 impl EventSimilarity {
@@ -211,13 +234,13 @@ impl EventSimilarity {
                 .unwrap_or_else(|| "<none>".to_string())
         };
 
-        // Compare top-level fields (excluding properties and uuid which we expect to differ)
+        // Compare top-level fields (including uuid for proper OnlyUuidDifferent detection)
         total_fields += 1;
         if original.event == new.event {
             matching_fields += 1;
         } else {
             different_fields.push((
-                "event".to_string(),
+                DedupFieldName::Event,
                 original.event.clone(),
                 new.event.clone(),
             ));
@@ -228,7 +251,7 @@ impl EventSimilarity {
             matching_fields += 1;
         } else {
             different_fields.push((
-                "distinct_id".to_string(),
+                DedupFieldName::DistinctId,
                 format_value_opt(&original.distinct_id),
                 format_value_opt(&new.distinct_id),
             ));
@@ -239,27 +262,29 @@ impl EventSimilarity {
             matching_fields += 1;
         } else {
             different_fields.push((
-                "token".to_string(),
+                DedupFieldName::Token,
                 format_opt(&original.token),
                 format_opt(&new.token),
             ));
         }
 
         // Compare timestamps - check if they parse to the same u64 value
+        // Use parse_timestamp which handles both numeric and ISO formats
         total_fields += 1;
-        let original_ts = original
-            .timestamp
-            .as_ref()
-            .and_then(|t| t.parse::<u64>().ok());
-        let new_ts = new.timestamp.as_ref().and_then(|t| t.parse::<u64>().ok());
+        let original_ts = original.timestamp.as_ref().and_then(|t| parse_timestamp(t));
+        let new_ts = new.timestamp.as_ref().and_then(|t| parse_timestamp(t));
 
         if original_ts == new_ts {
             matching_fields += 1;
         } else {
             different_fields.push((
-                "timestamp".to_string(),
-                format_opt(&original.timestamp),
-                format_opt(&new.timestamp),
+                DedupFieldName::Timestamp,
+                original_ts
+                    .map(|ts| ts.to_string())
+                    .unwrap_or_else(|| "<invalid>".to_string()),
+                new_ts
+                    .map(|ts| ts.to_string())
+                    .unwrap_or_else(|| "<invalid>".to_string()),
             ));
         }
 
@@ -268,7 +293,7 @@ impl EventSimilarity {
             matching_fields += 1;
         } else {
             different_fields.push((
-                "set".to_string(),
+                DedupFieldName::Set,
                 format_map_opt(&original.set),
                 format_map_opt(&new.set),
             ));
@@ -279,15 +304,38 @@ impl EventSimilarity {
             matching_fields += 1;
         } else {
             different_fields.push((
-                "set_once".to_string(),
+                DedupFieldName::SetOnce,
                 format_map_opt(&original.set_once),
                 format_map_opt(&new.set_once),
+            ));
+        }
+
+        // Compare UUID
+        total_fields += 1;
+        if original.uuid == new.uuid {
+            matching_fields += 1;
+        } else {
+            let format_uuid = |opt: &Option<Uuid>| {
+                opt.map(|u| u.to_string())
+                    .unwrap_or_else(|| "<none>".to_string())
+            };
+            different_fields.push((
+                DedupFieldName::Uuid,
+                format_uuid(&original.uuid),
+                format_uuid(&new.uuid),
             ));
         }
 
         // Compare properties
         let (properties_similarity, different_properties) =
             Self::compare_properties(&original.properties, &new.properties);
+
+        // If properties differ, add them to different_fields
+        if !different_properties.is_empty() {
+            let orig_summary = format!("{} properties", original.properties.len());
+            let new_summary = format!("{} properties", new.properties.len());
+            different_fields.push((DedupFieldName::Properties, orig_summary, new_summary));
+        }
 
         let different_field_count = different_fields.len() as u32;
         let different_property_count = different_properties.len() as u32;
@@ -581,11 +629,19 @@ mod tests {
 
         let similarity = EventSimilarity::calculate(&event1, &event2).unwrap();
 
-        assert_eq!(similarity.different_field_count, 1); // Only timestamp differs
+        assert_eq!(similarity.different_field_count, 3); // UUID, timestamp, and properties differ
         assert!(similarity
             .different_fields
             .iter()
-            .any(|(field, _, _)| field == "timestamp"));
+            .any(|(field, _, _)| field == &DedupFieldName::Timestamp));
+        assert!(similarity
+            .different_fields
+            .iter()
+            .any(|(field, _, _)| field == &DedupFieldName::Uuid));
+        assert!(similarity
+            .different_fields
+            .iter()
+            .any(|(field, _, _)| field == &DedupFieldName::Properties));
 
         assert_eq!(similarity.different_property_count, 2); // url differs, browser is new
         assert!(similarity
@@ -729,7 +785,7 @@ mod tests {
         metadata.update_duplicate(&duplicate1);
 
         // Verify similarity metrics
-        assert_eq!(similarity1.different_field_count, 0); // All top-level fields match
+        assert_eq!(similarity1.different_field_count, 2); // UUID and properties differ
         assert_eq!(similarity1.different_property_count, 2); // browser differs, session_id is new
         assert!(similarity1.properties_similarity < 1.0);
         assert!(similarity1.properties_similarity > 0.0);
@@ -763,6 +819,50 @@ mod tests {
         let summary = metadata.get_metrics_summary();
         assert!(summary.contains("Duplicates: 2"));
         assert!(summary.contains("Unique UUIDs: 2"));
+    }
+
+    #[test]
+    fn test_non_ascii_timestamp_handling() {
+        // Test that non-ASCII timestamps don't cause panics when calculating similarity
+        let event1 = RawEvent {
+            uuid: Some(uuid::Uuid::new_v4()),
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::json!("user123")),
+            token: Some("token1".to_string()),
+            // Czech timestamp with non-ASCII characters that previously caused panics
+            timestamp: Some("2025-09-02T14:45:58.462 září 12:46:52 +00:00".to_string()),
+            properties: HashMap::new(),
+            ..Default::default()
+        };
+
+        let event2 = RawEvent {
+            uuid: Some(uuid::Uuid::new_v4()),
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::json!("user123")),
+            token: Some("token1".to_string()),
+            timestamp: Some("2025-09-02T14:45:58.462Z".to_string()),
+            properties: HashMap::new(),
+            ..Default::default()
+        };
+
+        // This should not panic even with non-ASCII timestamp
+        let similarity = EventSimilarity::calculate(&event1, &event2).unwrap();
+
+        // Timestamps are different (one invalid, one valid), so they should show as different
+        assert!(similarity
+            .different_fields
+            .iter()
+            .any(|(field, _, _)| field == &DedupFieldName::Timestamp));
+
+        // First timestamp is invalid (has non-ASCII), second is valid ISO
+        let timestamp_diff = similarity
+            .different_fields
+            .iter()
+            .find(|(field, _, _)| field == &DedupFieldName::Timestamp)
+            .unwrap();
+        assert_eq!(timestamp_diff.1, "<invalid>"); // Czech timestamp can't be parsed
+                                                   // Second timestamp is valid ISO format, should show the milliseconds value
+        assert!(timestamp_diff.2 != "<invalid>");
     }
 
     #[test]

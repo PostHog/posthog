@@ -2,7 +2,7 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
@@ -15,11 +15,41 @@ from dagster_aws.s3 import S3Resource
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 
-from dags.common import JobOwners
+from dags.common import JobOwners, check_for_concurrent_runs
 
 NO_SHARD_PATH = "noshard"
 
+
+def get_max_backup_bandwidth() -> str:
+    """
+    Get max backup bandwidth based on the current environment.
+
+    Returns different bandwidth limits based on CLOUD_DEPLOYMENT:
+    - US: i7ie.metal-48xl instances (192 vCPUs, 768GB RAM, 100 Gbps network)
+    - EU: m8g.8xlarge instances (32 vCPUs, 128GB RAM, 12 Gbps network)
+    - DEV/E2E/None: Conservative limits for development/self-hosted
+
+    Target: Complete backups within ~20 hours while preserving network capacity
+    """
+    cloud_deployment = getattr(settings, "CLOUD_DEPLOYMENT", None)
+
+    if cloud_deployment == "US":
+        # i7ie.metal-48xl instances - can handle higher bandwidth
+        # 2400 MB/s = 19.2 Gbps (19% of 100 Gbps network)
+        # For 208TB: ~24 hour backup time
+        return "2400000000"  # 2400MB/s
+    elif cloud_deployment == "EU":
+        # m8g.8xlarge instances - moderate bandwidth
+        # 450 MB/s = 3.6 Gbps (30% of 12 Gbps network)
+        # For 48TB: ~29 hour backup time
+        return "450000000"  # 450MB/s
+    else:
+        # DEV/self-hosted - conservative limits
+        return "100000000"  # 100MB/s to prevent resource exhaustion
+
+
 SHARDED_TABLES = [
+    "sharded_events",
     "sharded_app_metrics",
     "sharded_app_metrics2",
     "sharded_heatmaps",
@@ -28,7 +58,6 @@ SHARDED_TABLES = [
     "sharded_raw_sessions",
     "sharded_session_replay_embeddings",
     "sharded_session_replay_events",
-    "sharded_session_replay_events_v2_test",
     "sharded_sessions",
 ]
 
@@ -111,6 +140,9 @@ class Backup:
     def create(self, client: Client):
         backup_settings = {
             "async": "1",
+            "max_backup_bandwidth": get_max_backup_bandwidth(),
+            "s3_disable_checksum": "1",  # There is a CH issue that makes bandwith be half than what is configured: https://github.com/ClickHouse/ClickHouse/issues/78213
+            # According to CH docs, disabling this is safe enough as checksums are already made: https://clickhouse.com/docs/operations/settings/settings#s3_disable_checksum
         }
         if self.base_backup:
             backup_settings["base_backup"] = "S3('{bucket_base_path}/{path}')".format(
@@ -279,8 +311,21 @@ def check_latest_backup_status(
     else:
         most_recent_status = get_most_recent_status(map_hosts(latest_backup.status).result().values())
         if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
+            # Check if the backup is stuck (CREATING_BACKUP with no active process)
+            if most_recent_status.status == "CREATING_BACKUP":
+                # Check how old the backup status is
+                time_since_status = datetime.now(UTC) - most_recent_status.event_time_microseconds.replace(tzinfo=UTC)
+                if time_since_status > timedelta(hours=2):
+                    context.log.warning(
+                        f"Previous backup {latest_backup.path} is stuck in CREATING_BACKUP status for {time_since_status}. "
+                        f"This usually happens when the server was restarted during backup. "
+                        f"Proceeding with new backup as the old one is no longer active."
+                    )
+                    # Don't raise an error - the backup is dead and won't interfere
+                    return None
+            # For other unexpected statuses (like BACKUP_FAILED), still raise an error
             raise ValueError(
-                f"Latest backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
+                f"Latest backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please check the backup logs."
             )
         else:
             context.log.info(f"Latest backup {latest_backup.path} finished successfully")
@@ -352,13 +397,23 @@ def wait_for_backup(
             )
         return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=config.workload)
 
+    done = False
+    tries = 0
     if backup:
-        map_hosts(backup.wait).result().values()
-        most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
-        if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
-            raise ValueError(
-                f"Latest backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
-            )
+        while not done:
+            tries += 1
+            map_hosts(backup.wait).result().values()
+            most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
+            if most_recent_status and most_recent_status.status == "CREATING_BACKUP":
+                continue
+            if most_recent_status and most_recent_status.status == "BACKUP_CREATED":
+                done = True
+            if (most_recent_status and most_recent_status.status != "BACKUP_CREATED") or (
+                most_recent_status and tries >= 5
+            ):
+                raise ValueError(
+                    f"Backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}."
+                )
     else:
         context.log.info("No backup to wait for")
 
@@ -376,9 +431,10 @@ def sharded_backup():
     """
 
     def run_backup_for_shard(shard: int):
-        latest_backup = get_latest_backup(shard)
-        new_backup = run_backup(check_latest_backup_status(latest_backup), shard)
-        wait_for_backup(new_backup)
+        latest_backup = get_latest_backup(shard=shard)
+        checked_backup = check_latest_backup_status(latest_backup=latest_backup)
+        new_backup = run_backup(latest_backup=checked_backup, shard=shard)
+        wait_for_backup(backup=new_backup)
 
     shards: dagster.DynamicOutput = get_shards()
     shards.map(run_backup_for_shard)
@@ -418,7 +474,18 @@ def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
     )
 
 
-def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
+def run_backup_request(
+    table: str, incremental: bool, context: dagster.ScheduleEvaluationContext
+) -> dagster.RunRequest | dagster.SkipReason:
+    skip_reason = check_for_concurrent_runs(
+        context,
+        tags={
+            "table": table,
+        },
+    )
+    if skip_reason:
+        return skip_reason
+
     timestamp = datetime.now(UTC)
     config = BackupConfig(
         database=settings.CLICKHOUSE_DATABASE,
@@ -426,6 +493,7 @@ def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
         table=table,
         incremental=incremental,
     )
+
     return dagster.RunRequest(
         run_key=f"{timestamp.strftime('%Y%m%d')}-{table}",
         run_config=prepare_run_config(config),
@@ -442,10 +510,10 @@ def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
     cron_schedule=settings.CLICKHOUSE_FULL_BACKUP_SCHEDULE,
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
-def full_sharded_backup_schedule():
+def full_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch a full backup for sharded tables"""
     for table in SHARDED_TABLES:
-        yield run_backup_request(table, incremental=False)
+        yield run_backup_request(table, incremental=False, context=context)
 
 
 @dagster.schedule(
@@ -453,10 +521,10 @@ def full_sharded_backup_schedule():
     cron_schedule=settings.CLICKHOUSE_FULL_BACKUP_SCHEDULE,
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
-def full_non_sharded_backup_schedule():
+def full_non_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch a full backup for non-sharded tables"""
     for table in NON_SHARDED_TABLES:
-        yield run_backup_request(table, incremental=False)
+        yield run_backup_request(table, incremental=False, context=context)
 
 
 @dagster.schedule(
@@ -464,10 +532,10 @@ def full_non_sharded_backup_schedule():
     cron_schedule=settings.CLICKHOUSE_INCREMENTAL_BACKUP_SCHEDULE,
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
-def incremental_sharded_backup_schedule():
+def incremental_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch an incremental backup for sharded tables"""
     for table in SHARDED_TABLES:
-        yield run_backup_request(table, incremental=True)
+        yield run_backup_request(table, incremental=True, context=context)
 
 
 @dagster.schedule(
@@ -475,7 +543,7 @@ def incremental_sharded_backup_schedule():
     cron_schedule=settings.CLICKHOUSE_INCREMENTAL_BACKUP_SCHEDULE,
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
-def incremental_non_sharded_backup_schedule():
+def incremental_non_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch an incremental backup for non-sharded tables"""
     for table in NON_SHARDED_TABLES:
-        yield run_backup_request(table, incremental=True)
+        yield run_backup_request(table, incremental=True, context=context)

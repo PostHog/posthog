@@ -6,7 +6,7 @@
 import { DateTime } from 'luxon'
 import { Counter, Gauge } from 'prom-client'
 
-import { PluginsServerConfig } from '../../../types'
+import { HealthCheckResultError, PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
@@ -16,6 +16,7 @@ import {
     CyclotronJobQueueKind,
     CyclotronJobQueueSource,
 } from '../../types'
+import { CyclotronJobQueueDelay } from './job-queue-delay'
 import { CyclotronJobQueueKafka } from './job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './job-queue-postgres'
 
@@ -51,19 +52,24 @@ export class CyclotronJobQueue {
     private producerForceScheduledToPostgres: boolean
     private jobQueuePostgres: CyclotronJobQueuePostgres
     private jobQueueKafka: CyclotronJobQueueKafka
+    private jobQueueDelay: CyclotronJobQueueDelay
 
     constructor(
         private config: PluginsServerConfig,
         private queue: CyclotronJobQueueKind,
-        private _consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+        private _consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
+        consumerMode?: CyclotronJobQueueSource
     ) {
-        this.consumerMode = this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE
+        this.consumerMode = consumerMode ?? this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE
         this.producerMapping = getProducerMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING)
         this.producerTeamMapping = getProducerTeamMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING)
         this.producerForceScheduledToPostgres = this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES
 
         this.jobQueueKafka = new CyclotronJobQueueKafka(this.config, this.queue, (invocations) =>
             this.consumeBatch(invocations, 'kafka')
+        )
+        this.jobQueueDelay = new CyclotronJobQueueDelay(this.config, this.queue, (invocations) =>
+            this.consumeBatch(invocations, 'delay')
         )
         this.jobQueuePostgres = new CyclotronJobQueuePostgres(this.config, this.queue, (invocations) =>
             this.consumeBatch(invocations, 'postgres')
@@ -123,6 +129,10 @@ export class CyclotronJobQueue {
         if (anySplitRouting || targets.has('kafka')) {
             await this.jobQueueKafka.startAsProducer()
         }
+
+        if (this.consumerMode === 'delay') {
+            await this.jobQueueDelay.startAsProducer()
+        }
     }
 
     public async start() {
@@ -135,25 +145,39 @@ export class CyclotronJobQueue {
 
         if (this.consumerMode === 'postgres') {
             await this.jobQueuePostgres.startAsConsumer()
-        } else {
+        } else if (this.consumerMode === 'kafka') {
             await this.jobQueueKafka.startAsConsumer()
+        } else if (this.consumerMode === 'delay') {
+            await this.jobQueueDelay.startAsConsumer()
         }
     }
 
     public async stop() {
         // Important - first shut down the consumers so we aren't processing anything
-        await Promise.all([this.jobQueuePostgres.stopConsumer(), this.jobQueueKafka.stopConsumer()])
+        await Promise.all([
+            this.jobQueuePostgres.stopConsumer(),
+            this.jobQueueKafka.stopConsumer(),
+            this.jobQueueDelay.stopConsumer(),
+        ])
 
         // Only then do we shut down the producers
-        await Promise.all([this.jobQueuePostgres.stopProducer(), this.jobQueueKafka.stopProducer()])
+        await Promise.all([
+            this.jobQueuePostgres.stopProducer(),
+            this.jobQueueKafka.stopProducer(),
+            this.jobQueueDelay.stopProducer(),
+        ])
     }
 
     public isHealthy() {
         if (this.consumerMode === 'postgres') {
             return this.jobQueuePostgres.isHealthy()
-        } else {
+        } else if (this.consumerMode === 'kafka') {
             return this.jobQueueKafka.isHealthy()
+        } else if (this.consumerMode === 'delay') {
+            return this.jobQueueDelay.isHealthy()
         }
+
+        return new HealthCheckResultError('Invalid consumer mode', {})
     }
 
     private getTarget(invocation: CyclotronJobInvocation): CyclotronJobQueueSource {
@@ -161,7 +185,7 @@ export class CyclotronJobQueue {
             this.producerForceScheduledToPostgres &&
             invocation.queueScheduledAt &&
             invocation.queueScheduledAt > DateTime.now().plus({ milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS }) &&
-            invocation.queue !== 'hog_overflow' // overflow is always sent to kafka
+            invocation.queue !== 'hogoverflow' // overflow is always sent to kafka
         ) {
             // Kafka doesn't support delays so if enabled we should force scheduled jobs to postgres
             return 'postgres'

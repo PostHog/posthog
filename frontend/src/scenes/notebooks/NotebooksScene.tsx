@@ -1,31 +1,35 @@
-import './NotebookScene.scss'
-
 import { router } from 'kea-router'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
-import { PageHeader } from 'lib/components/PageHeader'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { base64Encode } from 'lib/utils'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
-import { getAppContext } from 'lib/utils/getAppContext'
+import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NotebooksTable } from './NotebooksTable/NotebooksTable'
 
 export const scene: SceneExport = {
     component: NotebooksScene,
+    logic: notebooksTableLogic,
 }
 
 export function NotebooksScene(): JSX.Element {
     return (
-        <div className="deprecated-space-y-4">
-            <PageHeader
-                buttons={
+        <SceneContent>
+            <SceneTitleSection
+                name="Notebooks"
+                resourceType={{
+                    type: 'notebook',
+                }}
+                actions={
                     <>
                         <LemonMenu
                             items={[
@@ -62,27 +66,23 @@ export function NotebooksScene(): JSX.Element {
                             <LemonButton icon={<IconEllipsis />} size="small" />
                         </LemonMenu>
                         <Tooltip title="Like a Notebook but all your exploration is persisted to the URL for easy sharing.">
-                            <LemonButton data-attr="new-canvas" to={urls.canvas()} type="secondary">
+                            <LemonButton size="small" data-attr="new-canvas" to={urls.canvas()} type="secondary">
                                 New canvas
                             </LemonButton>
                         </Tooltip>
-                        <AccessControlledLemonButton
-                            data-attr="new-notebook"
-                            to={urls.notebook('new')}
-                            type="primary"
+                        <AccessControlAction
                             resourceType={AccessControlResourceType.Notebook}
                             minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={
-                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Notebook]
-                            }
                         >
-                            New notebook
-                        </AccessControlledLemonButton>
+                            <LemonButton size="small" data-attr="new-notebook" to={urls.notebook('new')} type="primary">
+                                New notebook
+                            </LemonButton>
+                        </AccessControlAction>
                     </>
                 }
             />
 
             <NotebooksTable />
-        </div>
+        </SceneContent>
     )
 }

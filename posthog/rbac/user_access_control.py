@@ -50,11 +50,62 @@ ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(Ac
 ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
 
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
+    "action",
     "feature_flag",
     "dashboard",
     "insight",
     "notebook",
+    "session_recording",
+    "revenue_analytics",
+    "survey",
+    "experiment",
+    "web_analytics",
 )
+
+# Resource inheritance mapping - child resources inherit access from parent resources
+RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
+    "session_recording_playlist": "session_recording",
+}
+
+
+class UserAccessControlError(Exception):
+    resource: APIScopeObject
+    required_level: AccessControlLevel
+    resource_id: Optional[str]
+
+    def __init__(self, resource: APIScopeObject, required_level: AccessControlLevel, resource_id: Optional[str] = None):
+        super().__init__(
+            f"Access control failure. You don't have `{required_level}` access to the `{resource}` resource."
+        )
+        self.resource = resource
+        self.required_level = required_level
+        self.resource_id = resource_id
+
+
+def get_field_access_control_map(model_class: type[Model]) -> dict[str, tuple[APIScopeObject, AccessControlLevel]]:
+    """
+    Dynamically retrieve field-level access control requirements from model fields.
+    This function looks for fields decorated with @requires_access.
+    """
+    field_access_map = {}
+
+    # Iterate through all fields in the model
+    for field in model_class._meta.get_fields():
+        # Check if the field has access control metadata
+        if hasattr(field, "_access_control_resource") and hasattr(field, "_access_control_level"):
+            field_access_map[field.name] = (field._access_control_resource, field._access_control_level)
+
+    return field_access_map
+
+
+def resource_to_display_name(resource: APIScopeObject) -> str:
+    """Convert resource name to human-readable display name"""
+    # Handle special cases
+    if resource == "organization":
+        return "organization"  # singular
+
+    # Default: replace underscores and add 's' for plural
+    return f"{resource.replace('_', ' ')}s"
 
 
 def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
@@ -70,6 +121,13 @@ def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
     if resource in ["organization"]:
         return "member"
     return "editor"
+
+
+def minimum_access_level(resource: APIScopeObject) -> AccessControlLevel:
+    """Returns the minimum allowed access level for a resource. 'none' is not included if a minimum is specified."""
+    if resource == "action":
+        return "viewer"
+    return "none"
 
 
 def highest_access_level(resource: APIScopeObject) -> AccessControlLevel:
@@ -98,6 +156,10 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "feature_flag"
     if name == "plugin_config":
         return "plugin"
+    if name == "sessionrecording":
+        return "session_recording"
+    if name == "sessionrecordingplaylist":
+        return "session_recording_playlist"
 
     if name not in API_SCOPE_OBJECTS:
         return None
@@ -495,6 +557,12 @@ class UserAccessControl:
         We find all relevant access controls and then return the highest value
         """
 
+        # Check if this resource inherits access from a parent resource
+        parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
+        if parent_resource:
+            # Use parent resource for access control checks
+            return self.access_level_for_resource(parent_resource)
+
         # These are resources which we don't have resource level access controls for
         if resource == "organization" or resource == "project" or resource == "plugin":
             return default_access_level(resource)
@@ -536,10 +604,25 @@ class UserAccessControl:
     def check_access_level_for_resource(self, resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
         access_level = self.access_level_for_resource(resource)
 
+        # For inherited resources, use the parent resource's access levels for comparison
+        comparison_resource = RESOURCE_INHERITANCE_MAP.get(resource, resource)
+
         if not access_level:
             return False
 
-        return access_level_satisfied_for_resource(resource, access_level, required_level)
+        return access_level_satisfied_for_resource(comparison_resource, access_level, required_level)
+
+    def assert_access_level_for_resource(self, resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
+        """
+        Stricter version of `check_access_level_for_resource`.
+        Checks for specific object-level access as well as resource-level access.
+        If they don't, raise a `UserAccessControlError`.
+        """
+
+        if not self.check_access_level_for_resource(resource, required_level):
+            raise UserAccessControlError(resource, required_level)
+
+        return True
 
     def has_any_specific_access_for_resource(
         self, resource: APIScopeObject, required_level: AccessControlLevel
@@ -825,3 +908,43 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             self._preloaded_access_controls = True
 
         return self.user_access_control.get_user_access_level(obj)
+
+    def validate(self, attrs):
+        """
+        Validate field-level access control for model updates.
+        Only checks fields that are being modified and have access control requirements.
+        """
+        attrs = super().validate(attrs)
+
+        # Only perform field access control validation for updates (not creates)
+        if not self.instance:
+            return attrs
+
+        # Get field access control mappings for this model
+        model_class = self.instance.__class__
+        field_mappings = get_field_access_control_map(model_class)
+
+        # If no field access controls are defined for this model, continue
+        if not field_mappings:
+            return attrs
+
+        # Check access control for each field being modified
+        user_access_control = self.user_access_control
+        if not user_access_control:
+            return attrs
+
+        for field_name, _new_value in attrs.items():
+            if field_name not in field_mappings:
+                continue
+
+            # Get the required resource and access level for this field
+            resource, required_level = field_mappings[field_name]
+
+            # Check if user has the required access level
+            if not user_access_control.check_access_level_for_resource(resource, required_level):
+                display_name = resource_to_display_name(resource)
+                raise serializers.ValidationError(
+                    {field_name: f"You need {required_level} access to {display_name} to modify this field."}
+                )
+
+        return attrs

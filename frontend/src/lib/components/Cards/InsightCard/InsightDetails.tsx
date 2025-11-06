@@ -18,7 +18,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { IconCalculate } from 'lib/lemon-ui/icons'
-import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
+import { allOperatorsMapping, capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { MathCategory, MathDefinition, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
@@ -28,6 +28,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyEntityNode,
+    BreakdownFilter,
     FunnelsQuery,
     HogQLQuery,
     HogQLVariable,
@@ -39,6 +40,7 @@ import {
     PathsV2Query,
     RetentionQuery,
     StickinessQuery,
+    TrendsFormulaNode,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import {
@@ -313,13 +315,17 @@ function RetentionSummary({ query }: { query: RetentionQuery }): JSX.Element {
             and came back to perform
             <EntityDisplay
                 entity={
-                    {
-                        ...query.retentionFilter.returningEntity,
-                        kind:
-                            query.retentionFilter.returningEntity?.type === 'actions'
-                                ? NodeKind.ActionsNode
-                                : NodeKind.EventsNode,
-                    } as AnyEntityNode
+                    query.retentionFilter.returningEntity?.type === 'actions'
+                        ? {
+                              kind: NodeKind.ActionsNode,
+                              name: query.retentionFilter.returningEntity.name,
+                              id: query.retentionFilter.returningEntity.id as number,
+                          }
+                        : {
+                              kind: NodeKind.EventsNode,
+                              name: query.retentionFilter.returningEntity?.name,
+                              event: query.retentionFilter.returningEntity?.id as string,
+                          }
                 }
             />
             in any of the next periods
@@ -343,16 +349,7 @@ export function SeriesSummary({
                 </CodeSnippet>
             ) : (
                 <div className="InsightDetails__query">
-                    {isTrendsQuery(query) && query.trendsFilter?.formula && (
-                        <>
-                            <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
-                                <span>
-                                    Formula:<code>{query.trendsFilter?.formula}</code>
-                                </span>
-                            </LemonRow>
-                            <LemonDivider />
-                        </>
-                    )}
+                    {isTrendsQuery(query) && <FormulaSummary query={query} />}
                     <div className="InsightDetails__series">
                         {isPathsQuery(query) ? (
                             <PathsSummary query={query} />
@@ -379,10 +376,41 @@ export function SeriesSummary({
     )
 }
 
+export function FormulaSummary({ query }: { query: TrendsQuery }): JSX.Element | null {
+    const formulaNodes =
+        query.trendsFilter?.formulaNodes ||
+        (query.trendsFilter?.formula ? ([{ formula: query.trendsFilter?.formula }] as TrendsFormulaNode[]) : null)
+
+    if (formulaNodes == null) {
+        return null
+    }
+
+    return (
+        <>
+            {formulaNodes.map((node) => (
+                <>
+                    <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
+                        {node.custom_name ? (
+                            <span>
+                                Formula <b>"{node.custom_name}"</b>: <code>{node.formula}</code>
+                            </span>
+                        ) : (
+                            <span>
+                                Formula: <code>{node.formula}</code>
+                            </span>
+                        )}
+                    </LemonRow>
+                    <LemonDivider />
+                </>
+            ))}
+        </>
+    )
+}
+
 export function PropertiesSummary({
     properties,
 }: {
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null
 }): JSX.Element {
     return (
         <section>
@@ -432,28 +460,53 @@ export function VariablesSummary({
     )
 }
 
-export function BreakdownSummary({ query }: { query: InsightQueryNode | HogQLQuery }): JSX.Element | null {
+export function InsightBreakdownSummary({ query }: { query: InsightQueryNode | HogQLQuery }): JSX.Element | null {
     if (!isInsightQueryWithBreakdown(query) || !isValidBreakdown(query.breakdownFilter)) {
         return null
     }
 
-    const { breakdown_type, breakdown, breakdowns } = query.breakdownFilter
+    return <BreakdownSummary breakdownFilter={query.breakdownFilter} />
+}
 
+export function BreakdownSummary({
+    breakdownFilter,
+}: {
+    breakdownFilter: BreakdownFilter | null | undefined
+}): JSX.Element | null {
     return (
         <section>
             <h5>Breakdown by</h5>
             <div>
-                {Array.isArray(breakdowns)
-                    ? breakdowns.map((b) => (
-                          <BreakdownTag key={`${b.type}-${b.property}`} breakdown={b.property} breakdownType={b.type} />
-                      ))
-                    : breakdown &&
-                      (Array.isArray(breakdown)
-                          ? breakdown
-                          : [breakdown].map((b) => (
-                                <BreakdownTag key={b} breakdown={b} breakdownType={breakdown_type} />
-                            )))}
+                {!isValidBreakdown(breakdownFilter) ? (
+                    <i>None</i>
+                ) : Array.isArray(breakdownFilter.breakdowns) ? (
+                    breakdownFilter.breakdowns.map((b) => (
+                        <BreakdownTag key={`${b.type}-${b.property}`} breakdown={b.property} breakdownType={b.type} />
+                    ))
+                ) : (
+                    breakdownFilter.breakdown &&
+                    (Array.isArray(breakdownFilter.breakdown)
+                        ? breakdownFilter.breakdown
+                        : [breakdownFilter.breakdown].map((b) => (
+                              <BreakdownTag key={b} breakdown={b} breakdownType={breakdownFilter.breakdown_type} />
+                          )))
+                )}
             </div>
+        </section>
+    )
+}
+
+export function DateRangeSummary({
+    dateFrom,
+    dateTo,
+}: {
+    dateFrom: string | null | undefined
+    dateTo: string | null | undefined
+}): JSX.Element | null {
+    return (
+        <section>
+            <h5>Date range</h5>
+            <div>{dateFilterToText(dateFrom, dateTo, null)}</div>
         </section>
     )
 }
@@ -490,7 +543,7 @@ export const InsightDetails = React.memo(
                                 isHogQLQuery(query.source) ? query.source.filters?.properties : query.source.properties
                             }
                         />
-                        <BreakdownSummary query={query.source} />
+                        <InsightBreakdownSummary query={query.source} />
                     </>
                 ) : null}
                 {footerInfo && (

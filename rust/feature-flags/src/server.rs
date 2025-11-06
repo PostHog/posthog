@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_database::get_pool;
 use common_geoip::GeoIpClient;
 use common_redis::RedisClient;
 use health::{HealthHandle, HealthRegistry};
@@ -13,6 +12,7 @@ use tokio::net::TcpListener;
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
+use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
 use crate::router;
 use common_cookieless::CookielessManager;
@@ -49,40 +49,23 @@ where
             }
         };
 
-    let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await {
-        Ok(client) => {
-            tracing::info!("Successfully created read Postgres client");
-            Arc::new(client)
+    // Create database pools with persons routing support
+    let database_pools = match DatabasePools::from_config(&config).await {
+        Ok(pools) => {
+            tracing::info!("Successfully created database pools");
+            if config.is_persons_db_routing_enabled() {
+                tracing::info!("Persons database routing is enabled");
+            }
+            Arc::new(pools)
         }
         Err(e) => {
             tracing::error!(
                 error = %e,
-                url = %config.read_database_url,
-                max_connections = config.max_pg_connections,
-                "Failed to create read Postgres client"
+                "Failed to create database pools"
             );
             return;
         }
     };
-
-    let writer =
-        // TODO - we should have a dedicated URL for both this and the reader – the reader will read
-        // from the replica, and the writer will write to the main database.
-        match get_pool(&config.write_database_url, config.max_pg_connections).await {
-            Ok(client) => {
-                tracing::info!("Successfully created write Postgres client");
-                Arc::new(client)
-            }
-            Err(e) => {
-                tracing::error!(
-                    error = %e,
-                    url = %config.write_database_url,
-                    max_connections = config.max_pg_connections,
-                    "Failed to create write Postgres client"
-                );
-                return;
-            }
-        };
 
     let geoip_service = match GeoIpClient::new(config.get_maxmind_db_path()) {
         Ok(service) => Arc::new(service),
@@ -97,27 +80,31 @@ where
     };
 
     let cohort_cache = Arc::new(CohortCacheManager::new(
-        reader.clone(),
+        database_pools.non_persons_reader.clone(),
         Some(config.cache_max_cohort_entries),
         Some(config.cache_ttl_seconds),
     ));
 
     let health = HealthRegistry::new("liveness");
 
-    // TODO - we don't have a more complex health check yet, but we should add e.g. some around DB operations
+    // Liveness checks only verify the process is alive (simple heartbeat loop).
+    // Readiness checks (in router.rs) verify DB connectivity before accepting traffic.
     let simple_loop = health
-        .register("simple_loop".to_string(), Duration::from_secs(30))
+        .register(
+            "simple_loop".to_string(),
+            Duration::from_secs(config.health_check_interval_secs),
+        )
         .await;
     tokio::spawn(liveness_loop(simple_loop));
 
     // Start database pool monitoring
-    let db_monitor = DatabasePoolMonitor::new(reader.clone(), writer.clone());
+    let db_monitor = DatabasePoolMonitor::new(database_pools.clone(), &config);
     tokio::spawn(async move {
         db_monitor.start_monitoring().await;
     });
 
     let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
-        Duration::from_secs(5),
+        Duration::from_secs(config.billing_limiter_cache_ttl_secs),
         redis_reader_client.clone(), // NB: the limiter only reads from redis, so it's safe to just use the reader client
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
@@ -130,7 +117,7 @@ where
     };
 
     let session_replay_billing_limiter = match SessionReplayLimiter::new(
-        Duration::from_secs(5),
+        Duration::from_secs(config.billing_limiter_cache_ttl_secs),
         redis_reader_client.clone(), // NB: the limiter only reads from redis, so it's safe to just use the reader client
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
@@ -163,8 +150,7 @@ where
     let app = router::router(
         redis_reader_client,
         redis_writer_client,
-        reader,
-        writer,
+        database_pools,
         cohort_cache,
         geoip_service,
         health,

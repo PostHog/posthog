@@ -56,7 +56,7 @@ class AdminOAuth2Middleware:
         if request.path == "/admin/oauth2/callback":
             return self.get_response(request)
 
-        if not request.user.is_authenticated:
+        if not request.user.is_authenticated or not request.user.is_staff:
             return self.get_response(request)
 
         if not request.user.email:

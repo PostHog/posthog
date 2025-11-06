@@ -22,10 +22,10 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models import Action
 from posthog.models.team.team import Team
-from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
-from posthog.warehouse.models.credential import DataWarehouseCredential
-from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 
+from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSource
+from products.data_warehouse.backend.models.credential import DataWarehouseCredential
+from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
@@ -34,6 +34,40 @@ TEST_DATE_FROM = "2024-11-01"
 TEST_DATE_TO = "2024-12-31"
 TEST_BUCKET_BASE = "test_storage_bucket-posthog.marketing_analytics"
 DEFAULT_LIMIT = 100
+
+
+FACEBOOK_SOURCE_MAP = {
+    "campaign": "campaign1",
+    "source": "source1",
+    "cost": "spend1",
+    "date": "date1",
+    "impressions": "impressions1",
+    "clicks": "clicks1",
+    "currency": "USD",
+    "reported_conversion": "conversions1",
+}
+
+TIKTOK_SOURCE_MAP = {
+    "campaign": "campaign2",
+    "source": "source2",
+    "cost": "spend2",
+    "date": "date2",
+    "impressions": "impressions2",
+    "clicks": "clicks2",
+    "currency": "USD",
+    "reported_conversion": None,
+}
+
+LINKEDIN_SOURCE_MAP = {
+    "campaign": "campaign3",
+    "source": "source3",
+    "cost": "spend3",
+    "date": "date3",
+    "impressions": "impressions3",
+    "clicks": "clicks3",
+    "currency": "USD",
+    "reported_conversion": None,
+}
 
 
 def get_default_query_runner(query: MarketingAnalyticsTableQuery, team: Team) -> MarketingAnalyticsTableQueryRunner:
@@ -95,6 +129,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
                     "impressions1": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "clicks1": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "source1": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "conversions1": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                 },
             ),
             "tiktok_ads": DataConfig(
@@ -288,39 +323,15 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         source_configs = [
             {
                 "table_id": facebook_info.table.id,
-                "source_map": {
-                    "campaign": "campaign1",
-                    "source": "source1",
-                    "cost": "spend1",
-                    "date": "date1",
-                    "impressions": "impressions1",
-                    "clicks": "clicks1",
-                    "currency": "USD",
-                },
+                "source_map": FACEBOOK_SOURCE_MAP,
             },
             {
                 "table_id": tiktok_info.table.id,
-                "source_map": {
-                    "campaign": "campaign2",
-                    "source": "source2",
-                    "cost": "spend2",
-                    "date": "date2",
-                    "impressions": "impressions2",
-                    "clicks": "clicks2",
-                    "currency": "USD",
-                },
+                "source_map": TIKTOK_SOURCE_MAP,
             },
             {
                 "table_id": linkedin_info.table.id,
-                "source_map": {
-                    "campaign": "campaign3",
-                    "source": "source3",
-                    "cost": "spend3",
-                    "date": "date3",
-                    "impressions": "impressions3",
-                    "clicks": "clicks3",
-                    "currency": "USD",
-                },
+                "source_map": LINKEDIN_SOURCE_MAP,
             },
         ]
         self._setup_team_source_configs(source_configs)
@@ -340,15 +351,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         source_configs = [
             {
                 "table_id": facebook_info.table.id,
-                "source_map": {
-                    "campaign": "campaign1",
-                    "source": "source1",
-                    "cost": "spend1",
-                    "date": "date1",
-                    "impressions": "impressions1",
-                    "clicks": "clicks1",
-                    "currency": "USD",
-                },
+                "source_map": FACEBOOK_SOURCE_MAP,
             }
         ]
         self._setup_team_source_configs(source_configs)
@@ -379,15 +382,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         source_configs = [
             {
                 "table_id": 99999,
-                "source_map": {
-                    "campaign": "campaign1",
-                    "source": "source1",
-                    "cost": "spend1",
-                    "date": "date1",
-                    "impressions": "impressions1",
-                    "clicks": "clicks1",
-                    "currency": "USD",
-                },
+                "source_map": FACEBOOK_SOURCE_MAP,
             }
         ]
         self._setup_team_source_configs(source_configs)
@@ -408,13 +403,8 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
             {
                 "table_id": facebook_info.table.id,
                 "source_map": {
+                    **FACEBOOK_SOURCE_MAP,
                     "campaign": "nonexistent_column",
-                    "source": "source1",
-                    "cost": "spend1",
-                    "date": "date1",
-                    "impressions": "impressions1",
-                    "clicks": "clicks1",
-                    "currency": "USD",
                 },
             }
         ]
@@ -434,15 +424,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         source_configs = [
             {
                 "table_id": facebook_info.table.id,
-                "source_map": {
-                    "campaign": "campaign1",
-                    "source": "source1",
-                    "cost": "spend1",
-                    "date": "date1",
-                    "impressions": "impressions1",
-                    "clicks": "clicks1",
-                    "currency": "USD",
-                },
+                "source_map": FACEBOOK_SOURCE_MAP,
             }
         ]
         self._setup_team_source_configs(source_configs)
@@ -466,7 +448,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
         assert response.results is not None
 
-        expected_columns = 9
+        expected_columns = 10
         actual_columns = len(response.columns) if response.columns else 0
         assert (
             actual_columns == expected_columns
@@ -480,15 +462,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         source_configs = [
             {
                 "table_id": facebook_info.table.id,
-                "source_map": {
-                    "campaign": "campaign1",
-                    "source": "source1",
-                    "cost": "spend1",
-                    "date": "date1",
-                    "impressions": "impressions1",
-                    "clicks": "clicks1",
-                    "currency": "USD",
-                },
+                "source_map": FACEBOOK_SOURCE_MAP,
             }
         ]
         self._setup_team_source_configs(source_configs)
@@ -528,7 +502,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
 
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
         assert response.results is not None
-        assert len(response.columns) == 11, "Should have 11 columns including multiple conversion goal columns"
+        assert len(response.columns) == 12, "Should have 12 columns including multiple conversion goal columns"
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_comprehensive_marketing_analytics_basic(self):
@@ -537,14 +511,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         source_configs = [
             {
                 "table_id": facebook_info.table.id,
-                "source_map": {
-                    "campaign": "campaign1",
-                    "source": "source1",
-                    "cost": "spend1",
-                    "date": "date1",
-                    "impressions": "impressions1",
-                    "clicks": "clicks1",
-                },
+                "source_map": FACEBOOK_SOURCE_MAP,
             }
         ]
 

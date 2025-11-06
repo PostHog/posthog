@@ -1,27 +1,36 @@
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
-import yaml
 import structlog
 from rest_framework import serializers
 
 from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.constants import HALLUCINATED_EVENTS_MIN_RATIO
-from ee.hogai.session_summaries.utils import (
-    get_column_index,
-    prepare_datetime,
-    strip_raw_llm_content,
-    unpack_full_event_id,
-)
+from ee.hogai.session_summaries.utils import get_column_index, prepare_datetime, unpack_full_event_id
+from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
 
 logger = structlog.get_logger(__name__)
+
+
+class SessionSummaryIssueTypes(str, Enum):
+    ABANDONMENT = "abandonment"
+    CONFUSION = "confusion"
+    EXCEPTION = "exception"
+
+
+class SessionSummaryExceptionTypes(str, Enum):
+    BLOCKING = "blocking"
+    NON_BLOCKING = "non-blocking"
 
 
 class RawKeyActionSerializer(serializers.Serializer):
     description = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
     abandonment = serializers.BooleanField(required=False, default=False, allow_null=True)
     confusion = serializers.BooleanField(required=False, default=False, allow_null=True)
-    exception = serializers.ChoiceField(choices=["blocking", "non-blocking"], required=False, allow_null=True)
+    exception = serializers.ChoiceField(
+        choices=[e.value for e in SessionSummaryExceptionTypes], required=False, allow_null=True
+    )
     event_id = serializers.CharField(min_length=1, max_length=128, required=False, allow_null=True)
 
 
@@ -205,7 +214,9 @@ def load_raw_session_summary_from_llm_content(
     if not raw_content:
         raise SummaryValidationError(f"No LLM content found when summarizing session_id {session_id}")
     try:
-        json_content: dict = yaml.safe_load(strip_raw_llm_content(raw_content))
+        json_content = load_yaml_from_raw_llm_content(raw_content=raw_content, final_validation=final_validation)
+        if not isinstance(json_content, dict):
+            raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
         raise SummaryValidationError(
             f"Error loading YAML content into JSON when summarizing session_id {session_id}: {err}"
@@ -433,9 +444,9 @@ def _calculate_segment_meta(
     confusion_count = 0
     exception_count = 0
     for key_action_event in key_group_events:
-        abandonment = key_action_event.get("abandonment")
-        confusion = key_action_event.get("confusion")
-        exception = key_action_event.get("exception")
+        abandonment = key_action_event.get(SessionSummaryIssueTypes.ABANDONMENT.value)
+        confusion = key_action_event.get(SessionSummaryIssueTypes.CONFUSION.value)
+        exception = key_action_event.get(SessionSummaryIssueTypes.EXCEPTION.value)
         # Count each type of issue
         if abandonment:
             abandonment_count += 1

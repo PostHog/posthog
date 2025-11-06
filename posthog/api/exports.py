@@ -2,6 +2,7 @@ import threading
 from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
 from django.http import HttpResponse
 from django.utils.timezone import now
 
@@ -16,8 +17,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.constants import VIDEO_EXPORT_TASK_QUEUE
-from posthog.event_usage import report_user_action
+from posthog.event_usage import groups
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
@@ -29,9 +29,14 @@ from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExpo
 
 VIDEO_EXPORT_SEMAPHORE = threading.Semaphore(10)  # Allow max 10 concurrent video exports
 
+# Allow max 10 full video exports per team per calendar month
+FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM = 10
+
 logger = structlog.get_logger(__name__)
 
-SIX_MONTHS = timedelta(weeks=26)
+SEVEN_DAYS = timedelta(days=7)
+SIX_MONTHS = timedelta(days=180)
+TWELVE_MONTHS = timedelta(days=365)
 
 
 class ExportedAssetSerializer(serializers.ModelSerializer):
@@ -69,6 +74,22 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             timeout_message = f"Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
             data["exception"] = timeout_message
 
+            distinct_id = (
+                self.context["request"].user.distinct_id
+                if "request" in self.context and self.context["request"].user
+                else str(instance.team.uuid)
+            )
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event="export timeout error returned",
+                properties={
+                    **instance.get_analytics_metadata(),
+                    "timeout_message": timeout_message,
+                    "stuck_duration_seconds": (now() - instance.created_at).total_seconds(),
+                },
+                groups=groups(instance.team.organization, instance.team),
+            )
+
         return data
 
     def validate(self, data: dict) -> dict:
@@ -84,7 +105,48 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         if data.get("insight") and data["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
-        data["expires_after"] = data.get("expires_after", (now() + SIX_MONTHS).date())
+        # NEW: Check full video export limit for team (only MP4 exports with "video" mode)
+        export_format = data.get("export_format")
+        export_context = data.get("export_context", {})
+        export_mode = export_context.get("mode")
+
+        if export_format == "video/mp4" and export_mode == "video":
+            # Calculate the start of the current month
+            current_time = now()
+            start_of_month = current_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+            existing_full_video_exports_count = ExportedAsset.objects.filter(
+                team_id=self.context["team_id"],
+                export_format="video/mp4",
+                export_context__mode="video",
+                created_at__gte=start_of_month,
+            ).count()
+
+            if existing_full_video_exports_count >= FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM:
+                raise ValidationError(
+                    {
+                        "export_limit_exceeded": [
+                            f"Your team has reached the limit of {FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM} full video exports this month."
+                        ]
+                    }
+                )
+
+        # Set expiry based on export format
+        # NB if you change this you have to sync it with S3 expiry lifecycle
+        export_format = data.get("export_format")
+
+        if export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
+            expiry_delta = SEVEN_DAYS
+        elif export_format in (
+            ExportedAsset.ExportFormat.MP4,
+            ExportedAsset.ExportFormat.WEBM,
+            ExportedAsset.ExportFormat.GIF,
+        ):
+            expiry_delta = TWELVE_MONTHS
+        else:
+            expiry_delta = SIX_MONTHS
+
+        data["expires_after"] = (now() + expiry_delta).date()
 
         data["team_id"] = self.context["team_id"]
         return data
@@ -116,25 +178,18 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         team = instance.team
 
-        blocking_exports = posthoganalytics.feature_enabled(
-            "blocking-exports",
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
+        posthoganalytics.capture(
+            distinct_id=user.distinct_id if user else str(team.uuid),
+            event="export requested",
+            properties={
+                **instance.get_analytics_metadata(),
+                "force_async": force_async,
+                "reason": reason,
             },
-            group_properties={
-                "organization": {
-                    "id": str(team.organization_id),
-                },
-                "project": {
-                    "id": str(team.id),
-                },
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
+            groups=groups(team.organization, team),
         )
-        if blocking_exports and not force_async:
+
+        if not force_async:
             if instance.export_format in ("video/mp4", "video/webm", "image/gif"):
                 # recordings-only
                 if not (instance.export_context and instance.export_context.get("session_recording_id")):
@@ -150,7 +205,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         VideoExportWorkflow.run,
                         VideoExportInputs(exported_asset_id=instance.id),
                         id=f"export-video-{instance.id}",
-                        task_queue=VIDEO_EXPORT_TASK_QUEUE,
+                        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     )
@@ -165,10 +220,29 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             else:
                 exporter.export_asset(instance.id)
         else:
-            exporter.export_asset.delay(instance.id)
+            task = exporter.export_asset.delay(instance.id)
+            posthoganalytics.capture(
+                distinct_id=user.distinct_id if user else str(team.uuid),
+                event="export queued",
+                properties={
+                    **instance.get_analytics_metadata(),
+                    "force_async": force_async,
+                    "reason": reason,
+                    "task_id": task.id,
+                },
+                groups=groups(team.organization, team),
+            )
 
-        if user is not None:
-            report_user_action(user, "export created", instance.get_analytics_metadata())
+        posthoganalytics.capture(
+            distinct_id=user.distinct_id if user else str(team.uuid),
+            event="export created",
+            properties={
+                **instance.get_analytics_metadata(),
+                "force_async": force_async,
+                "reason": reason,
+            },
+            groups=groups(team.organization, team),
+        )
 
         instance.refresh_from_db()
         insight_id = instance.insight_id
@@ -222,7 +296,17 @@ class ExportedAssetViewSet(
 
     def safely_get_queryset(self, queryset):
         if self.action == "list":
-            return queryset.filter(created_by=self.request.user)
+            queryset = queryset.filter(created_by=self.request.user)
+
+            context_path_filter = self.request.query_params.get("context_path")
+            if context_path_filter:
+                queryset = queryset.filter(export_context__path__icontains=context_path_filter)
+
+            # Add export format filter
+            export_format_filter = self.request.query_params.get("export_format")
+            if export_format_filter and export_format_filter in ExportedAsset.get_supported_format_values():
+                queryset = queryset.filter(export_format=export_format_filter)
+
         return queryset
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint

@@ -1,0 +1,11 @@
+id,name,app_id,goal_type,objective,spend_cap,created_at,goal_value,modified_at,ad_account_id,age_restriction,effective_status,configured_status,skadnetwork_metadata,funding_instrument_id,special_ad_categories
+1001,Test Reddit Campaign - Widget Discovery,,,CLICKS,,2024-01-15T10:00:00.000000+00:00,,2024-01-15T10:00:00.000000+00:00,test_account_1,NO_AGE_RESTRICTION,ACTIVE,ACTIVE,,1001,"[""NONE""]"
+1002,Test Reddit Campaign - Coffee Makers,,,CLICKS,,2024-02-01T10:00:00.000000+00:00,,2024-02-01T10:00:00.000000+00:00,test_account_1,NO_AGE_RESTRICTION,PAUSED,PAUSED,,1002,"[""NONE""]"
+1003,Test Reddit Campaign - Brand Awareness,,,IMPRESSIONS,50000000,2024-03-10T10:00:00.000000+00:00,,2024-03-10T10:00:00.000000+00:00,test_account_1,NO_AGE_RESTRICTION,ACTIVE,ACTIVE,,1003,"[""NONE""]"
+1004,Test Reddit Campaign - Analytics Platform,,,CLICKS,,2024-03-15T10:00:00.000000+00:00,,2024-03-15T10:00:00.000000+00:00,test_account_1,NO_AGE_RESTRICTION,ACTIVE,ACTIVE,,1004,"[""NONE""]"
+1005,Test Reddit Campaign - Display Europe,,,IMPRESSIONS,25000000,2024-04-01T10:00:00.000000+00:00,,2024-04-01T10:00:00.000000+00:00,test_account_1,NO_AGE_RESTRICTION,PAUSED,PAUSED,,1005,"[""NONE""]"
+1006,Test Reddit Campaign - Productivity Tools,,,CLICKS,,2024-04-05T10:00:00.000000+00:00,,2024-04-05T10:00:00.000000+00:00,test_account_1,NO_AGE_RESTRICTION,PAUSED,PAUSED,,1006,"[""NONE""]"
+1007,Test Reddit Campaign - Data Suite NA,,,CLICKS,,2024-04-10T10:00:00.000000+00:00,,2024-04-10T10:00:00.000000+00:00,test_account_1,NO_AGE_RESTRICTION,PAUSED,PAUSED,,1007,"[""NONE""]"
+1008,Test Reddit Campaign - Analytics Engine DE,,,CLICKS,,2024-04-12T10:00:00.000000+00:00,,2024-04-12T10:00:00.000000+00:00,test_account_1,NO_AGE_RESTRICTION,PAUSED,PAUSED,,1008,"[""NONE""]"
+1009,Test Reddit Campaign - Data Platform APAC,,,CLICKS,,2024-04-15T10:00:00.000000+00:00,,2024-04-15T10:00:00.000000+00:00,test_account_1,NO_AGE_RESTRICTION,PAUSED,PAUSED,,1009,"[""NONE""]"
+1010,Test Reddit Campaign - Competitor Analytics,,,CLICKS,,2024-04-20T10:00:00.000000+00:00,,2024-04-20T10:00:00.000000+00:00,test_account_1,NO_AGE_RESTRICTION,PAUSED,PAUSED,,1010,"[""NONE""]"

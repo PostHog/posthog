@@ -2,23 +2,26 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode, useRef } from 'react'
 
-import { IconCheckCircle, IconChevronDown, IconChevronRight, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconInfo } from '@posthog/icons'
+import { LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
+import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { humanFriendlyCurrency } from 'lib/utils'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType } from '~/types'
 
 import { BillingAddonFeaturesList } from './BillingAddonFeaturesList'
-import { BillingGauge } from './BillingGauge'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
-import { BillingProductPricingTable } from './BillingProductPricingTable'
+import { ConfirmDowngradeModal } from './ConfirmDowngradeModal'
+import { ConfirmUpgradeModal } from './ConfirmUpgradeModal'
 import { ProductPricingModal } from './ProductPricingModal'
+import { TrialCancellationSurveyModal } from './TrialCancellationSurveyModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
+import { isProductVariantSecondary } from './billing-utils'
 import { billingLogic } from './billingLogic'
-import { billingProductAddonLogic } from './billingProductAddonLogic'
 import { billingProductLogic } from './billingProductLogic'
+import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 
 export const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNode => {
     if (!unit) {
@@ -36,12 +39,10 @@ export const formatFlatRate = (flatRate: number, unit: string | null): string | 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
     const { billing } = useValues(billingLogic)
-    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, showTierBreakdown } = useValues(
+    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, isDataPipelinesDeprecated } = useValues(
         billingProductLogic({ product: addon, productRef })
     )
-    const { toggleIsPricingModalOpen, setShowTierBreakdown } = useActions(billingProductLogic({ product: addon }))
-    const logic = billingProductAddonLogic({ addon })
-    const { gaugeItems } = useValues(logic)
+    const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product: addon }))
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
     const tierDisplayOptions: LemonSelectOptions<string> = [
@@ -103,6 +104,17 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                     </LemonTag>
                                 </div>
                             )}
+                            {isDataPipelinesDeprecated && (
+                                <div>
+                                    <Tooltip
+                                        title={`Data pipelines have moved to new, usage-based pricing with a large free allowance. You can no longer upgrade to this add-on and old ingestion-based pricing ended on ${DATA_PIPELINES_CUTOFF_DATE}.`}
+                                    >
+                                        <LemonTag type="warning" icon={<IconInfo />}>
+                                            Deprecated
+                                        </LemonTag>
+                                    </Tooltip>
+                                </div>
+                            )}
                         </div>
                         <p className="ml-0 mb-0">{addon.description} </p>
                         {is_enhanced_persons_og_customer && (
@@ -125,49 +137,11 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             </div>
 
             {/* Features */}
-            <div className={clsx('mt-3', { 'ml-11': addon.type !== 'mobile_replay' })}>
+            <div className={clsx('mt-3', { 'ml-11': !isProductVariantSecondary(addon.type) })}>
                 <BillingAddonFeaturesList
                     addonFeatures={addonFeatures?.filter((feature) => !feature.entitlement_only) || []}
                     addonType={addon.type}
                 />
-
-                {addon.type === 'mobile_replay' && addon.subscribed && (
-                    <>
-                        <div className="flex w-full items-center gap-x-8">
-                            <LemonButton
-                                icon={showTierBreakdown ? <IconChevronDown /> : <IconChevronRight />}
-                                onClick={() => setShowTierBreakdown(!showTierBreakdown)}
-                            />
-                            <div className="grow">
-                                <BillingGauge items={gaugeItems} product={addon} />
-                            </div>
-                            <div className="flex justify-end gap-8 flex-wrap items-end shrink-0">
-                                <Tooltip
-                                    title={`The current amount you have been billed for mobile recordings this ${billing?.billing_period?.interval}.`}
-                                >
-                                    <div className="flex flex-col items-center">
-                                        <div className="font-bold text-3xl leading-7">
-                                            {humanFriendlyCurrency(
-                                                parseFloat(addon.current_amount_usd || '0') *
-                                                    (1 -
-                                                        (billing?.discount_percent
-                                                            ? billing.discount_percent / 100
-                                                            : 0))
-                                            )}
-                                        </div>
-                                        <span className="text-xs text-muted">
-                                            {capitalizeFirstLetter(billing?.billing_period?.interval || '')}
-                                            -to-date
-                                        </span>
-                                    </div>
-                                </Tooltip>
-                            </div>
-                        </div>
-
-                        {showTierBreakdown && <BillingProductPricingTable product={addon} />}
-                    </>
-                )}
-
                 <p className="ml-0 mb-0 mt-2">
                     {addon.docs_url && (
                         <>
@@ -190,7 +164,13 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             />
 
             {/* Unsubscribe survey modal */}
-            {surveyID && <UnsubscribeSurveyModal product={addon} />}
+            {surveyID === UNSUBSCRIBE_SURVEY_ID && <UnsubscribeSurveyModal product={addon} />}
+            {/* Trial cancellation survey modal */}
+            {surveyID === TRIAL_CANCELLATION_SURVEY_ID && <TrialCancellationSurveyModal product={addon} />}
+            {/* Confirm platform addon subscription upgrade */}
+            <ConfirmUpgradeModal product={addon} />
+            {/* Confirm platform addon subscription downgrade */}
+            <ConfirmDowngradeModal product={addon} />
         </div>
     )
 }

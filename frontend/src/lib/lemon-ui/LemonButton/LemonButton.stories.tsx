@@ -4,12 +4,15 @@ import clsx from 'clsx'
 import { IconGear, IconInfo, IconPlus } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { IconCalculate, IconLink } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonButtonWithDropdownProps } from './LemonButton'
 import { More } from './More'
@@ -59,10 +62,10 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
     return (
         <div className="deprecated-space-y-2">
             {types.map((type) => (
-                <>
+                <div key={type}>
                     <h5>type={capitalizeFirstLetter(type || '')}</h5>
                     <StatusesTemplate {...props} type={type} />
-                </>
+                </div>
             ))}
         </div>
     )
@@ -102,10 +105,10 @@ export const Sizes = (): JSX.Element => {
     return (
         <div className="deprecated-space-y-2">
             {sizes.map((size) => (
-                <>
+                <div key={size}>
                     <h5>size={size}</h5>
                     <StatusesTemplate size={size} type="secondary" />
-                </>
+                </div>
             ))}
         </div>
     )
@@ -117,10 +120,10 @@ export const SizesIconOnly = (): JSX.Element => {
     return (
         <div className="deprecated-space-y-2">
             {sizes.map((size) => (
-                <>
+                <div key={size}>
                     <h5>size={size}</h5>
                     <StatusesTemplate size={size} type="secondary" noText />
-                </>
+                </div>
             ))}
         </div>
     )
@@ -250,7 +253,7 @@ export const WithSideAction = (): JSX.Element => {
     return (
         <div className="deprecated-space-y-2">
             {types.map((type) => (
-                <>
+                <div key={type}>
                     <h5>type={capitalizeFirstLetter(type || '')}</h5>
                     <div className="flex items-center gap-2">
                         {statuses.map((status, i) => (
@@ -268,7 +271,7 @@ export const WithSideAction = (): JSX.Element => {
                             </LemonButton>
                         ))}
                     </div>
-                </>
+                </div>
             ))}
         </div>
     )
@@ -437,6 +440,27 @@ export const WithOverflowingContent = (): JSX.Element => {
                 Truncating {longText}
             </LemonButton>
             <LemonButton type="secondary">{longText}</LemonButton>
+        </div>
+    )
+}
+
+export const WithAccessControl = (): JSX.Element => {
+    return (
+        <div className="flex gap-2">
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Project}
+                minAccessLevel={AccessControlLevel.Admin}
+                userAccessLevel={AccessControlLevel.Admin}
+            >
+                <LemonButton type="primary">Enabled (admin ≥ admin)</LemonButton>
+            </AccessControlAction>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Project}
+                minAccessLevel={AccessControlLevel.Admin}
+                userAccessLevel={AccessControlLevel.Viewer}
+            >
+                <LemonButton type="primary">Disabled (viewer {'<'} admin)</LemonButton>
+            </AccessControlAction>
         </div>
     )
 }

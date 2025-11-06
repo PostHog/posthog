@@ -1,12 +1,12 @@
 # serializer version: 1
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_counts_users_only_on_first_exposure
   '''
-  SELECT subq.day AS day,
-         subq.variant AS variant,
-         count(subq.entity_id) AS exposed_count
+  SELECT first_exposures.day AS day,
+         first_exposures.variant AS variant,
+         count(first_exposures.entity_id) AS exposed_count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            if(ifNull(greater(uniqExact(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), '')), 1), 0), '$multiple', any(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''))) AS variant,
             toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
      FROM events
      LEFT OUTER JOIN
@@ -16,18 +16,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
-     GROUP BY entity_id) AS subq
-  GROUP BY subq.day,
-           subq.variant
-  ORDER BY subq.day ASC
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''), ['control', 'test']))
+     GROUP BY entity_id) AS first_exposures
+  WHERE notEmpty(variant)
+  GROUP BY first_exposures.day,
+           first_exposures.variant
+  ORDER BY first_exposures.day ASC
   LIMIT 5000 SETTINGS readonly=2,
-                      max_execution_time=180,
+                      max_execution_time=600,
                       allow_experimental_object_type=1,
                       format_csv_allow_double_quotes=0,
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=0,
+                      allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
                       allow_experimental_join_condition=1
@@ -35,12 +37,12 @@
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_filters_test_accounts
   '''
-  SELECT subq.day AS day,
-         subq.variant AS variant,
-         count(subq.entity_id) AS exposed_count
+  SELECT first_exposures.day AS day,
+         first_exposures.variant AS variant,
+         count(first_exposures.entity_id) AS exposed_count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            if(ifNull(greater(uniqExact(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), '')), 1), 0), '$multiple', any(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''))) AS variant,
             toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
      FROM events
      LEFT OUTER JOIN
@@ -60,18 +62,20 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
-     GROUP BY entity_id) AS subq
-  GROUP BY subq.day,
-           subq.variant
-  ORDER BY subq.day ASC
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''), ['control', 'test']))
+     GROUP BY entity_id) AS first_exposures
+  WHERE notEmpty(variant)
+  GROUP BY first_exposures.day,
+           first_exposures.variant
+  ORDER BY first_exposures.day ASC
   LIMIT 5000 SETTINGS readonly=2,
-                      max_execution_time=180,
+                      max_execution_time=600,
                       allow_experimental_object_type=1,
                       format_csv_allow_double_quotes=0,
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=0,
+                      allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
                       allow_experimental_join_condition=1
@@ -79,12 +83,12 @@
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_filters_test_accounts.1
   '''
-  SELECT subq.day AS day,
-         subq.variant AS variant,
-         count(subq.entity_id) AS exposed_count
+  SELECT first_exposures.day AS day,
+         first_exposures.variant AS variant,
+         count(first_exposures.entity_id) AS exposed_count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            if(ifNull(greater(uniqExact(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), '')), 1), 0), '$multiple', any(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''))) AS variant,
             toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
      FROM events
      LEFT OUTER JOIN
@@ -94,18 +98,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
-     GROUP BY entity_id) AS subq
-  GROUP BY subq.day,
-           subq.variant
-  ORDER BY subq.day ASC
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''), ['control', 'test']))
+     GROUP BY entity_id) AS first_exposures
+  WHERE notEmpty(variant)
+  GROUP BY first_exposures.day,
+           first_exposures.variant
+  ORDER BY first_exposures.day ASC
   LIMIT 5000 SETTINGS readonly=2,
-                      max_execution_time=180,
+                      max_execution_time=600,
                       allow_experimental_object_type=1,
                       format_csv_allow_double_quotes=0,
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=0,
+                      allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
                       allow_experimental_join_condition=1
@@ -113,12 +119,12 @@
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_multiple_variant_handling_first_seen
   '''
-  SELECT subq.day AS day,
-         subq.variant AS variant,
-         count(subq.entity_id) AS exposed_count
+  SELECT first_exposures.day AS day,
+         first_exposures.variant AS variant,
+         count(first_exposures.entity_id) AS exposed_count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS variant,
+            argMin(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''), toTimeZone(events.timestamp, 'UTC')) AS variant,
             toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
      FROM events
      LEFT OUTER JOIN
@@ -128,18 +134,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
-     GROUP BY entity_id) AS subq
-  GROUP BY subq.day,
-           subq.variant
-  ORDER BY subq.day ASC
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''), ['control', 'test']))
+     GROUP BY entity_id) AS first_exposures
+  WHERE notEmpty(variant)
+  GROUP BY first_exposures.day,
+           first_exposures.variant
+  ORDER BY first_exposures.day ASC
   LIMIT 5000 SETTINGS readonly=2,
-                      max_execution_time=180,
+                      max_execution_time=600,
                       allow_experimental_object_type=1,
                       format_csv_allow_double_quotes=0,
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=0,
+                      allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
                       allow_experimental_join_condition=1
@@ -147,12 +155,12 @@
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_returns_correct_timeseries
   '''
-  SELECT subq.day AS day,
-         subq.variant AS variant,
-         count(subq.entity_id) AS exposed_count
+  SELECT first_exposures.day AS day,
+         first_exposures.variant AS variant,
+         count(first_exposures.entity_id) AS exposed_count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            if(ifNull(greater(uniqExact(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), '')), 1), 0), '$multiple', any(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''))) AS variant,
             toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
      FROM events
      LEFT OUTER JOIN
@@ -162,18 +170,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
-     GROUP BY entity_id) AS subq
-  GROUP BY subq.day,
-           subq.variant
-  ORDER BY subq.day ASC
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''), ['control', 'test']))
+     GROUP BY entity_id) AS first_exposures
+  WHERE notEmpty(variant)
+  GROUP BY first_exposures.day,
+           first_exposures.variant
+  ORDER BY first_exposures.day ASC
   LIMIT 5000 SETTINGS readonly=2,
-                      max_execution_time=180,
+                      max_execution_time=600,
                       allow_experimental_object_type=1,
                       format_csv_allow_double_quotes=0,
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=0,
+                      allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
                       allow_experimental_join_condition=1
@@ -181,26 +191,64 @@
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_using_group_aggregation
   '''
-  SELECT subq.day AS day,
-         subq.variant AS variant,
-         count(subq.entity_id) AS exposed_count
+  SELECT first_exposures.day AS day,
+         first_exposures.variant AS variant,
+         count(first_exposures.entity_id) AS exposed_count
   FROM
     (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), '2024-01-07 12:00:00'), '', events.`$group_0`) AS entity_id,
-            if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            if(ifNull(greater(uniqExact(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), '')), 1), 0), '$multiple', any(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''))) AS variant,
             toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
      FROM events
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2024-01-28 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
-     GROUP BY entity_id) AS subq
-  GROUP BY subq.day,
-           subq.variant
-  ORDER BY subq.day ASC
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-28 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''), ['control', 'test']))
+     GROUP BY entity_id) AS first_exposures
+  WHERE notEmpty(variant)
+  GROUP BY first_exposures.day,
+           first_exposures.variant
+  ORDER BY first_exposures.day ASC
   LIMIT 5000 SETTINGS readonly=2,
-                      max_execution_time=180,
+                      max_execution_time=600,
                       allow_experimental_object_type=1,
                       format_csv_allow_double_quotes=0,
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=0,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestExperimentExposuresQueryRunner.test_exposure_query_with_action_as_exposure_criteria
+  '''
+  SELECT first_exposures.day AS day,
+         first_exposures.variant AS variant,
+         count(first_exposures.entity_id) AS exposed_count
+  FROM
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), '')), 1), 0), '$multiple', any(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), ''))) AS variant,
+            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))), and(equals(events.event, 'purchase'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'plan'), ''), 'null'), '^"|"$', ''), 'premium'), 0)), in(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), ''), ['control', 'test']))
+     GROUP BY entity_id) AS first_exposures
+  WHERE notEmpty(variant)
+  GROUP BY first_exposures.day,
+           first_exposures.variant
+  ORDER BY first_exposures.day ASC
+  LIMIT 5000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
                       allow_experimental_join_condition=1
@@ -208,12 +256,12 @@
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_custom_exposure_0__pageview
   '''
-  SELECT subq.day AS day,
-         subq.variant AS variant,
-         count(subq.entity_id) AS exposed_count
+  SELECT first_exposures.day AS day,
+         first_exposures.variant AS variant,
+         count(first_exposures.entity_id) AS exposed_count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+            if(ifNull(greater(uniqExact(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), '')), 1), 0), '$multiple', any(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), ''))) AS variant,
             toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
      FROM events
      LEFT OUTER JOIN
@@ -223,18 +271,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$pageview'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'plan'), ''), 'null'), '^"|"$', ''), 'free'), 1))
-     GROUP BY entity_id) AS subq
-  GROUP BY subq.day,
-           subq.variant
-  ORDER BY subq.day ASC
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))), and(equals(events.event, '$pageview'), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'plan'), ''), 'null'), '^"|"$', ''), 'free'), 1)), in(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), ''), ['control', 'test']))
+     GROUP BY entity_id) AS first_exposures
+  WHERE notEmpty(variant)
+  GROUP BY first_exposures.day,
+           first_exposures.variant
+  ORDER BY first_exposures.day ASC
   LIMIT 5000 SETTINGS readonly=2,
-                      max_execution_time=180,
+                      max_execution_time=600,
                       allow_experimental_object_type=1,
                       format_csv_allow_double_quotes=0,
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=0,
+                      allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
                       allow_experimental_join_condition=1
@@ -242,12 +292,12 @@
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_custom_exposure_1__feature_flag_called
   '''
-  SELECT subq.day AS day,
-         subq.variant AS variant,
-         count(subq.entity_id) AS exposed_count
+  SELECT first_exposures.day AS day,
+         first_exposures.variant AS variant,
+         count(first_exposures.entity_id) AS exposed_count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            if(ifNull(greater(uniqExact(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), '')), 1), 0), '$multiple', any(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''))) AS variant,
             toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
      FROM events
      LEFT OUTER JOIN
@@ -257,18 +307,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'plan'), ''), 'null'), '^"|"$', ''), 'free'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
-     GROUP BY entity_id) AS subq
-  GROUP BY subq.day,
-           subq.variant
-  ORDER BY subq.day ASC
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))), and(and(equals(events.event, '$feature_flag_called'), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'plan'), ''), 'null'), '^"|"$', ''), 'free'), 1)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''), ['control', 'test']))
+     GROUP BY entity_id) AS first_exposures
+  WHERE notEmpty(variant)
+  GROUP BY first_exposures.day,
+           first_exposures.variant
+  ORDER BY first_exposures.day ASC
   LIMIT 5000 SETTINGS readonly=2,
-                      max_execution_time=180,
+                      max_execution_time=600,
                       allow_experimental_object_type=1,
                       format_csv_allow_double_quotes=0,
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=0,
+                      allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
                       allow_experimental_join_condition=1
@@ -276,12 +328,12 @@
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_multiple_variant_exposures
   '''
-  SELECT subq.day AS day,
-         subq.variant AS variant,
-         count(subq.entity_id) AS exposed_count
+  SELECT first_exposures.day AS day,
+         first_exposures.variant AS variant,
+         count(first_exposures.entity_id) AS exposed_count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            if(ifNull(greater(uniqExact(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), '')), 1), 0), '$multiple', any(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''))) AS variant,
             toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
      FROM events
      LEFT OUTER JOIN
@@ -291,18 +343,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
-     GROUP BY entity_id) AS subq
-  GROUP BY subq.day,
-           subq.variant
-  ORDER BY subq.day ASC
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''), ['control', 'test']))
+     GROUP BY entity_id) AS first_exposures
+  WHERE notEmpty(variant)
+  GROUP BY first_exposures.day,
+           first_exposures.variant
+  ORDER BY first_exposures.day ASC
   LIMIT 5000 SETTINGS readonly=2,
-                      max_execution_time=180,
+                      max_execution_time=600,
                       allow_experimental_object_type=1,
                       format_csv_allow_double_quotes=0,
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=0,
+                      allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
                       allow_experimental_join_condition=1
@@ -310,12 +364,12 @@
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_without_feature_flag_property
   '''
-  SELECT subq.day AS day,
-         subq.variant AS variant,
-         count(subq.entity_id) AS exposed_count
+  SELECT first_exposures.day AS day,
+         first_exposures.variant AS variant,
+         count(first_exposures.entity_id) AS exposed_count
   FROM
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            if(ifNull(greater(uniqExact(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), '')), 1), 0), '$multiple', any(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''))) AS variant,
             toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
      FROM events
      LEFT OUTER JOIN
@@ -325,18 +379,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
-     GROUP BY entity_id) AS subq
-  GROUP BY subq.day,
-           subq.variant
-  ORDER BY subq.day ASC
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), ''), ['control', 'test']))
+     GROUP BY entity_id) AS first_exposures
+  WHERE notEmpty(variant)
+  GROUP BY first_exposures.day,
+           first_exposures.variant
+  ORDER BY first_exposures.day ASC
   LIMIT 5000 SETTINGS readonly=2,
-                      max_execution_time=180,
+                      max_execution_time=600,
                       allow_experimental_object_type=1,
                       format_csv_allow_double_quotes=0,
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=0,
+                      allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
                       allow_experimental_join_condition=1

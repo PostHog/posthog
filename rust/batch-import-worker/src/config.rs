@@ -64,6 +64,12 @@ pub struct Config {
     pub identify_memory_cache_capacity: u64,
     #[envconfig(from = "IDENTIFY_MEMORY_CACHE_TTL_SECONDS", default = "3600")]
     pub identify_memory_cache_ttl_seconds: u64,
+
+    // Group cache configuration
+    #[envconfig(from = "GROUP_MEMORY_CACHE_CAPACITY", default = "1000000")]
+    pub group_memory_cache_capacity: u64,
+    #[envconfig(from = "GROUP_MEMORY_CACHE_TTL_SECONDS", default = "3600")]
+    pub group_memory_cache_ttl_seconds: u64,
 }
 
 impl Config {

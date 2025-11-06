@@ -13,6 +13,7 @@ import {
 } from '~/types'
 
 import { getTierDescription } from './BillingProduct'
+import { formatWithDecimals, isProductVariantPrimary } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 
@@ -93,7 +94,7 @@ export const BillingProductPricingTable = ({
                                         {
                                             productName: 'Base price',
                                             usage: compactNumber(tier.current_usage),
-                                            price: `$${tier.unit_amount_usd}`,
+                                            price: `$${formatWithDecimals(parseFloat(tier.unit_amount_usd || '0'))}`,
                                             total: `$${tier.current_amount_usd || '0.00'}`,
                                             projectedTotal: `$${parseFloat(
                                                 tier.projected_amount_usd === 'None'
@@ -105,7 +106,7 @@ export const BillingProductPricingTable = ({
                                             return {
                                                 productName: addon.name,
                                                 usage: compactNumber(addon.tiers?.[i]?.current_usage || 0),
-                                                price: `$${addon.tiers?.[i]?.unit_amount_usd || '0.00'}`,
+                                                price: `$${formatWithDecimals(parseFloat(addon.tiers?.[i]?.unit_amount_usd || '0'))}`,
                                                 total: `$${addon.tiers?.[i]?.current_amount_usd || '0.00'}`,
                                                 projectedTotal: `$${parseFloat(
                                                     addon.tiers?.[i]?.projected_amount_usd === 'None'
@@ -135,28 +136,26 @@ export const BillingProductPricingTable = ({
                           ],
                       }
                       // take the tier.current_amount_usd and add it to the same tier level for all the addons
-                      const totalForTier =
-                          product.type === 'session_replay'
-                              ? parseFloat(tier.current_amount_usd || '0')
-                              : parseFloat(tier.current_amount_usd || '') +
-                                ('addons' in product
-                                    ? product.addons?.reduce(
-                                          (acc: number, addon: BillingProductV2AddonType) =>
-                                              acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''),
-                                          0
-                                      ) || 0
-                                    : 0)
-                      const projectedTotalForTier =
-                          product.type === 'session_replay'
-                              ? parseFloat(tier.projected_amount_usd || '0')
-                              : (parseFloat(tier.projected_amount_usd || '') || 0) +
-                                ('addons' in product
-                                    ? product.addons?.reduce(
-                                          (acc: number, addon: BillingProductV2AddonType) =>
-                                              acc + (parseFloat(addon.tiers?.[i]?.projected_amount_usd || '') || 0),
-                                          0
-                                      ) || 0
-                                    : 0)
+                      const totalForTier = isProductVariantPrimary(product.type)
+                          ? parseFloat(tier.current_amount_usd || '0')
+                          : parseFloat(tier.current_amount_usd || '') +
+                            ('addons' in product
+                                ? product.addons?.reduce(
+                                      (acc: number, addon: BillingProductV2AddonType) =>
+                                          acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''),
+                                      0
+                                  ) || 0
+                                : 0)
+                      const projectedTotalForTier = isProductVariantPrimary(product.type)
+                          ? parseFloat(tier.projected_amount_usd || '0')
+                          : (parseFloat(tier.projected_amount_usd || '') || 0) +
+                            ('addons' in product
+                                ? product.addons?.reduce(
+                                      (acc: number, addon: BillingProductV2AddonType) =>
+                                          acc + (parseFloat(addon.tiers?.[i]?.projected_amount_usd || '') || 0),
+                                      0
+                                  ) || 0
+                                : 0)
 
                       const tierData = {
                           volume: product.tiers // this is silly because we know there are tiers since we check above, but typescript doesn't
@@ -164,7 +163,7 @@ export const BillingProductPricingTable = ({
                               : '',
                           basePrice:
                               tier.unit_amount_usd !== '0'
-                                  ? `$${tier.unit_amount_usd}${
+                                  ? `$${formatWithDecimals(parseFloat(tier.unit_amount_usd || '0'))}${
                                         product.type !== 'session_replay' && subscribedAddons?.length > 0
                                             ? ' + addons'
                                             : ''
@@ -214,7 +213,7 @@ export const BillingProductPricingTable = ({
 
     return (
         <div className="pl-16 pb-8">
-            {(product.tiered || product.type === 'mobile_replay') && tableTierData ? (
+            {product.tiered && tableTierData ? (
                 <>
                     <LemonTable
                         stealth
@@ -234,7 +233,7 @@ export const BillingProductPricingTable = ({
                         Tier breakdowns are updated once daily and may differ from the gauge above.
                     </LemonBanner>
                 </>
-            ) : (
+            ) : parseFloat(product.unit_amount_usd || '0') > 0 ? (
                 <LemonTable
                     stealth
                     embedded
@@ -251,7 +250,7 @@ export const BillingProductPricingTable = ({
                         },
                     ]}
                 />
-            )}
+            ) : null}
         </div>
     )
 }

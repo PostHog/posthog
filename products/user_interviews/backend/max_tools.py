@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.conf import settings
+
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
@@ -17,8 +19,7 @@ class AnalyzeUserInterviewsArgs(BaseModel):
 class AnalyzeUserInterviewsTool(MaxTool):
     name: str = "analyze_user_interviews"
     description: str = "Analyze all user interviews from a specific angle to find patterns and insights"
-    thinking_message: str = "Analyzing user interviews"
-    root_system_prompt_template: str = "Since the user is currently on the user interviews page, you should lean towards the `analyze_user_interviews` when it comes to any questions about users or customers."
+    context_prompt_template: str = "Since the user is currently on the user interviews page, you should lean towards the `analyze_user_interviews` when it comes to any questions about users or customers."
     args_schema: type[BaseModel] = AnalyzeUserInterviewsArgs
 
     def _run_impl(self, analysis_angle: str) -> tuple[str, Any]:
@@ -40,7 +41,7 @@ class AnalyzeUserInterviewsTool(MaxTool):
         interview_summaries = "\n\n".join(interview_summaries)
 
         # Use GPT to analyze the summaries
-        analysis_response = OpenAI().responses.create(
+        analysis_response = OpenAI(base_url=settings.OPENAI_BASE_URL).responses.create(
             model="gpt-4.1-mini",
             input=[
                 {

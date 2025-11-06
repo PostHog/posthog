@@ -2,7 +2,7 @@ import * as prometheus from 'prom-client'
 import express, { Request, Response } from 'ultimate-express'
 
 import { corsMiddleware } from '~/api/middleware/cors'
-import { PluginServerService } from '~/types'
+import { HealthCheckResultError, PluginServerService } from '~/types'
 import { logger } from '~/utils/logger'
 
 prometheus.collectDefaultMetrics()
@@ -65,28 +65,46 @@ const buildGetHealth =
         //     ...
         //   }
         // }
-        const checkResults = await Promise.all(
-            // Note that we do not use `Promise.allSettled` here so we can
-            // assume that all promises have resolved. If there was a
-            // rejected promise, the http server should catch it and return
-            // a 500 status code.
-            services.map(async (service) => {
-                try {
-                    return { service: service.id, status: (await service.healthcheck()) ? 'ok' : 'error' }
-                } catch (error) {
-                    return { service: service.id, status: 'error', error: error.message }
+        const healthCheckPromises = services.map(async (service) => {
+            try {
+                const result = await service.healthcheck()
+                return { service, result }
+            } catch (error) {
+                // If healthcheck throws, create an error result
+                return {
+                    service,
+                    result: new HealthCheckResultError(error instanceof Error ? error.message : 'Unknown error', {}),
                 }
-            })
+            }
+        })
+
+        const healthChecks = await Promise.all(healthCheckPromises)
+
+        // Convert to response format for API
+        const checkResults = healthChecks.map(({ service, result }) => result.toResponse(service.id))
+
+        // Use isError() method to determine status code
+        const statusCode = healthChecks.every(({ result }) => !result.isError()) ? 200 : 503
+
+        const checkResultsMapping = Object.fromEntries(
+            checkResults.map((result) => [
+                result.service,
+                result.message ? { status: result.status, message: result.message } : result.status,
+            ])
         )
-
-        const statusCode = checkResults.every((result) => result.status === 'ok') ? 200 : 503
-
-        const checkResultsMapping = Object.fromEntries(checkResults.map((result) => [result.service, result.status]))
 
         if (statusCode === 200) {
             logger.info('💚', 'Server liveness check succeeded')
         } else {
-            logger.error('💔', 'Server liveness check failed', { checkResults: checkResultsMapping })
+            // Log detailed information for failures
+            const failedServices = checkResults.filter((r) => r.status === 'error')
+            logger.error('💔', 'Server liveness check failed', {
+                failedServices: failedServices.map((s) => ({
+                    service: s.service,
+                    message: s.message,
+                    details: 'details' in s ? s.details : undefined,
+                })),
+            })
         }
 
         return res.status(statusCode).json({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResultsMapping })

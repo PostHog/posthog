@@ -23,7 +23,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.constants import UNIQUE_GROUPS
@@ -61,7 +61,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def _print_hogql_expr(self, conditions: list[ast.Expr]):
         query = cast(ast.SelectQuery, parse_select("SELECT * FROM events"))
         query.where = ast.And(exprs=conditions)
-        sql = print_ast(
+        sql, _ = prepare_and_print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "hogql",

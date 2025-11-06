@@ -7,9 +7,14 @@ edition = "2021"
 workspace = true
 
 [dependencies]
+chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+rdkafka = { workspace = true }
+rust_decimal = "1.37.1"
+sqlx = { workspace = true, features = ["rust_decimal"] }
 uuid = { workspace = true }
 time = { workspace = true }
-sqlx = { workspace = true }
-chrono = { workspace = true }
+dateparser = "0.2"
+jiff = "0.1"
+regex = { workspace = true }

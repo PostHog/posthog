@@ -4,7 +4,6 @@ import { beforeUnload } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
@@ -12,8 +11,9 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
-import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
+import { SessionRecordingPlayerProps } from '../player/SessionRecordingPlayer'
+import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
+import type { sessionRecordingDataCoordinatorLogicType } from '../player/sessionRecordingDataCoordinatorLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingFilePlaybackSceneLogicType } from './sessionRecordingFilePlaybackSceneLogicType'
 import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
@@ -56,15 +56,17 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
  * in practice, it will only wait for 1-2 retries,
  * but a timeout is provided to avoid waiting forever when something breaks
  */
-const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRecordingDataLogicType>> => {
+const waitForDataLogic = async (
+    playerProps: SessionRecordingPlayerProps
+): Promise<BuiltLogic<sessionRecordingDataCoordinatorLogicType>> => {
     const maxRetries = 20 // 2 seconds / 100 ms per retry
     let retries = 0
     let dataLogic = null
 
     while (retries < maxRetries) {
-        dataLogic = sessionRecordingDataLogic.findMounted({
-            sessionRecordingId: '',
-            playerKey: playerKey,
+        dataLogic = sessionRecordingDataCoordinatorLogic.findMounted({
+            sessionRecordingId: playerProps.sessionRecordingId,
+            playerKey: playerProps.playerKey,
         })
 
         if (dataLogic !== null) {
@@ -118,49 +120,14 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
     })),
 
     reducers({
-        playerKey: [
-            'file-playback',
+        fileId: [
+            'empty' as string,
             {
-                loadFromFileSuccess: () => `file-playback-${uuid()}`,
-                resetSessionRecording: () => 'file-playback',
+                loadFromFileSuccess: () => uuid(),
+                resetSessionRecording: () => 'empty',
             },
         ],
     }),
-
-    listeners(({ values }) => ({
-        loadFromFileSuccess: async () => {
-            const dataLogic = await waitForDataLogic(values.playerKey)
-
-            if (!dataLogic || !values.sessionRecording) {
-                return
-            }
-
-            const snapshots = values.sessionRecording.snapshots
-
-            // Simulate a loaded source and sources so that nothing extra gets loaded
-            dataLogic.cache.snapshotsBySource = {
-                'file-file': {
-                    snapshots: snapshots,
-                    source: { source: 'file' },
-                },
-            }
-            dataLogic.actions.loadSnapshotsForSourceSuccess({
-                source: { source: 'file' },
-            })
-            dataLogic.actions.loadSnapshotSourcesSuccess([{ source: 'file' }])
-
-            dataLogic.actions.loadRecordingMetaSuccess({
-                id: values.sessionRecording.id,
-                viewed: false,
-                viewers: [],
-                recording_duration: snapshots[snapshots.length - 1].timestamp - snapshots[0].timestamp,
-                person: values.sessionRecording.person || undefined,
-                start_time: dayjs(snapshots[0].timestamp).toISOString(),
-                end_time: dayjs(snapshots[snapshots.length - 1].timestamp).toISOString(),
-                snapshot_source: 'unknown', // TODO: we should be able to detect this from the file
-            })
-        },
-    })),
 
     beforeUnload(({ values, actions }) => ({
         enabled: () => !!values.sessionRecording,
@@ -171,6 +138,14 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
     })),
 
     selectors({
+        playerProps: [
+            (s) => [s.fileId],
+            (fileId: string) =>
+                ({
+                    sessionRecordingId: '',
+                    playerKey: 'file-playback-' + fileId,
+                }) as SessionRecordingPlayerProps,
+        ],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -178,13 +153,25 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
                     key: Scene.Replay,
                     name: 'Replay',
                     path: urls.replay(),
+                    iconType: 'session_replay',
                 },
                 {
                     key: Scene.ReplayFilePlayback,
                     name: 'File playback',
                     path: urls.replayFilePlayback(),
+                    iconType: 'session_replay',
                 },
             ],
         ],
     }),
+
+    listeners(({ values }) => ({
+        loadFromFileSuccess: async () => {
+            const recordingDataLogic = await waitForDataLogic(values.playerProps)
+            if (!recordingDataLogic || !values.sessionRecording) {
+                return
+            }
+            recordingDataLogic.actions.loadRecordingFromFile(values.sessionRecording)
+        },
+    })),
 ])

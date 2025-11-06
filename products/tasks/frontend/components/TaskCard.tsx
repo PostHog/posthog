@@ -1,27 +1,49 @@
-import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
+import { useState } from 'react'
 
-import { IconBranch, IconGithub } from 'lib/lemon-ui/icons'
+import { IconGithub } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonSelect, Link } from '@posthog/lemon-ui'
+
+import { IconBranch } from 'lib/lemon-ui/icons'
 
 import { ORIGIN_PRODUCT_COLORS, ORIGIN_PRODUCT_LABELS } from '../constants'
-import { Task, TaskStatus } from '../types'
+import { Task, TaskWorkflow } from '../types'
 
 interface TaskCardProps {
     task: Task
-    onScope?: (taskId: string) => void
+    onAssignToWorkflow?: (taskId: string, workflowId: string) => void
     onClick?: (taskId: string) => void
     draggable?: boolean
+    workflows?: TaskWorkflow[]
 }
 
-export function TaskCard({ task, onScope, onClick, draggable = false }: TaskCardProps): JSX.Element {
+export function TaskCard({
+    task,
+    onAssignToWorkflow,
+    onClick,
+    draggable = false,
+    workflows = [],
+}: TaskCardProps): JSX.Element {
+    const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('')
+
+    // Determine if task is in backlog (no workflow assigned)
+    const isInBacklog = !task.workflow || !task.current_stage
+
     const handleCardClick = (): void => {
         if (onClick) {
             onClick(task.id)
         }
     }
 
+    const handleAssignToWorkflow = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        if (selectedWorkflowId && onAssignToWorkflow) {
+            onAssignToWorkflow(task.id, selectedWorkflowId)
+        }
+    }
+
     return (
         <LemonCard
-            className={`p-3 ${draggable ? 'cursor-move' : 'cursor-pointer'}`}
+            className={`p-3 ${draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
             hoverEffect={true}
             onClick={handleCardClick}
         >
@@ -82,17 +104,31 @@ export function TaskCard({ task, onScope, onClick, draggable = false }: TaskCard
                     {ORIGIN_PRODUCT_LABELS[task.origin_product]}
                 </span>
 
-                {task.status === TaskStatus.BACKLOG && onScope && (
-                    <LemonButton
-                        size="xsmall"
-                        type="primary"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            onScope(task.id)
-                        }}
-                    >
-                        Scope
-                    </LemonButton>
+                {isInBacklog && onAssignToWorkflow && workflows.length > 0 && (
+                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <LemonSelect
+                            value={selectedWorkflowId}
+                            onChange={(value) => setSelectedWorkflowId(value)}
+                            options={[
+                                { value: '', label: 'Select workflow...' },
+                                ...workflows.map((workflow) => ({
+                                    value: workflow.id,
+                                    label: workflow.name,
+                                })),
+                            ]}
+                            placeholder="Select workflow"
+                            size="small"
+                            className="min-w-32"
+                        />
+                        <LemonButton
+                            size="xsmall"
+                            type="primary"
+                            onClick={handleAssignToWorkflow}
+                            disabled={!selectedWorkflowId}
+                        >
+                            Assign
+                        </LemonButton>
+                    </div>
                 )}
             </div>
         </LemonCard>

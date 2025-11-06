@@ -17,7 +17,6 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.schema import CachedSessionBatchEventsQueryResponse
 
-from posthog import constants
 from posthog.hogql_queries.ai.session_batch_events_query_runner import (
     SessionBatchEventsQueryRunner,
     create_session_batch_events_query,
@@ -33,6 +32,9 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     extract_session_group_patterns_activity,
     get_patterns_from_redis_outside_workflow,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
+)
+from posthog.temporal.ai.session_summary.activities.video_validation import (
+    validate_llm_single_session_summary_with_videos_activity,
 )
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
@@ -133,7 +135,7 @@ async def fetch_session_batch_events_activity(
     # Disable thread-sensitive as we can get metadata for lots of sessions here
     metadata_dict = await database_sync_to_async(SessionReplayEvents().get_group_metadata, thread_sensitive=False)(
         session_ids=session_ids_to_fetch,
-        team_id=inputs.team_id,
+        team=team,
         recordings_min_timestamp=datetime.fromisoformat(inputs.min_timestamp_str),
         recordings_max_timestamp=datetime.fromisoformat(inputs.max_timestamp_str),
     )
@@ -315,6 +317,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 model_to_use=inputs.model_to_use,
                 extra_summary_context=inputs.extra_summary_context,
                 local_reads_prod=inputs.local_reads_prod,
+                video_validation_enabled=inputs.video_validation_enabled,
             )
             session_inputs.append(single_session_input)
         # Fail the workflow if too many sessions failed to fetch
@@ -334,12 +337,21 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         Run and handle the summary for a single session to avoid one activity failing the whole group.
         """
         try:
+            # Generate session summary
             await temporalio.workflow.execute_activity(
                 get_llm_single_session_summary_activity,
                 inputs,
                 start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            # Validate session summary with videos and apply updates
+            if inputs.video_validation_enabled:
+                await temporalio.workflow.execute_activity(
+                    validate_llm_single_session_summary_with_videos_activity,
+                    inputs,
+                    start_to_close_timeout=timedelta(minutes=10),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
             # Keep track of processed summaries
             self._processed_single_summaries += 1
             self._current_status = (
@@ -582,7 +594,7 @@ async def _start_session_group_summary_workflow(
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=constants.MAX_AI_TASK_QUEUE,
+        task_queue=settings.MAX_AI_TASK_QUEUE,
         retry_policy=retry_policy,
     )
 
@@ -687,6 +699,7 @@ async def execute_summarize_session_group(
     model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
+    video_validation_enabled: bool | None = None,
 ) -> AsyncGenerator[
     tuple[SessionSummaryStreamUpdate, SessionSummaryStep, EnrichedSessionGroupSummaryPatternsList | str | dict], None
 ]:
@@ -707,6 +720,7 @@ async def execute_summarize_session_group(
         model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
+        video_validation_enabled=video_validation_enabled,
     )
     # Connect to Temporal and execute the workflow
     workflow_id = f"session-summary:group:{user_id}-{team.id}:{shared_id}:{uuid.uuid4()}"

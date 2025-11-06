@@ -14,11 +14,11 @@ from fastavro import reader
 from pydantic_avro import AvroBase
 
 from posthog.models import GroupTypeMapping, Organization, Project, PropertyDefinition, Team, User
-from posthog.warehouse.models.table import DataWarehouseTable
+
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 from ee.hogai.eval.schema import (
     ActorsPropertyTaxonomySnapshot,
-    DatasetInput,
     DataWarehouseTableSnapshot,
     EvalsDockerImageConfig,
     GroupTypeMappingSnapshot,
@@ -48,12 +48,12 @@ T = TypeVar("T", bound=AvroBase)
 class SnapshotLoader:
     """Loads snapshots from S3, restores Django models, and patches query runners."""
 
-    def __init__(self, context: PipesContext):
+    def __init__(self, context: PipesContext, config: EvalsDockerImageConfig):
         self.context = context
-        self.config = EvalsDockerImageConfig.model_validate(context.extras)
+        self.config = config
         self.patches: list[Any] = []
 
-    async def load_snapshots(self) -> tuple[Organization, User, list[DatasetInput]]:
+    async def load_snapshots(self) -> tuple[Organization, User]:
         self.organization = await Organization.objects.acreate(name="PostHog")
         self.user = await sync_to_async(User.objects.create_and_join)(self.organization, "test@posthog.com", "12345678")
 
@@ -86,7 +86,7 @@ class SnapshotLoader:
 
         self._patch_query_runners()
 
-        return self.organization, self.user, self.config.dataset
+        return self.organization, self.user
 
     def cleanup(self):
         for mock in self.patches:

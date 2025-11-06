@@ -1,18 +1,22 @@
 import { connect, kea, path, selectors } from 'kea'
 
 import { isNotNil } from 'lib/utils'
-import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
+import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, QueryTile, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
 import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
 
 import {
     CompareFilter,
     ConversionGoalFilter,
     DataTableNode,
+    EventsNode,
+    IntegrationFilter,
+    MARKETING_ANALYTICS_SCHEMA,
+    MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsTableQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, InsightLogicProps, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
 
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
@@ -33,6 +37,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'loading',
                 'draftConversionGoal',
                 'chartDisplayType',
+                'tileColumnSelection',
+                'integrationFilter',
             ],
             marketingAnalyticsTableLogic,
             ['query', 'defaultColumns'],
@@ -46,13 +52,23 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.createMarketingDataWarehouseNodes,
                 s.campaignCostsBreakdown,
                 s.chartDisplayType,
+                s.tileColumnSelection,
+                s.draftConversionGoal,
+                s.integrationFilter,
             ],
             (
-                compareFilter,
-                dateFilter,
-                createMarketingDataWarehouseNodes,
-                campaignCostsBreakdown,
-                chartDisplayType
+                compareFilter: CompareFilter | null,
+                dateFilter: {
+                    dateFrom: string | null
+                    dateTo: string | null
+                    interval: IntervalType
+                },
+                createMarketingDataWarehouseNodes: EventsNode[],
+                campaignCostsBreakdown: DataTableNode,
+                chartDisplayType: ChartDisplayType,
+                tileColumnSelection: MarketingAnalyticsColumnsSchemaNames | null,
+                draftConversionGoal: ConversionGoalFilter | null,
+                integrationFilter: IntegrationFilter
             ) => {
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
                     return {
@@ -62,7 +78,34 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     }
                 }
 
-                return [
+                const isCurrency = tileColumnSelection
+                    ? MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
+                    : false
+
+                const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
+
+                const tiles: QueryTile[] = [
+                    {
+                        kind: 'query',
+                        tileId: TileId.MARKETING_OVERVIEW,
+                        layout: {
+                            colSpanClassName: 'md:col-span-2 xxl:col-span-3' as `md:col-span-${number}`,
+                            orderWhenLargeClassName: 'xxl:order-0',
+                        },
+                        query: {
+                            kind: NodeKind.MarketingAnalyticsAggregatedQuery,
+                            dateRange: {
+                                date_from: dateFilter.dateFrom,
+                                date_to: dateFilter.dateTo,
+                            },
+                            compareFilter: compareFilter || undefined,
+                            properties: [],
+                            draftConversionGoal: draftConversionGoal || undefined,
+                            integrationFilter: integrationFilter,
+                        },
+                        insightProps: createInsightProps(TileId.MARKETING_OVERVIEW),
+                        canOpenInsight: false,
+                    },
                     {
                         kind: 'query',
                         tileId: TileId.MARKETING,
@@ -70,7 +113,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                             colSpanClassName: 'md:col-span-2',
                             orderWhenLargeClassName: 'xxl:order-1',
                         },
-                        title: 'Marketing costs',
+                        title: `Marketing ${tileColumnSelectionName}`,
                         query: {
                             kind: NodeKind.InsightVizNode,
                             embedded: true,
@@ -78,7 +121,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                             hideTooltipOnScroll: true,
                             source: {
                                 kind: NodeKind.TrendsQuery,
-                                compareFilter: compareFilter,
+                                compareFilter: compareFilter || undefined,
                                 series:
                                     createMarketingDataWarehouseNodes.length > 0
                                         ? createMarketingDataWarehouseNodes
@@ -99,7 +142,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                                 trendsFilter: {
                                     display: chartDisplayType,
                                     aggregationAxisFormat: 'numeric',
-                                    aggregationAxisPrefix: '$',
+                                    aggregationAxisPrefix: isCurrency ? '$' : undefined,
                                 },
                             },
                         },
@@ -108,11 +151,11 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         canOpenInsight: true,
                         canOpenModal: false,
                         docs: {
-                            title: 'Marketing costs',
+                            title: `Marketing ${tileColumnSelectionName}`,
                             description:
                                 createMarketingDataWarehouseNodes.length > 0
-                                    ? 'Track costs from your configured marketing data sources.'
-                                    : 'Configure marketing data sources in the settings to track costs from your ad platforms.',
+                                    ? `Track ${tileColumnSelectionName || 'costs'} from your configured marketing data sources.`
+                                    : `Configure marketing data sources in the settings to track ${tileColumnSelectionName || 'costs'} from your ad platforms.`,
                         },
                     },
                     campaignCostsBreakdown
@@ -135,23 +178,33 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                               },
                           }
                         : null,
-                ].filter(isNotNil)
+                ].filter(isNotNil) as QueryTile[]
+
+                return tiles
             },
         ],
         campaignCostsBreakdown: [
-            (s) => [s.loading, s.query, s.dateFilter, s.draftConversionGoal, s.defaultColumns, s.compareFilter],
+            (s) => [
+                s.loading,
+                s.query,
+                s.dateFilter,
+                s.draftConversionGoal,
+                s.defaultColumns,
+                s.compareFilter,
+                s.integrationFilter,
+            ],
             (
                 loading: boolean,
                 query: DataTableNode,
                 dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
                 draftConversionGoal: ConversionGoalFilter | null,
                 defaultColumns: string[],
-                compareFilter: CompareFilter
+                compareFilter: CompareFilter,
+                integrationFilter: IntegrationFilter
             ): DataTableNode | null => {
                 if (loading) {
                     return null
                 }
-
                 const marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
                 const columnsWithDraftConversionGoal = [
                     ...(marketingQuery?.select?.length ? marketingQuery.select : defaultColumns).filter(
@@ -167,6 +220,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 const sortedColumns = getSortedColumnsByArray(columnsWithDraftConversionGoal, defaultColumns)
                 const orderedColumns = orderArrayByPreference(sortedColumns, query?.pinnedColumns || [])
                 const orderBy = getOrderBy(marketingQuery, sortedColumns)
+
                 return {
                     ...query,
                     kind: NodeKind.DataTableNode,
@@ -183,7 +237,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         orderBy,
                         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                         select: orderedColumns,
-                        compareFilter: compareFilter,
+                        compareFilter: compareFilter || undefined,
+                        integrationFilter: integrationFilter,
                     },
                     full: true,
                     embedded: false,

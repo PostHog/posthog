@@ -21,6 +21,8 @@ class GeminiConfig:
     TEMPERATURE: float = 0
 
     SUPPORTED_MODELS: list[str] = [
+        "gemini-2.5-flash-preview-09-2025",
+        "gemini-2.5-flash-lite-preview-09-2025",
         "gemini-2.5-flash",
         "gemini-2.5-pro",
         "gemini-2.0-flash",
@@ -50,6 +52,37 @@ class GeminiProvider:
         if not api_key:
             raise ValueError("GEMINI_API_KEY is not set in environment or settings")
         return api_key
+
+    def _extract_content_from_chunk(self, chunk) -> list[str]:
+        results = []
+
+        if hasattr(chunk, "text") and chunk.text:
+            results.append(f"data: {json.dumps({'type': 'text', 'text': chunk.text})}\n\n")
+
+            return results
+
+        if hasattr(chunk, "candidates") and chunk.candidates:
+            for candidate in chunk.candidates:
+                if hasattr(candidate, "content") and candidate.content:
+                    if hasattr(candidate.content, "parts") and candidate.content.parts:
+                        for part in candidate.content.parts:
+                            if hasattr(part, "function_call") and part.function_call:
+                                tool_call_data = {
+                                    "type": "tool_call",
+                                    "id": f"gemini_tool_{hash(str(part.function_call))}",
+                                    "function": {
+                                        "name": part.function_call.name,
+                                        "arguments": json.dumps(dict(part.function_call.args))
+                                        if part.function_call.args
+                                        else "{}",
+                                    },
+                                }
+
+                                results.append(f"data: {json.dumps(tool_call_data)}\n\n")
+                            elif hasattr(part, "text") and part.text:
+                                results.append(f"data: {json.dumps({'type': 'text', 'text': part.text})}\n\n")
+
+        return results
 
     def stream_response(
         self,
@@ -94,28 +127,11 @@ class GeminiProvider:
             )
 
             for chunk in response:
-                if chunk.text:
-                    yield f"data: {json.dumps({'type': 'text', 'text': chunk.text})}\n\n"
+                content_messages = self._extract_content_from_chunk(chunk)
 
-                # Handle tool calls
-                if hasattr(chunk, "candidates") and chunk.candidates:
-                    for candidate in chunk.candidates:
-                        if hasattr(candidate, "content") and candidate.content:
-                            for part in candidate.content.parts:
-                                if hasattr(part, "function_call") and part.function_call:
-                                    tool_call_data = {
-                                        "type": "tool_call",
-                                        "id": f"gemini_tool_{hash(str(part.function_call))}",
-                                        "function": {
-                                            "name": part.function_call.name,
-                                            "arguments": json.dumps(dict(part.function_call.args))
-                                            if part.function_call.args
-                                            else "{}",
-                                        },
-                                    }
-                                    yield f"data: {json.dumps(tool_call_data)}\n\n"
+                yield from content_messages
 
-                if chunk.usage_metadata:
+                if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
                     input_tokens = chunk.usage_metadata.prompt_token_count
                     output_tokens = chunk.usage_metadata.candidates_token_count
                     yield f"data: {json.dumps({'type': 'usage', 'input_tokens': input_tokens, 'output_tokens': output_tokens})}\n\n"

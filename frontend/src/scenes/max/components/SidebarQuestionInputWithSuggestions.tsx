@@ -20,8 +20,8 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
 
     const tip =
         !coreMemoryLoading && !coreMemory?.text
-            ? "Tip: Run /init to initialize Max's project knowledge"
-            : 'Ask Max about…'
+            ? 'Tip: Run /init to initialize PostHog AI in this project'
+            : 'Try PostHog AI for…'
 
     return (
         <DismissableLayer
@@ -37,7 +37,6 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
                 <h3 className="text-center text-xs font-medium mb-0 text-secondary">{tip}</h3>
                 <FloatingSuggestionsDisplay
                     type="secondary"
-                    showSuggestions
                     dataProcessingAccepted={dataProcessingAccepted}
                     additionalSuggestions={[
                         <LemonButton
@@ -48,7 +47,7 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
                             size="xsmall"
                             type="secondary"
                             icon={<IconGear />}
-                            tooltip="Edit Max's memory"
+                            tooltip="Edit PostHog AI memory"
                         />,
                     ]}
                 />

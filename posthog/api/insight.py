@@ -4,7 +4,7 @@ from functools import lru_cache
 from typing import Any, Optional, Union, cast
 
 from django.db import transaction
-from django.db.models import Count, Prefetch, QuerySet
+from django.db.models import Count, F, Max, Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -41,7 +41,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
-from posthog.auth import SharingAccessTokenAuthentication
+from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -89,7 +89,7 @@ from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
@@ -99,6 +99,7 @@ from posthog.utils import (
     refresh_requested_by_client,
     relative_date_parse,
     str_to_bool,
+    tile_filters_override_requested_by_client,
     variables_override_requested_by_client,
 )
 
@@ -212,6 +213,7 @@ class InsightBasicSerializer(
 
     dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
     created_by = UserBasicSerializer(read_only=True)
+    last_viewed_at = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Insight
@@ -235,11 +237,16 @@ class InsightBasicSerializer(
             "last_modified_at",
             "favorited",
             "user_access_level",
+            "last_viewed_at",
         ]
         read_only_fields = ("short_id", "updated_at", "last_refresh", "refreshing")
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
+
+    def get_last_viewed_at(self, instance: Insight):
+        """Get the last viewed timestamp for this insight by any user in the team."""
+        return getattr(instance, "last_viewed_at", None)
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -321,6 +328,7 @@ class InsightSerializer(InsightBasicSerializer):
     effective_restriction_level = serializers.SerializerMethodField()
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
+    last_viewed_at = serializers.SerializerMethodField(read_only=True)
     dashboards = serializers.PrimaryKeyRelatedField(
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
@@ -383,6 +391,7 @@ class InsightSerializer(InsightBasicSerializer):
             "types",
             "_create_in_folder",
             "alerts",
+            "last_viewed_at",
         ]
         read_only_fields = (
             "created_at",
@@ -417,6 +426,8 @@ class InsightSerializer(InsightBasicSerializer):
             last_modified_by=request.user,
             **validated_data,
         )
+
+        InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
 
         if dashboards is not None:
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
@@ -652,6 +663,19 @@ class InsightSerializer(InsightBasicSerializer):
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
 
+        # Check if user has access to this insight when viewed in dashboard context
+        if self.context.get("dashboard"):
+            from posthog.rbac.user_access_control import access_level_satisfied_for_resource
+
+            user_access_level = representation.get("user_access_level")
+            if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
+                # User doesn't have sufficient access - return minimal insight data
+                return {
+                    "id": instance.id,
+                    "short_id": instance.short_id,
+                    "user_access_level": user_access_level,
+                }
+
         # the ORM doesn't know about deleted dashboard tiles
         # when they have just been updated
         # we store them and can use that list to correct the response
@@ -737,6 +761,11 @@ class InsightSerializer(InsightBasicSerializer):
                     self.context["request"], dashboard, list(self.context["insight_variables"])
                 )
 
+                dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
+                tile_filters_override = tile_filters_override_requested_by_client(
+                    self.context["request"], dashboard_tile
+                )
+
                 if self.context.get("is_shared", False):
                     execution_mode = shared_insights_execution_mode(execution_mode)
 
@@ -748,6 +777,7 @@ class InsightSerializer(InsightBasicSerializer):
                     user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
                     filters_override=filters_override,
                     variables_override=variables_override,
+                    tile_filters_override=tile_filters_override,
                 )
             except ExposedHogQLError as e:
                 raise ValidationError(str(e))
@@ -850,7 +880,11 @@ class InsightViewSet(
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
+
+        context["is_shared"] = isinstance(
+            self.request.successful_authenticator,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+        )
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
 
         return context
@@ -863,7 +897,10 @@ class InsightViewSet(
 
         include_deleted = False
 
-        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+        if isinstance(
+            self.request.successful_authenticator,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+        ):
             queryset = queryset.filter(
                 id__in=self.request.successful_authenticator.sharing_configuration.get_connected_insight_ids()
             )
@@ -898,15 +935,23 @@ class InsightViewSet(
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
+            queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
             queryset = self._filter_request(self.request, queryset)
 
-        order = self.request.GET.get("order", None)
-        if order:
-            queryset = queryset.order_by(order)
-        else:
-            queryset = queryset.order_by("order")
+        return self.order_queryset(queryset)
 
-        return queryset
+    def order_queryset(self, queryset: QuerySet) -> QuerySet:
+        order = self.request.GET.get("order", None)
+        if not order:
+            return queryset.order_by("order")
+
+        if order == "-last_viewed_at":
+            return queryset.order_by(F("last_viewed_at").desc(nulls_last=True))
+
+        if order == "last_viewed_at":
+            return queryset.order_by(F("last_viewed_at").asc(nulls_first=True))
+
+        return queryset.order_by(order)
 
     @action(methods=["GET"], detail=False)
     def my_last_viewed(self, request: request.Request, *args, **kwargs) -> Response:
@@ -950,6 +995,17 @@ class InsightViewSet(
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
                 queryset = queryset.filter(Q(favorited=True))
+            elif key == "hide_feature_flag_insights":
+                if str_to_bool(request.GET["hide_feature_flag_insights"]):
+                    # Exclude insights with the specific feature flag names
+                    from posthog.helpers.dashboard_templates import (
+                        FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+                        FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
+                    )
+
+                    queryset = queryset.exclude(
+                        name__in=[FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME, FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME]
+                    )
             elif key == "date_from":
                 queryset = queryset.filter(
                     last_modified_at__gt=relative_date_parse(request.GET["date_from"], self.team.timezone_info)
@@ -1060,7 +1116,9 @@ When set, the specified dashboard's filters and date range override will be appl
 
             serialized_data["layouts"] = layouts
 
-        return Response(serialized_data)
+        response = Response(serialized_data)
+
+        return response
 
     @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
@@ -1076,6 +1134,8 @@ When set, the specified dashboard's filters and date range override will be appl
                 else:
                     result = self.calculate_trends(request)
         except ExposedHogQLError as e:
+            raise ValidationError(str(e))
+        except UserAccessControlError as e:
             raise ValidationError(str(e))
         except Cohort.DoesNotExist as e:
             raise ValidationError(str(e))
@@ -1217,18 +1277,35 @@ When set, the specified dashboard's filters and date range override will be appl
         return {"result": result.results, "timezone": team.timezone}
 
     # ******************************************
-    # /projects/:id/insights/:short_id/viewed
-    # Creates or updates an InsightViewed object for the user/insight combo
+    # /projects/:id/insights/viewed
+    # Creates or updates InsightViewed objects for the user/insight combo(s)
+    # Accepts an array of insight_ids
     # ******************************************
-    @action(methods=["POST"], detail=True, required_scopes=["insight:read"])
+    @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        insight = self.get_object()
-        InsightViewed.objects.update_or_create(
-            team=self.team,
-            user=request.user,
-            insight=insight,
-            defaults={"last_viewed_at": now()},
+        """
+        Update insight view timestamps.
+        Expects: {"insight_ids": [1, 2, 3, ...]}
+        """
+        insight_ids = request.data.get("insight_ids")
+
+        if not insight_ids or not isinstance(insight_ids, list):
+            raise serializers.ValidationError({"insight_ids": "Must be a non-empty list of insight IDs"})
+
+        insights = Insight.objects.filter(
+            id__in=insight_ids,
+            team__project_id=self.team.project_id,
+            deleted=False,
         )
+
+        viewed_at = now()
+        for insight in insights:
+            InsightViewed.objects.update_or_create(
+                team=self.team,
+                user=request.user,
+                insight=insight,
+                defaults={"last_viewed_at": viewed_at},
+            )
 
         return Response(status=status.HTTP_201_CREATED)
 

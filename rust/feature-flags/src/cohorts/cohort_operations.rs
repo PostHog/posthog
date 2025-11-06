@@ -5,26 +5,30 @@ use std::collections::HashSet;
 use super::cohort_models::CohortPropertyType;
 use super::cohort_models::CohortValues;
 use crate::cohorts::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
+use crate::database::get_connection_with_metrics;
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
 use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
 use crate::{api::errors::FlagError, properties::property_models::PropertyFilter};
 use common_database::PostgresReader;
+use common_types::ProjectId;
 
 impl Cohort {
     /// Returns all cohorts for a given team
     pub async fn list_from_pg(
         client: PostgresReader,
-        project_id: i64,
+        project_id: ProjectId,
     ) -> Result<Vec<Cohort>, FlagError> {
-        let mut conn = client.get_connection().await.map_err(|e| {
-            tracing::error!(
-                "Failed to get database connection for project {}: {}",
-                project_id,
-                e
-            );
-            FlagError::DatabaseUnavailable
-        })?;
+        let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "fetch_cohorts")
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to get database connection for project {}: {}",
+                    project_id,
+                    e
+                );
+                FlagError::DatabaseUnavailable
+            })?;
 
         let query = r#"
             SELECT c.id,
@@ -399,44 +403,40 @@ mod tests {
     use crate::{
         cohorts::cohort_models::{CohortPropertyType, CohortValues},
         properties::property_models::PropertyType,
-        utils::test_utils::{
-            insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
-            setup_pg_writer_client,
-        },
+        utils::test_utils::TestContext,
     };
     use serde_json::json;
 
     #[tokio::test]
     async fn test_list_from_pg() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team");
 
         // Insert multiple cohorts for the team
-        insert_cohort_for_team_in_pg(
-            writer.clone(),
-            team.id,
-            Some("Cohort 1".to_string()),
-            json!({"properties": {"type": "AND", "values": [{"type": "property", "values": [{"key": "age", "type": "person", "value": [30], "negation": false, "operator": "gt"}]}]}}),
-            false,
-        )
-        .await
-        .expect("Failed to insert cohort1");
+        context
+            .insert_cohort(
+                team.id,
+                Some("Cohort 1".to_string()),
+                json!({"properties": {"type": "AND", "values": [{"type": "property", "values": [{"key": "age", "type": "person", "value": [30], "negation": false, "operator": "gt"}]}]}}),
+                false,
+            )
+            .await
+            .expect("Failed to insert cohort1");
 
-        insert_cohort_for_team_in_pg(
-            writer.clone(),
-            team.id,
-            Some("Cohort 2".to_string()),
-            json!({"properties": {"type": "OR", "values": [{"type": "property", "values": [{"key": "country", "type": "person", "value": ["USA"], "negation": false, "operator": "exact"}]}]}}),
-            false,
-        )
-        .await
-        .expect("Failed to insert cohort2");
+        context
+            .insert_cohort(
+                team.id,
+                Some("Cohort 2".to_string()),
+                json!({"properties": {"type": "OR", "values": [{"type": "property", "values": [{"key": "country", "type": "person", "value": ["USA"], "negation": false, "operator": "exact"}]}]}}),
+                false,
+            )
+            .await
+            .expect("Failed to insert cohort2");
 
-        let cohorts = Cohort::list_from_pg(reader, team.project_id)
+        let cohorts = Cohort::list_from_pg(context.non_persons_reader, team.project_id())
             .await
             .expect("Failed to list cohorts");
 
@@ -483,27 +483,26 @@ mod tests {
 
     #[tokio::test]
     async fn test_extract_dependencies() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team");
 
         // Insert a single cohort that is dependent on another cohort
-        let dependent_cohort = insert_cohort_for_team_in_pg(
-            writer.clone(),
-            team.id,
-            Some("Dependent Cohort".to_string()),
-            json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$browser", "type": "person", "value": ["Safari"], "negation": false, "operator": "exact"}]}]}}),
-            false,
-        )
-        .await
-        .expect("Failed to insert dependent_cohort");
+        let dependent_cohort = context
+            .insert_cohort(
+                team.id,
+                Some("Dependent Cohort".to_string()),
+                json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$browser", "type": "person", "value": ["Safari"], "negation": false, "operator": "exact"}]}]}}),
+                false,
+            )
+            .await
+            .expect("Failed to insert dependent_cohort");
 
         // Insert main cohort with a single dependency
-        let main_cohort = insert_cohort_for_team_in_pg(
-                writer.clone(),
+        let main_cohort = context
+            .insert_cohort(
                 team.id,
                 Some("Main Cohort".to_string()),
                 json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "id", "type": "cohort", "value": dependent_cohort.id, "negation": false}]}]}}),
@@ -512,7 +511,7 @@ mod tests {
             .await
             .expect("Failed to insert main_cohort");
 
-        let cohorts = Cohort::list_from_pg(reader.clone(), team.project_id)
+        let cohorts = Cohort::list_from_pg(context.non_persons_reader.clone(), team.project_id())
             .await
             .expect("Failed to fetch cohorts");
 

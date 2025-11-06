@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use common_types::error_tracking::RawFrameId;
 use uuid::Uuid;
 
 use crate::{
@@ -43,7 +44,7 @@ pub async fn do_stack_processing(
             };
 
             for frame in frames.iter() {
-                let id = frame.frame_id();
+                let id = frame.raw_id(team_id);
                 if frame_resolve_handles.contains_key(&id) {
                     // We've already spawned a task to resolve this frame, so we don't need to do it again.
                     continue;
@@ -58,7 +59,7 @@ pub async fn do_stack_processing(
                     metrics::counter!(FRAME_RESOLUTION).increment(1);
                     let res = context
                         .resolver
-                        .resolve(&frame, team_id, &context.pool, &context.catalog)
+                        .resolve(&frame, team_id, &context.posthog_pool, &context.catalog)
                         .await;
                     context.worker_liveness.report_healthy().await;
                     res
@@ -88,14 +89,20 @@ pub async fn do_stack_processing(
     let fingerprint_timer = common_metrics::timing_guard(FINGERPRINT_BATCH_TIME, &[]);
     let mut indexed_fingerprinted = Vec::new();
     for (index, mut props) in indexed_props.into_iter() {
+        let team_id = events[index]
+            .as_ref()
+            .expect("no events have been dropped since indexed-property gathering")
+            .team_id;
+
         for exception in props.exception_list.iter_mut() {
             exception.stack = exception
                 .stack
                 .take()
                 .map(|s| {
-                    s.resolve(&frame_lookup_table).ok_or(UnhandledError::Other(
-                        "Stacktrace::resolve returned None".to_string(),
-                    ))
+                    s.resolve(team_id, &frame_lookup_table)
+                        .ok_or(UnhandledError::Other(
+                            "Stacktrace::resolve returned None".to_string(),
+                        ))
                 })
                 .transpose()
                 .map_err(|e| (index, e))?
@@ -107,7 +114,7 @@ pub async fn do_stack_processing(
             .team_id;
 
         let mut conn = context
-            .pool
+            .posthog_pool
             .acquire()
             .await
             .map_err(|e| (index, e.into()))?;
@@ -124,12 +131,12 @@ pub async fn do_stack_processing(
     Ok(indexed_fingerprinted)
 }
 
-fn find_index_with_matching_frame_id(id: &str, list: &[(usize, RawErrProps)]) -> usize {
+fn find_index_with_matching_frame_id(id: &RawFrameId, list: &[(usize, RawErrProps)]) -> usize {
     for (index, props) in list.iter() {
         for exception in props.exception_list.iter() {
             if let Some(Stacktrace::Raw { frames }) = &exception.stack {
                 for frame in frames {
-                    if frame.frame_id() == id {
+                    if frame.raw_id(id.team_id) == *id {
                         return *index;
                     }
                 }

@@ -35,15 +35,27 @@ COPY common/esbuilder/ common/esbuilder/
 COPY common/tailwind/ common/tailwind/
 COPY products/ products/
 COPY ee/frontend/ ee/frontend/
+COPY .git/config .git/config
+COPY .git/HEAD .git/HEAD
+COPY .git/refs/heads .git/refs/heads
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
     corepack enable && pnpm --version && \
     pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23
 
 COPY frontend/ frontend/
 RUN bin/turbo --filter=@posthog/frontend build
-# KLUDGE: to get the image-bitmap-data-url-worker-*.js.map files into the dist folder
-# KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails 🤷
-RUN cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ || true
+
+# Process sourcemaps using posthog-cli
+RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
+    if [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ]; then \
+    apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh && \
+    export PATH="/root/.posthog:$PATH" && \
+    export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
+    export POSTHOG_CLI_ENV_ID=2 && \
+    posthog-cli --no-fail sourcemap process --directory /code/frontend/dist --public-path-prefix /static; \
+    fi
 
 #
 # ---------------------------------------------------------
@@ -51,13 +63,26 @@ RUN cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.
 FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.88-node_22.17.1 AS plugin-server-build
 
 # Compile and install system dependencies
+# Add Confluent's client repository for librdkafka 2.10.1
 RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "wget" \
+    "gnupg" \
+    && \
+    mkdir -p /etc/apt/keyrings && \
+    wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
     "g++" \
     "gcc" \
     "python3" \
-    "libssl-dev" \
+    "librdkafka1=2.10.1-1.cflt~deb12" \
+    "librdkafka++1=2.10.1-1.cflt~deb12" \
+    "librdkafka-dev=2.10.1-1.cflt~deb12" \
+    "libssl-dev=3.0.17-1~deb12u2" \
+    "libssl3=3.0.17-1~deb12u2" \
     "zlib1g-dev" \
     && \
     rm -rf /var/lib/apt/lists/*
@@ -73,6 +98,9 @@ COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
 COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
+# Use system librdkafka from Confluent (2.10.1) instead of bundled version
+ENV BUILD_LIBRDKAFKA=0
+
 # Compile and install Node.js dependencies.
 # NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
@@ -87,6 +115,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./plugin-server/src/
 COPY ./plugin-server/tests/ ./plugin-server/tests/
+COPY ./plugin-server/assets/ ./plugin-server/assets/
 
 # Build cyclotron first with increased memory
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
@@ -104,7 +133,8 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.11.9-slim-bookworm AS posthog-build
+# Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
+FROM python:3.12.11-slim-bookworm AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -124,7 +154,7 @@ RUN apt-get update && \
     "pkg-config" \
     && \
     rm -rf /var/lib/apt/lists/* && \
-    pip install uv~=0.7.0 --no-cache-dir && \
+    pip install uv==0.8.19 --no-cache-dir && \
     UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-dev --no-cache --compile-bytecode --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
@@ -166,14 +196,23 @@ RUN apt-get update && \
 # ---------------------------------------------------------
 #
 # NOTE: v1.32 is running bullseye, v1.33 is running bookworm
-FROM unit:1.33.0-python3.11
+FROM unit:1.33.0-python3.12
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
+# Add Confluent's client repository for librdkafka runtime
 RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "wget" \
+    "gnupg" \
+    && \
+    mkdir -p /etc/apt/keyrings && \
+    wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     "chromium" \
     "chromium-driver" \
@@ -182,23 +221,63 @@ RUN apt-get update && \
     "libxmlsec1-dev" \
     "libxml2" \
     "gettext-base" \
-    "ffmpeg=7:5.1.6-0+deb12u1"
-
-# Install MS SQL dependencies
-RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc
-RUN curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/apt/sources.list.d/mssql-release.list
-RUN apt-get update
-RUN ACCEPT_EULA=Y apt-get install -y msodbcsql18
-
-# Install NodeJS 18.
-RUN apt-get install -y --no-install-recommends \
-    "curl" \
-    && \
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get install -y --no-install-recommends \
-    "nodejs" \
+    "ffmpeg=7:5.1.7-0+deb12u1" \
+    "librdkafka1=2.10.1-1.cflt~deb12" \
+    "librdkafka++1=2.10.1-1.cflt~deb12" \
+    "libssl-dev=3.0.17-1~deb12u2" \
+    "libssl3=3.0.17-1~deb12u2" \
+    "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*
+
+# Install MS SQL dependencies
+RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc && \
+    curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/apt/sources.list.d/mssql-release.list && \
+    apt-get update && \
+    ACCEPT_EULA=Y apt-get install -y msodbcsql18 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 22.17.1 with architecture detection and verification
+ENV NODE_VERSION 22.17.1
+
+RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
+    && case "${dpkgArch##*-}" in \
+    amd64) ARCH='x64';; \
+    ppc64el) ARCH='ppc64le';; \
+    s390x) ARCH='s390x';; \
+    arm64) ARCH='arm64';; \
+    armhf) ARCH='armv7l';; \
+    i386) ARCH='x86';; \
+    *) echo "unsupported architecture"; exit 1 ;; \
+    esac \
+    && export GNUPGHOME="$(mktemp -d)" \
+    && set -ex \
+    && for key in \
+    5BE8A3F6C8A5C01D106C0AD820B1A390B168D356 \
+    C0D6248439F1D5604AAFFB4021D900FFDB233756 \
+    DD792F5973C6DE52C432CBDAC77ABFA00DDBF2B7 \
+    CC68F5A3106FF448322E48ED27F5E38D5B0A215F \
+    8FCCA13FEF1D0C2E91008E09770F7A9A5AE15600 \
+    890C08DB8579162FEE0DF9DB8BEAB4DFCF555EF4 \
+    C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C \
+    108F52B48DB57BB0CC439B2997B01419BD92F80A \
+    A363A499291CBBC940DD62E41F10027AF002F8B0 \
+    ; do \
+    { gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$key" && gpg --batch --fingerprint "$key"; } || \
+    { gpg --batch --keyserver keyserver.ubuntu.com --recv-keys "$key" && gpg --batch --fingerprint "$key"; } ; \
+    done \
+    && curl -fsSLO --compressed "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-$ARCH.tar.xz" \
+    && curl -fsSLO --compressed "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt.asc" \
+    && gpg --batch --decrypt --output SHASUMS256.txt SHASUMS256.txt.asc \
+    && gpgconf --kill all \
+    && rm -rf "$GNUPGHOME" \
+    && grep " node-v$NODE_VERSION-linux-$ARCH.tar.xz\$" SHASUMS256.txt | sha256sum -c - \
+    && tar -xJf "node-v$NODE_VERSION-linux-$ARCH.tar.xz" -C /usr/local --strip-components=1 --no-same-owner \
+    && rm "node-v$NODE_VERSION-linux-$ARCH.tar.xz" SHASUMS256.txt.asc SHASUMS256.txt \
+    && ln -s /usr/local/bin/node /usr/local/bin/nodejs \
+    && node --version \
+    && npm --version \
+    && rm -rf /tmp/*
 
 # Install and use a non-root user.
 RUN groupadd -g 1000 posthog && \
@@ -223,6 +302,7 @@ COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/node_modules /code/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
+COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/assets /code/plugin-server/assets
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
@@ -232,7 +312,9 @@ ENV PATH=/python-runtime/bin:$PATH \
 
 # Install Playwright Chromium browser for video export (as root for system deps)
 USER root
-RUN /python-runtime/bin/python -m playwright install --with-deps chromium
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN /python-runtime/bin/python -m playwright install --with-deps chromium && \
+    chown -R posthog:posthog /ms-playwright
 USER posthog
 
 # Validate video export dependencies
@@ -264,7 +346,9 @@ RUN cp ./bin/docker-server-unit ./bin/docker-server
 ENV NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium \
     CHROME_PATH=/usr/lib/chromium/ \
-    CHROMEDRIVER_BIN=/usr/bin/chromedriver
+    CHROMEDRIVER_BIN=/usr/bin/chromedriver \
+    BUILD_LIBRDKAFKA=0 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Expose container port and run entry point script.
 EXPOSE 8000

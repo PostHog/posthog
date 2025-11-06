@@ -1,5 +1,6 @@
 .tabs-trigger {
     color: var(--color-text-secondary);
+    border-bottom: 2px solid transparent;
 }
 
 .tabs-trigger:hover,
@@ -8,5 +9,5 @@
 }
 
 .tabs-trigger[data-state='active'] {
-    border-bottom: 2px solid var(--color-accent);
+    border-color: var(--color-accent);
 }

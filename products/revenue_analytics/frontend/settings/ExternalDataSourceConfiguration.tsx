@@ -1,20 +1,25 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconInfo, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSwitch, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonSwitch, Link, Spinner, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
+import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetImpactModal'
+import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
 import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExternalDataSource } from '~/types'
 
+import { disableRevenueSourceModalLogic } from './disableRevenueSourceModalLogic'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 const VALID_REVENUE_SOURCES: ExternalDataSource['source_type'][] = ['Stripe']
@@ -25,9 +30,18 @@ export function ExternalDataSourceConfiguration({
     buttonRef?: React.RefObject<HTMLButtonElement>
 }): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, joins } = useValues(revenueAnalyticsSettingsLogic)
-    const { updateSourceRevenueAnalyticsConfig } = useActions(revenueAnalyticsSettingsLogic)
+    const { views, source: sourceToBeDisabled } = useValues(disableRevenueSourceModalLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const { updateSourceRevenueAnalyticsConfig, deleteJoin } = useActions(revenueAnalyticsSettingsLogic)
     const { toggleEditJoinModal, toggleNewJoinModal } = useActions(viewLinkLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+    const { openModal } = useActions(
+        disableDataWarehouseManagedViewsetModalLogic({ type: 'ExternalDataSourceConfiguration' })
+    )
+    const { setSource: setSourceToBeDisabled } = useActions(disableRevenueSourceModalLogic)
+
+    const managedViewsetsEnabled = featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
+
     const revenueSources =
         dataWarehouseSources?.results.filter((source) => VALID_REVENUE_SOURCES.includes(source.source_type)) ?? []
 
@@ -41,39 +55,49 @@ export function ExternalDataSourceConfiguration({
         return undefined
     }
 
+    const onDisableSource = async (): Promise<boolean> => {
+        if (!sourceToBeDisabled) {
+            return false
+        }
+
+        try {
+            updateSourceRevenueAnalyticsConfig({
+                source: sourceToBeDisabled,
+                config: { enabled: false },
+            })
+            setSourceToBeDisabled(null)
+
+            lemonToast.success(`Revenue analytics disabled for ${sourceToBeDisabled.source_type}`)
+            return true
+        } catch (error: any) {
+            lemonToast.error(`Failed to disable source: ${error.message || 'Unknown error'}`)
+            return false
+        }
+    }
+
     return (
         <SceneSection
-            hideTitleAndDescription={!newSceneLayout}
-            className={cn(!newSceneLayout && 'gap-y-0')}
             title="Data warehouse sources configuration"
             description="PostHog can display revenue data in our Revenue Analytics product from the following data warehouse sources. You can enable/disable each source to stop it from being used for revenue data. You can also configure how we join your revenue data to the PostHog persons table - when this is set, we'll be able to properly display revenue for a person via the persons.$virt_revenue and persons.$virt_revenue_last_30_days virtual fields."
         >
-            {!newSceneLayout && (
-                <>
-                    <h3 className="mb-2">Data warehouse sources configuration</h3>
-                    <p className="mb-4">
-                        PostHog can display revenue data in our Revenue Analytics product from the following data
-                        warehouse sources. You can enable/disable each source to stop it from being used for revenue
-                        data. You can also configure how we join your revenue data to the PostHog <code>persons</code>{' '}
-                        table - when this is set, we'll be able to properly display revenue for a person via the{' '}
-                        <code>persons.$virt_revenue</code> and <code>persons.$virt_revenue_last_30_days</code> virtual
-                        fields.
-                    </p>
-                </>
-            )}
-            <div className={cn('flex flex-col items-end w-full', !newSceneLayout && 'mb-1')}>
-                <LemonButton
-                    className="my-1"
-                    ref={buttonRef}
-                    type="primary"
-                    icon={<IconPlus />}
-                    size="small"
-                    onClick={() => {
-                        router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' }))
-                    }}
+            <div className={cn('flex flex-col items-end w-full')}>
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.RevenueAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
                 >
-                    Add new source
-                </LemonButton>
+                    <LemonButton
+                        className="my-1"
+                        ref={buttonRef}
+                        type="primary"
+                        icon={<IconPlus />}
+                        size="small"
+                        onClick={() => {
+                            router.actions.push(urls.dataWarehouseSourceNew('stripe'))
+                        }}
+                    >
+                        Add new source
+                    </LemonButton>
+                </AccessControlAction>
             </div>
             <LemonTable
                 rowKey={(item) => item.id}
@@ -86,6 +110,10 @@ export function ExternalDataSourceConfiguration({
                         title: '',
                         width: 0,
                         render: (_, source: ExternalDataSource) => {
+                            if (dataWarehouseSourcesLoading) {
+                                return <Spinner size="medium" />
+                            }
+
                             return <DataWarehouseSourceIcon type={source.source_type} />
                         },
                     },
@@ -94,15 +122,33 @@ export function ExternalDataSourceConfiguration({
                         title: 'Source',
                         render: (_, source: ExternalDataSource) => {
                             return (
-                                <Link
-                                    to={urls.pipelineNode(
-                                        PipelineStage.Source,
-                                        `managed-${source.id}`,
-                                        PipelineNodeTab.Schemas
-                                    )}
-                                >
-                                    {source.source_type}&nbsp;{source.prefix && `(${source.prefix})`}
-                                </Link>
+                                <span className="inline-flex items-centet gap-2">
+                                    <Link to={urls.dataWarehouseSource(`managed-${source.id}`)}>
+                                        {source.source_type}&nbsp;{source.prefix && `(${source.prefix})`}
+                                    </Link>
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.RevenueAnalytics}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        <LemonSwitch
+                                            checked={source.revenue_analytics_config.enabled}
+                                            disabledReason={dataWarehouseSourcesLoading ? 'Updating...' : undefined}
+                                            onChange={(checked) => {
+                                                if (!checked && managedViewsetsEnabled) {
+                                                    // Show confirmation modal when disabling (if feature flag enabled)
+                                                    setSourceToBeDisabled(source)
+                                                    openModal('revenue_analytics')
+                                                } else {
+                                                    // Enable directly without confirmation, or disable directly if feature flag is off
+                                                    updateSourceRevenueAnalyticsConfig({
+                                                        source,
+                                                        config: { enabled: checked },
+                                                    })
+                                                }
+                                            }}
+                                        />
+                                    </AccessControlAction>
+                                </span>
                             )
                         },
                     },
@@ -131,36 +177,61 @@ export function ExternalDataSourceConfiguration({
                                         Joined to <code>persons</code> via:
                                     </span>
 
-                                    {join ? (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            onClick={() => toggleEditJoinModal(join)}
-                                            disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
-                                        >
-                                            {join.source_table_name}.{join.source_table_key}
-                                        </LemonButton>
-                                    ) : (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            icon={<IconPlus />}
-                                            onClick={() =>
-                                                // This is all very hardcoded, but it's the exact kind of join we want to add
-                                                // and that we're expecting in the backend.
-                                                toggleNewJoinModal({
-                                                    source_table_name: joinName,
-                                                    source_table_key: 'id',
-                                                    joining_table_name: 'persons',
-                                                    joining_table_key: 'pdi.distinct_id',
-                                                    field_name: 'persons',
-                                                })
-                                            }
-                                            disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
-                                        >
-                                            Add join
-                                        </LemonButton>
-                                    )}
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.RevenueAnalytics}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        {({ disabledReason }) =>
+                                            join && source.revenue_analytics_config.enabled ? (
+                                                <>
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        size="small"
+                                                        onClick={() => toggleEditJoinModal(join)}
+                                                        disabledReason={
+                                                            disabledReasonForRevenueAnalyticsConfig(source) ??
+                                                            disabledReason
+                                                        }
+                                                    >
+                                                        {join.source_table_name}.{join.source_table_key}
+                                                    </LemonButton>
+
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        status="danger"
+                                                        size="small"
+                                                        tooltip="Delete join"
+                                                        icon={<IconTrash />}
+                                                        disabledReason={disabledReason}
+                                                        onClick={() => deleteJoin(join)}
+                                                    />
+                                                </>
+                                            ) : (
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    icon={<IconPlus />}
+                                                    onClick={() =>
+                                                        // This is all very hardcoded, but it's the exact kind of join we want to add
+                                                        // and that we're expecting in the backend.
+                                                        toggleNewJoinModal({
+                                                            source_table_name: joinName,
+                                                            source_table_key: 'id',
+                                                            joining_table_name: 'persons',
+                                                            joining_table_key: 'pdi.distinct_id',
+                                                            field_name: 'persons',
+                                                        })
+                                                    }
+                                                    disabledReason={
+                                                        disabledReasonForRevenueAnalyticsConfig(source) ??
+                                                        disabledReason
+                                                    }
+                                                >
+                                                    Add join
+                                                </LemonButton>
+                                            )
+                                        }
+                                    </AccessControlAction>
                                 </span>
                             )
                         },
@@ -190,55 +261,63 @@ export function ExternalDataSourceConfiguration({
                                         Joined to <code>groups</code> via:
                                     </span>
 
-                                    {join ? (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            onClick={() => toggleEditJoinModal(join)}
-                                            disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
-                                        >
-                                            {join.source_table_name}.{join.source_table_key}
-                                        </LemonButton>
-                                    ) : (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            icon={<IconPlus />}
-                                            onClick={() =>
-                                                // This is all very hardcoded, but it's the exact kind of join we want to add
-                                                // and that we're expecting in the backend.
-                                                toggleNewJoinModal({
-                                                    source_table_name: joinName,
-                                                    source_table_key: 'id',
-                                                    joining_table_name: 'groups',
-                                                    joining_table_key: 'group_key',
-                                                    field_name: 'groups',
-                                                })
-                                            }
-                                            disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
-                                        >
-                                            Add join
-                                        </LemonButton>
-                                    )}
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.RevenueAnalytics}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        {({ disabledReason }) =>
+                                            join && source.revenue_analytics_config.enabled ? (
+                                                <>
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        size="small"
+                                                        onClick={() => toggleEditJoinModal(join)}
+                                                        disabledReason={
+                                                            disabledReasonForRevenueAnalyticsConfig(source) ??
+                                                            disabledReason
+                                                        }
+                                                        tooltip="Edit join"
+                                                    >
+                                                        {join.source_table_name}.{join.source_table_key}
+                                                    </LemonButton>
+
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        status="danger"
+                                                        size="small"
+                                                        tooltip="Delete join"
+                                                        icon={<IconTrash />}
+                                                        onClick={() => deleteJoin(join)}
+                                                        disabledReason={disabledReason}
+                                                    />
+                                                </>
+                                            ) : (
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    icon={<IconPlus />}
+                                                    onClick={() =>
+                                                        // This is all very hardcoded, but it's the exact kind of join we want to add
+                                                        // and that we're expecting in the backend.
+                                                        toggleNewJoinModal({
+                                                            source_table_name: joinName,
+                                                            source_table_key: 'id',
+                                                            joining_table_name: 'groups',
+                                                            joining_table_key: 'key',
+                                                            field_name: 'groups',
+                                                        })
+                                                    }
+                                                    disabledReason={
+                                                        disabledReasonForRevenueAnalyticsConfig(source) ??
+                                                        disabledReason
+                                                    }
+                                                >
+                                                    Add join
+                                                </LemonButton>
+                                            )
+                                        }
+                                    </AccessControlAction>
                                 </span>
-                            )
-                        },
-                    },
-                    {
-                        key: 'revenue_analytics_enabled',
-                        title: 'Enabled?',
-                        render: (_, source: ExternalDataSource) => {
-                            return (
-                                <LemonSwitch
-                                    checked={source.revenue_analytics_config.enabled}
-                                    disabledReason={dataWarehouseSourcesLoading ? 'Updating...' : undefined}
-                                    onChange={(checked) =>
-                                        updateSourceRevenueAnalyticsConfig({
-                                            source,
-                                            config: { enabled: checked },
-                                        })
-                                    }
-                                />
                             )
                         },
                     },
@@ -274,21 +353,33 @@ export function ExternalDataSourceConfiguration({
                             )
                         },
                     },
-                    {
-                        key: 'loading',
-                        render: () => {
-                            if (!dataWarehouseSourcesLoading) {
-                                return null
-                            }
-
-                            return <Spinner />
-                        },
-                    },
                 ]}
             />
 
             {/* To be used above by the join features */}
             <ViewLinkModal mode="revenue_analytics" />
+            {managedViewsetsEnabled && (
+                <DataWarehouseManagedViewsetImpactModal
+                    type="ExternalDataSourceConfiguration"
+                    title={`Disable revenue analytics for ${sourceToBeDisabled ? `${sourceToBeDisabled.source_type}${sourceToBeDisabled.prefix ? ` (${sourceToBeDisabled.prefix})` : ''}` : ''}?`}
+                    action={onDisableSource}
+                    confirmText={sourceToBeDisabled?.prefix || sourceToBeDisabled?.source_type || ''}
+                    views={views}
+                    warningItems={[
+                        'Permanently delete all revenue views created from this source',
+                        'Break any existing queries, insights, or dashboards that reference these views',
+                        'Stop all scheduled materialization jobs for these views',
+                    ]}
+                    infoMessage={
+                        <>
+                            <strong>Important:</strong> The source will no longer be included in revenue calculations
+                            for revenue analytics. It'll also trigger re-materialization of all remaining revenue views.
+                        </>
+                    }
+                    viewsActionText="will be deleted"
+                    confirmButtonText="Yes, disable source"
+                />
+            )}
         </SceneSection>
     )
 }

@@ -10,7 +10,7 @@ from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 from loginas.utils import is_impersonated_session
-from rest_framework import mixins, response, serializers, viewsets
+from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS
@@ -24,11 +24,13 @@ from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.insight_variable import InsightVariable
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import TeamPublicSerializer
+from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import InsightViewed, SessionRecording, SharingConfiguration, Team
+from posthog.models import InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
@@ -37,7 +39,8 @@ from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
-from posthog.utils import render_template
+from posthog.utils import get_ip_address, render_template
+from posthog.views import preflight_check
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -50,6 +53,67 @@ def shared_url_as_png(url: str = "") -> str:
 
     new_url = validated_url._replace(path=path)
     return urlunparse(new_url)
+
+
+def _log_share_password_attempt(
+    resource: SharingConfiguration, request: Request, success: bool, validated_password: Optional[SharePassword] = None
+) -> None:
+    """Log password validation attempts for sharing configurations"""
+    client_ip = get_ip_address(request) or "unknown"
+
+    if resource.dashboard:
+        scope = "Dashboard"
+        item_id = str(resource.dashboard.id)
+        resource_type = "dashboard"
+        resource_name = resource.dashboard.name
+    elif resource.insight:
+        scope = "Insight"
+        item_id = str(resource.insight.id)
+        resource_type = "insight"
+        resource_name = resource.insight.name
+    else:
+        return
+
+    base_params = {
+        "organization_id": resource.team.organization.id,
+        "team_id": resource.team.id,
+        "user": None,
+        "was_impersonated": False,
+        "item_id": item_id,
+        "scope": scope,
+    }
+
+    change_data = {
+        "access_token_suffix": resource.access_token[-6:] if resource.access_token else None,
+        "client_ip": client_ip,
+        "success": success,
+        "resource_type": resource_type,
+    }
+
+    if success and validated_password:
+        change_data["password_id"] = str(validated_password.id)
+        change_data["password_note"] = validated_password.note or "Untitled password"
+        activity_name = "share_login_success"
+        detail_name = resource_name
+    else:
+        activity_name = "share_login_failed"
+        detail_name = resource_name
+
+    log_activity(
+        **base_params,
+        activity=activity_name,
+        detail=Detail(
+            name=detail_name,
+            changes=[
+                Change(
+                    type=scope,  # Use the same scope as the activity log (Dashboard/Insight/Replay)
+                    action="changed",
+                    field="authentication_attempt",
+                    after=change_data,
+                )
+            ],
+        ),
+    )
 
 
 # NOTE: We can't use a standard permission system as we are using Detail view on a non-detail route
@@ -93,7 +157,6 @@ def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset 
             "insight": resource.insight.pk if resource.insight else None,
             "dashboard": resource.dashboard.pk if resource.dashboard else None,
             "export_format": "image/png",
-            "expires_after": now() + timedelta(hours=3),
         },
         context={"team_id": cast(Team, resource.team).pk},
     )
@@ -108,13 +171,68 @@ def get_themes_for_team(team: Team):
     return themes
 
 
+def get_global_themes():
+    global_themes = DataColorTheme.objects.filter(Q(team_id=None))
+    themes = DataColorThemeSerializer(global_themes, many=True).data
+    return themes
+
+
+def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
+    """
+    Build app context for shared dashboards/insights similar to what render_template creates.
+    This provides the same structure as window.POSTHOG_APP_CONTEXT.
+    """
+    from django.conf import settings
+
+    from posthog.utils import get_git_commit_short
+
+    return {
+        "current_user": None,
+        "current_project": None,
+        "current_team": TeamPublicSerializer(team, context={"request": request}, many=False).data,
+        "preflight": json.loads(preflight_check(request).getvalue()),
+        "default_event_name": "$pageview",
+        "switched_team": None,
+        "suggested_users_with_access": None,
+        "commit_sha": get_git_commit_short(),
+        "livestream_host": settings.LIVESTREAM_HOST,
+        "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+        "anonymous": True,
+    }
+
+
+class SharePasswordSerializer(serializers.ModelSerializer):
+    created_by_email = serializers.SerializerMethodField()
+
+    def get_created_by_email(self, obj):
+        return obj.created_by.email if obj.created_by else "deleted user"
+
+    class Meta:
+        model = SharePassword
+        fields = ["id", "created_at", "note", "created_by_email", "is_active"]
+        read_only_fields = ["id", "created_at", "created_by_email", "is_active"]
+
+
+class SharePasswordCreateSerializer(serializers.Serializer):
+    raw_password = serializers.CharField(
+        required=False, allow_blank=True, help_text="If not provided, a random password will be generated"
+    )
+    note = serializers.CharField(required=False, allow_blank=True, max_length=100)
+
+    def validate_raw_password(self, value):
+        if value and len(value) < 8:
+            raise serializers.ValidationError("Password must be at least 8 characters long.")
+        return value
+
+
 class SharingConfigurationSerializer(serializers.ModelSerializer):
     settings = serializers.JSONField(required=False, allow_null=True)
+    share_passwords = serializers.SerializerMethodField()
 
     class Meta:
         model = SharingConfiguration
-        fields = ["created_at", "enabled", "access_token", "settings"]
-        read_only_fields = ["created_at", "access_token"]
+        fields = ["created_at", "enabled", "access_token", "settings", "password_required", "share_passwords"]
+        read_only_fields = ["created_at", "access_token", "share_passwords"]
 
     def validate_settings(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
         if value is None:
@@ -131,10 +249,25 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
             capture_exception(e)
             raise serializers.ValidationError("Invalid settings format")
 
+    def get_share_passwords(self, obj):
+        # Return empty list for unsaved instances to avoid database relationship access
+        if not obj.pk:
+            return []
+        return SharePasswordSerializer(obj.share_passwords.filter(is_active=True), many=True).data
+
 
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     scope_object = "sharing_configuration"
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "refresh"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "refresh",
+        "create_password",
+        "delete_password",
+    ]
     pagination_class = None
     queryset = SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
     serializer_class = SharingConfigurationSerializer
@@ -215,6 +348,12 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         check_can_edit_sharing_configuration(self, request, instance)
 
+        if request.data.get("password_required", False):
+            if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+                return response.Response(
+                    {"error": "Sharing with password requires the Advanced Permissions feature"}, status=403
+                )
+
         if context.get("recording"):
             recording = cast(SessionRecording, context.get("recording"))
             # Special case where we need to save the instance for recordings so that the actual record gets created
@@ -258,6 +397,11 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         context = self.get_serializer_context()
         instance = self._get_sharing_configuration(context)
 
+        if context.get("recording"):
+            recording = cast(SessionRecording, context.get("recording"))
+            # Special case where we need to save the instance for recordings so that the actual record gets created
+            recording.save()
+
         check_can_edit_sharing_configuration(self, request, instance)
 
         # Create new sharing configuration and expire the old one
@@ -282,6 +426,73 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         serializer = self.get_serializer(new_instance)
         return response.Response(serializer.data)
 
+    @action(detail=False, methods=["post"], url_path="passwords")
+    def create_password(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        """Create a new password for the sharing configuration."""
+        context = self.get_serializer_context()
+        sharing_config = self._get_sharing_configuration(context)
+
+        check_can_edit_sharing_configuration(self, request, sharing_config)
+
+        if not sharing_config.password_required:
+            return response.Response(
+                {"error": "Password protection must be enabled before creating passwords"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+            return response.Response(
+                {"error": "Password management requires the Advanced Permissions feature"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Save the sharing config if it's new
+        if not sharing_config.id:
+            sharing_config.save()
+
+        serializer = SharePasswordCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        share_password, raw_password = SharePassword.create_password(
+            sharing_configuration=sharing_config,
+            created_by=cast(User, request.user),
+            raw_password=serializer.validated_data.get("raw_password") or None,
+            note=serializer.validated_data.get("note", ""),
+        )
+
+        return response.Response(
+            {
+                "id": share_password.id,
+                "password": raw_password,  # Only returned once on creation
+                "note": share_password.note,
+                "created_at": share_password.created_at,
+                "created_by_email": share_password.created_by.email if share_password.created_by else "deleted user",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=False, methods=["delete"], url_path="passwords/(?P<password_id>[^/.]+)")
+    def delete_password(self, request: Request, password_id: str, *args: Any, **kwargs: Any) -> response.Response:
+        """Delete a password from the sharing configuration."""
+        context = self.get_serializer_context()
+        sharing_config = self._get_sharing_configuration(context)
+
+        check_can_edit_sharing_configuration(self, request, sharing_config)
+
+        if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+            return response.Response(
+                {"error": "Password management requires the Advanced Permissions feature"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            share_password = sharing_config.share_passwords.get(id=password_id, is_active=True)
+            share_password.is_active = False
+            share_password.save()
+            return response.Response(status=status.HTTP_204_NO_CONTENT)
+        except SharePassword.DoesNotExist:
+            raise NotFound("Password not found")
+
 
 def custom_404_response(request):
     """Returns a custom 404 page."""
@@ -297,35 +508,77 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
     4. Export downloading - used to download the actual content of an export if requested with the correct extension
     """
 
-    authentication_classes = []
+    # Only use sharing-specific authentication, ignore regular PostHog auth
+    authentication_classes = [SharingPasswordProtectedAuthentication, SharingAccessTokenAuthentication]
     permission_classes = []
+    serializer_class = SharingConfigurationSerializer  # Required by DRF but not used in practice
+
+    def initial(self, request, *args, **kwargs):
+        """Override to ensure we don't apply any session authentication."""
+        # Save and clear any existing user to ensure we start fresh
+        self._original_user = getattr(request, "user", None)
+
+        # Set user to AnonymousUser before calling super() to ensure throttle checks work
+        from django.contrib.auth.models import AnonymousUser
+
+        request.user = AnonymousUser()
+
+        super().initial(request, *args, **kwargs)
+
+        # If no sharing auth succeeded, ensure user remains anonymous
+        if not request.user:
+            request.user = AnonymousUser()
 
     def get_object(self) -> Optional[SharingConfiguration | ExportedAsset]:
         # JWT based access (ExportedAsset)
         token = self.request.query_params.get("token")
         if token:
-            asset = asset_for_token(token)
-            if asset:
-                return asset
+            try:
+                asset = asset_for_token(token)
+                if asset:
+                    return asset
+            except ExportedAsset.DoesNotExist:
+                raise NotFound()
 
         # Path based access (SharingConfiguration only)
         access_token = self.kwargs.get("access_token", "").split(".")[0]
         if access_token:
-            # Find non-expired configuration (expires_at is NULL for active, or in the future for grace period)
-            sharing_configuration = (
-                SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
-                .filter(
-                    access_token=access_token,
-                    enabled=True,
+            try:
+                sharing_configuration = (
+                    SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
+                    .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
+                    .get(access_token=access_token)
                 )
-                .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
-                .first()
-            )
+            except SharingConfiguration.DoesNotExist:
+                raise NotFound()
 
-            if sharing_configuration:
+            if sharing_configuration and sharing_configuration.enabled:
+                # Additional validation: if user is JWT authenticated, ensure the JWT is for this specific share
+                if isinstance(self.request.successful_authenticator, SharingPasswordProtectedAuthentication):
+                    jwt_sharing_config = self.request.successful_authenticator.sharing_configuration
+                    if jwt_sharing_config.access_token != access_token:
+                        # JWT is valid but for a different share - clear authentication to show unlock page
+                        self.request._not_authenticated()
+
                 return sharing_configuration
 
         return None
+
+    def _validate_share_password(
+        self, sharing_configuration: SharingConfiguration, raw_password: str
+    ) -> Optional[SharePassword]:
+        """
+        Validate password against SharePassword entries.
+        Returns the matching SharePassword if found, None otherwise.
+        """
+        for share_password in sharing_configuration.share_passwords.filter(is_active=True):
+            if share_password.check_password(raw_password):
+                return share_password
+
+        return None
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Any:
+        return self.retrieve(request, *args, **kwargs)
 
     @xframe_options_exempt
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
@@ -355,6 +608,63 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
+
+        available_features = resource.team.organization.available_product_features or []
+        if "whitelabel" in request.GET and "white_labelling" in [feature["key"] for feature in available_features]:
+            exported_data.update({"whitelabel": True})
+
+        if isinstance(resource, SharingConfiguration) and resource.password_required:
+            # Check if user is already authenticated via JWT token (Bearer or cookie)
+            is_jwt_authenticated = isinstance(request.successful_authenticator, SharingPasswordProtectedAuthentication)
+
+            if request.method == "GET" and not is_jwt_authenticated:
+                exported_data["type"] = "unlock"
+                # Don't include app_context in the initial unlock page for security
+                # It will be provided after authentication
+                return render_template(
+                    "exporter.html",
+                    request=request,
+                    context={
+                        "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
+                        "add_og_tags": None,
+                    },
+                )
+            elif request.method == "GET" and is_jwt_authenticated:
+                # JWT authenticated (via cookie or Bearer) - render full app context
+
+                # Include the JWT token from the cookie so frontend can use it for API calls
+                jwt_token = request.COOKIES.get("posthog_sharing_token")
+                if jwt_token:
+                    exported_data["shareToken"] = jwt_token
+                # Continue processing to add dashboard/insight data to exported_data
+            elif request.method == "POST":
+                validated_password = None
+                if "password" in request.data:
+                    validated_password = self._validate_share_password(resource, request.data["password"])
+
+                if not validated_password:
+                    _log_share_password_attempt(resource, request, success=False)
+                    return response.Response({"error": "Incorrect password"}, status=401)
+
+                _log_share_password_attempt(resource, request, success=True, validated_password=validated_password)
+
+                # Password is correct - generate JWT token, set cookie, and return token
+                jwt_token = resource.generate_password_protected_token(validated_password)
+                response_data = response.Response({"shareToken": jwt_token})
+                # Set HTTP-only cookie that expires with the JWT (24 hours)
+                # Scope the cookie to this specific share path to avoid conflicts between shares
+                # Extract the base path without any file extensions (e.g., "/shared/token.png" -> "/shared/token")
+                cookie_path = request.path.split(".")[0]
+                response_data.set_cookie(
+                    "posthog_sharing_token",
+                    jwt_token,
+                    max_age=24 * 60 * 60,  # 24 hours in seconds
+                    path=cookie_path,
+                    httponly=True,
+                    secure=request.is_secure(),
+                    samesite="Lax",
+                )
+                return response_data
 
         if isinstance(resource, SharingConfiguration) and request.path.endswith(f".png"):
             exported_data["accessToken"] = resource.access_token
@@ -465,6 +775,52 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             except Exception:
                 raise NotFound("No recording found")
+        elif (
+            isinstance(resource, ExportedAsset)
+            and resource.export_context
+            and resource.export_context.get("heatmap_url")
+        ):
+            # Handle heatmap export via export_context
+            heatmap_url = resource.export_context.get("heatmap_url")
+
+            if not heatmap_url:
+                raise NotFound("Invalid heatmap export - missing heatmap_url")
+
+            heatmap_data_url = resource.export_context.get("heatmap_data_url")
+            if not heatmap_data_url:
+                raise NotFound("Invalid heatmap export - missing heatmap_data_url")
+
+            heatmap_type = resource.export_context.get("heatmap_type")
+            if not heatmap_type:
+                raise NotFound("Invalid heatmap export - missing heatmap_type")
+
+            try:
+                # Create a JWT to access the heatmap data
+                export_access_token = ""
+                if resource.created_by and resource.created_by.id:
+                    export_access_token = encode_jwt(
+                        {"id": resource.created_by.id},
+                        timedelta(minutes=5),
+                        PosthogJwtAudience.IMPERSONATED_USER,
+                    )
+
+                asset_title = "Heatmap"
+                asset_description = f"Heatmap {heatmap_url}"
+
+                exported_data.update(
+                    {
+                        "type": "heatmap",
+                        "heatmap_url": heatmap_url,
+                        "heatmap_data_url": heatmap_data_url,
+                        "heatmap_type": heatmap_type,
+                        "exportToken": export_access_token,
+                        "noBorder": True,
+                        "heatmap_context": resource.export_context,
+                    }
+                )
+
+            except Exception:
+                raise NotFound("No heatmap found")
         elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data
@@ -514,23 +870,47 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update({"hideExtraDetails": True})
 
         if request.path.endswith(f".json"):
+            # For password-protected POST requests, only return basic metadata and JWT token
+            if request.method == "POST" and isinstance(resource, SharingConfiguration) and resource.password_required:
+                # Return only the essentials for the frontend to work
+                minimal_data = {
+                    "type": exported_data.get("type", "scene"),
+                    "shareToken": exported_data.get("shareToken"),
+                    "whitelabel": exported_data.get("whitelabel", False),
+                    "noHeader": exported_data.get("noHeader", False),
+                    "showInspector": exported_data.get("showInspector", False),
+                    "legend": exported_data.get("legend", False),
+                    "detailed": exported_data.get("detailed", False),
+                }
+                return response.Response(minimal_data)
             return response.Response(exported_data)
 
         if request.GET.get("force_type"):
             exported_data["type"] = request.GET.get("force_type")
 
         exported_data["rootClassName"] = f"export-type-'{exported_data.get('type', 'unknown')}"
+        # Check if this is a JWT authenticated request with JSON Accept header
+        if (
+            isinstance(resource, SharingConfiguration)
+            and resource.password_required
+            and isinstance(request.successful_authenticator, SharingPasswordProtectedAuthentication)
+            and request.headers.get("Accept") == "application/json"
+        ):
+            # Return dashboard data as JSON for XHR requests
+            return response.Response(exported_data)
+
+        context = {
+            "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
+            "asset_title": asset_title,
+            "asset_description": asset_description,
+            "add_og_tags": add_og_tags,
+            "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
+        }
 
         return render_template(
             "exporter.html",
             request=request,
-            context={
-                "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
-                "asset_title": asset_title,
-                "asset_description": asset_description,
-                "add_og_tags": add_og_tags,
-                "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
-            },
+            context=context,
             team_for_public_context=resource.team,
         )
 

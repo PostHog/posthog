@@ -11,6 +11,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
+import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
@@ -37,7 +38,15 @@ import {
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { llmAnalyticsColumnRenderers } from 'products/llm_analytics/frontend/llmAnalyticsColumnRenderers'
+
 import { extractExpressionComment, removeExpressionComment } from './utils'
+
+// Registry for product-specific column renderers
+// Products can add their custom column renderers here to have them automatically applied across all DataTable instances
+const productColumnRenderers: Record<string, QueryContextColumn> = {
+    ...llmAnalyticsColumnRenderers,
+}
 
 export function getContextColumn(
     key: string,
@@ -97,6 +106,18 @@ export function renderColumn(
             />
         ) : (
             String(value)
+        )
+    } else if (productColumnRenderers[key]?.render) {
+        const Component = productColumnRenderers[key].render!
+        return (
+            <Component
+                record={record}
+                columnName={key}
+                value={value}
+                query={query}
+                recordIndex={recordIndex}
+                rowCount={rowCount}
+            />
         )
     } else if (typeof value === 'object' && Array.isArray(value) && value[0] === '__hx_tag') {
         return renderHogQLX(value)
@@ -307,6 +328,12 @@ export function renderColumn(
         }
         const personRecord = record[0] as PersonType
         return <DeletePersonButton person={personRecord} />
+    } else if (key === 'properties.$geoip_country_code') {
+        if (typeof value === 'string') {
+            return `${countryCodeToFlag(value)} ${COUNTRY_CODE_TO_LONG_NAME[value] || value}`
+        }
+
+        return String(value)
     } else if (key.startsWith('context.columns.')) {
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const Component = context?.columns?.[columnName]?.render
@@ -365,6 +392,7 @@ export function renderColumn(
         const key = (record as any[])[1] // 'key' is the second column in the groups query
         return <Link to={urls.group(query.source.group_type_index, key, true)}>{value}</Link>
     }
+
     if (typeof value === 'object') {
         return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
     } else if (

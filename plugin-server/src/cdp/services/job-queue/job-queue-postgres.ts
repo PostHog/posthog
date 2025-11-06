@@ -5,6 +5,7 @@
  */
 import { chunk } from 'lodash'
 import { DateTime } from 'luxon'
+import { validate as isUuid } from 'uuid'
 
 import {
     CyclotronJob,
@@ -16,7 +17,7 @@ import {
 
 import { CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
 
-import { PluginsServerConfig } from '../../../types'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
@@ -82,8 +83,20 @@ export class CyclotronJobQueuePostgres {
         return Promise.resolve()
     }
 
-    public isHealthy() {
-        return this.getCyclotronWorker().isHealthy()
+    public isHealthy(): HealthCheckResult {
+        try {
+            const worker = this.getCyclotronWorker()
+            const isHealthy = worker.isHealthy()
+            if (isHealthy) {
+                return new HealthCheckResultOk()
+            } else {
+                return new HealthCheckResultError('Cyclotron worker is not healthy', {})
+            }
+        } catch (error) {
+            return new HealthCheckResultError('Cyclotron worker not initialized', {
+                error: error instanceof Error ? error.message : String(error),
+            })
+        }
     }
 
     public async queueInvocations(invocations: CyclotronJobInvocation[]) {
@@ -207,7 +220,12 @@ function invocationToCyclotronJobInitial(invocation: CyclotronJobInvocation): Cy
         }
     }
 
-    const job: CyclotronJobInit = {
+    // Preserve the invocation id when inserting into Postgres so switching backends keeps the same ID
+    // cyclotron db expects this to be a valid UUID
+    const isValidUuid = typeof invocation.id === 'string' && isUuid(invocation.id)
+
+    const job: CyclotronJobInit & { id?: string } = {
+        id: isValidUuid ? invocation.id : undefined,
         teamId: invocation.teamId,
         functionId: invocation.functionId,
         queueName: invocation.queue,

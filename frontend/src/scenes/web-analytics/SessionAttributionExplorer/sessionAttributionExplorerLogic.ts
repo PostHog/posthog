@@ -3,6 +3,7 @@ import { actionToUrl, urlToAction } from 'kea-router'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 
@@ -14,7 +15,7 @@ import {
     SessionAttributionExplorerQuery,
     SessionAttributionGroupBy,
 } from '~/queries/schema/schema-general'
-import { SessionPropertyFilter } from '~/types'
+import { Breadcrumb, SessionPropertyFilter } from '~/types'
 
 import type { sessionAttributionExplorerLogicType } from './sessionAttributionExplorerLogicType'
 
@@ -94,6 +95,25 @@ export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLog
                     showOpenEditorButton: true,
                     showReload: true,
                 }
+            },
+        ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => {
+                return [
+                    {
+                        key: Scene.WebAnalytics,
+                        name: `Web analytics`,
+                        path: urls.webAnalytics(),
+                        iconType: 'web_analytics',
+                    },
+                    {
+                        key: Scene.SessionAttributionExplorer,
+                        name: `Session attribution explorer`,
+                        path: urls.sessionAttributionExplorer(),
+                        iconType: 'web_analytics',
+                    },
+                ]
             },
         ],
     }),

@@ -5,9 +5,14 @@ from posthog.schema import CurrencyCode
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.temporal.data_imports.sources.stripe.constants import INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME
-from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable, ExternalDataSchema, ExternalDataSource
-from posthog.warehouse.types import ExternalDataSourceType
 
+from products.data_warehouse.backend.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsChargeView,
     RevenueAnalyticsCustomerView,
@@ -87,6 +92,15 @@ class TestRevenueAnalyticsViews(BaseTest):
         charge_views = [v for v in source_views if isinstance(v, RevenueAnalyticsChargeView)]
         self.assertEqual(len(charge_views), 1)
         self.assertEqual(charge_views[0].name, "stripe.charge_revenue_view")
+
+    def test_revenue_view_with_disabled_source(self):
+        """Test that the orchestrator returns None for disabled sources"""
+        self.source.revenue_analytics_config.enabled = False
+        self.source.revenue_analytics_config.save()
+
+        views = build_all_revenue_analytics_views(self.team, self.timings)
+        source_views = [v for v in views if v.source_id == str(self.source.id)]
+        self.assertEqual(len(source_views), 0)
 
     def test_revenue_view_non_stripe_source(self):
         """Test that the orchestrator returns None for non-Stripe sources"""

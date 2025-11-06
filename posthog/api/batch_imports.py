@@ -92,7 +92,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
         required=True,
     )
     s3_bucket = serializers.CharField(write_only=True, required=False)
-    s3_prefix = serializers.CharField(write_only=True, required=False)
+    s3_prefix = serializers.CharField(write_only=True, required=False, allow_blank=True)
     s3_region = serializers.CharField(write_only=True, required=False)
     access_key = serializers.CharField(write_only=True, required=False)
     secret_key = serializers.CharField(write_only=True, required=False)
@@ -144,7 +144,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
 
         batch_import.config.json_lines(content_type).from_s3(
             bucket=validated_data["s3_bucket"],
-            prefix=validated_data["s3_prefix"],
+            prefix=validated_data.get("s3_prefix", ""),
             region=validated_data["s3_region"],
             access_key_id=validated_data["access_key"],
             secret_access_key=validated_data["secret_key"],
@@ -178,6 +178,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
     is_eu_region = serializers.BooleanField(write_only=True, required=False, default=False)
     import_events = serializers.BooleanField(write_only=True, required=False, default=True)
     generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
+    generate_group_identify_events = serializers.BooleanField(write_only=True, required=False, default=False)
 
     class Meta:
         model = BatchImport
@@ -199,6 +200,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
             "is_eu_region",
             "import_events",
             "generate_identify_events",
+            "generate_group_identify_events",
         ]
         read_only_fields = [
             "id",
@@ -265,9 +267,11 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
 
             # Only apply import_events and generate_identify_events for Amplitude
             if source_type == "amplitude":
-                config_builder = config_builder.with_import_events(
-                    validated_data.get("import_events", True)
-                ).with_generate_identify_events(validated_data.get("generate_identify_events", True))
+                config_builder = (
+                    config_builder.with_import_events(validated_data.get("import_events", True))
+                    .with_generate_identify_events(validated_data.get("generate_identify_events", True))
+                    .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", True))
+                )
 
             config_builder.to_kafka(
                 topic=BatchImportKafkaTopic.HISTORICAL,

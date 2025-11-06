@@ -238,3 +238,21 @@ else:
         </>
     )
 }
+
+export function JavaSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Java} wrap>
+                {`Object flagValue = postHog.getFeatureFlag("user distinct id", "${flagKey}");
+if ("${variant}".equals(flagValue)) {
+    // Do something differently for this user
+} else {
+    // It's a good idea to let control variant always be the default behaviour,
+    // so if something goes wrong with flag evaluation, you don't break your app.
+}
+`}
+            </CodeSnippet>
+            <ServerSideWarning />
+        </>
+    )
+}

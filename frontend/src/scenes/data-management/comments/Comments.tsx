@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconNotification, IconTrash } from '@posthog/icons'
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -14,10 +14,11 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { CommentType, ProductKey } from '~/types'
 
@@ -128,15 +129,12 @@ export function Comments(): JSX.Element {
     return (
         <SceneContent data-attr="comments-management-scene">
             <SceneTitleSection
-                name="Comments"
-                description="Comments allow you to provide context and discussions on various elements in PostHog."
+                name={sceneConfigurations[Scene.Comments].name}
+                description={sceneConfigurations[Scene.Comments].description}
                 resourceType={{
-                    type: 'comment',
-                    typePlural: 'comments',
-                    forceIcon: <IconNotification />,
+                    type: sceneConfigurations[Scene.Comments].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
             <div className="flex flex-row gap-4 justify-between">
                 <div className="flex flex-row items-center gap-2">
                     <LemonInput

@@ -13,6 +13,7 @@ import {
     IconHogQL,
     IconLifecycle,
     IconLive,
+    IconLlmAnalytics,
     IconPerson,
     IconPieChart,
     IconPiggyBank,
@@ -29,14 +30,12 @@ import {
 } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -51,18 +50,17 @@ import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemo
 import { isNonEmptyObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
@@ -409,6 +407,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconCorrelationAnalysis,
         inMenu: false,
     },
+    [NodeKind.ErrorTrackingSimilarIssuesQuery]: {
+        name: 'Error Tracking Similar Issues',
+        description: 'Explore issues similar to the selected one.',
+        icon: IconWarning,
+        inMenu: false,
+    },
+    [NodeKind.ErrorTrackingBreakdownsQuery]: {
+        name: 'Error Tracking Breakdowns',
+        description: 'Break down error tracking issues by properties.',
+        icon: IconWarning,
+        inMenu: false,
+    },
     [NodeKind.RecordingsQuery]: {
         name: 'Session Recordings',
         description: 'View available recordings.',
@@ -480,6 +490,17 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.TracesQuery]: {
         name: 'LLM Analytics Traces',
+        icon: IconLlmAnalytics,
+        inMenu: false,
+    },
+    [NodeKind.TraceQuery]: {
+        name: 'LLM Analytics Trace',
+        icon: IconLlmAnalytics,
+        inMenu: false,
+    },
+    [NodeKind.DocumentSimilarityQuery]: {
+        name: 'Document Similarity',
+        description: 'Find documents similar to a given query.',
         icon: IconAI,
         inMenu: false,
     },
@@ -501,6 +522,16 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.MarketingAnalyticsTableQuery]: {
         name: 'Marketing Analytics Table',
         icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.MarketingAnalyticsAggregatedQuery]: {
+        name: 'Marketing Analytics Aggregated',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.UsageMetricsQuery]: {
+        name: 'Usage Metrics',
+        icon: IconPieChart,
         inMenu: false,
     },
 }
@@ -568,27 +599,29 @@ export function InsightIcon({
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
     return (
-        <AccessControlledLemonButton
-            type="primary"
-            to={urls.insightNew()}
-            sideAction={{
-                dropdown: {
-                    placement: 'bottom-end',
-                    className: 'new-insight-overlay',
-                    actionable: true,
-                    overlay: <OverlayForNewInsightMenu dataAttr={dataAttr} />,
-                },
-                'data-attr': 'saved-insights-new-insight-dropdown',
-            }}
-            data-attr="saved-insights-new-insight-button"
-            size="small"
-            icon={<IconPlusSmall />}
+        <AccessControlAction
             resourceType={AccessControlResourceType.Insight}
             minAccessLevel={AccessControlLevel.Editor}
-            userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]}
         >
-            New
-        </AccessControlledLemonButton>
+            <LemonButton
+                type="primary"
+                to={urls.insightNew()}
+                sideAction={{
+                    dropdown: {
+                        placement: 'bottom-end',
+                        className: 'new-insight-overlay',
+                        actionable: true,
+                        overlay: <OverlayForNewInsightMenu dataAttr={dataAttr} />,
+                    },
+                    'data-attr': 'saved-insights-new-insight-dropdown',
+                }}
+                data-attr="saved-insights-new-insight-button"
+                size="small"
+                icon={<IconPlusSmall />}
+            >
+                New
+            </LemonButton>
+        </AccessControlAction>
     )
 }
 
@@ -645,8 +678,6 @@ export function SavedInsights(): JSX.Element {
     const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
 
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
         {
             key: 'id',
@@ -668,25 +699,28 @@ export function SavedInsights(): JSX.Element {
                                 <>
                                     {name || <i>{summarizeInsight(insight.query)}</i>}
 
-                                    <AccessControlledLemonButton
-                                        userAccessLevel={insight.user_access_level}
-                                        minAccessLevel={AccessControlLevel.Editor}
+                                    <AccessControlAction
                                         resourceType={AccessControlResourceType.Insight}
-                                        className="ml-1"
-                                        size="xsmall"
-                                        onClick={(e) => {
-                                            e.preventDefault()
-                                            updateFavoritedInsight(insight, !insight.favorited)
-                                        }}
-                                        icon={
-                                            insight.favorited ? (
-                                                <IconStarFilled className="text-warning" />
-                                            ) : (
-                                                <IconStar className="text-secondary" />
-                                            )
-                                        }
-                                        tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
-                                    />
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={insight.user_access_level}
+                                    >
+                                        <LemonButton
+                                            className="ml-1"
+                                            size="xsmall"
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                updateFavoritedInsight(insight, !insight.favorited)
+                                            }}
+                                            icon={
+                                                insight.favorited ? (
+                                                    <IconStarFilled className="text-warning" />
+                                                ) : (
+                                                    <IconStar className="text-secondary" />
+                                                )
+                                            }
+                                            tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
+                                        />
+                                    </AccessControlAction>
                                 </>
                             }
                             description={insight.description}
@@ -727,6 +761,18 @@ export function SavedInsights(): JSX.Element {
             },
         },
         {
+            title: 'Last viewed',
+            sorter: true,
+            dataIndex: 'last_viewed_at',
+            render: function renderLastViewed(last_viewed_at: string | null) {
+                return (
+                    <div className="whitespace-nowrap">
+                        {last_viewed_at ? <TZLabel time={last_viewed_at} /> : <span className="text-muted">Never</span>}
+                    </div>
+                )
+            },
+        },
+        {
             width: 0,
             render: function Render(_, insight) {
                 return (
@@ -739,26 +785,29 @@ export function SavedInsights(): JSX.Element {
 
                                 <LemonDivider />
 
-                                <AccessControlledLemonButton
-                                    userAccessLevel={insight.user_access_level}
-                                    minAccessLevel={AccessControlLevel.Editor}
+                                <AccessControlAction
                                     resourceType={AccessControlResourceType.Insight}
-                                    to={urls.insightEdit(insight.short_id)}
-                                    fullWidth
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={insight.user_access_level}
                                 >
-                                    Edit
-                                </AccessControlledLemonButton>
+                                    <LemonButton to={urls.insightEdit(insight.short_id)} fullWidth>
+                                        Edit
+                                    </LemonButton>
+                                </AccessControlAction>
 
-                                <AccessControlledLemonButton
-                                    userAccessLevel={insight.user_access_level}
-                                    minAccessLevel={AccessControlLevel.Editor}
+                                <AccessControlAction
                                     resourceType={AccessControlResourceType.Insight}
-                                    onClick={() => renameInsight(insight)}
-                                    data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
-                                    fullWidth
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={insight.user_access_level}
                                 >
-                                    Rename
-                                </AccessControlledLemonButton>
+                                    <LemonButton
+                                        onClick={() => renameInsight(insight)}
+                                        data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
+                                        fullWidth
+                                    >
+                                        Rename
+                                    </LemonButton>
+                                </AccessControlAction>
 
                                 <LemonButton
                                     onClick={() => duplicateInsight(insight)}
@@ -770,23 +819,26 @@ export function SavedInsights(): JSX.Element {
 
                                 <LemonDivider />
 
-                                <AccessControlledLemonButton
-                                    userAccessLevel={insight.user_access_level}
-                                    minAccessLevel={AccessControlLevel.Editor}
+                                <AccessControlAction
                                     resourceType={AccessControlResourceType.Insight}
-                                    status="danger"
-                                    onClick={() =>
-                                        void deleteInsightWithUndo({
-                                            object: insight,
-                                            endpoint: `projects/${currentProjectId}/insights`,
-                                            callback: loadInsights,
-                                        })
-                                    }
-                                    data-attr={`insight-item-${insight.short_id}-dropdown-remove`}
-                                    fullWidth
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={insight.user_access_level}
                                 >
-                                    Delete insight
-                                </AccessControlledLemonButton>
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() =>
+                                            void deleteInsightWithUndo({
+                                                object: insight,
+                                                endpoint: `projects/${currentProjectId}/insights`,
+                                                callback: loadInsights,
+                                            })
+                                        }
+                                        data-attr={`insight-item-${insight.short_id}-dropdown-remove`}
+                                        fullWidth
+                                    >
+                                        Delete insight
+                                    </LemonButton>
+                                </AccessControlAction>
                             </>
                         }
                     />
@@ -796,17 +848,15 @@ export function SavedInsights(): JSX.Element {
     ]
 
     return (
-        <SceneContent className={cn('saved-insights', !newSceneLayout && 'block')}>
-            <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
+        <SceneContent className={cn('saved-insights')}>
             <SceneTitleSection
-                name="Product analytics"
-                description="Track, analyze, and experiment with user behavior."
+                name={sceneConfigurations[Scene.SavedInsights].name}
+                description={sceneConfigurations[Scene.SavedInsights].description}
                 resourceType={{
-                    type: 'insight',
-                    typePlural: 'insights',
+                    type: sceneConfigurations[Scene.SavedInsights].iconType || 'default_icon_type',
                 }}
+                actions={<NewInsightButton dataAttr="saved-insights-create-new-insight" />}
             />
-            <SceneDivider />
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
@@ -820,7 +870,7 @@ export function SavedInsights(): JSX.Element {
                         label: <div className="flex items-center gap-2">Alerts</div>,
                     },
                 ]}
-                sceneInset={newSceneLayout}
+                sceneInset
             />
 
             {tab === SavedInsightsTabs.History ? (
@@ -830,13 +880,8 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
-                    <LemonDivider className={cn('my-4', newSceneLayout && 'my-0')} />
-                    <div
-                        className={cn(
-                            'flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center',
-                            newSceneLayout && 'my-0'
-                        )}
-                    >
+                    <LemonDivider className="my-0" />
+                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center my-0">
                         <span className="text-secondary">
                             {count
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${

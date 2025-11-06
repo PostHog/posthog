@@ -1,3 +1,4 @@
+use common_types::error_tracking::FrameId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
@@ -25,7 +26,7 @@ impl RawGoFrame {
 impl From<&RawGoFrame> for Frame {
     fn from(frame: &RawGoFrame) -> Self {
         Frame {
-            raw_id: frame.frame_id(),
+            frame_id: FrameId::placeholder(),
             mangled_name: frame.function.clone(),
             line: Some(frame.lineno),
             column: None,
@@ -39,6 +40,9 @@ impl From<&RawGoFrame> for Frame {
             junk_drawer: None,
             context: None,
             release: None,
+            suspicious: false,
+            module: None,
+            code_variables: None,
         }
     }
 }

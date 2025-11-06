@@ -1,5 +1,5 @@
-import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { lazyLoaders } from 'kea-loaders'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -30,6 +30,8 @@ export type AppMetricsLogicProps = {
     forceParams?: Partial<AppMetricsCommonParams>
     defaultParams?: Partial<AppMetricsCommonParams>
     loadOnChanges?: boolean
+    /** If true, loads data immediately when logic mounts. Default: false */
+    loadOnMount?: boolean
 }
 
 export type AppMetricsTimeSeriesRequest = AppMetricsCommonParams
@@ -71,7 +73,7 @@ export const loadAppMetricsTotals = async (
     if (request.appSourceId) {
         query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
     }
-    if (request.instanceId) {
+    if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
     }
     if (request.metricName) {
@@ -91,7 +93,7 @@ export const loadAppMetricsTotals = async (
         `) as HogQLQueryString
 
     const response = await api.queryHogQL(query, {
-        refresh: 'force_blocking',
+        refresh: 'async',
     })
 
     const res: AppMetricsTotalsResponse = {}
@@ -172,7 +174,7 @@ const loadAppMetricsTimeSeries = async (
     if (request.appSourceId) {
         query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
     }
-    if (request.instanceId) {
+    if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
     }
     if (request.metricName) {
@@ -203,7 +205,7 @@ const loadAppMetricsTimeSeries = async (
         `) as HogQLQueryString
 
     const response = await api.queryHogQL(query, {
-        refresh: 'force_blocking',
+        refresh: 'async',
     })
 
     const labels = response.results?.[0]?.[0].map((label: string) => {
@@ -241,6 +243,8 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
     })),
     actions({
         setParams: (params: Partial<AppMetricsCommonParams>) => ({ params }),
+        loadAppMetricsTrends: true,
+        loadAppMetricsTrendsPreviousPeriod: true,
     }),
     reducers(({ props }) => ({
         params: [
@@ -255,11 +259,12 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
             },
         ],
     })),
-    lazyLoaders(({ values }) => ({
+    loaders(({ values }) => ({
         appMetricsTrends: [
             null as AppMetricsTimeSeriesResponse | null,
             {
-                loadAppMetricsTrends: async () => {
+                loadAppMetricsTrends: async (_, breakpoint) => {
+                    await breakpoint(10)
                     const dateRange = values.getDateRangeAbsolute()
                     const params: AppMetricsTimeSeriesRequest = {
                         ...values.params,
@@ -267,14 +272,18 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                         dateTo: dateRange.dateTo.toISOString(),
                     }
 
-                    return await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    const result = await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    await breakpoint(10)
+
+                    return result
                 },
             },
         ],
         appMetricsTrendsPreviousPeriod: [
             null as AppMetricsTimeSeriesResponse | null,
             {
-                loadAppMetricsTrendsPreviousPeriod: async () => {
+                loadAppMetricsTrendsPreviousPeriod: async (_, breakpoint) => {
+                    await breakpoint(10)
                     const dateRange = values.getDateRangeAbsolute()
                     const params: AppMetricsTimeSeriesRequest = {
                         ...values.params,
@@ -282,7 +291,10 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                         dateTo: dateRange.dateTo.subtract(dateRange.diffMs).toISOString(),
                     }
 
-                    return await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    const result = await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    await breakpoint(10)
+
+                    return result
                 },
             },
         ],
@@ -352,6 +364,14 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
             }
         },
     })),
+
+    afterMount(({ actions, props }) => {
+        // Auto-load data immediately on mount if explicitly requested
+        if (props.loadOnMount) {
+            actions.loadAppMetricsTrends()
+            actions.loadAppMetricsTrendsPreviousPeriod()
+        }
+    }),
 
     propsChanged(({ actions, props }, oldProps) => {
         if (props.forceParams && !objectsEqual(props.forceParams, oldProps.forceParams)) {

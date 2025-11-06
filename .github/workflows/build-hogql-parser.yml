@@ -42,7 +42,7 @@ jobs:
                       parser_release_needed='true'
                     else
                       message_body="It looks like the code of \`hogql-parser\` has changed since last push, but its version stayed the same at $local. 👀\nMake sure to resolve this in \`hogql_parser/setup.py\` before merging!${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' && '\nThis needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this.' || ''}}"
-                      curl -s -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }} -X POST -d "{ \"body\": \"$message_body\" }" "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"
+                      curl -s -u posthog-bot:${{ secrets.POSTHOG_BOT_PAT || secrets.GITHUB_TOKEN }} -X POST -d "{ \"body\": \"$message_body\" }" "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"
                     fi
                   fi
                   echo "parser-release-needed=$parser_release_needed" >> $GITHUB_OUTPUT
@@ -59,26 +59,43 @@ jobs:
                 # As of October 2023, GitHub doesn't have ARM Actions runners… and ARM emulation is insanely slow
                 # (20x longer) on the Linux runners (while being reasonable on the macOS runners). Hence, we use
                 # BuildJet as a provider of ARM runners - this solution saves a lot of time and consequently some money.
-                os: [ubuntu-22.04, buildjet-2vcpu-ubuntu-2204-arm, macos-13]
+                os: [ubuntu-22.04, buildjet-2vcpu-ubuntu-2204-arm, macos-13, macos-14]
+                include:
+                    - os: macos-13
+                      cibw_archs_macos: x86_64
+                      MACOSX_DEPLOYMENT_TARGET: 13
+                    - os: macos-14
+                      cibw_archs_macos: arm64
+                      MACOSX_DEPLOYMENT_TARGET: 14
+                    - os: ubuntu-22.04
+                      cibw_archs_linux: x86_64
+                      MACOSX_DEPLOYMENT_TARGET: ''
+                    - os: buildjet-2vcpu-ubuntu-2204-arm
+                      cibw_archs_linux: aarch64
+                      MACOSX_DEPLOYMENT_TARGET: ''
 
         steps:
             - uses: actions/checkout@v4
 
             - uses: actions/setup-python@v5
               with:
-                  python-version: '3.11'
+                  python-version: '3.12.10' # There is no 3.12.11/3.12.12 binary for mac/darwin architectures yet
 
             - name: Build sdist
               if: matrix.os == 'ubuntu-22.04' # Only build the sdist once
-              run: cd common/hogql_parser && python setup.py sdist
+              run: |
+                  pip install setuptools==80.9.0
+                  cd common/hogql_parser && python setup.py sdist
 
             - name: Install cibuildwheel
-              run: pip install cibuildwheel==2.16.*
+              run: pip install cibuildwheel==2.23.*
 
             - name: Build wheels
               run: cd common/hogql_parser && python -m cibuildwheel --output-dir dist
               env:
-                  MACOSX_DEPLOYMENT_TARGET: '13' # A modern target allows us to use C++20
+                  CIBW_ARCHS_MACOS: ${{ matrix.cibw_archs_macos }}
+                  CIBW_ARCHS_LINUX: ${{ matrix.cibw_archs_linux }}
+                  MACOSX_DEPLOYMENT_TARGET: ${{ matrix.MACOSX_DEPLOYMENT_TARGET }}
 
             - name: Upload wheels artifact
               uses: actions/upload-artifact@v4
@@ -115,13 +132,31 @@ jobs:
                   name: wheels-macos-13
                   path: dist
 
+            - name: Download wheels from macos-14
+              uses: actions/download-artifact@v4
+              with:
+                  name: wheels-macos-14
+                  path: dist
+
             - name: Publish package to PyPI
               uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # release/v1
 
             - uses: actions/checkout@v4
               with:
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
                   ref: ${{ github.event.pull_request.head.ref }}
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: 3.12.11
+
+            - name: Install uv
+              id: setup-uv
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              with:
+                  enable-cache: true
+                  version: 0.8.19
 
             - name: Update hogql-parser in requirements
               shell: bash
@@ -145,4 +180,4 @@ jobs:
                   add: '["pyproject.toml", "uv.lock"]'
                   message: 'Use new hogql-parser version'
                   default_author: github_actions
-                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  github_token: ${{ secrets.POSTHOG_BOT_PAT }}

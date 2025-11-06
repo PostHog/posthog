@@ -33,18 +33,15 @@ export interface ExtraDatabaseRows {
     pluginAttachments?: Omit<PluginAttachmentDB, 'id'>[]
 }
 
-export const POSTGRES_DELETE_OTHER_TABLES_QUERY = `
+export const POSTGRES_DELETE_COMMON_TABLES_QUERY = `
 DO $$
 DECLARE
     r RECORD;
 BEGIN
     -- First handle tables with foreign key dependencies
-    DELETE FROM posthog_featureflaghashkeyoverride CASCADE;
-    DELETE FROM posthog_cohortpeople CASCADE;
     DELETE FROM posthog_cohort CASCADE;
     DELETE FROM posthog_featureflag CASCADE;
     DELETE FROM posthog_organizationmembership CASCADE;
-    DELETE FROM posthog_grouptypemapping CASCADE;
     DELETE FROM posthog_project CASCADE;
     DELETE FROM posthog_pluginsourcefile CASCADE;
     DELETE FROM posthog_pluginconfig CASCADE;
@@ -52,9 +49,6 @@ BEGIN
     DELETE FROM posthog_organization CASCADE;
     DELETE FROM posthog_action CASCADE;
     DELETE FROM posthog_user CASCADE;
-    DELETE FROM posthog_group CASCADE;
-    DELETE FROM posthog_persondistinctid CASCADE;
-    DELETE FROM posthog_person CASCADE;
     DELETE FROM posthog_team CASCADE;
 
     -- Then handle remaining tables
@@ -63,12 +57,9 @@ BEGIN
         FROM pg_tables
         WHERE schemaname = current_schema()
         AND tablename NOT IN (
-            'posthog_featureflaghashkeyoverride',
-            'posthog_cohortpeople',
             'posthog_cohort',
             'posthog_featureflag',
             'posthog_organizationmembership',
-            'posthog_grouptypemapping',
             'posthog_project',
             'posthog_pluginsourcefile',
             'posthog_pluginconfig',
@@ -76,10 +67,61 @@ BEGIN
             'posthog_organization',
             'posthog_action',
             'posthog_user',
-            'posthog_group',
+            'posthog_team',
+            -- Exclude persons-related tables as they're in a different database
+            'posthog_featureflaghashkeyoverride',
+            'posthog_cohortpeople',
             'posthog_persondistinctid',
+            'posthog_personlessdistinctid',
             'posthog_person',
-            'posthog_team'
+            'posthog_personoverridemapping',
+            'posthog_personoverride',
+            'posthog_pendingpersonoverride',
+            'posthog_flatpersonoverride',
+            'posthog_group',
+            'posthog_grouptypemapping'
+        )
+    ) LOOP
+        EXECUTE 'DELETE FROM ' || quote_ident(r.tablename) || ' CASCADE';
+    END LOOP;
+END $$;
+`
+
+export const POSTGRES_DELETE_PERSONS_TABLES_QUERY = `
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    -- Delete persons-related tables with proper ordering for foreign keys
+    DELETE FROM posthog_grouptypemapping CASCADE;
+    DELETE FROM posthog_group CASCADE;
+    DELETE FROM posthog_featureflaghashkeyoverride CASCADE;
+    DELETE FROM posthog_cohortpeople CASCADE;
+    DELETE FROM posthog_flatpersonoverride CASCADE;
+    DELETE FROM posthog_pendingpersonoverride CASCADE;
+    DELETE FROM posthog_personoverride CASCADE;
+    DELETE FROM posthog_personoverridemapping CASCADE;
+    DELETE FROM posthog_persondistinctid CASCADE;
+    DELETE FROM posthog_personlessdistinctid CASCADE;
+    DELETE FROM posthog_person CASCADE;
+
+    -- Handle any other tables that might exist in the persons database
+    FOR r IN (
+        SELECT tablename
+        FROM pg_tables
+        WHERE schemaname = current_schema()
+        AND tablename NOT IN (
+            'posthog_grouptypemapping',
+            'posthog_group',
+            'posthog_featureflaghashkeyoverride',
+            'posthog_cohortpeople',
+            'posthog_flatpersonoverride',
+            'posthog_pendingpersonoverride',
+            'posthog_personoverride',
+            'posthog_personoverridemapping',
+            'posthog_persondistinctid',
+            'posthog_personlessdistinctid',
+            'posthog_person'
         )
     ) LOOP
         EXECUTE 'DELETE FROM ' || quote_ident(r.tablename) || ' CASCADE';
@@ -88,11 +130,17 @@ END $$;
 `
 
 export async function clearDatabase(db: PostgresRouter) {
-    // Delete all tables using COMMON_WRITE
     await db
-        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_OTHER_TABLES_QUERY, undefined, 'delete-other-tables')
+        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_COMMON_TABLES_QUERY, undefined, 'delete-common-tables')
         .catch((e) => {
-            console.error('Error deleting other tables', e)
+            console.error('Error deleting common tables', e)
+            throw e
+        })
+
+    await db
+        .query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_PERSONS_TABLES_QUERY, undefined, 'delete-persons-tables')
+        .catch((e) => {
+            console.error('Error deleting persons tables', e)
             throw e
         })
 }
@@ -108,11 +156,19 @@ export async function resetTestDatabase(
     const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
     const db = new PostgresRouter(config)
 
-    // Delete all tables using COMMON_WRITE
+    // Delete common tables using COMMON_WRITE
     await db
-        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_OTHER_TABLES_QUERY, undefined, 'delete-other-tables')
+        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_COMMON_TABLES_QUERY, undefined, 'delete-common-tables')
         .catch((e) => {
-            console.error('Error deleting other tables', e)
+            console.error('Error deleting common tables', e)
+            throw e
+        })
+
+    // Delete persons tables using PERSONS_WRITE
+    await db
+        .query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_PERSONS_TABLES_QUERY, undefined, 'delete-persons-tables')
+        .catch((e) => {
+            console.error('Error deleting persons tables', e)
             throw e
         })
 
@@ -160,6 +216,24 @@ export async function resetTestDatabase(
     await db.end()
 }
 
+// Helper function to determine which database a table belongs to
+function getPostgresUseForTable(table: string): PostgresUse {
+    // Behavioral cohorts tables
+    if (table === 'cohort_membership') {
+        return PostgresUse.BEHAVIORAL_COHORTS_RW
+    }
+
+    // Persons-related tables
+    const personsTablesRegex =
+        /^posthog_(person|persondistinctid|personlessdistinctid|personoverridemapping|personoverride|pendingpersonoverride|flatpersonoverride|featureflaghashkeyoverride|cohortpeople|group|grouptypemapping)$/
+    if (personsTablesRegex.test(table)) {
+        return PostgresUse.PERSONS_WRITE
+    }
+
+    // Default to common tables
+    return PostgresUse.COMMON_WRITE
+}
+
 export async function insertRow(db: PostgresRouter, table: string, objectProvided: Record<string, any>) {
     // Handling of related fields
     const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
@@ -177,11 +251,13 @@ export async function insertRow(db: PostgresRouter, table: string, objectProvide
         return value
     })
 
+    const postgresUse = getPostgresUseForTable(table)
+
     try {
         const {
             rows: [rowSaved],
         } = await db.query(
-            PostgresUse.COMMON_WRITE,
+            postgresUse,
             `INSERT INTO ${table} (${keys})
              VALUES (${params})
              RETURNING *`,
@@ -282,6 +358,7 @@ export async function createUserTeamAndOrganization(
         allow_publicly_shared_resources: true,
         members_can_use_personal_api_keys: true,
         slug: new UUIDT().toString(),
+        default_anonymize_ips: false,
     } as RawOrganization)
     await updateOrganizationAvailableFeatures(db, organizationId, [{ key: 'data_pipelines', name: 'Data Pipelines' }])
     await insertRow(db, 'posthog_organizationmembership', {
@@ -408,6 +485,7 @@ export const createOrganization = async (pg: PostgresRouter) => {
         members_can_use_personal_api_keys: true,
         is_member_join_email_enabled: false,
         slug: new UUIDT().toString(),
+        default_anonymize_ips: false,
     })
     return organizationId
 }
@@ -572,11 +650,94 @@ export async function fetchPostgresDistinctIdsForPerson(db: DB, personId: string
     )
 }
 
-export async function resetCountersDatabase(db: PostgresRouter): Promise<void> {
+export async function resetBehavioralCohortsDatabase(db: PostgresRouter): Promise<void> {
     await db.query(
-        PostgresUse.COUNTERS_RW,
-        'TRUNCATE TABLE person_performed_events, behavioural_filter_matched_events',
+        PostgresUse.BEHAVIORAL_COHORTS_RW,
+        'TRUNCATE TABLE cohort_membership',
         undefined,
-        'reset-counters-db'
+        'reset-behavioral-cohorts-db'
     )
+}
+
+export const createCohort = async (
+    pg: PostgresRouter,
+    teamId: number,
+    name: string,
+    filters: string | null = null,
+    cohortSettings?: Record<string, any>
+): Promise<number> => {
+    // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
+    const id = Math.round(Math.random() * 1000000000)
+    await insertRow(pg, 'posthog_cohort', {
+        id,
+        name,
+        description: `Test cohort: ${name}`,
+        team_id: teamId,
+        deleted: false,
+        filters:
+            filters ||
+            JSON.stringify({
+                properties: {
+                    type: 'AND',
+                    values: [],
+                },
+            }),
+        query: null,
+        version: null,
+        pending_version: null,
+        count: null,
+        is_calculating: false,
+        last_calculation: null,
+        errors_calculating: 0,
+        last_error_at: null,
+        is_static: false,
+        cohort_type: 'realtime',
+        created_at: new Date().toISOString(),
+        created_by_id: commonUserId,
+        groups: JSON.stringify([]),
+        ...cohortSettings,
+    })
+    return id
+}
+
+// Build an inline filters JSON string for cohorts with embedded bytecode and conditionHash
+export const buildInlineFiltersForCohorts = ({
+    bytecode,
+    conditionHash,
+    type = 'behavioral',
+    key = '$test_event',
+    extra,
+}: {
+    bytecode: any[]
+    conditionHash: string
+    type?: string
+    key?: string
+    extra?: Record<string, any>
+}): string => {
+    const filter: any = {
+        key,
+        type,
+        bytecode,
+        conditionHash,
+        ...(extra || {}),
+    }
+
+    if (type === 'behavioral') {
+        filter.value = 'performed_event'
+        filter.event_type = 'events'
+    } else if (type === 'person') {
+        filter.operator = 'is_set'
+    }
+
+    return JSON.stringify({
+        properties: {
+            type: 'OR',
+            values: [
+                {
+                    type: 'OR',
+                    values: [filter],
+                },
+            ],
+        },
+    })
 }

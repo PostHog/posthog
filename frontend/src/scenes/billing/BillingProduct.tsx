@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { IconChevronDown, IconDocument, IconInfo } from '@posthog/icons'
+import { IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
@@ -11,7 +12,6 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
 import { getProductIcon } from 'scenes/products/Products'
@@ -24,11 +24,11 @@ import { BillingProductAddon } from './BillingProductAddon'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
-import { summarizeUsage } from './billing-utils'
+import { createGaugeItems, isProductVariantPrimary, summarizeUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
+import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
-import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 export const getTierDescription = (
     tiers: BillingTierType[],
@@ -62,7 +62,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         projectedAmountExcludingAddons,
         productVariants,
         combinedMonetaryData,
-        combinedGaugeItems,
+        combinedMonetaryGaugeItems,
     } = useValues(billingProductLogic({ product }))
     const {
         setShowTierBreakdown,
@@ -76,6 +76,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const { upgradePlan, currentPlan } = currentAndUpgradePlans
 
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
+
+    const productDisplayNameOverrides: Record<string, string> = {
+        realtime_destinations: 'Data pipelines',
+    }
+    const displayProductName = productDisplayNameOverrides[product.type] || product.name
 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
@@ -111,12 +116,21 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     <div className="flex gap-4 items-center justify-between">
                         {/* Product name and description */}
                         <div className="flex gap-x-2">
-                            <div>{getProductIcon(product.name, product.icon_key, 'text-2xl shrink-0')}</div>
+                            <div>{getProductIcon(displayProductName, product.icon_key, 'text-2xl shrink-0')}</div>
                             <div>
                                 <h3 className="font-bold mb-0 flex items-center gap-x-2">
-                                    {product.name}{' '}
+                                    {displayProductName}{' '}
                                     {isTemporaryFreeProduct && (
                                         <LemonTag type="highlight">included with your plan</LemonTag>
+                                    )}
+                                    {product.type === 'realtime_destinations' && (
+                                        <Tooltip
+                                            title={`Data pipelines have moved to new usage-based pricing on ${REALTIME_DESTINATIONS_BILLING_START_DATE}.`}
+                                        >
+                                            <LemonTag type="success" icon={<IconInfo />}>
+                                                Migrated
+                                            </LemonTag>
+                                        </Tooltip>
                                     )}
                                 </h3>
                                 <div>{product.description}</div>
@@ -192,12 +206,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </LemonBanner>
                     )}
 
-                    {/* Combined monetary gauge for product variants */}
-                    {isProductWithVariants && (
+                    {/* Combined monetary gauge for product variants - only show for subscribed users */}
+                    {isProductWithVariants && product.subscribed && (
                         <div className="mt-6 mb-4 ml-2">
                             <div className="grid grid-cols-[1fr_130px_100px] gap-4 items-center">
                                 <div>
-                                    <BillingGauge items={combinedGaugeItems} product={{ ...product, unit: '$' }} />
+                                    <BillingGauge
+                                        items={combinedMonetaryGaugeItems}
+                                        product={{ ...product, unit: '$' }}
+                                    />
                                 </div>
                                 <Tooltip
                                     title={`The current ${
@@ -247,11 +264,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     product: BillingProductV2Type | BillingProductV2AddonType
                                     displayName: string
                                 }) => {
-                                    const isSessionReplay = variant.key === 'session_replay'
-                                    const currentAmount = isSessionReplay
+                                    const currentAmount = isProductVariantPrimary(variant.key)
                                         ? (product as BillingProductV2Type).current_amount_usd_before_addons || '0'
                                         : (variant.product as BillingProductV2AddonType).current_amount_usd || '0'
-                                    const projectedAmount = isSessionReplay
+                                    const projectedAmount = isProductVariantPrimary(variant.key)
                                         ? projectedAmountExcludingAddons
                                         : variant.product.projected_amount_usd || '0'
                                     const discountMultiplier = 1 - combinedMonetaryData.discountPercent / 100
@@ -293,42 +309,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     <div className="ml-16">
                                                         <BillingGauge
                                                             items={
-                                                                isSessionReplay
-                                                                    ? billingGaugeItems.filter(
-                                                                          (item) =>
-                                                                              item.type !==
-                                                                              BillingGaugeItemKind.BillingLimit
-                                                                      )
-                                                                    : ([
-                                                                          ((variant.product.tiers?.[0]
-                                                                              ?.unit_amount_usd === '0'
-                                                                              ? variant.product.tiers?.[0]?.up_to
-                                                                              : 0) || 0) > 0 && {
-                                                                              type: BillingGaugeItemKind.FreeTier,
-                                                                              text: 'Free tier limit',
-                                                                              value:
-                                                                                  variant.product.tiers?.[0]
-                                                                                      ?.unit_amount_usd === '0'
-                                                                                      ? variant.product.tiers?.[0]
-                                                                                            ?.up_to || 0
-                                                                                      : 0,
-                                                                          },
-                                                                          variant.product.projected_usage &&
-                                                                              variant.product.projected_usage >
-                                                                                  (variant.product.current_usage ||
-                                                                                      0) && {
-                                                                                  type: BillingGaugeItemKind.ProjectedUsage,
-                                                                                  text: 'Projected',
-                                                                                  value:
-                                                                                      variant.product.projected_usage ||
-                                                                                      0,
-                                                                              },
-                                                                          {
-                                                                              type: BillingGaugeItemKind.CurrentUsage,
-                                                                              text: 'Current',
-                                                                              value: variant.product.current_usage || 0,
-                                                                          },
-                                                                      ].filter(Boolean) as BillingGaugeItemType[])
+                                                                isProductVariantPrimary(variant.key)
+                                                                    ? billingGaugeItems
+                                                                    : createGaugeItems(variant.product)
                                                             }
                                                             product={variant.product}
                                                         />
@@ -336,6 +319,32 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     <BillingProductPricingTable product={variant.product} />
                                                 </div>
                                             )}
+                                        </div>
+                                    )
+                                }
+                            )}
+                        </div>
+                    ) : productVariants && !product.subscribed ? (
+                        /* Free user product variants display - simplified like non-variants */
+                        <div className="mt-4">
+                            {productVariants.map(
+                                (variant: {
+                                    key: string
+                                    product: BillingProductV2Type | BillingProductV2AddonType
+                                    displayName: string
+                                }) => {
+                                    const variantGaugeItems = isProductVariantPrimary(variant.key)
+                                        ? billingGaugeItems
+                                        : createGaugeItems(variant.product)
+
+                                    return (
+                                        <div key={variant.key} className="mt-6">
+                                            <h4 className="font-bold">{variant.displayName}</h4>
+                                            <div className="sm:flex w-full items-center gap-x-8">
+                                                <div className="grow -my-4">
+                                                    <BillingGauge items={variantGaugeItems} product={variant.product} />
+                                                </div>
+                                            </div>
                                         </div>
                                     )
                                 }

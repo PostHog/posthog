@@ -5,7 +5,7 @@ from typing import Any, Optional
 from django.conf import settings
 from django.core.cache import cache
 from django.db import models, transaction
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch.dispatcher import receiver
 from django.http import HttpRequest
 from django.utils import timezone
@@ -16,14 +16,18 @@ from prometheus_client import Counter
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
-from posthog.models.error_tracking.error_tracking import ErrorTrackingSuppressionRule
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.plugin import PluginConfig
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
+
+from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 
 CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 
@@ -121,11 +125,12 @@ class RemoteConfig(UUIDTModel):
         )
 
     def build_config(self):
-        from posthog.api.error_tracking import get_suppression_rules
         from posthog.api.survey import get_surveys_opt_in, get_surveys_response
         from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
+
+        from products.error_tracking.backend.api.suppression_rules import get_suppression_rules
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -467,9 +472,29 @@ def _update_team_remote_config(team_id: int):
     update_team_remote_config.delay(team_id)
 
 
+@receiver(pre_save, sender=Team)
+def team_pre_save(sender, instance: "Team", **kwargs):
+    """Capture old api_token value before save for cache cleanup."""
+    from posthog.storage.team_access_cache_signal_handlers import capture_old_api_token
+
+    capture_old_api_token(instance, **kwargs)
+
+
 @receiver(post_save, sender=Team)
 def team_saved(sender, instance: "Team", created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.id))
+
+    from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache
+
+    transaction.on_commit(lambda: update_team_authentication_cache(instance, created, **kwargs))
+
+
+@receiver(post_delete, sender=Team)
+def team_deleted(sender, instance: "Team", **kwargs):
+    """Handle team deletion for access cache."""
+    from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache_on_delete
+
+    transaction.on_commit(lambda: update_team_authentication_cache_on_delete(instance, **kwargs))
 
 
 @receiver(post_save, sender=FeatureFlag)
@@ -500,3 +525,85 @@ def survey_saved(sender, instance: "Survey", created, **kwargs):
 @receiver(post_save, sender=ErrorTrackingSuppressionRule)
 def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender=PersonalAPIKey)
+def personal_api_key_saved(sender, instance: "PersonalAPIKey", created, **kwargs):
+    """
+    Handle PersonalAPIKey save for team access cache invalidation.
+
+    Skip cache updates for last_used_at field updates to avoid unnecessary cache warming
+    during authentication requests.
+    """
+    from posthog.storage.team_access_cache_signal_handlers import update_personal_api_key_authentication_cache
+
+    # Skip cache updates if only last_used_at is being updated
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and set(update_fields) == {"last_used_at"}:
+        return
+
+    transaction.on_commit(lambda: update_personal_api_key_authentication_cache(instance))
+
+
+@receiver(post_delete, sender=PersonalAPIKey)
+def personal_api_key_deleted(sender, instance: "PersonalAPIKey", **kwargs):
+    """
+    Handle PersonalAPIKey delete for team access cache invalidation.
+    """
+    from posthog.storage.team_access_cache_signal_handlers import update_personal_api_key_deleted_cache
+
+    transaction.on_commit(lambda: update_personal_api_key_deleted_cache(instance))
+
+
+@receiver(post_save, sender=User)
+def user_saved(sender, instance: "User", created, **kwargs):
+    """
+    Handle User save for team access cache updates when is_active changes.
+
+    When a user's is_active status changes, their Personal API Keys need to be
+    added or removed from team authentication caches.
+    """
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "is_active" not in update_fields:
+        logger.debug(f"User {instance.id} updated but is_active unchanged, skipping cache update")
+        return
+
+    # If update_fields is None, we need to update cache since all fields (including is_active) might have changed
+
+    from posthog.storage.team_access_cache_signal_handlers import update_user_authentication_cache
+
+    transaction.on_commit(lambda: update_user_authentication_cache(instance, **kwargs))
+
+
+@receiver(post_save, sender=OrganizationMembership)
+def organization_membership_saved(sender, instance: "OrganizationMembership", created, **kwargs):
+    """
+    Handle OrganizationMembership creation for team access cache updates.
+
+    When a user is added to an organization, their unscoped personal API keys
+    should gain access to teams within that organization. This ensures
+    that the authentication cache is updated to reflect the new access rights.
+
+    Note: We intentionally only handle creation (created=True), not updates.
+    Changes to membership level (e.g., MEMBER → ADMIN) don't affect API key
+    access - Personal API keys grant access based on organization membership
+    existence, not role level.
+    """
+    if created:
+        from posthog.storage.team_access_cache_signal_handlers import update_organization_membership_created_cache
+
+        transaction.on_commit(lambda: update_organization_membership_created_cache(instance))
+
+
+@receiver(post_delete, sender=OrganizationMembership)
+def organization_membership_deleted(sender, instance: "OrganizationMembership", **kwargs):
+    """
+    Handle OrganizationMembership deletion for team access cache invalidation.
+
+    When a user is removed from an organization, their unscoped personal API keys
+    should no longer have access to teams within that organization. This ensures
+    that the authentication cache is updated to reflect the change in access rights.
+    """
+    from posthog.storage.team_access_cache_signal_handlers import update_organization_membership_deleted_cache
+
+    transaction.on_commit(lambda: update_organization_membership_deleted_cache(instance))

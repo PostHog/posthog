@@ -5,9 +5,11 @@ use std::{
 
 use anyhow::{Context, Result};
 use num_cpus;
+use once_cell::sync::Lazy;
 use rocksdb::{
-    checkpoint::Checkpoint, BlockBasedOptions, BoundColumnFamily, ColumnFamilyDescriptor,
-    DBWithThreadMode, MultiThreaded, Options, WriteBatch, WriteOptions,
+    checkpoint::Checkpoint, BlockBasedOptions, BoundColumnFamily, Cache, ColumnFamilyDescriptor,
+    DBWithThreadMode, MultiThreaded, Options, SliceTransform, WriteBatch, WriteBufferManager,
+    WriteOptions,
 };
 use std::time::Instant;
 
@@ -21,16 +23,31 @@ pub struct RocksDbStore {
     metrics: MetricsHelper,
 }
 
-fn rocksdb_options() -> Options {
-    let num_threads = std::cmp::max(2, num_cpus::get()); // Avoid setting to 0 or 1
+// Shared block cache for all RocksDB instances (1GB default)
+static SHARED_BLOCK_CACHE: Lazy<Arc<Cache>> = Lazy::new(|| {
+    let cache_size = std::env::var("ROCKSDB_SHARED_CACHE_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(2048 * 1024 * 1024); // 2GB default
 
-    let mut opts = Options::default();
-    opts.create_if_missing(true);
-    opts.create_missing_column_families(true);
+    Arc::new(Cache::new_lru_cache(cache_size))
+});
 
-    // Level style compaction with universal style for TTL-like use case
-    opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
+// Shared write buffer manager to limit total memory used for write buffers
+static SHARED_WRITE_BUFFER_MANAGER: Lazy<Arc<WriteBufferManager>> = Lazy::new(|| {
+    let total_write_buffer_size = std::env::var("ROCKSDB_TOTAL_WRITE_BUFFER_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(2048 * 1024 * 1024); // 2GB total for ALL stores
 
+    // false = don't allow stall (we'll handle backpressure at Kafka level)
+    Arc::new(WriteBufferManager::new_write_buffer_manager(
+        total_write_buffer_size,
+        false,
+    ))
+});
+
+pub fn block_based_table_factory() -> BlockBasedOptions {
     // Optimize for point lookups (dedup check)
     let mut block_opts = BlockBasedOptions::default();
     // Set bloom filter to 10 bits per key, not approximate
@@ -40,25 +57,63 @@ fn rocksdb_options() -> Options {
     block_opts.set_bloom_filter(10.0, false);
     block_opts.set_cache_index_and_filter_blocks(true);
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
+    block_opts.set_whole_key_filtering(true);
+    block_opts.set_partition_filters(true);
+    block_opts.set_pin_top_level_index_and_filter(true);
+    block_opts
+}
+
+fn rocksdb_options() -> Options {
+    let num_threads = std::cmp::max(2, num_cpus::get()); // Avoid setting to 0 or 1
+
+    let mut opts = Options::default();
+    opts.create_if_missing(true);
+    // Enable atomic flush to ensure consistency between column families
+    opts.set_atomic_flush(true);
+    opts.create_missing_column_families(true);
+
+    // Level style compaction with universal style for TTL-like use case
+    opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
+    opts.optimize_universal_style_compaction(512 * 1024 * 1024); // 512MB
+
+    let mut block_opts = block_based_table_factory();
+    // Timestamp CF
+    let mut ts_cf = Options::default();
+    ts_cf.set_block_based_table_factory(&block_opts);
+    ts_cf.set_prefix_extractor(SliceTransform::create_fixed_prefix(8));
+
+    // CRITICAL: Use shared block cache across all stores
+    block_opts.set_block_cache(&SHARED_BLOCK_CACHE);
 
     opts.set_block_based_table_factory(&block_opts);
 
-    // Memory budget
-    opts.set_write_buffer_size(64 * 1024 * 1024); // 64MB memtable
-    opts.set_max_write_buffer_number(4); // up to 256MB in memtables
-    opts.set_target_file_size_base(64 * 1024 * 1024); // SST files ~64MB
+    // CRITICAL: Use shared write buffer manager to limit total memory
+    opts.set_write_buffer_manager(&SHARED_WRITE_BUFFER_MANAGER);
+
+    // Reduced memory budget per store (with 50 partitions per pod)
+    opts.set_write_buffer_size(8 * 1024 * 1024); // Reduced to 8MB per memtable
+    opts.set_max_write_buffer_number(3); // Max 3 buffers = 24MB per partition
+    opts.set_target_file_size_base(128 * 1024 * 1024); // SST files ~128MB
 
     // Parallelism
     opts.increase_parallelism(num_threads as i32);
-    opts.optimize_level_style_compaction(512 * 1024 * 1024); // 512MB
+    opts.set_max_background_jobs(num_threads as i32);
+
+    // IO & safety
+    opts.set_paranoid_checks(true);
+    opts.set_bytes_per_sync(1024 * 1024);
+    opts.set_wal_bytes_per_sync(1024 * 1024);
+    opts.set_use_direct_reads(true);
+    opts.set_use_direct_io_for_flush_and_compaction(true);
+    opts.set_compaction_readahead_size(2 * 1024 * 1024);
 
     // Reduce background IO impact
     opts.set_disable_auto_compactions(false);
-    opts.set_max_open_files(500); // tweak as needed
+    opts.set_max_open_files(1024); // Reduced from 500 for 50 partitions per pod
 
-    // Faster startup for large DBs
-    opts.set_allow_mmap_reads(true);
-    opts.set_allow_mmap_writes(true);
+    // CRITICAL: Disable mmap with many partitions to avoid virtual memory explosion
+    opts.set_allow_mmap_reads(false);
+    opts.set_allow_mmap_writes(false);
 
     opts
 }
@@ -86,9 +141,10 @@ impl RocksDbStore {
     pub fn get(&self, cf_name: &str, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let start_time = Instant::now();
 
-        // Track read operation
+        // Track read operation with column family label
         self.metrics
             .counter(ROCKSDB_READ_OPERATIONS_COUNTER)
+            .with_label("column_family", cf_name)
             .increment(1);
 
         let cf = self.get_cf_handle(cf_name)?;
@@ -100,6 +156,7 @@ impl RocksDbStore {
         let duration = start_time.elapsed();
         self.metrics
             .histogram(ROCKSDB_READ_DURATION_HISTOGRAM)
+            .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         if result.is_err() {
@@ -113,6 +170,7 @@ impl RocksDbStore {
         let start_time = Instant::now();
         self.metrics
             .counter(ROCKSDB_READ_OPERATIONS_COUNTER)
+            .with_label("column_family", cf_name)
             .increment(1);
 
         let result = self.multi_get_internal(cf_name, keys);
@@ -120,6 +178,7 @@ impl RocksDbStore {
         let duration = start_time.elapsed();
         self.metrics
             .histogram(ROCKSDB_MULTI_GET_DURATION_HISTOGRAM)
+            .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         if result.is_err() {
@@ -145,6 +204,7 @@ impl RocksDbStore {
         let start_time = Instant::now();
         self.metrics
             .counter(ROCKSDB_WRITE_OPERATIONS_COUNTER)
+            .with_label("column_family", cf_name)
             .increment(1);
 
         let result = self.put_internal(cf_name, key, value);
@@ -152,6 +212,7 @@ impl RocksDbStore {
         let duration = start_time.elapsed();
         self.metrics
             .histogram(ROCKSDB_WRITE_DURATION_HISTOGRAM)
+            .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         if result.is_err() {
@@ -171,6 +232,7 @@ impl RocksDbStore {
         let batch_size = entries.len();
         self.metrics
             .counter(ROCKSDB_BATCH_WRITE_OPERATIONS_COUNTER)
+            .with_label("column_family", cf_name)
             .increment(1);
 
         let result = self.put_batch_internal(cf_name, entries);
@@ -178,12 +240,14 @@ impl RocksDbStore {
         let duration = start_time.elapsed();
         self.metrics
             .histogram(ROCKSDB_BATCH_WRITE_DURATION_HISTOGRAM)
+            .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         if result.is_ok() {
             // Track successful batch size
             self.metrics
                 .histogram(ROCKSDB_BATCH_SIZE_HISTOGRAM)
+                .with_label("column_family", cf_name)
                 .record(batch_size as f64);
         } else {
             self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
@@ -212,17 +276,23 @@ impl RocksDbStore {
             .context("Failed to delete range")
     }
 
+    pub fn delete(&self, cf_name: &str, key: &[u8]) -> Result<()> {
+        let cf = self.get_cf_handle(cf_name)?;
+        self.db.delete_cf(&cf, key).context("Failed to delete key")
+    }
+
     pub fn get_cf_handle(&self, cf_name: &str) -> Result<Arc<BoundColumnFamily<'_>>> {
         self.db
             .cf_handle(cf_name)
             .context("Column family not found")
     }
 
-    pub fn get_db_size(&self) -> Result<u64> {
+    pub fn get_db_size(&self, cf_name: &str) -> Result<u64> {
+        let cf = self.get_cf_handle(cf_name)?;
         // Try to get SST files size
         let sst_size = self
             .db
-            .property_int_value("rocksdb.total-sst-files-size")?
+            .property_int_value_cf(&cf, "rocksdb.total-sst-files-size")?
             .unwrap_or(0);
 
         Ok(sst_size)
@@ -231,16 +301,18 @@ impl RocksDbStore {
     /// Update database metrics (size, SST file count, etc.)
     /// This should be called periodically to emit current database state
     pub fn update_db_metrics(&self, cf_name: &str) -> Result<()> {
-        // Update database size metric
-        let db_size = self.get_db_size()?;
+        // Update database size metric with column family label
+        let db_size = self.get_db_size(cf_name)?;
         self.metrics
             .gauge(ROCKSDB_SIZE_BYTES_GAUGE)
+            .with_label("column_family", cf_name)
             .set(db_size as f64);
 
-        // Update SST file count
+        // Update SST file count with column family label
         let sst_files = self.get_sst_file_names(cf_name)?;
         self.metrics
             .gauge(ROCKSDB_SST_FILES_COUNT_GAUGE)
+            .with_label("column_family", cf_name)
             .set(sst_files.len() as f64);
 
         Ok(())
@@ -254,6 +326,7 @@ impl RocksDbStore {
         let duration = start_time.elapsed();
         self.metrics
             .histogram(ROCKSDB_FLUSH_DURATION_HISTOGRAM)
+            .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         if result.is_err() {
@@ -261,6 +334,24 @@ impl RocksDbStore {
         }
 
         result
+    }
+
+    pub fn flush_all_cf(&self) -> Result<()> {
+        let mut flush_opts = rocksdb::FlushOptions::default();
+        flush_opts.set_wait(true);
+        let start_time = Instant::now();
+        let result = self.db.flush_opt(&flush_opts);
+        let duration = start_time.elapsed();
+        self.metrics
+            .histogram(ROCKSDB_FLUSH_DURATION_HISTOGRAM)
+            .record(duration.as_secs_f64());
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
+                Err(anyhow::anyhow!("Failed to flush: {}", e))
+            }
+        }
     }
 
     fn flush_cf_internal(&self, cf_name: &str) -> Result<()> {
@@ -272,23 +363,18 @@ impl RocksDbStore {
             .context("Failed to flush")
     }
 
-    pub fn compact_cf(&self, cf_name: &str) -> Result<()> {
-        let start_time = Instant::now();
-
-        let result = self.compact_cf_internal(cf_name);
-
-        let duration = start_time.elapsed();
-        self.metrics
-            .histogram(ROCKSDB_COMPACTION_DURATION_HISTOGRAM)
-            .record(duration.as_secs_f64());
-
-        result
+    /// Flush the WAL (Write-Ahead Log) to ensure durability
+    /// Setting sync=true ensures WAL is synced to disk before returning
+    pub fn flush_wal(&self, sync: bool) -> Result<()> {
+        self.db
+            .flush_wal(sync)
+            .map_err(|e| anyhow::anyhow!("Failed to flush WAL (sync={}): {}", sync, e))
     }
 
-    fn compact_cf_internal(&self, cf_name: &str) -> Result<()> {
-        let cf = self.get_cf_handle(cf_name)?;
-        self.db.compact_range_cf(&cf, None::<&[u8]>, None::<&[u8]>);
-        Ok(())
+    /// Get the latest sequence number from the database
+    /// This represents the current state of the database and can be used to verify checkpoint consistency
+    pub fn latest_sequence_number(&self) -> u64 {
+        self.db.latest_sequence_number()
     }
 
     /// Create an incremental checkpoint at the specified path

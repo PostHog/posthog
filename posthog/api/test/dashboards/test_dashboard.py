@@ -18,6 +18,7 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
+from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.project import Project
@@ -80,7 +81,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         for dashboard_name in dashboard_names:
             self.dashboard_api.create_dashboard({"name": dashboard_name})
 
-        response_data = self.dashboard_api.list_dashboards()
+        with self.assertNumQueries(14):
+            response_data = self.dashboard_api.list_dashboards()
         self.assertEqual(
             [dashboard["name"] for dashboard in response_data["results"]],
             dashboard_names,
@@ -112,6 +114,63 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {dashboard["id"] for dashboard in response_env_other_data["results"]},
             {dashboard_a_id, dashboard_b_id},
         )
+
+    def test_list_filter_by_tag(self):
+        self.dashboard_api.create_dashboard({"name": "tagged", "tags": ["tag"]})
+        self.dashboard_api.create_dashboard({"name": "also tagged", "tags": ["tag2"]})
+        self.dashboard_api.create_dashboard({"name": "not tagged"})
+
+        with self.assertNumQueries(14):
+            response = self.dashboard_api.list_dashboards(
+                expected_status=status.HTTP_200_OK, query_params={"tags": ["tag"]}
+            )
+
+        assert response["count"] == 1
+        assert response["results"][0]["name"] == "tagged"
+
+    def test_list_filter_by_multiple_tags(self):
+        self.dashboard_api.create_dashboard({"name": "tagged", "tags": ["tag"]})
+        self.dashboard_api.create_dashboard({"name": "also tagged", "tags": ["tag2"]})
+        self.dashboard_api.create_dashboard({"name": "not tagged"})
+        self.dashboard_api.create_dashboard({"name": "not with the right tag", "tags": ["wrong-tag"]})
+
+        with self.assertNumQueries(14):
+            response = self.dashboard_api.list_dashboards(
+                expected_status=status.HTTP_200_OK, query_params={"tags": ["tag", "tag2"]}
+            )
+
+        assert response["count"] == 2
+        dashboard_names = {dashboard["name"] for dashboard in response["results"]}
+        assert dashboard_names == {"tagged", "also tagged"}
+
+    def test_list_includes_last_viewed_at_from_filesystem_logs(self):
+        dashboard_recent_id, _ = self.dashboard_api.create_dashboard({"name": "Recently viewed"})
+        dashboard_unseen_id, _ = self.dashboard_api.create_dashboard({"name": "Never viewed"})
+
+        other_team = Team.objects.create(organization=self.organization)
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type="dashboard",
+                ref=str(dashboard_recent_id),
+            )
+
+        with freeze_time("2024-02-01T12:00:00Z"):
+            FileSystemViewLog.objects.create(
+                team=other_team,
+                user=self.user,
+                type="dashboard",
+                ref=str(dashboard_unseen_id),
+            )
+
+        response = self.dashboard_api.list_dashboards(parent="environment")
+        results_by_id = {dashboard["id"]: dashboard for dashboard in response["results"]}
+
+        assert results_by_id[dashboard_recent_id]["last_viewed_at"] is not None
+        assert isoparse(results_by_id[dashboard_recent_id]["last_viewed_at"]) == isoparse("2024-01-01T12:00:00+00:00")
+        assert results_by_id[dashboard_unseen_id]["last_viewed_at"] is None
 
     @snapshot_postgres_queries
     def test_retrieve_dashboard(self):
@@ -269,22 +328,22 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            baseline = 8
+            baseline = 10
 
-            with self.assertNumQueries(baseline + 12):
+            with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 12):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 12):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 12):
-                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
+        self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        with self.assertNumQueries(baseline + 11 + 11):
+            self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:
@@ -292,15 +351,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.organization.available_product_features = []
         self.organization.save()
-        self.team.access_control = True
-        self.team.save()
+
+        # Set up restricted access (equivalent of old access_control)
+        AccessControl.objects.create(
+            team=self.team,
+            access_level="none",
+            resource="project",
+            resource_id=str(self.team.id),
+        )
 
         user_with_collaboration = User.objects.create_and_join(
             self.organization, "no-collaboration-feature@posthog.com", None
         )
+
+        # Grant access to the new user
+        AccessControl.objects.create(
+            team=self.team,
+            access_level="member",
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=user_with_collaboration.organization_memberships.first(),
+        )
+
         self.client.force_login(user_with_collaboration)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             self.dashboard_api.list_dashboards()
 
         for i in range(5):
@@ -308,7 +383,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             for j in range(3):
                 self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(FuzzyInt(10, 11)):
+            with self.assertNumQueries(FuzzyInt(11, 12)):
                 self.dashboard_api.list_dashboards(query_params={"limit": 300})
 
     def test_listing_dashboards_does_not_include_tiles(self) -> None:
@@ -601,6 +676,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         mock_view.action = "retrieve"
         mock_request = MagicMock()
         mock_request.query_params.get.return_value = None
+        mock_request.user = self.user
+
+        # Create a proper user access control for the serializer
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        user_access_control = UserAccessControl(self.user, organization_id=str(self.user.current_organization_id))
+
         dashboard_data = DashboardSerializer(
             dashboard,
             context={
@@ -608,6 +690,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "request": mock_request,
                 "get_team": lambda: self.team,
                 "insight_variables": [],
+                "user_access_control": user_access_control,
             },
         ).data
         assert len(dashboard_data["tiles"]) == 1
@@ -1269,6 +1352,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response.json()["tiles"] == [
             {
                 "color": None,
+                "filters_overrides": {},
                 "id": ANY,
                 "insight": None,
                 "is_cached": False,
@@ -1328,6 +1412,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response.json()["tiles"] == [
             {
                 "color": None,
+                "filters_overrides": {},
                 "id": ANY,
                 "insight": {
                     "columns": None,
@@ -1355,6 +1440,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "is_sample": True,
                     "last_modified_at": ANY,
                     "last_modified_by": self_user_basic_serialized,
+                    "last_viewed_at": ANY,
                     "last_refresh": None,
                     "name": None,
                     "next_allowed_client_refresh": None,
@@ -1800,3 +1886,85 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # 5. A missing variable, which should raise a validation error.
         # tbd
+
+    def test_persisted_fields_consistency_between_regular_and_sse_endpoints(self):
+        dashboard_filters = {"date_from": "-24h", "properties": [{"key": "test_prop", "value": "test_value"}]}
+
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test Variable", code_name="test_var", default_value="default_value", type="String"
+        )
+        dashboard_variables = {
+            str(variable.id): {
+                "code_name": variable.code_name,
+                "variableId": str(variable.id),
+                "value": "override_value",
+            }
+        }
+
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+            filters=dashboard_filters,
+            variables=dashboard_variables,
+        )
+
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.test_var}",
+                    "variables": {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                        }
+                    },
+                },
+                "chartSettings": {},
+                "tableSettings": {},
+            },
+            team=self.team,
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        dashboard_id = dashboard.id
+
+        regular_response = self.dashboard_api.get_dashboard(dashboard_id)
+
+        sse_response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/stream_tiles/")
+        self.assertEqual(sse_response.status_code, 200)
+
+        sse_content = b"".join(sse_response.streaming_content).decode("utf-8")  # type: ignore
+
+        metadata_line = None
+        for line in sse_content.split("\n"):
+            if line.startswith("data: ") and '"type":"metadata"' in line:
+                metadata_line = line[6:]
+                break
+
+        self.assertIsNotNone(metadata_line, f"Could not find metadata in SSE response. Content: {repr(sse_content)}")
+        sse_data = json.loads(metadata_line)  # type: ignore
+        sse_dashboard = sse_data["dashboard"]
+
+        self.assertEqual(
+            regular_response.get("persisted_filters"),
+            sse_dashboard.get("persisted_filters"),
+            "persisted_filters should be the same in both endpoints",
+        )
+        self.assertEqual(
+            regular_response.get("persisted_variables"),
+            sse_dashboard.get("persisted_variables"),
+            "persisted_variables should be the same in both endpoints",
+        )
+        self.assertEqual(
+            regular_response.get("team_id"),
+            sse_dashboard.get("team_id"),
+            "team_id should be the same in both endpoints",
+        )
+
+        self.assertEqual(regular_response["persisted_filters"], dashboard_filters)
+        self.assertEqual(sse_dashboard["persisted_filters"], dashboard_filters)
+        self.assertEqual(regular_response["persisted_variables"], dashboard_variables)
+        self.assertEqual(sse_dashboard["persisted_variables"], dashboard_variables)

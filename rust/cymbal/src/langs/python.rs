@@ -1,3 +1,4 @@
+use common_types::error_tracking::FrameId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
@@ -19,6 +20,7 @@ pub struct RawPythonFrame {
     pub pre_context: Vec<String>, // The lines of code before the context line
     #[serde(default)]
     pub post_context: Vec<String>, // The lines of code after the context line
+    pub code_variables: Option<serde_json::Value>,
     #[serde(flatten)]
     pub meta: CommonFrameMetadata,
 }
@@ -79,7 +81,7 @@ impl RawPythonFrame {
 impl From<&RawPythonFrame> for Frame {
     fn from(raw: &RawPythonFrame) -> Self {
         Frame {
-            raw_id: String::new(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
             line: raw.lineno,
             column: None,
@@ -93,6 +95,9 @@ impl From<&RawPythonFrame> for Frame {
             context: raw.get_context(),
             release: None,
             synthetic: raw.meta.synthetic,
+            suspicious: false,
+            module: raw.module.clone(),
+            code_variables: raw.code_variables.clone(),
         }
     }
 }

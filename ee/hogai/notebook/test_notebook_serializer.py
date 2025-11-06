@@ -17,7 +17,7 @@ from ee.hogai.notebook.notebook_serializer import (
     NotebookSerializer,
     cast_assistant_query,
 )
-from ee.hogai.utils.types import InsightArtifact
+from ee.hogai.utils.types.base import InsightArtifact
 
 
 class TestNotebookSerializer(TestCase):
@@ -941,7 +941,9 @@ code here
         assistant_query = AssistantTrendsQuery(kind="TrendsQuery", series=[])
 
         # Create an InsightArtifact with the AssistantQuery
-        artifact = InsightArtifact(id="test-insight-1", query=assistant_query, description="Test trends query")
+        artifact = InsightArtifact(
+            id=None, task_id="test-insight-1", query=assistant_query, content="Test trends query"
+        )
 
         # Create context and serializer
         context = NotebookContext(insights={"test-insight-1": artifact})
@@ -968,7 +970,7 @@ code here
 
         # Create artifact and context
         artifact = InsightArtifact(
-            id="test-insight-123", query=assistant_query, description="Test insight for markdown conversion"
+            id=None, task_id="test-insight-123", query=assistant_query, content="Test insight for markdown conversion"
         )
         context = NotebookContext(insights={"test-insight-123": artifact})
         serializer = NotebookSerializer(context=context)
@@ -1018,9 +1020,10 @@ code here
 
         # 2. Create InsightArtifact like DeepResearchReportNode._create_context() does
         insight_artifact = InsightArtifact(
-            id="crash-test-insight",
+            id=None,
+            task_id="crash-test-insight",
             query=assistant_trends_query,  # This was causing the crash
-            description="Test query that was crashing frontend visualization",
+            content="Test query that was crashing frontend visualization",
         )
 
         # 3. Create context like report node does

@@ -1,8 +1,19 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconChevronLeft, IconChevronRight, IconCopy, IconExternal, IconPencil, IconX } from '@posthog/icons'
+import {
+    IconChevronLeft,
+    IconChevronRight,
+    IconCopy,
+    IconExternal,
+    IconGear,
+    IconPencil,
+    IconPin,
+    IconPinFilled,
+    IconX,
+} from '@posthog/icons'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenu,
@@ -15,9 +26,17 @@ import { SceneTab } from 'scenes/sceneTypes'
 
 import { sceneLogic } from '~/scenes/sceneLogic'
 
-export function SceneTabContextMenu({ tab, children }: { tab: SceneTab; children: React.ReactElement }): JSX.Element {
+import { KeyboardShortcut } from '../navigation-3000/components/KeyboardShortcut'
+
+interface SceneTabContextMenuProps {
+    tab: SceneTab
+    children: React.ReactElement
+    onConfigurePinnedTabs?: () => void
+}
+
+export function SceneTabContextMenu({ tab, children, onConfigurePinnedTabs }: SceneTabContextMenuProps): JSX.Element {
     const { tabs } = useValues(sceneLogic)
-    const { setTabs, removeTab, duplicateTab, renameTab } = useActions(sceneLogic)
+    const { setTabs, removeTab, duplicateTab, startTabEdit, pinTab, unpinTab } = useActions(sceneLogic)
 
     const openInNewWindow = (): void => {
         const fullUrl = `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
@@ -45,24 +64,56 @@ export function SceneTabContextMenu({ tab, children }: { tab: SceneTab; children
             <ContextMenuTrigger>{children}</ContextMenuTrigger>
             <ContextMenuContent>
                 <ContextMenuItem asChild>
+                    <ButtonPrimitive menuItem onClick={() => (tab.pinned ? unpinTab(tab.id) : pinTab(tab.id))}>
+                        {tab.pinned ? <IconPinFilled /> : <IconPin />} {tab.pinned ? 'Unpin tab' : 'Pin tab'}
+                    </ButtonPrimitive>
+                </ContextMenuItem>
+                <ContextMenuItem asChild>
                     <ButtonPrimitive menuItem onClick={() => duplicateTab(tab)}>
                         <IconCopy /> Duplicate tab
                     </ButtonPrimitive>
                 </ContextMenuItem>
                 <ContextMenuItem asChild>
-                    <ButtonPrimitive menuItem onClick={() => renameTab(tab)}>
+                    <ButtonPrimitive
+                        menuItem
+                        onClick={() => {
+                            try {
+                                navigator.clipboard.writeText(
+                                    `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
+                                )
+                                lemonToast.success('URL copied to clipboard')
+                            } catch (error) {
+                                lemonToast.error(`Failed to copy URL to clipboard ${error}`)
+                            }
+                        }}
+                    >
+                        <IconCopy /> Copy URL
+                    </ButtonPrimitive>
+                </ContextMenuItem>
+                <ContextMenuItem asChild>
+                    <ButtonPrimitive menuItem onClick={() => startTabEdit(tab)}>
                         <IconPencil /> Rename tab
                     </ButtonPrimitive>
                 </ContextMenuItem>
                 <ContextMenuItem asChild>
                     <ButtonPrimitive menuItem onClick={openInNewWindow}>
-                        <IconExternal /> Open new browser tab
+                        <IconExternal /> Open in new browser tab
                     </ButtonPrimitive>
                 </ContextMenuItem>
+                {onConfigurePinnedTabs && (
+                    <>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem asChild>
+                            <ButtonPrimitive menuItem onClick={onConfigurePinnedTabs}>
+                                <IconGear /> Configure tabs & home
+                            </ButtonPrimitive>
+                        </ContextMenuItem>
+                    </>
+                )}
                 <ContextMenuSeparator />
                 <ContextMenuItem asChild>
                     <ButtonPrimitive menuItem onClick={() => removeTab(tab)}>
-                        <IconX /> Close tab
+                        <IconX /> Close tab <KeyboardShortcut command shift b />
                     </ButtonPrimitive>
                 </ContextMenuItem>
                 <ContextMenuItem asChild>

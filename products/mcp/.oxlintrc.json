@@ -1,0 +1,12 @@
+{
+    "$schema": "./node_modules/oxlint/configuration_schema.json",
+    "files": {
+        "ignore": ["**/generated.ts", "schema/tool-inputs.json", "python/**", ".mypy_cache/**"]
+    },
+    "rules": {
+        "no-debugger": "off",
+        "no-console": "off",
+        "@typescript-eslint/explicit-function-return-type": "off",
+        "jest/no-restricted-matchers": "off"
+    }
+}

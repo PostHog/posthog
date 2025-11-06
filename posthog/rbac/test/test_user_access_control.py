@@ -9,7 +9,13 @@ from posthog.models.file_system.file_system import FileSystem
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import AccessSource, UserAccessControl, UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import (
+    RESOURCE_INHERITANCE_MAP,
+    AccessSource,
+    UserAccessControl,
+    UserAccessControlSerializerMixin,
+    get_field_access_control_map,
+)
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -1025,7 +1031,7 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
     def test_notebook_specific_access_control(self):
         """Test notebook-specific access controls"""
-        from posthog.models.notebook import Notebook
+        from products.notebooks.backend.models import Notebook
 
         notebook = Notebook.objects.create(team=self.team, created_by=self.other_user)
 
@@ -1067,7 +1073,7 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
     def setUp(self):
         super().setUp()
         # Create test notebooks for various scenarios
-        from posthog.models.notebook.notebook import Notebook
+        from products.notebooks.backend.models import Notebook
 
         self.notebook_1 = Notebook.objects.create(team=self.team, created_by=self.other_user, title="Notebook 1")
         self.notebook_2 = Notebook.objects.create(team=self.team, created_by=self.other_user, title="Notebook 2")
@@ -1143,7 +1149,7 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
 
     def test_filter_queryset_by_access_level_with_none_resource_and_specific_access(self):
         """Test queryset filtering when user has 'none' resource access but specific object access"""
-        from posthog.models.notebook.notebook import Notebook
+        from products.notebooks.backend.models import Notebook
 
         # Set resource-level access to "none"
         self._create_access_control(resource="notebook", access_level="none")
@@ -1170,7 +1176,7 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
 
     def test_filter_queryset_by_access_level_with_resource_access(self):
         """Test queryset filtering when user has resource-level access"""
-        from posthog.models.notebook.notebook import Notebook
+        from products.notebooks.backend.models import Notebook
 
         # Set resource-level access to "editor"
         self._create_access_control(resource="notebook", access_level="editor")
@@ -1220,7 +1226,7 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         """Test UserAccessControlSerializerMixin returns correct access levels"""
         from rest_framework import serializers
 
-        from posthog.models.notebook.notebook import Notebook
+        from products.notebooks.backend.models import Notebook
 
         # Set resource-level access to "none"
         self._create_access_control(resource="notebook", access_level="none")
@@ -1390,3 +1396,198 @@ class TestEffectiveAccessLevelForResource(BaseUserAccessControlTest):
 
         # Should return "viewer" (navigation level) regardless of specific access levels
         assert self.user_access_control.effective_access_level_for_resource("dashboard") == "viewer"
+
+
+@pytest.mark.ee
+class TestResourceInheritance(BaseUserAccessControlTest):
+    def test_session_recording_playlist_inherits_from_session_recording(self):
+        """Test that session_recording_playlist inherits access from session_recording"""
+        # Verify the inheritance mapping exists
+        assert "session_recording_playlist" in RESOURCE_INHERITANCE_MAP
+        assert RESOURCE_INHERITANCE_MAP["session_recording_playlist"] == "session_recording"
+
+        # Give the user viewer access to session recordings
+        self._create_access_control(
+            resource="session_recording",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+        self._clear_uac_caches()
+
+        # Check that the user has viewer access to session_recording_playlist through inheritance
+        assert self.user_access_control.access_level_for_resource("session_recording_playlist") == "viewer"
+        assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "viewer") is True
+        assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "editor") is False
+
+    def test_inherited_resource_respects_parent_access_levels(self):
+        """Test that inherited resources use parent's access levels for comparison"""
+        # Give the user editor access to session recordings
+        self._create_access_control(
+            resource="session_recording",
+            resource_id=None,
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+        self._clear_uac_caches()
+
+        # Check that the user has editor access to session_recording_playlist
+        assert self.user_access_control.access_level_for_resource("session_recording_playlist") == "editor"
+        assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "viewer") is True
+        assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "editor") is True
+        assert (
+            self.user_access_control.check_access_level_for_resource("session_recording_playlist", "manager") is False
+        )
+
+    def test_org_admin_has_full_access_to_inherited_resources(self):
+        """Test that org admins have full access to inherited resources"""
+        # Make user an org admin
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self._clear_uac_caches()
+
+        # Check that org admin has highest level access to session_recording_playlist
+        assert self.user_access_control.access_level_for_resource("session_recording_playlist") == "manager"
+        assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "manager") is True
+
+    def test_no_access_to_parent_means_no_access_to_inherited(self):
+        """Test that no access to parent resource means no access to inherited resource"""
+        # Give the user no access to session recordings
+        self._create_access_control(
+            resource="session_recording",
+            resource_id=None,
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        self._clear_uac_caches()
+
+        # Check that the user has no access to session_recording_playlist
+        assert self.user_access_control.access_level_for_resource("session_recording_playlist") == "none"
+        assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "viewer") is False
+
+
+@pytest.mark.ee
+class TestFieldLevelAccessControl(BaseUserAccessControlTest):
+    def test_field_access_control_mapping_exists(self):
+        """Test that field access control mappings are properly configured"""
+        team_mappings = get_field_access_control_map(Team)
+
+        # Verify session recording fields are mapped
+        assert "session_recording_opt_in" in team_mappings
+        assert team_mappings["session_recording_opt_in"] == ("session_recording", "editor")
+        assert "session_recording_sample_rate" in team_mappings
+        assert team_mappings["session_recording_sample_rate"] == ("session_recording", "editor")
+
+    def test_field_validation_blocks_without_access(self):
+        """Test that field validation blocks updates without proper access"""
+        from rest_framework.exceptions import ValidationError
+
+        # Give user only viewer access to session recordings
+        self._create_access_control(
+            resource="session_recording",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+        self._clear_uac_caches()
+
+        # Create a mock serializer with access control mixin
+        class TeamSerializer(UserAccessControlSerializerMixin):
+            pass
+
+        # Create serializer with team instance
+        view_mock = type("view", (), {"user_access_control": self.user_access_control})()
+        serializer = TeamSerializer(instance=self.team, context={"view": view_mock})
+
+        # Try to modify a protected field - should raise validation error
+        attrs = {"session_recording_opt_in": True}
+        with pytest.raises(ValidationError) as exc_info:
+            serializer.validate(attrs)
+
+        detail = exc_info.value.detail
+        assert isinstance(detail, dict), f"Expected dict but got {type(detail)}"
+        assert "session_recording_opt_in" in detail
+        # The error is a list, get the actual message
+        error_detail = detail["session_recording_opt_in"]
+        error_msg = str(error_detail[0]) if isinstance(error_detail, list) else str(error_detail)
+        assert "editor access to session recordings" in error_msg, f"Got error message: {error_msg!r}"
+
+    def test_field_validation_allows_with_proper_access(self):
+        """Test that field validation allows updates with proper access"""
+        # Give user editor access to session recordings
+        self._create_access_control(
+            resource="session_recording",
+            resource_id=None,
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+        self._clear_uac_caches()
+
+        # Create a mock serializer with access control mixin
+        class TeamSerializer(UserAccessControlSerializerMixin):
+            pass
+
+        # Create serializer with team instance
+        view_mock = type("view", (), {"user_access_control": self.user_access_control})()
+        serializer = TeamSerializer(instance=self.team, context={"view": view_mock})
+
+        # Try to modify a protected field - should succeed
+        attrs = {"session_recording_opt_in": True}
+        result = serializer.validate(attrs)
+        assert result == attrs
+
+    def test_field_validation_skipped_for_creates(self):
+        """Test that field validation is skipped for creates (only applies to updates)"""
+        # Don't give user any access
+        self._clear_uac_caches()
+
+        # Create a mock serializer with access control mixin
+        class TeamSerializer(UserAccessControlSerializerMixin):
+            pass
+
+        # Create serializer without instance (simulating create)
+        view_mock = type("view", (), {"user_access_control": self.user_access_control})()
+        serializer = TeamSerializer(instance=None, context={"view": view_mock})
+
+        # Try to set a protected field during create - should succeed
+        attrs = {"session_recording_opt_in": True}
+        result = serializer.validate(attrs)
+        assert result == attrs
+
+    def test_field_validation_allows_non_protected_fields(self):
+        """Test that field validation allows updates to non-protected fields"""
+        # Don't give user any session recording access
+        self._clear_uac_caches()
+
+        # Create a mock serializer with access control mixin
+        class TeamSerializer(UserAccessControlSerializerMixin):
+            pass
+
+        # Create serializer with team instance
+        view_mock = type("view", (), {"user_access_control": self.user_access_control})()
+        serializer = TeamSerializer(instance=self.team, context={"view": view_mock})
+
+        # Try to modify a non-protected field - should succeed
+        attrs = {"name": "New Team Name"}
+        result = serializer.validate(attrs)
+        assert result == attrs
+
+    def test_field_validation_with_org_admin(self):
+        """Test that org admins can modify protected fields"""
+        # Make user an org admin
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self._clear_uac_caches()
+
+        # Create a mock serializer with access control mixin
+        class TeamSerializer(UserAccessControlSerializerMixin):
+            pass
+
+        # Create serializer with team instance
+        view_mock = type("view", (), {"user_access_control": self.user_access_control})()
+        serializer = TeamSerializer(instance=self.team, context={"view": view_mock})
+
+        # Try to modify protected fields - should succeed for org admin
+        attrs = {"session_recording_opt_in": True, "session_recording_sample_rate": 0.5}
+        result = serializer.validate(attrs)
+        assert result == attrs

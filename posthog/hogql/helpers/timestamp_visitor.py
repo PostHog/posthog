@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Optional
 
@@ -87,6 +88,9 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
         return False
 
+    def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
+        return False
+
     def visit_and(self, node: ast.And) -> bool:
         return False
 
@@ -104,6 +108,7 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
         from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
         from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
+        from posthog.hogql.database.schema.sessions_v3 import SessionsTableV3
 
         if node.type and isinstance(node.type, ast.FieldAliasType):
             try:
@@ -130,6 +135,12 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
                 or (
                     isinstance(table_type, ast.LazyTableType)
                     and isinstance(table_type.table, SessionsTableV2)
+                    # we guarantee that a session is < 24 hours, so with bufferDays being 3 above, we can use $end_timestamp too
+                    and resolved_field.name in ("$start_timestamp", "$end_timestamp")
+                )
+                or (
+                    isinstance(table_type, ast.LazyTableType)
+                    and isinstance(table_type.table, SessionsTableV3)
                     # we guarantee that a session is < 24 hours, so with bufferDays being 3 above, we can use $end_timestamp too
                     and resolved_field.name in ("$start_timestamp", "$end_timestamp")
                 )
@@ -167,6 +178,9 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
         return self.visit(node.left) and self.visit(node.right)
+
+    def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
+        return False
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         return self.visit(node.left) and self.visit(node.right)
@@ -216,13 +230,17 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
         return all(self.visit(arg) for arg in node.exprs)
 
 
-def is_start_of_day_constant(expr: ast.Expr, tombstone_string: Optional[str] = None) -> bool:
-    return IsStartOfDayConstantVisitor(tombstone_string).visit(expr)
+class IsStartOfPeriodConstantVisitor(Visitor[bool], ABC):
+    constant_fns: list[str]
+    constant_if_first_arg_constant_fns: list[str]
+    interval_fns: list[str]
 
-
-class IsStartOfDayConstantVisitor(Visitor[bool]):
     def __init__(self, tombstone_string: Optional[str]):
         self.tombstone_string = tombstone_string
+
+    @abstractmethod
+    def check_parsed(self, parsed: datetime) -> bool:
+        raise NotImplementedError("check_parsed must be implemented in subclasses")
 
     def visit_constant(self, node: ast.Constant) -> bool:
         if self.tombstone_string is not None and node.value == self.tombstone_string:
@@ -233,10 +251,7 @@ class IsStartOfDayConstantVisitor(Visitor[bool]):
             parsed = datetime.fromisoformat(node.value)
         except ValueError:
             return False
-        # Check if the constant is a date without time (i.e., start of the day)
-        if parsed.hour == 0 and parsed.minute == 0 and parsed.second == 0:
-            return True
-        return False
+        return self.check_parsed(parsed)
 
     def visit_select_query(self, node: ast.SelectQuery) -> bool:
         return False
@@ -247,11 +262,14 @@ class IsStartOfDayConstantVisitor(Visitor[bool]):
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         return False
 
+    def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
+        return False
+
     def visit_call(self, node: ast.Call) -> bool:
         # some functions just return a constant
-        if node.name in ["today", "yesterday"]:
+        if node.name in self.constant_fns:
             return True
-        elif node.name in ["toStartOfDay", "toStartOfWeek", "toStartOfMonth", "toStartOfQuarter", "toStartOfYear"]:
+        elif node.name in self.constant_if_first_arg_constant_fns:
             # these functions return the start of the day/week/month/quarter/year
             # note that we no longer care that it's a constant representing the start of the period, just that it's a constant now
             return is_time_or_interval_constant(node.args[0])
@@ -259,13 +277,7 @@ class IsStartOfDayConstantVisitor(Visitor[bool]):
         elif node.name.startswith("toStartOfInterval") and len(node.args) == 2:
             if is_time_or_interval_constant(node.args[0]):
                 interval = node.args[1]
-                if isinstance(interval, ast.Call) and interval.name in [
-                    "toIntervalDay",
-                    "toIntervalWeek",
-                    "toIntervalMonth",
-                    "toIntervalQuarter",
-                    "toIntervalYear",
-                ]:
+                if isinstance(interval, ast.Call) and interval.name in self.interval_fns:
                     # these intervals are valid for start of day/week/month/quarter/year
                     num_intervals = interval.args[0]
                     if (
@@ -315,11 +327,57 @@ class IsStartOfDayConstantVisitor(Visitor[bool]):
         return False
 
 
-def is_end_of_day_constant(expr: ast.Expr, tombstone_string: Optional[str] = None) -> bool:
-    return IsEndOfDayConstantVisitor(tombstone_string).visit(expr)
+class IsStartOfDayConstantVisitor(IsStartOfPeriodConstantVisitor):
+    constant_fns = ["today", "yesterday"]
+    constant_if_first_arg_constant_fns = [
+        "toStartOfDay",
+        "toStartOfWeek",
+        "toStartOfMonth",
+        "toStartOfQuarter",
+        "toStartOfYear",
+    ]
+    interval_fns = ["toIntervalDay", "toIntervalWeek", "toIntervalMonth", "toIntervalQuarter", "toIntervalYear"]
+
+    def check_parsed(self, parsed: datetime) -> bool:
+        return parsed.hour == 0 and parsed.minute == 0 and parsed.second == 0 and parsed.microsecond == 0
 
 
-class IsEndOfDayConstantVisitor(Visitor[bool]):
+def is_start_of_day_constant(expr: ast.Expr, tombstone_string: Optional[str] = None) -> bool:
+    return IsStartOfDayConstantVisitor(tombstone_string).visit(expr)
+
+
+class IsStartOfHourConstantVisitor(IsStartOfPeriodConstantVisitor):
+    constant_fns = ["today", "yesterday"]
+    constant_if_first_arg_constant_fns = [
+        "toStartOfHour",
+        "toStartOfDay",
+        "toStartOfWeek",
+        "toStartOfMonth",
+        "toStartOfQuarter",
+        "toStartOfYear",
+    ]
+    interval_fns = [
+        "toIntervalHour",
+        "toIntervalDay",
+        "toIntervalWeek",
+        "toIntervalMonth",
+        "toIntervalQuarter",
+        "toIntervalYear",
+    ]
+
+    def check_parsed(self, parsed: datetime) -> bool:
+        return parsed.minute == 0 and parsed.second == 0 and parsed.microsecond == 0
+
+
+def is_start_of_hour_constant(expr: ast.Expr, tombstone_string: Optional[str] = None) -> bool:
+    return IsStartOfHourConstantVisitor(tombstone_string).visit(expr)
+
+
+class IsEndOfPeriodConstantVisitor(Visitor[bool], ABC):
+    @abstractmethod
+    def check_parsed(self, parsed: datetime) -> bool:
+        raise NotImplementedError("check_parsed must be implemented in subclasses")
+
     def __init__(self, tombstone_string: Optional[str]):
         self.tombstone_string = tombstone_string
 
@@ -334,14 +392,15 @@ class IsEndOfDayConstantVisitor(Visitor[bool]):
             return False
         # Check if the constant is 23:59:59 of any day. This is not exact, but this is how
         # our QueryDateRange class works, and we need to be compatible with that.
-        if parsed.hour == 23 and parsed.minute == 59 and parsed.second == 59:
-            return True
-        return False
+        return self.check_parsed(parsed)
 
     def visit_select_query(self, node: ast.SelectQuery) -> bool:
         return False
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
+        return False
+
+    def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
         return False
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
@@ -387,3 +446,21 @@ class IsEndOfDayConstantVisitor(Visitor[bool]):
 
     def visit_array(self, node: ast.Array) -> bool:
         return False
+
+
+class IsEndOfDayConstantVisitor(IsEndOfPeriodConstantVisitor):
+    def check_parsed(self, parsed: datetime) -> bool:
+        return parsed.hour == 23 and parsed.minute == 59 and parsed.second == 59
+
+
+def is_end_of_day_constant(expr: ast.Expr, tombstone_string: Optional[str] = None) -> bool:
+    return IsEndOfDayConstantVisitor(tombstone_string).visit(expr)
+
+
+class IsEndOfHourConstantVisitor(IsEndOfPeriodConstantVisitor):
+    def check_parsed(self, parsed: datetime) -> bool:
+        return parsed.minute == 59 and parsed.second == 59
+
+
+def is_end_of_hour_constant(expr: ast.Expr, tombstone_string: Optional[str] = None) -> bool:
+    return IsEndOfHourConstantVisitor(tombstone_string).visit(expr)

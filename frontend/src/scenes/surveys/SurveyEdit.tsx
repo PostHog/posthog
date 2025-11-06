@@ -3,6 +3,7 @@ import './EditSurvey.scss'
 import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
@@ -16,7 +17,6 @@ import {
     LemonSegmentedButton,
     LemonSelect,
     LemonTag,
-    LemonTextArea,
     Link,
     Popover,
 } from '@posthog/lemon-ui'
@@ -28,7 +28,6 @@ import { PropertyValue } from 'lib/components/PropertyFilters/components/Propert
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -38,14 +37,15 @@ import { formatDate } from 'lib/utils'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { ANY_VARIANT, variantOptions } from 'scenes/settings/environment/ReplayTriggers'
+import { SurveyEventTrigger } from 'scenes/surveys/SurveyEventTrigger'
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
 import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
 import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { actionsModel } from '~/models/actionsModel'
 import { getPropertyKey } from '~/taxonomy/helpers'
@@ -228,7 +228,7 @@ function SurveyCompletionConditions(): JSX.Element {
     )
 }
 
-export default function SurveyEdit(): JSX.Element {
+export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     const {
         survey,
         urlMatchTypeValidationError,
@@ -238,11 +238,11 @@ export default function SurveyEdit(): JSX.Element {
         isEditingSurvey,
         targetingFlagFilters,
         hasBranchingLogic,
-        surveyRepeatedActivationAvailable,
         deviceTypesMatchTypeValidationError,
         surveyErrors,
         isExternalSurveyFFEnabled,
         user,
+        surveyLoading,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -252,12 +252,22 @@ export default function SurveyEdit(): JSX.Element {
         setFlagPropertyErrors,
         deleteBranchingLogic,
         setSurveyManualErrors,
+        editingSurvey,
+        loadSurvey,
     } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     useMountedLogic(actionsModel)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+
+    const handleCancelClick = (): void => {
+        editingSurvey(false)
+        if (id === 'new') {
+            router.actions.push(urls.surveys())
+        } else {
+            loadSurvey()
+        }
+    }
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
@@ -268,6 +278,7 @@ export default function SurveyEdit(): JSX.Element {
             clone.splice(to, 0, element)
             return clone.map((child) => ({ ...child }))
         }
+
         setSurveyValue('questions', move(survey.questions, oldIndex, newIndex))
         setSelectedPageIndex(newIndex)
     }
@@ -280,37 +291,46 @@ export default function SurveyEdit(): JSX.Element {
     }
 
     return (
-        <SceneContent forceNewSpacing>
-            {newSceneLayout && (
-                <div className="flex flex-col gap-y-4">
-                    <SceneTitleSection
-                        name={survey.name}
-                        description={survey.description}
-                        resourceType={{
-                            type: 'survey',
-                            typePlural: 'surveys',
-                        }}
-                        canEdit
-                        onNameChange={(name) => setSurveyValue('name', name)}
-                        onDescriptionChange={(description) => setSurveyValue('description', description)}
-                        renameDebounceMs={0}
-                        forceEdit
-                    />
-                    <SceneDivider />
-                </div>
-            )}
+        <SceneContent>
+            <div className="flex flex-col gap-y-4">
+                <SceneTitleSection
+                    name={survey.name}
+                    description={survey.description}
+                    resourceType={{
+                        type: 'survey',
+                    }}
+                    canEdit
+                    onNameChange={(name) => setSurveyValue('name', name)}
+                    onDescriptionChange={(description) => setSurveyValue('description', description)}
+                    renameDebounceMs={0}
+                    forceEdit
+                    actions={
+                        <>
+                            <LemonButton
+                                data-attr="cancel-survey"
+                                type="secondary"
+                                loading={surveyLoading}
+                                onClick={handleCancelClick}
+                                size="small"
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                data-attr="save-survey"
+                                htmlType="submit"
+                                loading={surveyLoading}
+                                form="survey"
+                                size="small"
+                            >
+                                {id === 'new' ? 'Save as draft' : 'Save'}
+                            </LemonButton>
+                        </>
+                    }
+                />
+            </div>
             <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
                 <div className="flex flex-col gap-2 flex-1 SurveyForm">
-                    {!newSceneLayout && (
-                        <>
-                            <LemonField name="name" label="Name">
-                                <LemonInput data-attr="survey-name" />
-                            </LemonField>
-                            <LemonField name="description" label="Description (optional)">
-                                <LemonTextArea data-attr="survey-description" minRows={2} />
-                            </LemonField>
-                        </>
-                    )}
                     <LemonCollapse
                         activeKey={selectedSection || undefined}
                         onChange={(section) => {
@@ -1183,79 +1203,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                   )}
                                                               </BindLogic>
                                                           </LemonField.Pure>
-                                                          <LemonField.Pure
-                                                              label="User sends events"
-                                                              info="It only triggers when the event is captured in the current user session and using the PostHog SDK."
-                                                          >
-                                                              <>
-                                                                  <EventSelect
-                                                                      filterGroupTypes={[
-                                                                          TaxonomicFilterGroupType.CustomEvents,
-                                                                          TaxonomicFilterGroupType.Events,
-                                                                      ]}
-                                                                      allowNonCapturedEvents
-                                                                      onChange={(includedEvents) => {
-                                                                          setSurveyValue('conditions', {
-                                                                              ...survey.conditions,
-                                                                              events: {
-                                                                                  values: includedEvents.map((e) => {
-                                                                                      return { name: e }
-                                                                                  }),
-                                                                              },
-                                                                          })
-                                                                      }}
-                                                                      selectedEvents={
-                                                                          survey.conditions?.events?.values?.length !=
-                                                                              undefined &&
-                                                                          survey.conditions?.events?.values?.length > 0
-                                                                              ? survey.conditions?.events?.values.map(
-                                                                                    (v) => v.name
-                                                                                )
-                                                                              : []
-                                                                      }
-                                                                      addElement={
-                                                                          <LemonButton
-                                                                              size="small"
-                                                                              type="secondary"
-                                                                              icon={<IconPlus />}
-                                                                              sideIcon={null}
-                                                                          >
-                                                                              Add event
-                                                                          </LemonButton>
-                                                                      }
-                                                                  />
-                                                                  {surveyRepeatedActivationAvailable && (
-                                                                      <div className="flex flex-row gap-2 items-center">
-                                                                          Survey display frequency
-                                                                          <LemonSelect
-                                                                              onChange={(value) => {
-                                                                                  setSurveyValue('conditions', {
-                                                                                      ...survey.conditions,
-                                                                                      events: {
-                                                                                          ...survey.conditions?.events,
-                                                                                          repeatedActivation: value,
-                                                                                      },
-                                                                                  })
-                                                                              }}
-                                                                              value={
-                                                                                  survey.conditions?.events
-                                                                                      ?.repeatedActivation || false
-                                                                              }
-                                                                              options={[
-                                                                                  {
-                                                                                      label: 'Just once',
-                                                                                      value: false,
-                                                                                  },
-                                                                                  {
-                                                                                      label: 'Every time any of the above events are captured',
-                                                                                      value: true,
-                                                                                  },
-                                                                              ]}
-                                                                          />
-                                                                      </div>
-                                                                  )}
-                                                              </>
-                                                          </LemonField.Pure>
+                                                          <SurveyEventTrigger />
                                                           {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] && (
                                                               <LemonField.Pure
                                                                   label="User performs actions"

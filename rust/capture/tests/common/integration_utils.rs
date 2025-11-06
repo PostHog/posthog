@@ -14,6 +14,7 @@ use capture::{
     time::TimeSource,
     v0_request::{DataType, ProcessedEvent},
 };
+use chrono::{DateTime, Utc};
 
 #[path = "./utils.rs"]
 mod test_utils;
@@ -920,12 +921,12 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
 //
 
 struct FixedTime {
-    pub time: String,
+    pub time: DateTime<Utc>,
 }
 
 impl TimeSource for FixedTime {
-    fn current_time(&self) -> String {
-        self.time.to_string()
+    fn current_time(&self) -> DateTime<Utc> {
+        self.time
     }
 }
 
@@ -957,7 +958,9 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     let liveness = HealthRegistry::new("integration_tests");
     let sink = MemorySink::default();
     let timesource = FixedTime {
-        time: unit.fixed_time.to_string(),
+        time: DateTime::parse_from_rfc3339(unit.fixed_time)
+            .expect("Invalid fixed time format in test case")
+            .with_timezone(&Utc),
     };
     let redis = Arc::new(MockRedisClient::new());
 
@@ -970,7 +973,6 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     // simple defaults - payload validation isn't the focus of these tests
     let enable_historical_rerouting = false;
     let historical_rerouting_threshold_days = 1_i64;
-    let historical_tokens_keys = None;
     let is_mirror_deploy = false; // TODO: remove after migration to 100% capture-rs backend
     let verbose_sample_percent = 0.0_f32;
 
@@ -988,9 +990,9 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             25 * 1024 * 1024,
             enable_historical_rerouting,
             historical_rerouting_threshold_days,
-            historical_tokens_keys,
             is_mirror_deploy,
             verbose_sample_percent,
+            26_214_400, // 25MB default for AI endpoint
         ),
         sink,
     )

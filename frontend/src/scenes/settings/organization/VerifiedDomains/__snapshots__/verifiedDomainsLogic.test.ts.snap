@@ -4,6 +4,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
 {
   "addModalShown": false,
   "configureSAMLModalId": null,
+  "configureSCIMModalId": null,
   "currentOrganization": {
     "allow_publicly_shared_resources": true,
     "available_product_features": [
@@ -40,12 +41,12 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "slug": "mockhog-fstn",
     "teams": [
       {
-        "access_control": true,
         "anonymize_ips": false,
         "api_token": "default-team-api-token",
         "app_urls": [
           "https://posthog.com/",
           "https://app.posthog.com",
+          "https://example.com",
         ],
         "autocapture_exceptions_errors_to_ignore": [],
         "autocapture_exceptions_opt_in": false,
@@ -75,6 +76,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "data_attributes": [
           "data-attr",
         ],
+        "default_evaluation_environments_enabled": false,
         "effective_membership_level": 8,
         "feature_flag_confirmation_enabled": false,
         "feature_flag_confirmation_message": "",
@@ -110,6 +112,9 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "is_demo": false,
         "live_events_columns": null,
         "live_events_token": "123",
+        "managed_viewsets": {
+          "revenue_analytics": true,
+        },
         "marketing_analytics_config": {
           "sources_map": {},
         },
@@ -128,6 +133,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "person_on_events_querying_enabled": true,
         "primary_dashboard": 1,
         "project_id": 997,
+        "receive_org_level_activity_logs": false,
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
@@ -159,12 +165,26 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
             {
               "due_date": "2020-12-31",
               "goal": 1000000,
+              "mrr_or_gross": "gross",
               "name": "2020 Q4",
             },
             {
               "due_date": "2035-12-31",
               "goal": 1500000,
+              "mrr_or_gross": "gross",
               "name": "2035 Q4",
+            },
+            {
+              "due_date": "2035-12-31",
+              "goal": 1200000,
+              "mrr_or_gross": "mrr",
+              "name": "2035 Q4 MRR",
+            },
+            {
+              "due_date": "2040-12-31",
+              "goal": 1800000,
+              "mrr_or_gross": "gross",
+              "name": "2040 Q4",
             },
           ],
         },
@@ -180,6 +200,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "recordHeaders": true,
         },
         "session_recording_opt_in": true,
+        "session_recording_retention_period": "30d",
         "session_recording_sample_rate": "1.0",
         "session_replay_config": null,
         "slack_incoming_webhook": "",
@@ -202,6 +223,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   },
   "domainBeingVerified": null,
   "isSAMLAvailable": true,
+  "isSCIMAvailable": false,
   "isSSOEnforcementAvailable": true,
   "isSamlConfigSubmitting": false,
   "isSamlConfigValid": true,
@@ -218,6 +240,8 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   "samlConfigValidationErrors": {
     "saml_acs_url": undefined,
   },
+  "scimConfig": {},
+  "scimConfigLoading": false,
   "showSamlConfigErrors": false,
   "updatingDomain": false,
   "updatingDomainLoading": false,

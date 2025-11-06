@@ -1,7 +1,7 @@
 import { Monaco } from '@monaco-editor/react'
-import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import isEqual from 'lodash.isequal'
 import { Uri, editor } from 'monaco-editor'
@@ -11,38 +11,41 @@ import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import {
     DataVisualizationNode,
     DatabaseSchemaViewTable,
+    FileSystemIconType,
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
+    Breadcrumb,
     ChartDisplayType,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     ExportContext,
     LineageGraph,
     QueryBasedInsightModel,
-    QueryTabState,
 } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { DATAWAREHOUSE_EDITOR_ITEM_ID, sizeOfInBytes } from '../utils'
 import { ViewEmptyState } from './ViewLoadingState'
-import { get, set } from './db'
 import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
@@ -56,79 +59,12 @@ import {
 } from './suggestions/aiSuggestion'
 
 export interface MultitabEditorLogicProps {
-    key: string
+    tabId: string
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
 }
 
-export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
-export const activeModelStateKey = (key: string | number): string => `${key}/activeModelUri`
-export const activeModelVariablesStateKey = (key: string | number): string => `${key}/activeModelVariables`
-
-export const deprecatedAllTabsStateKey = (key: string | number): string =>
-    `data-warehouse.editor.multitabEditorLogic.${key}.allTabs`
-export const allTabsStateKey = (key: string | number): string => `${key}/allTabs`
-
-export const deprecatedInProgressViewEditStateKey = (key: string | number): string =>
-    `data-warehouse.editor.multitabEditorLogic.${key}.inProgressViewEdits`
-export const inProgressViewEditStateKey = (key: string | number): string => `${key}/inProgressViewEdits`
-
-export const modelViewStatesKey = (key: string | number): string => `${key}/modelViewStates`
-
 export const NEW_QUERY = 'Untitled'
-
-const getNextUntitledNumber = (tabs: QueryTab[]): number => {
-    const untitledNumbers = tabs
-        .filter((tab) => tab.name?.startsWith(NEW_QUERY))
-        .map((tab) => {
-            const match = tab.name?.match(/Untitled (\d+)/)
-            return match ? parseInt(match[1]) : 0
-        })
-        .filter((num) => !isNaN(num))
-
-    if (untitledNumbers.length === 0) {
-        return 1
-    }
-
-    // Find the first gap in the sequence or use the next number
-    for (let i = 1; i <= untitledNumbers.length + 1; i++) {
-        if (!untitledNumbers.includes(i)) {
-            return i
-        }
-    }
-    return untitledNumbers.length + 1
-}
-
-const getStorageItem = async (key: string, newKey?: string): Promise<string | null> => {
-    // If we're migrating from a deprecated key, we need to get the value from the old key and set it to the new key
-
-    const dbValue = await get(key)
-
-    if (dbValue) {
-        return dbValue
-    }
-
-    if (newKey) {
-        const newKeyDbValue = await get(newKey)
-        if (newKeyDbValue) {
-            return newKeyDbValue
-        }
-    }
-
-    const lsValue = localStorage.getItem(key)
-
-    if (lsValue) {
-        await set(newKey || key, lsValue)
-        localStorage.removeItem(key)
-        return lsValue
-    }
-
-    return null
-}
-
-const setStorageItem = async (key: string, value: string): Promise<void> => {
-    await set(key, value)
-}
 
 export interface QueryTab {
     uri: Uri
@@ -169,10 +105,27 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
     types: string[][]
 }
 
+function getTabHash(values: multitabEditorLogicType['values']): Record<string, any> {
+    const hash: Record<string, any> = {
+        q: values.queryInput ?? '',
+    }
+    if (values.activeTab?.view) {
+        hash['view'] = values.activeTab.view.id
+    }
+    if (values.activeTab?.insight) {
+        hash['insight'] = values.activeTab.insight.short_id
+    }
+    if (values.activeTab?.draft) {
+        hash['draft'] = values.activeTab.draft.id
+    }
+
+    return hash
+}
+
 export const multitabEditorLogic = kea<multitabEditorLogicType>([
     path(['data-warehouse', 'editor', 'multitabEditorLogic']),
     props({} as MultitabEditorLogicProps),
-    key((props) => props.key),
+    tabAwareScene(),
     connect(() => ({
         values: [
             dataWarehouseViewsLogic,
@@ -205,17 +158,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
         ],
     })),
-    actions(({ values }) => ({
-        setQueryInput: (queryInput: string) => ({ queryInput }),
-        updateState: (skipBreakpoint?: boolean) => ({ skipBreakpoint }),
+    actions(() => ({
+        setQueryInput: (queryInput: string | null) => ({ queryInput }),
         runQuery: (queryOverride?: string, switchTab?: boolean) => ({
             queryOverride,
             switchTab,
         }),
         setActiveQuery: (query: string) => ({ query }),
-        renameTab: (tab: QueryTab, newName: string) => ({ tab, newName }),
+
         setTabs: (tabs: QueryTab[]) => ({ tabs }),
-        addTab: (tab: QueryTab) => ({ tab }),
         createTab: (
             query?: string,
             view?: DataWarehouseSavedQuery,
@@ -227,15 +178,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             insight,
             draft,
         }),
-        loadUpstream: (modelId: string) => ({ modelId }),
-        deleteTab: (tab: QueryTab) => ({ tab }),
-        _deleteTab: (tab: QueryTab) => ({ tab }),
-        removeTab: (tab: QueryTab) => ({ tab }),
-        selectTab: (tab: QueryTab) => ({ tab }),
-        _selectTab: (tab: QueryTab) => ({ tab }),
         updateTab: (tab: QueryTab) => ({ tab }),
-        setLocalState: (key: string, value: any) => ({ key, value }),
+
         initialize: true,
+        loadUpstream: (modelId: string) => ({ modelId }),
         saveAsView: (materializeAfterSave = false, fromDraft?: string) => ({ fromDraft, materializeAfterSave }),
         saveAsViewSubmit: (name: string, materializeAfterSave = false, fromDraft?: string) => ({
             fromDraft,
@@ -245,7 +191,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string) => ({ name }),
         updateInsight: true,
-        setCacheLoading: (loading: boolean) => ({ loading }),
+        setFinishedLoading: (loading: boolean) => ({ loading }),
         setError: (error: string | null) => ({ error }),
         setDataError: (error: string | null) => ({ error }),
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({ sourceQuery }),
@@ -253,7 +199,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         setMetadataLoading: (loading: boolean) => ({ loading }),
         editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
         editInsight: (query: string, insight: QueryBasedInsightModel) => ({ query, insight }),
-        updateQueryTabState: (skipBreakpoint?: boolean) => ({ skipBreakpoint }),
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
         _setSuggestionPayload: (payload: SuggestionPayload | null) => ({ payload }),
         setSuggestedQueryInput: (suggestedQueryInput: string, source?: SuggestionPayload['source']) => ({
@@ -262,7 +207,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         }),
         onAcceptSuggestedQueryInput: (shouldRunQuery?: boolean) => ({ shouldRunQuery }),
         onRejectSuggestedQueryInput: true,
-        setResponse: (response: Record<string, any> | null) => ({ response, currentTab: values.activeModelUri }),
         shareTab: true,
         openHistoryModal: true,
         closeHistoryModal: true,
@@ -292,53 +236,21 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.initialize()
         }
     }),
-    loaders(({ values, props }) => ({
-        queryTabState: [
-            null as QueryTabState | null,
-            {
-                loadQueryTabState: async () => {
-                    if (!values.user) {
-                        return null
-                    }
-                    let queryTabStateModel = null
-                    try {
-                        queryTabStateModel = await api.queryTabState.user(values.user?.uuid)
-                    } catch (e) {
-                        console.error(e)
-                    }
-
-                    const localEditorModels = await getStorageItem(editorModelsStateKey(props.key))
-                    const localActiveModelUri = await getStorageItem(activeModelStateKey(props.key))
-
-                    if (queryTabStateModel === null) {
-                        queryTabStateModel = await api.queryTabState.create({
-                            state: {
-                                editorModelsStateKey: localEditorModels || '',
-                                activeModelStateKey: localActiveModelUri || '',
-                                sourceQuery: values.sourceQuery ? JSON.stringify(values.sourceQuery) : '',
-                            },
-                        })
-                    }
-
-                    return queryTabStateModel
-                },
-            },
-        ],
+    loaders(() => ({
         upstream: [
             null as LineageGraph | null,
             {
                 loadUpstream: async (payload: { modelId: string }) => {
-                    const upstream = await api.upstream.get(payload.modelId)
-                    return upstream
+                    return await api.upstream.get(payload.modelId)
                 },
             },
         ],
     })),
     reducers(({ props }) => ({
-        cacheLoading: [
+        finishedLoading: [
             true,
             {
-                setCacheLoading: (_, { loading }) => loading,
+                setFinishedLoading: (_, { loading }) => loading,
             },
         ],
         sourceQuery: [
@@ -361,7 +273,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         queryInput: [
-            '',
+            null as string | null,
             {
                 setQueryInput: (_, { queryInput }) => queryInput,
             },
@@ -372,39 +284,17 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 setActiveQuery: (_, { query }) => query,
             },
         ],
-        activeModelUri: [
-            null as QueryTab | null,
-            {
-                _selectTab: (_, { tab }) => tab,
-            },
-        ],
         editingInsight: [
             null as QueryBasedInsightModel | null,
             {
-                _selectTab: (_, { tab }) => tab.insight ?? null,
+                updateTab: (_, { tab }) => tab.insight ?? null,
             },
         ],
         allTabs: [
             [] as QueryTab[],
             {
-                addTab: (state, { tab }) => {
-                    return [...state, tab]
-                },
-                removeTab: (state, { tab: tabToRemove }) => {
-                    return state.filter((tab) => tab.uri.toString() !== tabToRemove.uri.toString())
-                },
+                updateTab: (_, { tab }) => [tab],
                 setTabs: (_, { tabs }) => tabs,
-                updateTab: (state, { tab }) => {
-                    return state.map((stateTab) => {
-                        if (stateTab.uri.path === tab.uri.path) {
-                            return {
-                                ...stateTab,
-                                ...tab,
-                            }
-                        }
-                        return stateTab
-                    })
-                },
             },
         ],
         error: [
@@ -425,7 +315,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 setMetadata: (_, { metadata }) => metadata,
             },
         ],
-        editorKey: [props.key],
+        editorKey: [`hogql-editor-${props.tabId}`, {}],
         suggestionPayload: [
             null as SuggestionPayload | null,
             {
@@ -490,7 +380,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
     })),
-    listeners(({ values, props, actions, asyncActions }) => ({
+    listeners(({ values, props, actions, asyncActions, cache }) => ({
         fixErrorsSuccess: ({ response }) => {
             actions.setSuggestedQueryInput(response.query, 'hogql_fixer')
 
@@ -500,7 +390,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             posthog.capture('ai-error-fixer-failure')
         },
         shareTab: () => {
-            const currentTab = values.activeModelUri
+            const currentTab = values.activeTab
             if (!currentTab) {
                 return
             }
@@ -513,7 +403,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 if (currentTab.insight.query?.kind === NodeKind.DataVisualizationNode) {
                     const query = (currentTab.insight.query as DataVisualizationNode).source.query
                     if (values.queryInput !== query) {
-                        shareUrl.searchParams.set('open_query', values.queryInput)
+                        shareUrl.searchParams.set('open_query', values.queryInput ?? '')
                     }
                 }
 
@@ -524,28 +414,31 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 shareUrl.searchParams.set('open_view', currentTab.view.id)
 
                 if (values.queryInput != currentTab.view.query.query) {
-                    shareUrl.searchParams.set('open_query', values.queryInput)
+                    shareUrl.searchParams.set('open_query', values.queryInput ?? '')
                 }
 
                 void copyToClipboard(shareUrl.toString(), 'share link')
             } else {
                 const currentUrl = new URL(window.location.href)
                 const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
-                shareUrl.searchParams.set('open_query', values.queryInput)
+                shareUrl.searchParams.set('open_query', values.queryInput ?? '')
 
                 void copyToClipboard(shareUrl.toString(), 'share link')
             }
         },
         setSuggestedQueryInput: ({ suggestedQueryInput, source }) => {
             // If there's no active tab, create one first to ensure Monaco Editor is available
-            if (!values.activeModelUri || values.allTabs.length === 0) {
+            if (!values.activeTab) {
                 actions.createTab(suggestedQueryInput)
                 return
             }
 
-            if (values.queryInput) {
+            // Always create suggestion payload when a new suggestion comes in, even for consecutive suggestions
+            // Only skip diff mode if the editor is completely empty
+            if (values.queryInput && values.queryInput.trim() !== '') {
                 actions._setSuggestionPayload({
                     suggestedValue: suggestedQueryInput,
+                    originalValue: values.queryInput, // Store the current content as original for diff mode
                     acceptText: aiSuggestionOnAcceptText,
                     rejectText: aiSuggestionOnRejectText,
                     onAccept: aiSuggestionOnAccept,
@@ -561,111 +454,126 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             values.suggestionPayload?.onAccept(!!shouldRunQuery, actions, values, props)
 
             // Re-create the model to prevent it from being purged
-            if (props.monaco && values.activeModelUri) {
-                const existingModel = props.monaco.editor.getModel(values.activeModelUri.uri)
+            if (props.monaco && values.activeTab) {
+                const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
                 if (!existingModel) {
                     const newModel = props.monaco.editor.createModel(
                         values.suggestedQueryInput,
                         'hogQL',
-                        values.activeModelUri.uri
+                        values.activeTab.uri
                     )
+                    cache.createdModels = cache.createdModels || []
+                    cache.createdModels.push(newModel)
 
-                    const mountedCodeEditorLogic =
-                        codeEditorLogic.findMounted() ||
+                    initModel(
+                        newModel,
                         codeEditorLogic({
-                            key: props.key,
+                            key: `hogql-editor-${props.tabId}`,
                             query: values.suggestedQueryInput,
                             language: 'hogQL',
                         })
+                    )
 
-                    initModel(newModel, mountedCodeEditorLogic)
-                    props.editor?.setModel(newModel)
+                    // Handle both diff editor and regular editor
+                    if (props.editor && 'getModifiedEditor' in props.editor) {
+                        // It's a diff editor, set model on the modified editor
+                        const modifiedEditor = (props.editor as any).getModifiedEditor()
+                        modifiedEditor.setModel(newModel)
+                    } else {
+                        // Regular editor
+                        props.editor?.setModel(newModel)
+                    }
                 } else {
-                    props.editor?.setModel(existingModel)
+                    // Handle both diff editor and regular editor
+                    if (props.editor && 'getModifiedEditor' in props.editor) {
+                        // It's a diff editor, set model on the modified editor
+                        const modifiedEditor = (props.editor as any).getModifiedEditor()
+                        modifiedEditor.setModel(existingModel)
+                    } else {
+                        // Regular editor
+                        props.editor?.setModel(existingModel)
+                    }
                 }
             }
             posthog.capture('sql-editor-accepted-suggestion', { source: values.suggestedSource })
             actions._setSuggestionPayload(null)
-            actions.updateState(true)
         },
         onRejectSuggestedQueryInput: () => {
             values.suggestionPayload?.onReject(actions, values, props)
 
             // Re-create the model to prevent it from being purged
-            if (props.monaco && values.activeModelUri) {
-                const existingModel = props.monaco.editor.getModel(values.activeModelUri.uri)
+            if (props.monaco && values.activeTab) {
+                const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
                 if (!existingModel) {
                     const newModel = props.monaco.editor.createModel(
-                        values.queryInput,
+                        values.queryInput ?? '',
                         'hogQL',
-                        values.activeModelUri.uri
+                        values.activeTab.uri
                     )
-
-                    const mountedCodeEditorLogic =
-                        codeEditorLogic.findMounted() ||
+                    cache.createdModels = cache.createdModels || []
+                    cache.createdModels.push(newModel)
+                    initModel(
+                        newModel,
                         codeEditorLogic({
-                            key: props.key,
-                            query: values.queryInput,
+                            key: `hogql-editor-${props.tabId}`,
+                            query: values.queryInput ?? '',
                             language: 'hogQL',
                         })
+                    )
 
-                    initModel(newModel, mountedCodeEditorLogic)
-                    props.editor?.setModel(newModel)
+                    // Handle both diff editor and regular editor
+                    if (props.editor && 'getModifiedEditor' in props.editor) {
+                        // It's a diff editor, set model on the modified editor
+                        const modifiedEditor = (props.editor as any).getModifiedEditor()
+                        modifiedEditor.setModel(newModel)
+                    } else {
+                        // Regular editor
+                        props.editor?.setModel(newModel)
+                    }
                 } else {
-                    props.editor?.setModel(existingModel)
+                    // Handle both diff editor and regular editor
+                    if (props.editor && 'getModifiedEditor' in props.editor) {
+                        // It's a diff editor, set model on the modified editor
+                        const modifiedEditor = (props.editor as any).getModifiedEditor()
+                        modifiedEditor.setModel(existingModel)
+                    } else {
+                        // Regular editor
+                        props.editor?.setModel(existingModel)
+                    }
                 }
             }
             posthog.capture('sql-editor-rejected-suggestion', { source: values.suggestedSource })
             actions._setSuggestionPayload(null)
-            actions.updateState(true)
         },
         editView: ({ query, view }) => {
-            const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)
-            if (maybeExistingTab) {
-                actions._selectTab(maybeExistingTab)
-            } else {
-                actions.createTab(query, view)
-            }
+            actions.createTab(query, view)
         },
         editInsight: ({ query, insight }) => {
-            const maybeExistingTab = values.allTabs.find((tab) => tab.insight?.short_id === insight.short_id)
-
-            if (maybeExistingTab) {
-                const updatedTab = { ...maybeExistingTab, insight }
-                actions.updateTab(updatedTab)
-                actions._selectTab(updatedTab)
-            } else {
-                actions.createTab(query, undefined, insight)
-            }
+            actions.createTab(query, undefined, insight)
         },
         createTab: async ({ query = '', view, insight, draft }) => {
-            const mountedCodeEditorLogic =
-                codeEditorLogic.findMounted() ||
-                codeEditorLogic({
-                    key: props.key,
-                    query: values.sourceQuery?.source.query ?? '',
-                    language: 'hogQL',
-                })
-
-            let currentModelCount = 1
-            const allNumbers = values.allTabs.map((tab) => parseInt(tab.uri.path.split('/').pop() || '0'))
-            while (allNumbers.includes(currentModelCount)) {
-                currentModelCount++
-            }
-
-            const nextUntitledNumber = getNextUntitledNumber(values.allTabs)
-            const tabName = draft?.name || view?.name || insight?.name || `${NEW_QUERY} ${nextUntitledNumber}`
+            // Use tabId to ensure each browser tab has its own unique Monaco model
+            const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
 
             if (props.monaco) {
-                const uri = props.monaco.Uri.parse(currentModelCount.toString())
-                const model = props.monaco.editor.createModel(query, 'hogQL', uri)
-                props.editor?.setModel(model)
-
-                if (mountedCodeEditorLogic) {
-                    initModel(model, mountedCodeEditorLogic)
+                const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
+                let model = props.monaco.editor.getModel(uri)
+                if (!model) {
+                    model = props.monaco.editor.createModel(query, 'hogQL', uri)
+                    cache.createdModels = cache.createdModels || []
+                    cache.createdModels.push(model)
+                    props.editor?.setModel(model)
+                    initModel(
+                        model,
+                        codeEditorLogic({
+                            key: `hogql-editor-${props.tabId}`,
+                            query: values.sourceQuery?.source.query ?? '',
+                            language: 'hogQL',
+                        })
+                    )
                 }
 
-                actions.addTab({
+                actions.updateTab({
                     uri,
                     view,
                     insight,
@@ -673,114 +581,26 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     sourceQuery: insight?.query as DataVisualizationNode | undefined,
                     draft: draft,
                 })
-                actions._selectTab({
-                    uri,
-                    view,
-                    insight,
-                    name: tabName,
-                    sourceQuery: insight?.query as DataVisualizationNode | undefined,
-                    draft: draft,
-                })
-
-                const queries = values.allTabs.map((tab) => {
-                    return {
-                        query: props.monaco?.editor.getModel(tab.uri)?.getValue() || '',
-                        path: tab.uri.path.split('/').pop(),
-                        view: uri.path === tab.uri.path ? view : tab.view,
-                        insight: uri.path === tab.uri.path ? insight : tab.insight,
-                        sourceQuery: uri.path === tab.uri.path ? insight?.query : tab.insight?.query,
-                        name: tab.name,
-                        response: tab.response,
-                        draft: tab.draft,
-                    }
-                })
-                actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
-            } else if (query) {
-                // if navigating from URL without monaco loaded
-                const queries = [
-                    ...values.allTabs,
-                    {
-                        query,
-                        path: currentModelCount.toString(),
-                        view,
-                        insight,
-                        name: tabName,
-                        sourceQuery: insight?.query as DataVisualizationNode | undefined,
-                        draft: draft,
-                    },
-                ]
-                actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
-                actions.setLocalState(activeModelStateKey(props.key), currentModelCount.toString())
             }
-        },
-        renameTab: ({ tab, newName }) => {
-            const updatedTabs = values.allTabs.map((t) => {
-                if (t.uri.toString() === tab.uri.toString()) {
-                    return {
-                        ...t,
-                        name: newName,
-                    }
+            if (query) {
+                actions.setQueryInput(query)
+            } else if (draft) {
+                actions.setQueryInput(draft.query.query)
+            } else if (view) {
+                actions.setQueryInput(view.query.query)
+            } else if (insight) {
+                const queryObject = (insight.query as DataVisualizationNode | null)?.source || insight.query
+                if (queryObject && 'query' in queryObject) {
+                    actions.setQueryInput(queryObject.query || '')
                 }
-                return t
-            })
-            actions.setTabs(updatedTabs)
-            const activeTab = updatedTabs.find((t) => t.uri.toString() === tab.uri.toString())
-            if (activeTab) {
-                actions._selectTab(activeTab)
-            }
-            actions.updateState()
-        },
-        selectTab: async ({ tab }) => {
-            if (props.editor && values.activeModelUri) {
-                const viewState = props.editor.saveViewState()
-                const modelViewStates = await getStorageItem(modelViewStatesKey(props.key))
-                const modelViewStatesParsed =
-                    modelViewStates && modelViewStates !== 'undefined' ? JSON.parse(modelViewStates) : {}
-                actions.setLocalState(
-                    modelViewStatesKey(props.key),
-                    JSON.stringify({
-                        ...modelViewStatesParsed,
-                        [values.activeModelUri.uri.path]: viewState,
-                    })
-                )
-            }
-
-            actions._selectTab(tab)
-        },
-        _selectTab: async ({ tab }) => {
-            if (props.monaco) {
-                const model = props.monaco.editor.getModel(tab.uri)
-                props.editor?.setModel(model)
-
-                if (props.editor) {
-                    const modelViewStates = await getStorageItem(modelViewStatesKey(props.key))
-                    const modelViewStatesParsed =
-                        modelViewStates && modelViewStates !== 'undefined' ? JSON.parse(modelViewStates) : {}
-                    const viewState = modelViewStatesParsed[tab.uri.path]
-                    if (viewState) {
-                        props.editor.restoreViewState(viewState)
-                    }
-                }
-            }
-
-            const path = tab.uri.path.split('/').pop()
-            if (path) {
-                actions.setLocalState(activeModelStateKey(props.key), path)
-                actions.updateQueryTabState()
-            }
-
-            if (tab.insight) {
-                actions.setActiveTab(OutputTab.Visualization)
             }
         },
         setSourceQuery: ({ sourceQuery }) => {
-            if (!values.activeModelUri) {
+            if (!values.activeTab) {
                 return
             }
 
-            const currentTab = values.allTabs.find(
-                (tab) => tab.uri.toString() === values.activeModelUri?.uri.toString()
-            )
+            const currentTab = values.activeTab
             if (currentTab) {
                 actions.updateTab({
                     ...currentTab,
@@ -788,199 +608,22 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 })
             }
         },
-        deleteTab: ({ tab: tabToRemove }) => {
-            if (
-                (values.activeModelUri?.view && values.queryInput !== values.sourceQuery.source.query) ||
-                (values.activeModelUri?.draft && values.queryInput !== tabToRemove.draft?.query.query)
-            ) {
-                const viewOrDraft = values.activeModelUri?.draft ? 'draft' : 'view'
-                LemonDialog.open({
-                    title: 'Close tab',
-                    description: `Are you sure you want to close this ${viewOrDraft}? There are unsaved changes.`,
-                    primaryButton: {
-                        children: 'Close without saving',
-                        status: 'danger',
-                        onClick: () => actions._deleteTab(tabToRemove),
-                    },
-                })
-            } else if (values.updateInsightButtonEnabled) {
-                LemonDialog.open({
-                    title: 'Close insight',
-                    description: 'Are you sure you want to close this insight? There are unsaved changes.',
-                    primaryButton: {
-                        children: 'Close without saving',
-                        status: 'danger',
-                        onClick: () => actions._deleteTab(tabToRemove),
-                    },
-                })
-            } else if (
-                values.queryInput !== '' &&
-                !values.activeModelUri?.view &&
-                !values.activeModelUri?.insight &&
-                !values.activeModelUri?.draft
-            ) {
-                LemonDialog.open({
-                    title: 'Unsaved query',
-                    description:
-                        "You're about to close a tab with an unsaved query. If you continue, your changes will be permanently lost.",
-                    primaryButton: {
-                        children: 'Close without saving',
-                        status: 'danger',
-                        onClick: () => actions._deleteTab(tabToRemove),
-                    },
-                })
-            } else {
-                actions._deleteTab(tabToRemove)
-            }
-        },
-        _deleteTab: ({ tab: tabToRemove }) => {
-            if (!props.monaco) {
-                return
-            }
-
-            const model = props.monaco.editor.getModel(tabToRemove.uri)
-            if (tabToRemove.uri.toString() === values.activeModelUri?.uri.toString()) {
-                const indexOfModel = values.allTabs.findIndex(
-                    (tab) => tab.uri.toString() === tabToRemove.uri.toString()
-                )
-                const nextModel =
-                    values.allTabs[indexOfModel + 1] || values.allTabs[indexOfModel - 1] || values.allTabs[0] // there will always be one
-                actions._selectTab(nextModel)
-            }
-            model?.dispose()
-            actions.removeTab(tabToRemove)
-            const queries = values.allTabs.map((tab) => {
-                return {
-                    query: props.monaco?.editor.getModel(tab.uri)?.getValue() || '',
-                    path: tab.uri.path.split('/').pop(),
-                    view: tab.view,
-                    insight: tab.insight,
-                    response: tab.response,
-                }
-            })
-            actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
-        },
-        setLocalState: async ({ key, value }) => {
-            await setStorageItem(key, value)
-        },
         initialize: async () => {
-            // TODO: replace with queryTabState
-            const allModelQueries = await getStorageItem(editorModelsStateKey(props.key))
-            const activeModelUri = await getStorageItem(activeModelStateKey(props.key))
-            const allTabs = await getStorageItem(deprecatedAllTabsStateKey(props.key), allTabsStateKey(props.key))
-            const inProgressViewEdit = await getStorageItem(
-                deprecatedInProgressViewEditStateKey(props.key),
-                inProgressViewEditStateKey(props.key)
-            )
-
-            const allTabsParsed = allTabs && allTabs !== 'undefined' ? JSON.parse(allTabs) : []
-            const inProgressViewEditParsed =
-                inProgressViewEdit && inProgressViewEdit !== 'undefined' ? JSON.parse(inProgressViewEdit) : {}
-            actions.setInProgressViewEdits(inProgressViewEditParsed)
-
-            const mountedCodeEditorLogic =
-                codeEditorLogic.findMounted() ||
-                codeEditorLogic({
-                    key: props.key,
-                    query: values.sourceQuery?.source.query ?? '',
-                    language: 'hogQL',
-                })
-
-            if (allModelQueries) {
-                // clear existing models
-                props.monaco?.editor.getModels().forEach((model: editor.ITextModel) => {
-                    model.dispose()
-                })
-
-                const models = JSON.parse(allModelQueries || '[]')
-                const newModels: QueryTab[] = []
-
-                models.forEach((model: Record<string, any>) => {
-                    if (props.monaco) {
-                        const uri = props.monaco.Uri.parse(model.path)
-                        const newModel = props.monaco.editor.createModel(model.query, 'hogQL', uri)
-                        props.editor?.setModel(newModel)
-
-                        const existingTab = allTabsParsed.find((tab: QueryTab) => tab.uri.path === uri.path)
-
-                        newModels.push({
-                            uri,
-                            view: model.view,
-                            insight: model.insight,
-                            name: model.name,
-                            sourceQuery: existingTab?.sourceQuery,
-                            response: model.response,
-                            draft: model.draft,
-                        })
-                        mountedCodeEditorLogic && initModel(newModel, mountedCodeEditorLogic)
-                    }
-                })
-
-                actions.setTabs(newModels)
-
-                if (activeModelUri && newModels.length) {
-                    const uri = props.monaco?.Uri.parse(activeModelUri)
-                    const activeModel = props.monaco?.editor
-                        .getModels()
-                        .find((model: editor.ITextModel) => model.uri.path === uri?.path)
-                    activeModel && props.editor?.setModel(activeModel)
-                    const val = activeModel?.getValue()
-
-                    if (val) {
-                        actions.setQueryInput(val)
-                    }
-
-                    const activeTab = newModels.find((tab) => tab.uri.path.split('/').pop() === activeModelUri)
-                    const activeView = activeTab?.view
-                    const activeInsight = activeTab?.insight
-
-                    if (uri && activeTab) {
-                        actions._selectTab({
-                            uri,
-                            view: activeView,
-                            name: activeTab.draft?.name || activeView?.name || activeInsight?.name || activeTab.name,
-                            insight: activeInsight,
-                            sourceQuery: activeTab.sourceQuery,
-                            response: activeTab.response,
-                            draft: activeTab.draft,
-                        })
-                    }
-                } else if (newModels.length) {
-                    actions.selectTab({
-                        uri: newModels[0].uri,
-                        name: newModels[0].view?.name || newModels[0].insight?.name || newModels[0].name,
-                        sourceQuery: newModels[0].sourceQuery,
-                        view: newModels[0].view,
-                        insight: newModels[0].insight,
-                        response: newModels[0].response,
-                        draft: newModels[0].draft,
-                    })
-                }
-            } else {
-                const model = props.editor?.getModel()
-
-                if (model) {
-                    actions.createTab()
-                }
-            }
-            actions.setCacheLoading(false)
+            actions.setFinishedLoading(false)
         },
         setQueryInput: ({ queryInput }) => {
+            // Keep suggestion payload active - let user make edits and then decide to approve/reject
             // if editing a view, track latest history id changes are based on
-            if (values.activeModelUri?.view && values.activeModelUri?.view.query?.query) {
-                if (queryInput === values.activeModelUri.view?.query.query) {
-                    actions.deleteInProgressViewEdit(values.activeModelUri.view.id)
+            if (values.activeTab?.view && values.activeTab?.view.query?.query) {
+                if (queryInput === values.activeTab.view?.query.query) {
+                    actions.deleteInProgressViewEdit(values.activeTab.view.id)
                 } else if (
-                    !values.inProgressViewEdits[values.activeModelUri.view.id] &&
-                    values.activeModelUri.view.latest_history_id
+                    !values.inProgressViewEdits[values.activeTab.view.id] &&
+                    values.activeTab.view.latest_history_id
                 ) {
-                    actions.setInProgressViewEdit(
-                        values.activeModelUri.view.id,
-                        values.activeModelUri.view.latest_history_id
-                    )
+                    actions.setInProgressViewEdit(values.activeTab.view.id, values.activeTab.view.latest_history_id)
                 }
             }
-            actions.updateState()
         },
         saveDraft: async ({ activeTab, queryInput, viewId }) => {
             const latestActiveTab = values.allTabs.find((tab) => tab.uri.toString() === activeTab.uri.toString())
@@ -997,39 +640,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
         saveAsDraftSuccess: ({ draft, tab: tabToUpdate }) => {
-            const newTabs = values.allTabs.map((tab) => {
-                if (tab.uri.toString() === tabToUpdate.uri.toString()) {
-                    return { ...tab, name: draft.name, draft: draft }
-                }
-                return tab
-            })
-            actions.setTabs(newTabs)
-            actions.updateState()
-        },
-        updateState: async ({ skipBreakpoint }, breakpoint) => {
-            if (skipBreakpoint !== true) {
-                await breakpoint(100)
-            }
-
-            const queries = values.allTabs.map((model) => {
-                return {
-                    query: props.monaco?.editor.getModel(model.uri)?.getValue() || '',
-                    path: model.uri.path.split('/').pop(),
-                    name: model.view?.name || model.name,
-                    view: model.view,
-                    insight: model.insight,
-                    response: model.response,
-                    draft: model.draft,
-                }
-            })
-            actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
-            actions.updateQueryTabState(skipBreakpoint)
-
-            actions.setLocalState(allTabsStateKey(props.key), JSON.stringify(values.allTabs))
-            actions.setLocalState(inProgressViewEditStateKey(props.key), JSON.stringify(values.inProgressViewEdits))
+            actions.updateTab({ ...tabToUpdate, name: draft.name, draft: draft })
         },
         runQuery: ({ queryOverride, switchTab }) => {
-            const query = queryOverride || values.queryInput
+            const query = (queryOverride || values.queryInput) ?? ''
 
             const newSource = {
                 ...values.sourceQuery.source,
@@ -1044,22 +658,21 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 ...values.sourceQuery,
                 source: newSource,
             })
-            dataNodeLogic({
-                key: values.dataLogicKey,
-                query: newSource,
-            }).mount()
-
+            if (!cache.umountDataNode) {
+                cache.umountDataNode = dataNodeLogic({
+                    key: values.dataLogicKey,
+                    query: newSource,
+                }).mount()
+            }
             dataNodeLogic({
                 key: values.dataLogicKey,
                 query: newSource,
             }).actions.loadData(!switchTab ? 'force_async' : 'async')
-
-            actions.updateState()
         },
         saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
             LemonDialog.openForm({
                 title: 'Save as view',
-                initialValues: { viewName: values.activeModelUri?.name || '' },
+                initialValues: { viewName: values.activeTab?.name || '' },
                 description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
                 content: (isLoading) =>
                     isLoading ? (
@@ -1095,7 +708,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             const queryToSave = {
                 ...query,
-                query: values.queryInput,
+                query: values.queryInput ?? '',
             }
 
             const logic = dataNodeLogic({
@@ -1111,8 +724,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     query: queryToSave,
                     types,
                 })
-
-                actions.updateState()
 
                 // Saved queries are unique by team,name
                 const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find((q) => q.name === name)
@@ -1156,12 +767,17 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 query: values.sourceQuery,
                 saved: true,
             })
+            const logic = insightLogic({
+                dashboardItemId: insight.short_id,
+                doNotLoad: true,
+            })
+            const umount = logic.mount()
+            logic.actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
+            const timeoutId = window.setTimeout(() => umount(), 1000 * 10) // keep mounted for 10 seconds while we redirect
+            cache.timeouts = cache.timeouts || []
+            cache.timeouts.push(timeoutId)
 
             lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
-
-            if (values.activeModelUri) {
-                actions._deleteTab(values.activeModelUri)
-            }
 
             router.actions.push(urls.insightView(insight.short_id))
         },
@@ -1170,7 +786,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return
             }
 
-            const insightName = values.activeModelUri?.name
+            const insightName = values.activeTab?.name
 
             const insightRequest: Partial<QueryBasedInsightModel> = {
                 name: insightName ?? values.editingInsight.name,
@@ -1179,109 +795,65 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             const savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
 
-            if (values.activeModelUri) {
+            if (values.activeTab) {
                 actions.updateTab({
-                    ...values.activeModelUri,
+                    ...values.activeTab,
                     insight: savedInsight,
                 })
-                actions.updateState(true)
+            }
+            const loadedLogic = insightLogic.findMounted({
+                dashboardItemId: values.editingInsight.short_id,
+                dashboardId: undefined,
+            })
+            if (loadedLogic) {
+                loadedLogic.actions.setInsight(savedInsight, { overrideQuery: true, fromPersistentApi: true })
             }
 
             lemonToast.info(`You're now viewing ${savedInsight.name || savedInsight.derived_name || name}`)
-
-            if (values.activeModelUri) {
-                actions._deleteTab(values.activeModelUri)
-            }
 
             router.actions.push(urls.insightView(savedInsight.short_id))
         },
         loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
             // keep tab views up to date
-            const newTabs = values.allTabs.map((tab) => ({
-                ...tab,
-                view: dataWarehouseSavedQueries.find((v) => v.id === tab.view?.id),
-            }))
-            actions.setTabs(newTabs)
-            actions.updateState()
+            const tab = values.activeTab
+            const view = dataWarehouseSavedQueries.find((v) => v.id === tab.view?.id)
+            if (tab && view) {
+                actions.setTabs([{ ...tab, view }])
+                actions.setQueryInput(view.query.query || '')
+            }
         },
         deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
-            const tabToRemove = values.allTabs.find((tab) => tab.view?.id === viewId && !tab.draft)
-            if (tabToRemove) {
-                actions._deleteTab(tabToRemove)
+            const mustRemoveTab = values.allTabs.find((tab) => tab.view?.id === viewId && !tab.draft)
+            if (mustRemoveTab) {
+                actions.setTabs([])
+                actions.createTab()
             }
             lemonToast.success('View deleted')
-            actions.updateState()
         },
         createDataWarehouseSavedQuerySuccess: ({ dataWarehouseSavedQueries, payload: view }) => {
             const newView = view && dataWarehouseSavedQueries.find((v) => v.name === view.name)
             if (newView) {
-                const newTabs = values.allTabs.map((tab) => ({
-                    ...tab,
-                    view: tab.uri.path === values.activeModelUri?.uri.path ? newView : tab.view,
-                }))
-                const newTab = newTabs.find((tab) => tab.uri.path === values.activeModelUri?.uri.path)
-                actions.setTabs(newTabs)
-                newTab && actions._selectTab(newTab)
-                actions.updateState()
+                const oldTab = values.activeTab
+                if (oldTab) {
+                    actions.updateTab({ ...oldTab, view: newView })
+                }
             }
         },
-        updateDataWarehouseSavedQuerySuccess: ({ dataWarehouseSavedQueries }) => {
-            // // check if the active tab is a view and if so, update the view
-            const activeTab = dataWarehouseSavedQueries.find((tab) => tab.id === values.activeModelUri?.view?.id)
-            if (activeTab && values.activeModelUri) {
-                actions._selectTab({
-                    ...values.activeModelUri,
-                    view: activeTab,
-                })
-            }
+        updateDataWarehouseSavedQuerySuccess: () => {
             lemonToast.success('View updated')
-            actions.updateState()
-        },
-        updateQueryTabState: async ({ skipBreakpoint }, breakpoint) => {
-            if (skipBreakpoint !== true) {
-                await breakpoint(1000)
-            }
-
-            if (!values.queryTabState) {
-                return
-            }
-            try {
-                await api.queryTabState.update(values.queryTabState.id, {
-                    state: {
-                        editorModelsStateKey: await getStorageItem(editorModelsStateKey(props.key)),
-                        activeModelStateKey: await getStorageItem(activeModelStateKey(props.key)),
-                        sourceQuery: JSON.stringify(values.sourceQuery),
-                    },
-                })
-            } catch (e) {
-                console.error(e)
-            }
-        },
-        setResponse: ({ response, currentTab }) => {
-            if (!currentTab || !response) {
-                return
-            }
-
-            const responseInBytes = sizeOfInBytes(response)
-
-            const existingTab = values.allTabs.find((tab) => tab.uri.path === currentTab.uri.path)
-
-            // Store in local storage if the response is less than 1 MB
-            if (responseInBytes <= 1024 * 1024 && existingTab) {
-                actions.updateTab({
-                    ...existingTab,
-                    response,
-                })
-            }
-            actions.updateState()
         },
         updateView: async ({ view, draftId }) => {
             const latestView = await api.dataWarehouseSavedQueries.get(view.id)
+            // Only check for conflicts if there's an activity log (latest_history_id exists)
+            // When there's no activity log, both edited_history_id and latest_history_id are null/undefined,
+            // and we should allow the update to proceed without showing a false conflict
             if (
-                view.edited_history_id !== latestView?.latest_history_id &&
+                latestView?.latest_history_id != null &&
+                view.edited_history_id !== latestView.latest_history_id &&
                 view.query?.query !== latestView?.query.query
             ) {
                 actions._setSuggestionPayload({
+                    suggestedValue: values.queryInput!,
                     originalValue: latestView?.query.query,
                     acceptText: 'Confirm changes',
                     rejectText: 'Cancel',
@@ -1317,55 +889,28 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.setTabs(newTabs)
         },
     })),
-    subscriptions(({ props, actions, values }) => ({
+    subscriptions(({ actions, values }) => ({
         showLegacyFilters: (showLegacyFilters: boolean) => {
             if (showLegacyFilters) {
-                actions.setSourceQuery({
-                    ...values.sourceQuery,
-                    source: {
-                        ...values.sourceQuery.source,
-                        filters: {},
-                    },
-                })
-            } else {
-                actions.setSourceQuery({
-                    ...values.sourceQuery,
-                    source: {
-                        ...values.sourceQuery.source,
-                        filters: undefined,
-                    },
-                })
-            }
-        },
-        activeModelUri: (activeModelUri) => {
-            if (props.monaco) {
-                const _model = props.monaco.editor.getModel(activeModelUri.uri)
-                const val = _model?.getValue()
-                actions.setQueryInput(val ?? '')
-                if (activeModelUri.sourceQuery) {
+                if (typeof values.sourceQuery.source.filters !== 'object') {
                     actions.setSourceQuery({
-                        ...activeModelUri.sourceQuery,
+                        ...values.sourceQuery,
                         source: {
-                            ...activeModelUri.sourceQuery.source,
-                            query: val ?? '',
+                            ...values.sourceQuery.source,
+                            filters: {},
                         },
-                    })
-                } else {
-                    actions.setSourceQuery({
-                        kind: NodeKind.DataVisualizationNode,
-                        source: {
-                            kind: NodeKind.HogQLQuery,
-                            query: val ?? '',
-                        },
-                        display: ChartDisplayType.ActionsLineGraph,
                     })
                 }
-            }
-        },
-        allTabs: (allTabs) => {
-            const activeTab = allTabs.find((tab: QueryTab) => tab.uri.path === values.activeModelUri?.uri.path)
-            if (activeTab && activeTab.uri.path != values.activeModelUri?.uri.path) {
-                actions._selectTab(activeTab)
+            } else {
+                if (values.sourceQuery.source.filters !== undefined) {
+                    actions.setSourceQuery({
+                        ...values.sourceQuery,
+                        source: {
+                            ...values.sourceQuery.source,
+                            filters: undefined,
+                        },
+                    })
+                }
             }
         },
         editingView: (editingView) => {
@@ -1389,12 +934,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
     })),
     selectors({
-        activeTab: [
-            (s) => [s.activeModelUri, s.allTabs],
-            (activeModelUri, allTabs) => {
-                return allTabs.find((tab) => tab.uri.toString() === activeModelUri?.uri.toString())
-            },
-        ],
+        activeTab: [(s) => [s.allTabs], (allTabs: QueryTab[]) => allTabs?.[0] ?? null],
         suggestedSource: [
             (s) => [s.suggestionPayload],
             (suggestionPayload) => {
@@ -1433,24 +973,19 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         originalQueryInput: [
             (s) => [s.suggestionPayload, s.queryInput],
             (suggestionPayload, queryInput) => {
-                if (suggestionPayload?.suggestedValue && suggestionPayload?.suggestedValue !== queryInput) {
-                    return queryInput
-                }
-
-                if (suggestionPayload?.originalValue && suggestionPayload?.originalValue !== queryInput) {
-                    return suggestionPayload?.originalValue
+                // If we have a suggestion payload, always show diff mode
+                if (suggestionPayload?.suggestedValue) {
+                    // Prefer the stored originalValue if available, otherwise use current queryInput
+                    return suggestionPayload?.originalValue || queryInput
                 }
 
                 return undefined
             },
         ],
         editingView: [
-            (s) => [s.activeModelUri, s.allTabs],
-            (activeModelUri, allTabs) => {
-                const currentTab = allTabs.find(
-                    (tab: QueryTab) => tab.uri.toString() === activeModelUri?.uri.toString()
-                )
-                return currentTab?.view
+            (s) => [s.activeTab],
+            (activeTab) => {
+                return activeTab?.view
             },
         ],
         changesToSave: [
@@ -1474,7 +1009,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         isEditingMaterializedView: [
             (s) => [s.editingView],
             (editingView) => {
-                return !!editingView?.status
+                return !!editingView?.is_materialized
             },
         ],
         isSourceQueryLastRun: [
@@ -1484,76 +1019,96 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         updateInsightButtonEnabled: [
-            (s) => [s.sourceQuery, s.activeModelUri],
-            (sourceQuery, activeModelUri) => {
-                if (!activeModelUri?.insight?.query || !activeModelUri.sourceQuery) {
+            (s) => [s.sourceQuery, s.activeTab],
+            (sourceQuery, activeTab) => {
+                if (!activeTab?.insight?.query || !activeTab.sourceQuery) {
                     return false
                 }
 
-                const updatedName = activeModelUri.name !== activeModelUri.insight.name
+                const updatedName = activeTab.name !== activeTab.insight.name
 
                 const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(sourceQuery)
 
                 return (
                     updatedName ||
-                    !isEqual(
-                        sourceQueryWithoutUndefinedAndNullKeys,
-                        removeUndefinedAndNull(activeModelUri.insight.query)
-                    )
+                    !isEqual(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(activeTab.insight.query))
                 )
             },
         ],
         showLegacyFilters: [
             (s) => [s.queryInput],
             (queryInput) => {
-                return queryInput.indexOf('{filters}') !== -1 || queryInput.indexOf('{filters.') !== -1
+                return queryInput && (queryInput.indexOf('{filters}') !== -1 || queryInput.indexOf('{filters.') !== -1)
             },
         ],
-        dataLogicKey: [
-            (s) => [s.activeModelUri, s.editingInsight],
-            (activeModelUri, editingInsight) => {
-                if (editingInsight) {
-                    return `InsightViz.${editingInsight.short_id}`
+        dataLogicKey: [(_, p) => [p.tabId], (tabId) => `data-warehouse-editor-data-node-${tabId}`],
+        isDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? !!activeTab.draft?.id : false)],
+        currentDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? activeTab.draft : null)],
+        breadcrumbs: [
+            (s) => [s.activeTab],
+            (activeTab): Breadcrumb[] => {
+                const { draft, insight, view } = activeTab || {}
+                const first = {
+                    key: Scene.SQLEditor,
+                    name: 'SQL query',
+                    to: urls.sqlEditor(),
+                    iconType: 'sql_editor' as FileSystemIconType,
                 }
-
-                return (
-                    activeModelUri?.uri.path ??
-                    insightVizDataNodeKey({
-                        dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
-                        cachedInsight: null,
-                        doNotLoad: true,
-                    })
-                )
-            },
-        ],
-        localStorageResponse: [
-            (s) => [s.activeModelUri],
-            (activeModelUri) => {
-                return activeModelUri?.response
-            },
-        ],
-        isDraft: [
-            (s) => [s.activeModelUri, s.allTabs],
-            (activeModelUri, allTabs) => {
-                const currentTab = allTabs.find((tab) => tab.uri.toString() === activeModelUri?.uri.toString())
-                return currentTab ? !!currentTab.draft?.id : false
-            },
-        ],
-        currentDraft: [
-            (s) => [s.activeModelUri, s.allTabs],
-            (activeModelUri, allTabs) => {
-                const currentTab = allTabs.find((tab) => tab.uri.toString() === activeModelUri?.uri.toString())
-                return currentTab ? currentTab.draft : null
+                if (view) {
+                    return [
+                        first,
+                        {
+                            key: view.id,
+                            name: view.name,
+                            path: urls.sqlEditor(undefined, view.id),
+                            iconType: 'sql_editor',
+                        },
+                    ]
+                } else if (insight) {
+                    return [
+                        first,
+                        {
+                            key: insight.id,
+                            name: insight.name || insight.derived_name || 'Untitled',
+                            path: urls.sqlEditor(undefined, undefined, insight.short_id),
+                            iconType: 'sql_editor',
+                        },
+                    ]
+                } else if (draft) {
+                    return [
+                        first,
+                        {
+                            key: draft.id,
+                            name: draft.name || 'Untitled',
+                            path: urls.sqlEditor(undefined, undefined, undefined, draft.id),
+                            iconType: 'sql_editor',
+                        },
+                    ]
+                }
+                return [first]
             },
         ],
     }),
-    urlToAction(({ actions, values, props }) => ({
-        [urls.sqlEditor()]: async (_, searchParams) => {
+    tabAwareActionToUrl(({ values }) => ({
+        setQueryInput: () => {
+            return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
+        },
+        createTab: () => {
+            return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
+        },
+    })),
+    tabAwareUrlToAction(({ actions, values, props }) => ({
+        [urls.sqlEditor()]: async (_, searchParams, hashParams) => {
             if (
                 !searchParams.open_query &&
                 !searchParams.open_view &&
                 !searchParams.open_insight &&
-                !searchParams.open_draft
+                !searchParams.open_draft &&
+                !searchParams.output_tab &&
+                !hashParams.q &&
+                !hashParams.view &&
+                !hashParams.insight &&
+                values.queryInput !== null
             ) {
                 return
             }
@@ -1561,10 +1116,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             let tabAdded = false
 
             const createQueryTab = async (): Promise<void> => {
-                if (searchParams.open_draft) {
-                    const draftId = searchParams.open_draft
+                if (searchParams.output_tab) {
+                    actions.setActiveTab(searchParams.output_tab as OutputTab)
+                }
+                if (searchParams.open_draft || (hashParams.draft && values.queryInput === null)) {
+                    const draftId = searchParams.open_draft || hashParams.draft
                     const draft = values.drafts.find((draft) => {
-                        return (draft.id = draftId)
+                        return draft.id === draftId
                     })
 
                     if (!draft) {
@@ -1576,9 +1134,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         return tab.draft?.id === draft.id
                     })
 
-                    if (existingTab) {
-                        actions.selectTab(existingTab)
-                    } else {
+                    if (!existingTab) {
                         const associatedView = draft.saved_query_id
                             ? values.dataWarehouseSavedQueryMapById[draft.saved_query_id]
                             : undefined
@@ -1591,9 +1147,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         }
                     }
                     return
-                } else if (searchParams.open_view) {
+                } else if (searchParams.open_view || (hashParams.view && values.queryInput === null)) {
                     // Open view
-                    const viewId = searchParams.open_view
+                    const viewId = searchParams.open_view || hashParams.view
 
                     if (values.dataWarehouseSavedQueries.length === 0) {
                         await dataWarehouseViewsLogic.asyncActions.loadDataWarehouseSavedQueries()
@@ -1609,18 +1165,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
                     actions.editView(queryToOpen, view)
                     tabAdded = true
-                    router.actions.replace(router.values.location.pathname)
-                } else if (searchParams.open_insight) {
-                    if (searchParams.open_insight === 'new') {
+                    router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
+                } else if (searchParams.open_insight || (hashParams.insight && values.queryInput === null)) {
+                    const shortId = searchParams.open_insight || hashParams.insight
+                    if (shortId === 'new') {
                         // Add new blank tab
                         actions.createTab()
                         tabAdded = true
-                        router.actions.replace(router.values.location.pathname)
+                        router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                         return
                     }
 
                     // Open Insight
-                    const shortId = searchParams.open_insight
                     const insight = await insightsApi.getByShortId(shortId, undefined, 'async')
                     if (!insight) {
                         lemonToast.error('Insight not found')
@@ -1635,6 +1191,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : query
 
                     actions.editInsight(queryToOpen, insight)
+                    if (insight.query) {
+                        actions.setSourceQuery(insight.query as DataVisualizationNode)
+                    }
+                    actions.setActiveTab(OutputTab.Visualization)
 
                     // Only run the query if the results aren't already cached locally and we're not using the open_query search param
                     if (
@@ -1660,38 +1220,63 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     }
 
                     tabAdded = true
-                    router.actions.replace(router.values.location.pathname)
+                    router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (searchParams.open_query) {
                     // Open query string
                     actions.createTab(searchParams.open_query)
                     tabAdded = true
-                    router.actions.replace(router.values.location.pathname)
+                } else if (hashParams.q && values.queryInput === null) {
+                    // only when opening the tab
+                    actions.createTab(hashParams.q)
+                    tabAdded = true
+                } else if (values.queryInput === null) {
+                    actions.createTab('')
+                    tabAdded = true
                 }
             }
 
-            const waitUntilMonaco = async (): Promise<void> => {
-                return await new Promise((resolve, reject) => {
-                    let intervalCount = 0
-                    const interval = setInterval(() => {
-                        intervalCount++
+            if (props.monaco) {
+                await createQueryTab()
+            } else {
+                const waitUntilMonaco = async (): Promise<void> => {
+                    return await new Promise((resolve, reject) => {
+                        let intervalCount = 0
+                        const interval = setInterval(() => {
+                            intervalCount++
 
-                        if (props.monaco && !tabAdded) {
-                            clearInterval(interval)
-                            resolve()
-                        } else if (intervalCount >= 10_000 / 300) {
-                            clearInterval(interval)
-                            reject()
-                        }
-                    }, 300)
+                            if (props.monaco && !tabAdded) {
+                                clearInterval(interval)
+                                resolve()
+                            } else if (intervalCount >= 10_000 / 300) {
+                                clearInterval(interval)
+                                reject()
+                            }
+                        }, 300)
+                    })
+                }
+
+                await waitUntilMonaco().then(async () => {
+                    await createQueryTab()
                 })
             }
-
-            await waitUntilMonaco().then(async () => {
-                await createQueryTab()
-            })
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadQueryTabState()
+    beforeUnmount(({ cache }) => {
+        cache.umountDataNode?.()
+
+        cache.createdModels?.forEach((m: editor.ITextModel) => {
+            try {
+                m.dispose()
+            } catch {}
+        })
+        cache.createdModels = []
+
+        const timeouts = cache.timeouts as Array<number> | undefined
+        timeouts?.forEach((t) => {
+            try {
+                clearTimeout(t)
+            } catch {}
+        })
+        cache.timeouts = []
     }),
 ])

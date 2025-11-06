@@ -13,15 +13,15 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import FailureMessage, VisualizationMessage
+from posthog.schema import VisualizationMessage
 
 from posthog.models.group_type_mapping import GroupTypeMapping
 
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types import AssistantState, IntermediateStep, PartialAssistantState
 
-from ..base import AssistantNode
 from .parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from .prompts import (
     FAILOVER_OUTPUT_PROMPT,
@@ -34,6 +34,15 @@ from .prompts import (
 from .utils import Q, SchemaGeneratorOutput
 
 RETRIES_ALLOWED = 2
+
+
+class SchemaGenerationException(Exception):
+    """An error occurred while generating a schema in the `SchemaGeneratorNode` node."""
+
+    def __init__(self, llm_output: str, validation_message: str):
+        super().__init__("Failed to generate schema")
+        self.llm_output = llm_output
+        self.validation_message = validation_message
 
 
 class SchemaGeneratorNode(AssistantNode, Generic[Q]):
@@ -87,9 +96,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         chain = generation_prompt | merger | self._model | self._parse_output
 
-        result: SchemaGeneratorOutput[Q] | None = None
         try:
-            result = await chain.ainvoke(
+            result: SchemaGeneratorOutput[Q] = await chain.ainvoke(
                 {
                     "project_datetime": self.project_now,
                     "project_timezone": self.project_timezone,
@@ -120,18 +128,9 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                     query_generation_retry_count=len(intermediate_steps) + 1,
                 )
 
-        if not result:
-            # We've got no usable result after exhausting all iteration attempts - it's failure message time
-            return PartialAssistantState(
-                messages=[
-                    FailureMessage(
-                        content=f"It looks like I'm having trouble generating this {self.INSIGHT_NAME} insight."
-                    )
-                ],
-                intermediate_steps=None,
-                plan=None,
-                query_generation_retry_count=len(intermediate_steps) + 1,
-            )
+            if isinstance(e, PydanticOutputParserException):
+                raise SchemaGenerationException(e.llm_output, e.validation_message)
+            raise SchemaGenerationException(e.llm_output or "No input was provided.", str(e))
 
         # We've got a result that either passed the quality check or we've exhausted all attempts at iterating - return
         return PartialAssistantState(

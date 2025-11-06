@@ -6,6 +6,7 @@ import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 import { cn } from 'lib/utils/css-classes'
 
+import { ScrollDepthCanvas } from './ScrollDepthCanvas'
 import { useMousePosition } from './useMousePosition'
 
 function HeatmapMouseInfo({
@@ -58,13 +59,15 @@ export function HeatmapCanvas({
     positioning = 'fixed',
     widthOverride,
     context,
+    exportToken,
 }: {
     positioning?: 'absolute' | 'fixed'
     widthOverride?: number | null
     context: 'in-app' | 'toolbar'
+    exportToken?: string
 }): JSX.Element | null {
-    const { heatmapJsData, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette } = useValues(
-        heatmapDataLogic({ context })
+    const { heatmapJsData, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette, isReady } = useValues(
+        heatmapDataLogic({ context, exportToken })
     )
 
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
@@ -129,15 +132,33 @@ export function HeatmapCanvas({
         })
     }, [heatmapJSColorGradient])
 
-    if (!heatmapFilters.enabled || heatmapFilters.type === 'scrolldepth') {
+    if (!heatmapFilters.enabled) {
         return null
     }
 
+    if (heatmapFilters.type === 'scrolldepth') {
+        return (
+            <ScrollDepthCanvas
+                key={`scrolldepth-${heatmapFilters.type}-${exportToken ? 'export' : `${widthOverride ?? windowWidth}x${windowHeight}`}`}
+                positioning={positioning}
+                context={context}
+                exportToken={exportToken}
+            />
+        )
+    }
+
     return (
-        <div className={cn('inset-0 overflow-hidden w-full h-full', positioning)} data-attr="heatmap-canvas">
-            {/* NOTE: We key on the window dimensions which triggers a recreation of the canvas */}
+        <div
+            className={cn(
+                'inset-0 overflow-hidden w-full h-full',
+                positioning,
+                isReady ? 'heatmaps-ready' : 'heatmaps-loading'
+            )}
+            data-attr="heatmap-canvas"
+        >
+            {/* NOTE: We key on the window dimensions which triggers a recreation of the canvas except when it's an export */}
             <div
-                key={`${widthOverride ?? windowWidth}x${windowHeight}`}
+                key={exportToken ? 'export-heatmap' : `${widthOverride ?? windowWidth}x${windowHeight}`}
                 className="absolute inset-0"
                 ref={setHeatmapContainer}
             />

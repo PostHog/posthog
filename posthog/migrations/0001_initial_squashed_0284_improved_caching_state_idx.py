@@ -532,7 +532,7 @@ class Migration(migrations.Migration):
                 (
                     "detail",
                     models.JSONField(
-                        encoder=posthog.models.activity_logging.activity_log.ActivityDetailEncoder,
+                        encoder=posthog.models.utils.ActivityDetailEncoder,
                         null=True,
                     ),
                 ),

@@ -8,7 +8,13 @@ from dagster import BackfillPolicy, DailyPartitionsDefinition
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
-from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
+from posthog.models.web_preaggregated.sql import (
+    REPLACE_WEB_BOUNCES_V2_STAGING_SQL,
+    REPLACE_WEB_STATS_V2_STAGING_SQL,
+    WEB_BOUNCES_INSERT_SQL,
+    WEB_STATS_INSERT_SQL,
+)
+from posthog.settings import DEBUG, TEST
 
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
@@ -19,9 +25,10 @@ from dags.web_preaggregated_utils import (
     WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS,
     check_for_concurrent_runs,
     clear_all_staging_partitions,
-    drop_partitions_for_date_range,
     merge_clickhouse_settings,
+    recreate_staging_table,
     swap_partitions_from_staging,
+    sync_partitions_on_replicas,
     web_analytics_retry_policy_def,
 )
 
@@ -29,6 +36,11 @@ MAX_PARTITIONS_PER_RUN_ENV_VAR = "DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_R
 max_partitions_per_run = int(os.getenv(MAX_PARTITIONS_PER_RUN_ENV_VAR, 1))
 backfill_policy_def = BackfillPolicy.multi_run(max_partitions_per_run=max_partitions_per_run)
 partition_def = DailyPartitionsDefinition(start_date="2024-01-01", end_offset=1)
+
+REPLACE_TEMPLATES_BY_STAGING_TABLE_NAME = {
+    "web_pre_aggregated_stats_staging": REPLACE_WEB_STATS_V2_STAGING_SQL,
+    "web_pre_aggregated_bounces_staging": REPLACE_WEB_BOUNCES_V2_STAGING_SQL,
+}
 
 
 def pre_aggregate_web_analytics_data(
@@ -54,11 +66,14 @@ def pre_aggregate_web_analytics_data(
     staging_table_name = f"{table_name}_staging"
 
     try:
-        # 1. Clean staging table partitions for the date range
-        context.log.info(f"Cleaning staging partitions for {date_start} to {date_end}")
-        drop_partitions_for_date_range(context, cluster, staging_table_name, date_start, date_end)
+        # 1. Recreate staging table
+        if staging_table_name not in REPLACE_TEMPLATES_BY_STAGING_TABLE_NAME:
+            raise dagster.Failure(f"No REPLACE TABLE function found for {staging_table_name}")
 
-        # 2. Generate hourly data into staging table
+        replace_sql_func = REPLACE_TEMPLATES_BY_STAGING_TABLE_NAME[staging_table_name]
+        recreate_staging_table(context, cluster, staging_table_name, replace_sql_func)
+
+        # 2. Write data into staging table
         insert_query = sql_generator(
             date_start=date_start,
             date_end=date_end,
@@ -72,13 +87,12 @@ def pre_aggregate_web_analytics_data(
         context.log.info(insert_query)
         sync_execute(insert_query)
 
-        # 3. Atomically swap partitions from staging to target
+        # 3. Sync replicas before partition swapping to ensure consistency
+        sync_partitions_on_replicas(context, cluster, staging_table_name)
+
+        # 4. Atomically swap partitions from staging to target
         context.log.info(f"Swapping partitions from {staging_table_name} to {table_name}")
         swap_partitions_from_staging(context, cluster, table_name, staging_table_name)
-
-        # 4. Clean up staging partitions to speed up next run
-        context.log.info(f"Cleaning up staging partitions")
-        drop_partitions_for_date_range(context, cluster, staging_table_name, date_start, date_end)
 
     except Exception as e:
         raise dagster.Failure(f"Failed to pre-aggregate data {table_name}: {str(e)}") from e
@@ -202,3 +216,88 @@ def web_pre_aggregate_current_day_schedule(context: dagster.ScheduleEvaluationCo
     return dagster.RunRequest(
         partition_key=datetime.now(UTC).strftime("%Y-%m-%d"),
     )
+
+
+def ensure_web_analytics_tables_exist(context: dagster.ScheduleEvaluationContext) -> None:
+    if TEST:
+        return
+
+    try:
+        stats_sql = REPLACE_WEB_STATS_V2_STAGING_SQL().replace("_staging", "")
+        context.log.info("Ensuring web_pre_aggregated_stats exists with production schema")
+        sync_execute(stats_sql)
+
+        bounces_sql = REPLACE_WEB_BOUNCES_V2_STAGING_SQL().replace("_staging", "")
+        context.log.info("Ensuring web_pre_aggregated_bounces exists with production schema")
+        sync_execute(bounces_sql)
+
+        context.log.info("Web analytics tables are ready with production schema")
+    except Exception as e:
+        context.log.warning(f"Error ensuring tables exist: {e}")
+        # Don't fail the schedule if table creation fails - let the job handle it
+
+
+@dagster.schedule(
+    cron_schedule="*/10 * * * *",
+    job=web_pre_aggregate_job,
+    execution_timezone="UTC",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    default_status=dagster.DefaultScheduleStatus.RUNNING if DEBUG else dagster.DefaultScheduleStatus.STOPPED,
+)
+def web_analytics_v2_backfill_schedule(context: dagster.ScheduleEvaluationContext):
+    """
+    Schedule that materializes web analytics v2 assets for today's partition.
+    Only runs in DEBUG mode so we don't overload ClickHouse in production.
+
+    Triggers materialization if no recent runs in the last 6 hours.
+    """
+
+    if not DEBUG:
+        return dagster.SkipReason("Schedule only runs in DEBUG mode")
+
+    # Ensure tables exist with production schema before running backfill
+    ensure_web_analytics_tables_exist(context)
+
+    try:
+        # Check for recent runs
+        instance = context.instance
+        runs = instance.get_runs(
+            filters=dagster.RunsFilter(
+                tags={"triggered_by": "backfill_schedule"},
+                statuses=[dagster.DagsterRunStatus.SUCCESS],
+            ),
+            limit=1,
+        )
+
+        hours_since_last_run = None
+        if runs:
+            run_stats = instance.get_run_stats(runs[0].run_id)
+            last_run_time = run_stats.end_time
+            if last_run_time:
+                hours_since_last_run = (datetime.now(UTC).timestamp() - last_run_time) / 3600
+
+        # Check if we should trigger backfill
+        if hours_since_last_run is not None and hours_since_last_run < 6:
+            return dagster.SkipReason(f"Last run was {hours_since_last_run:.1f}h ago (< 6h threshold)")
+
+        reason = (
+            "No previous runs found"
+            if hours_since_last_run is None
+            else f"Last run was {hours_since_last_run:.1f}h ago"
+        )
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        context.log.info(f"Triggering web analytics v2 materialization for today ({today}): {reason}")
+
+        # Return a single run request for today's partition
+        return dagster.RunRequest(
+            run_key=f"web_analytics_v2_backfill_{datetime.now(UTC).timestamp()}",
+            partition_key=today,
+            tags={
+                "triggered_by": "backfill_schedule",
+                "triggered_at": datetime.now(UTC).isoformat(),
+                "reason": reason,
+            },
+        )
+
+    except Exception as e:
+        return dagster.SkipReason(f"Error checking backfill conditions: {str(e)}")

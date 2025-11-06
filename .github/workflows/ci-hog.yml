@@ -40,6 +40,7 @@ jobs:
                         - 'posthog/hogql/**/*'
                         - 'bin/hog'
                         - 'bin/hoge'
+                        - 'package.json'
                         - requirements.txt
                         - requirements-dev.txt
                         - .github/workflows/ci-hog.yml
@@ -67,15 +68,16 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              id: setup-uv
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.7.8
+                  version: 0.8.19
 
             - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
@@ -168,18 +170,18 @@ jobs:
               uses: actions/checkout@v4
               with:
                   fetch-depth: 1
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
             - name: Install uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              id: setup-uv-hogql-python
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.7.8
+                  version: 0.8.19
             - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv-hogql-python.outputs.cache-hit != 'true'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl

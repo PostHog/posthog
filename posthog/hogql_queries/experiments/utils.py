@@ -12,6 +12,7 @@ from posthog.schema import (
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
     ExperimentVariantTrendsBaseStats,
+    SessionData,
 )
 
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
@@ -49,34 +50,40 @@ def split_baseline_and_test_variants(
 
 
 def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStatsBase]:
-    # Handle both regular metrics (4 values) and ratio metrics (7 values)
+    # Handle both mean metrics (4 values), funnel metrics (5 values) and ratio metrics (7 values)
     variant_results = []
     for result in sorted_results:
-        if len(result) == 4:
-            # Regular metric
-            variant_results.append(
-                ExperimentStatsBase(
-                    key=result[0],
-                    number_of_samples=result[1],
-                    sum=result[2],
-                    sum_squares=result[3],
-                )
-            )
+        # All metrics have this
+        base_stats = {
+            "key": result[0],
+            "number_of_samples": result[1],
+            "sum": result[2],
+            "sum_squares": result[3],
+        }
+
+        # Funnel metrics
+        if len(result) == 5:
+            base_stats["step_counts"] = result[4]
+        elif len(result) == 6:
+            # Funnel metrics with sampled session IDs
+            base_stats["step_counts"] = result[4]
+            base_stats["step_sessions"] = [
+                [
+                    SessionData(person_id=person_id, session_id=session_id, event_uuid=event_uuid, timestamp=timestamp)
+                    for person_id, session_id, event_uuid, timestamp in step_sessions
+                ]
+                for step_sessions in result[5]
+            ]
+
+        # Ratio metrics
         elif len(result) == 7:
             # Ratio metric
-            variant_results.append(
-                ExperimentStatsBase(
-                    key=result[0],
-                    number_of_samples=result[1],
-                    sum=result[2],
-                    sum_squares=result[3],
-                    denominator_sum=result[4],
-                    denominator_sum_squares=result[5],
-                    numerator_denominator_sum_product=result[6],
-                )
-            )
-        else:
-            raise ValueError(f"Unexpected result format with {len(result)} values")
+            base_stats["denominator_sum"] = result[4]
+            base_stats["denominator_sum_squares"] = result[5]
+            base_stats["numerator_denominator_sum_product"] = result[6]
+
+        variant_results.append(ExperimentStatsBase(**base_stats))
+
     return variant_results
 
 
@@ -103,6 +110,12 @@ def validate_variant_result(
         sum_squares=variant_result.sum_squares,
         validation_failures=validation_failures,
     )
+
+    # Include funnel-specific fields if present
+    if hasattr(variant_result, "step_counts") and variant_result.step_counts is not None:
+        validated_result.step_counts = variant_result.step_counts
+    if hasattr(variant_result, "step_sessions") and variant_result.step_sessions is not None:
+        validated_result.step_sessions = variant_result.step_sessions
 
     # Include ratio-specific fields if present
     if hasattr(variant_result, "denominator_sum") and variant_result.denominator_sum is not None:
@@ -175,6 +188,8 @@ def get_frequentist_experiment_result(
             number_of_samples=test_variant_validated.number_of_samples,
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
+            step_counts=test_variant_validated.step_counts,
+            step_sessions=getattr(test_variant_validated, "step_sessions", None),
             validation_failures=test_variant_validated.validation_failures,
         )
 
@@ -242,6 +257,8 @@ def get_bayesian_experiment_result(
             number_of_samples=test_variant_validated.number_of_samples,
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
+            step_counts=test_variant_validated.step_counts,
+            step_sessions=getattr(test_variant_validated, "step_sessions", None),
             validation_failures=test_variant_validated.validation_failures,
         )
 

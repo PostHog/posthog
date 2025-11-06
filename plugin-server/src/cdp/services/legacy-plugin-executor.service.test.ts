@@ -1,19 +1,14 @@
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
 import { DateTime } from 'luxon'
 
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { FetchResponse } from '~/utils/request'
-import { fetch } from '~/utils/request'
 
 import { createPlugin, createPluginConfig } from '../../../tests/helpers/sql'
 import { Hub, PluginConfig, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import {
-    insertHogFunction as _insertHogFunction,
-    createExampleInvocation,
-    createHogExecutionGlobals,
-    createHogFunction,
-} from '../_tests/fixtures'
+import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { LegacyDestinationPlugin, LegacyTransformationPlugin } from '../legacy-plugins/types'
 import {
@@ -40,7 +35,6 @@ describe('LegacyPluginExecutorService', () => {
     let team: Team
     let globals: HogFunctionInvocationGlobalsWithInputs
     let fn: HogFunctionType
-    let mockFetch: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
     let pluginConfig: PluginConfig
 
     const customerIoPlugin = DESTINATION_PLUGINS_BY_ID['plugin-customerio-plugin']
@@ -78,7 +72,7 @@ describe('LegacyPluginExecutorService', () => {
             plugin_id: plugin.id,
         } as any)
 
-        mockFetch = jest.fn((_url, _options) =>
+        mockFetch.mockImplementation((_url, _options) =>
             Promise.resolve({
                 status: 200,
                 json: () =>
@@ -92,10 +86,9 @@ describe('LegacyPluginExecutorService', () => {
                         })
                     ),
                 headers: {},
+                dump: () => Promise.resolve(),
             })
         )
-
-        jest.spyOn(service, 'fetch').mockImplementation(mockFetch)
 
         globals = {
             ...createHogExecutionGlobals({
@@ -197,6 +190,7 @@ describe('LegacyPluginExecutorService', () => {
                         })
                     ),
                 headers: {},
+                dump: () => Promise.resolve(),
             })
 
             const res = await service.execute(invocation)
@@ -324,6 +318,7 @@ describe('LegacyPluginExecutorService', () => {
                         json: () => Promise.resolve({}),
                         text: () => Promise.resolve(JSON.stringify({})),
                         headers: {},
+                        dump: () => Promise.resolve(),
                     })
                 }
 
@@ -332,6 +327,7 @@ describe('LegacyPluginExecutorService', () => {
                     json: () => Promise.resolve({}),
                     text: () => Promise.resolve(JSON.stringify({})),
                     headers: {},
+                    dump: () => Promise.resolve(),
                 })
             })
 

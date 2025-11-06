@@ -17,8 +17,11 @@ APIScopeObject = Literal[
     "dashboard",
     "dashboard_template",
     "dataset",
+    "desktop_recording",
     "early_access_feature",
+    "endpoint",
     "error_tracking",
+    "evaluation",
     "event_definition",
     "experiment",
     "export",
@@ -28,7 +31,10 @@ APIScopeObject = Literal[
     "group",
     "hog_function",
     "insight",
+    "integration",
     "link",
+    "live_debugger",
+    "logs",
     "notebook",
     "organization",
     "organization_member",
@@ -38,17 +44,19 @@ APIScopeObject = Literal[
     "project",
     "property_definition",
     "query",  # Covers query and events endpoints
+    "revenue_analytics",
     "session_recording",
     "session_recording_playlist",
     "sharing_configuration",
     "subscription",
     "survey",
+    "task",
     "user",
     "user_interview_DO_NOT_USE",  # This is a super alpha product, so only exposing here for internal personal API key access
-    "webhook",
-    "warehouse_view",
     "warehouse_table",
-    "logs",  # logs product
+    "warehouse_view",
+    "web_analytics",
+    "webhook",
 ]
 
 APIScopeActions = Literal[

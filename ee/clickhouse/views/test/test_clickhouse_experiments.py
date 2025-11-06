@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
@@ -11,9 +11,11 @@ from rest_framework import status
 
 from posthog.models import WebExperiment
 from posthog.models.action.action import Action
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.experiment import Experiment, ExperimentSavedMetric
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
+from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
 
 from ee.api.test.base import APILicensedTest
@@ -53,7 +55,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(15, 16)):
+        with self.assertNumQueries(FuzzyInt(18, 19)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -70,7 +72,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(15, 16)):
+        with self.assertNumQueries(FuzzyInt(22, 23)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1699,7 +1701,7 @@ class TestExperimentCRUD(APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(22):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -2291,6 +2293,45 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_update_experiment_exposure_config_with_action(self):
+        # Create an action
+        action = Action.objects.create(
+            name="Test Action",
+            team=self.team,
+            steps_json=[{"event": "purchase", "properties": [{"key": "plan", "value": "premium", "type": "event"}]}],
+        )
+
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Test Feature Flag",
+            key="test-feature-flag",
+            filters={},
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Test Experiment",
+            description="My test experiment",
+            feature_flag=feature_flag,
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {
+                "exposure_criteria": {
+                    "filterTestAccounts": False,
+                    "exposure_config": {
+                        "kind": "ActionsNode",
+                        "id": action.id,
+                    },
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        experiment = Experiment.objects.get(id=experiment.id)
+        assert experiment.exposure_criteria is not None
+        self.assertEqual(experiment.exposure_criteria["filterTestAccounts"], False)
+        self.assertEqual(experiment.exposure_criteria["exposure_config"]["kind"], "ActionsNode")
+        self.assertEqual(experiment.exposure_criteria["exposure_config"]["id"], action.id)
+
     def test_create_experiment_in_specific_folder(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -2461,8 +2502,18 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(duplicate_experiment["type"], original_experiment["type"])
         self.assertEqual(duplicate_experiment["parameters"], original_experiment["parameters"])
         self.assertEqual(duplicate_experiment["filters"], original_experiment["filters"])
-        self.assertEqual(duplicate_experiment["metrics"], original_experiment["metrics"])
-        self.assertEqual(duplicate_experiment["metrics_secondary"], original_experiment["metrics_secondary"])
+
+        # Compare metrics ignoring fingerprints (they differ due to different start_dates)
+        def remove_fingerprints(metrics):
+            return [{k: v for k, v in metric.items() if k != "fingerprint"} for metric in metrics or []]
+
+        self.assertEqual(
+            remove_fingerprints(duplicate_experiment["metrics"]), remove_fingerprints(original_experiment["metrics"])
+        )
+        self.assertEqual(
+            remove_fingerprints(duplicate_experiment["metrics_secondary"]),
+            remove_fingerprints(original_experiment["metrics_secondary"]),
+        )
         self.assertEqual(duplicate_experiment["stats_config"], original_experiment["stats_config"])
         self.assertEqual(duplicate_experiment["exposure_criteria"], original_experiment["exposure_criteria"])
 
@@ -2575,13 +2626,144 @@ class TestExperimentCRUD(APILicensedTest):
         assert duplicate_data["description"] == original_experiment["description"]
         assert duplicate_data["parameters"] == original_experiment["parameters"]
         assert duplicate_data["filters"] == original_experiment["filters"]
-        assert duplicate_data["metrics"] == original_experiment["metrics"]
-        assert duplicate_data["metrics_secondary"] == original_experiment["metrics_secondary"]
+
+        # Compare metrics ignoring fingerprints (they differ due to different start_dates)
+        def remove_fingerprints(metrics):
+            return [{k: v for k, v in metric.items() if k != "fingerprint"} for metric in metrics or []]
+
+        assert remove_fingerprints(duplicate_data["metrics"]) == remove_fingerprints(original_experiment["metrics"])
+        assert remove_fingerprints(duplicate_data["metrics_secondary"]) == remove_fingerprints(
+            original_experiment["metrics_secondary"]
+        )
 
         # Verify temporal fields are reset
         assert duplicate_data["start_date"] is None
         assert duplicate_data["end_date"] is None
         assert duplicate_data["archived"] is False
+
+    def test_metric_fingerprinting(self):
+        """Test that metric fingerprints are computed correctly on create and update"""
+
+        # Step 1: Create experiment with 3 metrics (tests create method fingerprinting)
+        ff_key = "fingerprint-test"
+
+        initial_mean_metric = {
+            "uuid": "metric-1",
+            "name": "Initial Mean Metric",
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {
+                "kind": "EventsNode",
+                "event": "$session_duration",
+            },
+        }
+
+        initial_funnel_metric = {
+            "uuid": "metric-2",
+            "name": "Initial Funnel Metric",
+            "kind": "ExperimentMetric",
+            "metric_type": "funnel",
+            "series": [
+                {"kind": "EventsNode", "event": "$pageview"},
+                {"kind": "EventsNode", "event": "$autocapture"},
+            ],
+        }
+
+        initial_ratio_metric = {
+            "uuid": "metric-3",
+            "name": "Initial Ratio Metric",
+            "kind": "ExperimentMetric",
+            "metric_type": "ratio",
+            "numerator": {"kind": "EventsNode", "event": "$session_duration"},
+            "denominator": {"kind": "EventsNode", "event": "$autocapture"},
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Fingerprint Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {},
+                "metrics": [initial_mean_metric, initial_funnel_metric, initial_ratio_metric],
+            },
+        )
+        exp_id = response.json()["id"]
+        initial_metrics = response.json()["metrics"]
+
+        expected_initial_fingerprints = {
+            "mean": "1a5694c7330b8fb9f920fa6f1e6d871cc07e55e9d87447cb01a3384ed732c605",
+            "funnel": "bf2d01d67d7a1f608177b6f3a9971a6c263870d23ad5935054b5069286575a94",
+            "ratio": "3332b31c0ec0c8be353d5ed1f5740758affc9136d9721dba60434cbe104adb95",
+        }
+
+        for metric in initial_metrics:
+            metric_type = metric["metric_type"]
+            self.assertEqual(metric["fingerprint"], expected_initial_fingerprints[metric_type])
+
+        # Step 2: Update with different metrics, conversion windows, start_date, stats_config, exposure_criteria
+        updated_funnel_metric = {
+            "goal": "increase",
+            "kind": "ExperimentMetric",
+            "uuid": "964398d7-ec8a-424d-890b-4e6bbc9a5c84",
+            "series": [{"kind": "EventsNode", "name": "$pageview", "event": "$pageview"}],
+            "metric_type": "funnel",
+            "conversion_window": 14,
+            "conversion_window_unit": "day",
+            "funnel_order_type": "unordered",
+        }
+
+        updated_mean_metric = {
+            "goal": "increase",
+            "kind": "ExperimentMetric",
+            "uuid": "824e38ae-f9d7-41f4-962c-74c9e744529a",
+            "source": {"kind": "EventsNode", "name": "$pageview", "event": "$pageview"},
+            "metric_type": "mean",
+            "conversion_window": 14,
+            "conversion_window_unit": "day",
+            "lower_bound_percentile": 0.05,
+            "upper_bound_percentile": 0.95,
+        }
+
+        updated_ratio_metric = {
+            "goal": "decrease",
+            "kind": "ExperimentMetric",
+            "uuid": "70e0c887-1f32-4c7d-8405-0faded2e9722",
+            "numerator": {"kind": "EventsNode", "name": "$pageview", "event": "$pageview"},
+            "denominator": {"kind": "EventsNode", "math": "total", "name": "$pageview", "event": "$pageview"},
+            "metric_type": "ratio",
+            "conversion_window": 14,
+            "conversion_window_unit": "day",
+        }
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {
+                "metrics": [updated_funnel_metric, updated_mean_metric, updated_ratio_metric],
+                "start_date": "2024-01-01T10:00:00Z",
+                "stats_config": {"method": "frequentist"},
+                "exposure_criteria": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "$feature_flag_called",
+                    "properties": [],
+                },
+            },
+        )
+
+        updated_metrics = response.json()["metrics"]
+
+        expected_updated_fingerprints = {
+            "mean": "d6a393e5456b71c16961c45e07eb17cb86e4f7972549033f9883c99430248c02",
+            "funnel": "9f7888cb2f7f9c3dac2b6482a964eef6911f97e376ed53305ed6653f7f70ce9b",
+            "ratio": "1b83a833a62ff9c2f01ba86be1f3e578b97749d3264e08ff9e76d863865e3ff3",
+        }
+
+        for metric in updated_metrics:
+            metric_type = metric["metric_type"]
+            self.assertEqual(metric["fingerprint"], expected_updated_fingerprints[metric_type])
 
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
@@ -2630,7 +2812,8 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
         return response
 
-    def test_create_exposure_cohort_for_experiment(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_create_exposure_cohort_for_experiment(self, patch_on_commit: MagicMock):
         response = self._generate_experiment("2024-01-01T10:23")
 
         created_experiment = response.json()["id"]
@@ -2709,7 +2892,8 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(["person1", "person2"], sorted([res["name"] for res in response.json()["results"]]))
 
-    def test_create_exposure_cohort_for_experiment_with_custom_event_exposure(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_create_exposure_cohort_for_experiment_with_custom_event_exposure(self, patch_on_commit: MagicMock):
         self.maxDiff = None
 
         cohort_extra = Cohort.objects.create(
@@ -2827,6 +3011,44 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                             "type": "OR",
                             "values": [
                                 {
+                                    "bytecode": [
+                                        "_H",
+                                        1,
+                                        32,
+                                        "custom_exposure_event",
+                                        32,
+                                        "event",
+                                        1,
+                                        1,
+                                        11,
+                                        32,
+                                        "bonk",
+                                        32,
+                                        "bonk",
+                                        32,
+                                        "properties",
+                                        1,
+                                        2,
+                                        11,
+                                        32,
+                                        "x",
+                                        32,
+                                        "y",
+                                        44,
+                                        2,
+                                        32,
+                                        "$current_url",
+                                        32,
+                                        "properties",
+                                        1,
+                                        2,
+                                        21,
+                                        3,
+                                        2,
+                                        3,
+                                        2,
+                                    ],
+                                    "conditionHash": "605645c960b2c67c",
                                     "event_filters": [
                                         {"key": "bonk", "type": "event", "value": "bonk"},
                                         {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
@@ -2855,7 +3077,10 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(["person1", "person2"], sorted([res["name"] for res in response.json()["results"]]))
 
-    def test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure(
+        self, patch_on_commit: MagicMock
+    ):
         cohort_extra = Cohort.objects.create(
             team=self.team,
             filters={
@@ -3148,3 +3373,112 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         # Verify stats_config is preserved with custom fields
         stats_config = response.json()["stats_config"]
         self.assertEqual(stats_config["method"], "bayesian")
+
+    def test_experiment_activity_logging_shows_correct_user_for_updates(self):
+        """Test that experiment activity logs show the correct user for both creation and updates."""
+
+        # Create a second user to test with
+        second_user = User.objects.create_user(
+            email="second@posthog.com", password="testpass123", first_name="Second", last_name="User"
+        )
+        self.organization.members.add(second_user)
+
+        # Create experiment with first user (self.user)
+        ff_key = "activity-logging-test"
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Activity Logging Test Experiment",
+                "description": "Testing activity logging fix",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {},
+            },
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = create_response.json()["id"]
+
+        # Check creation activity log shows first user
+        creation_logs = ActivityLog.objects.filter(
+            scope="Experiment", item_id=str(experiment_id), activity="created"
+        ).order_by("-created_at")
+        self.assertEqual(len(creation_logs), 1)
+        self.assertEqual(creation_logs[0].user, self.user)
+
+        # Switch to second user and update the experiment
+        self.client.force_login(second_user)
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {
+                "description": "Updated description by second user",
+            },
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # Check update activity log shows second user (not the creator)
+        update_logs = ActivityLog.objects.filter(
+            scope="Experiment", item_id=str(experiment_id), activity="updated"
+        ).order_by("-created_at")
+        self.assertEqual(len(update_logs), 1)
+        self.assertEqual(update_logs[0].user, second_user)
+
+        # Verify the fix: the update activity log should NOT show the first user
+        self.assertNotEqual(update_logs[0].user, self.user)
+
+    def test_experiment_saved_metric_activity_logging_shows_correct_user_for_updates(self):
+        """Test that experiment saved metric activity logs show the correct user for both creation and updates."""
+
+        # Create a second user to test with
+        second_user = User.objects.create_user(
+            email="second@posthog.com", password="testpass123", first_name="Second", last_name="User"
+        )
+        self.organization.members.add(second_user)
+
+        # Create experiment saved metric with first user (self.user)
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Activity Logging Test Metric",
+                "description": "Testing saved metric activity logging fix",
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        metric_id = create_response.json()["id"]
+
+        # Check creation activity log shows first user
+        creation_logs = ActivityLog.objects.filter(
+            scope="Experiment",  # Note: ExperimentSavedMetric logs under "Experiment" scope
+            item_id=str(metric_id),
+            activity="created",
+        ).order_by("-created_at")
+        self.assertEqual(len(creation_logs), 1)
+        self.assertEqual(creation_logs[0].user, self.user)
+
+        # Switch to second user and update the metric
+        self.client.force_login(second_user)
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/{metric_id}/",
+            {
+                "description": "Updated description by second user",
+            },
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # Check update activity log shows second user (not the creator)
+        update_logs = ActivityLog.objects.filter(
+            scope="Experiment",  # Note: ExperimentSavedMetric logs under "Experiment" scope
+            item_id=str(metric_id),
+            activity="updated",
+        ).order_by("-created_at")
+        self.assertEqual(len(update_logs), 1)
+        self.assertEqual(update_logs[0].user, second_user)
+
+        # Verify the fix: the update activity log should NOT show the first user
+        self.assertNotEqual(update_logs[0].user, self.user)

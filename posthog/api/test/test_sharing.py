@@ -1,4 +1,5 @@
 from datetime import timedelta
+from functools import wraps
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -10,14 +11,64 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.sharing import shared_url_as_png
+from posthog.api.sharing import _log_share_password_attempt, shared_url_as_png
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, ExportedAsset
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
+from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+
+
+def mock_exporter_template(test_func):
+    """
+    Decorator to mock render_template for sharing tests.
+
+    This provides a simplified version of the exporter template that always includes
+    the exported_data in both window.POSTHOG_EXPORTED_DATA and the response body,
+    simulating what the actual built exporter.html template would do.
+    """
+
+    @wraps(test_func)
+    @patch("posthog.api.sharing.render_template")
+    def wrapper(self, mock_render_template, *args, **kwargs):
+        def mock_render_side_effect(template_name, request, context, **kwargs):
+            from django.http import HttpResponse
+
+            if template_name == "exporter.html" and context and context.get("exported_data"):
+                exported_data_str = context["exported_data"]
+                # Create a simplified version of the exporter template
+                html_content = f"""<!doctype html>
+<html>
+    <head>
+        <script id="posthog-exported-data" type="application/json">{exported_data_str}</script>
+        <script>
+            try {{
+                window.POSTHOG_EXPORTED_DATA = JSON.parse(
+                    JSON.parse(document.getElementById('posthog-exported-data').textContent)
+                );
+            }} catch (e) {{
+                console.error('Failed to parse exported data:', e);
+                window.POSTHOG_EXPORTED_DATA = {{}};
+            }}
+        </script>
+    </head>
+    <body>
+        <div>{exported_data_str}</div>
+        <div id="root"></div>
+    </body>
+</html>"""
+                return HttpResponse(html_content)
+            else:
+                # For non-exporter templates, return a simple response
+                return HttpResponse('<html><body>{"dashboard": "content"}</body></html>')
+
+        mock_render_template.side_effect = mock_render_side_effect
+        return test_func(self, *args, **kwargs)
+
+    return wrapper
 
 
 @parameterized.expand(
@@ -70,6 +121,7 @@ class TestSharing(APIBaseTest):
     def test_gets_sharing_config(self, patched_exporter_task: Mock):
         assert SharingConfiguration.objects.count() == 0
 
+        # First get the initial config (not saved yet)
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
         assert SharingConfiguration.objects.count() == 0
         assert response.status_code == status.HTTP_200_OK
@@ -78,7 +130,9 @@ class TestSharing(APIBaseTest):
             "access_token": data["access_token"],
             "created_at": None,
             "enabled": False,
+            "password_required": False,
             "settings": None,
+            "share_passwords": [],
         }
 
     @freeze_time("2022-01-01")
@@ -96,7 +150,9 @@ class TestSharing(APIBaseTest):
             "access_token": initial_data["access_token"],
             "created_at": "2022-01-01T00:00:00Z",
             "enabled": True,
+            "password_required": False,
             "settings": None,
+            "share_passwords": [],
         }
 
         response = self.client.patch(
@@ -107,7 +163,9 @@ class TestSharing(APIBaseTest):
             "access_token": initial_data["access_token"],
             "created_at": "2022-01-01T00:00:00Z",
             "enabled": False,
+            "password_required": False,
             "settings": None,
+            "share_passwords": [],
         }
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
@@ -340,20 +398,20 @@ class TestSharing(APIBaseTest):
 
         target = self.insight if type == "insights" else self.dashboard
 
-        # the existing asset is stale because it is more than 3 hours old
-        time_in_the_past = now() - timedelta(hours=4)
+        # Create an asset that's past its expiry (PNG assets expire after 180 days)
+        time_in_the_past = now() - timedelta(days=181)
         with freeze_time(time_in_the_past):
             share_response = self.client.patch(
                 f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing",
                 {"enabled": True},
             )
-            # enabling creates an asset
-            assert ExportedAsset.objects.count() == 1
-            original_asset = ExportedAsset.objects.first()
+            # enabling creates an asset with expires_after set to 180 days from creation
+            assert ExportedAsset.objects_including_ttl_deleted.count() == 1
+            original_asset = ExportedAsset.objects_including_ttl_deleted.first()
 
         access_token = share_response.json()["access_token"]
 
-        # times passes and the asset is stale
+        # Asset is now expired and filtered out by the default manager
         assert ExportedAsset.objects.count() == 0
 
         item_opengraph_image = self.client.get("/shared/" + access_token + ".png")
@@ -938,3 +996,117 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
 
         response = self.client.get(f"/shared/{access_token}")
         assert response.status_code == 404
+
+
+class TestSharePasswordLogging(APIBaseTest):
+    """Test the _log_share_password_attempt function for activity logging"""
+
+    dashboard: Dashboard = None  # type: ignore
+    sharing_config: SharingConfiguration = None  # type: ignore
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.dashboard = Dashboard.objects.create(team=cls.team, name="test dashboard", created_by=cls.user)
+        cls.sharing_config = SharingConfiguration.objects.create(
+            team=cls.team,
+            dashboard=cls.dashboard,
+            access_token="test_access_token_123456",
+            enabled=True,
+            password_required=True,
+        )
+
+    def test_log_share_password_attempt_success(self):
+        """Test successful password validation logging"""
+        # Create a SharePassword
+        share_password = SharePassword.objects.create(
+            sharing_configuration=self.sharing_config,
+            password_hash="test_hash",
+            note="Test password for dashboard access",
+            created_by=self.user,
+        )
+
+        # Mock request with IP
+        mock_request = Mock()
+        mock_request.META = {"REMOTE_ADDR": "192.168.1.100"}
+
+        # Clear any existing activity logs
+        ActivityLog.objects.filter(scope="Dashboard").delete()
+
+        # Call the function
+        _log_share_password_attempt(
+            resource=self.sharing_config, request=mock_request, success=True, validated_password=share_password
+        )
+
+        # Check activity log was created
+        activity_logs = ActivityLog.objects.filter(scope="Dashboard")
+        assert activity_logs.count() == 1
+
+        log = activity_logs.first()
+        assert log is not None
+        assert log.activity == "share_login_success"
+        assert log.team_id == self.team.id
+        assert log.organization_id == self.team.organization.id
+        assert log.user is None  # Anonymous user
+        assert log.was_impersonated is False
+        assert log.item_id == str(self.dashboard.id)  # Uses dashboard ID as item_id
+
+        # Check detail contains expected data
+        assert log.detail is not None
+        assert log.detail["name"] == "test dashboard"  # Should now contain the actual dashboard name
+        assert len(log.detail["changes"]) == 1
+
+        change = log.detail["changes"][0]
+        assert change["type"] == "Dashboard"
+        assert change["action"] == "changed"
+        assert change["field"] == "authentication_attempt"
+
+        change_data = change["after"]
+        assert change_data["access_token_suffix"] == "123456"  # Last 6 chars
+        assert change_data["client_ip"] == "192.168.1.100"
+        assert change_data["success"] is True
+        assert change_data["resource_type"] == "dashboard"
+        assert change_data["password_id"] == str(share_password.id)
+        assert change_data["password_note"] == "Test password for dashboard access"
+
+    def test_log_share_password_attempt_failure(self):
+        """Test failed password validation logging"""
+        # Mock request with different IP
+        mock_request = Mock()
+        mock_request.META = {"REMOTE_ADDR": "10.0.0.5"}
+
+        # Clear any existing activity logs
+        ActivityLog.objects.filter(scope="Dashboard").delete()
+
+        # Call the function for failed attempt
+        _log_share_password_attempt(resource=self.sharing_config, request=mock_request, success=False)
+
+        # Check activity log was created
+        activity_logs = ActivityLog.objects.filter(scope="Dashboard")
+        assert activity_logs.count() == 1
+
+        log = activity_logs.first()
+        assert log is not None
+        assert log.activity == "share_login_failed"
+        assert log.team_id == self.team.id
+        assert log.organization_id == self.team.organization.id
+        assert log.user is None  # Anonymous user
+        assert log.was_impersonated is False
+        assert log.item_id == str(self.dashboard.id)  # Uses dashboard ID as item_id
+
+        # Check detail contains expected data
+        assert log.detail is not None
+        assert log.detail["name"] == "test dashboard"  # Should now contain the actual dashboard name
+        assert len(log.detail["changes"]) == 1
+
+        change = log.detail["changes"][0]
+        assert change["type"] == "Dashboard"
+        assert change["action"] == "changed"
+        assert change["field"] == "authentication_attempt"
+
+        change_data = change["after"]
+        assert change_data["access_token_suffix"] == "123456"  # Last 6 chars
+        assert change_data["client_ip"] == "10.0.0.5"
+        assert change_data["success"] is False
+        assert change_data["resource_type"] == "dashboard"
+        assert "password_id" not in change_data  # No password_id for failed attempts

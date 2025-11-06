@@ -1,6 +1,15 @@
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
-import { EventPropertyFilter, PropertyFilterType, Survey, SurveyAppearance, SurveyQuestionType } from '~/types'
+import {
+    EventPropertyFilter,
+    PropertyFilterType,
+    Survey,
+    SurveyAppearance,
+    SurveyDisplayConditions,
+    SurveyQuestionType,
+    SurveyType,
+    SurveyWidgetType,
+} from '~/types'
 
 import {
     buildSurveyTimestampFilter,
@@ -10,7 +19,9 @@ import {
     getSurveyResponse,
     getSurveyStartDateForQuery,
     sanitizeColor,
+    sanitizeSurvey,
     sanitizeSurveyAppearance,
+    sanitizeSurveyDisplayConditions,
     validateCSSProperty,
 } from './utils'
 
@@ -147,6 +158,240 @@ describe('survey utils', () => {
             expect(result?.ratingButtonColor).toBe('#ffffff')
             expect(result?.submitButtonColor).toBe('#000000')
             expect(result?.submitButtonTextColor).toBe('#cccccc')
+        })
+
+        it('removes surveyPopupDelaySeconds for external surveys', () => {
+            const input: SurveyAppearance = {
+                backgroundColor: '#ffffff',
+                surveyPopupDelaySeconds: 5,
+                submitButtonColor: '#000000',
+            }
+
+            const result = sanitizeSurveyAppearance(input, false, SurveyType.ExternalSurvey)
+
+            expect(result?.backgroundColor).toBe('#ffffff')
+            expect(result?.submitButtonColor).toBe('#000000')
+            expect(result?.surveyPopupDelaySeconds).toBeUndefined()
+        })
+
+        it('preserves surveyPopupDelaySeconds for non-external surveys', () => {
+            const input: SurveyAppearance = {
+                backgroundColor: '#ffffff',
+                surveyPopupDelaySeconds: 5,
+                submitButtonColor: '#000000',
+            }
+
+            const result = sanitizeSurveyAppearance(input, false, SurveyType.Popover)
+
+            expect(result?.backgroundColor).toBe('#ffffff')
+            expect(result?.submitButtonColor).toBe('#000000')
+            expect(result?.surveyPopupDelaySeconds).toBe(5)
+        })
+    })
+
+    describe('sanitizeSurveyDisplayConditions', () => {
+        it('returns null for null input with non-external survey', () => {
+            expect(sanitizeSurveyDisplayConditions(null, SurveyType.Popover)).toBeNull()
+        })
+
+        it('returns empty conditions object for external surveys with populated input', () => {
+            const input: SurveyDisplayConditions = {
+                url: 'https://example.com',
+                actions: { values: [{ id: 123, name: 'test' }] },
+                deviceTypes: ['mobile'],
+                seenSurveyWaitPeriodInDays: 7,
+                events: { values: [{ name: 'test' }] },
+            }
+
+            const result = sanitizeSurveyDisplayConditions(input, SurveyType.ExternalSurvey)
+
+            expect(result).toEqual({
+                actions: { values: [] },
+                events: { values: [] },
+                deviceTypes: undefined,
+                deviceTypesMatchType: undefined,
+                linkedFlagVariant: undefined,
+                seenSurveyWaitPeriodInDays: undefined,
+                url: undefined,
+                urlMatchType: undefined,
+            })
+        })
+
+        it('preserves conditions for non-external surveys', () => {
+            const input: SurveyDisplayConditions = {
+                url: 'https://example.com',
+                actions: { values: [{ id: 123, name: 'test' }] },
+                events: { values: [{ name: 'test' }] },
+                deviceTypes: ['mobile'],
+            }
+
+            const result = sanitizeSurveyDisplayConditions(input, SurveyType.Popover)
+
+            expect(result?.url).toBe('https://example.com')
+            expect(result?.actions).toEqual({ values: [{ id: 123, name: 'test' }] })
+            expect(result?.events).toEqual({ values: [{ name: 'test' }] })
+            expect(result?.deviceTypes).toEqual(['mobile'])
+        })
+    })
+
+    describe('sanitizeSurvey', () => {
+        it('sanitizes external survey by removing prohibited fields', () => {
+            const inputSurvey = {
+                type: SurveyType.ExternalSurvey,
+                name: 'Test External Survey',
+                questions: [],
+                linked_flag_id: 123,
+                targeting_flag_filters: { groups: [{ rollout_percentage: 50 }] },
+                conditions: {
+                    url: 'https://example.com',
+                    actions: { values: [{ id: 123, name: 'test' }] },
+                    events: { values: [{ name: 'test' }] },
+                },
+                appearance: {
+                    backgroundColor: '#ffffff',
+                    surveyPopupDelaySeconds: 5,
+                    submitButtonColor: '#000000',
+                },
+            }
+
+            const result = sanitizeSurvey(inputSurvey)
+
+            // Should remove prohibited fields
+            expect(result.linked_flag_id).toBeNull()
+            expect(result.targeting_flag_filters).toBeUndefined()
+            expect(result.remove_targeting_flag).toBe(true)
+
+            // Should sanitize conditions to empty values
+            expect(result.conditions).toEqual({
+                actions: { values: [] },
+                events: { values: [] },
+                deviceTypes: undefined,
+                deviceTypesMatchType: undefined,
+                linkedFlagVariant: undefined,
+                seenSurveyWaitPeriodInDays: undefined,
+                url: undefined,
+                urlMatchType: undefined,
+            })
+
+            // Should remove surveyPopupDelaySeconds from appearance
+            expect(result.appearance?.surveyPopupDelaySeconds).toBeUndefined()
+            expect(result.appearance?.backgroundColor).toBe('#ffffff')
+            expect(result.appearance?.submitButtonColor).toBe('#000000')
+        })
+
+        it('preserves fields for non-external surveys', () => {
+            const inputSurvey = {
+                type: SurveyType.Popover,
+                name: 'Test Popover Survey',
+                questions: [],
+                linked_flag_id: 123,
+                targeting_flag_filters: { groups: [{ rollout_percentage: 50 }] },
+                conditions: {
+                    url: 'https://example.com',
+                    actions: { values: [{ id: 123, name: 'test' }] },
+                    events: { values: [{ name: 'test' }] },
+                },
+                appearance: {
+                    backgroundColor: '#ffffff',
+                    surveyPopupDelaySeconds: 5,
+                    submitButtonColor: '#000000',
+                },
+            }
+
+            const result = sanitizeSurvey(inputSurvey)
+
+            // Should preserve all fields for non-external surveys
+            expect(result.linked_flag_id).toBe(123)
+            expect(result.targeting_flag_filters).toEqual({ groups: [{ rollout_percentage: 50 }] })
+            expect(result.remove_targeting_flag).toBeUndefined()
+
+            // Should preserve conditions
+            expect(result.conditions?.url).toBe('https://example.com')
+            expect(result.conditions?.actions).toEqual({ values: [{ id: 123, name: 'test' }] })
+            expect(result.conditions?.events).toEqual({ values: [{ name: 'test' }] })
+
+            // Should preserve surveyPopupDelaySeconds
+            expect(result.appearance?.surveyPopupDelaySeconds).toBe(5)
+            expect(result.appearance?.backgroundColor).toBe('#ffffff')
+            expect(result.appearance?.submitButtonColor).toBe('#000000')
+        })
+
+        it('removes widget-specific fields for non-widget surveys', () => {
+            const inputSurvey: Partial<Survey> = {
+                type: SurveyType.Popover,
+                name: 'Test Survey',
+                questions: [],
+                appearance: {
+                    backgroundColor: '#ffffff',
+                    widgetType: SurveyWidgetType.Tab,
+                    widgetLabel: 'Feedback',
+                    widgetColor: '#ff0000',
+                },
+            }
+
+            const result = sanitizeSurvey(inputSurvey)
+
+            // Should remove widget-specific fields for non-widget surveys
+            expect(result.appearance?.backgroundColor).toBe('#ffffff')
+            expect(result.appearance).not.toHaveProperty('widgetType')
+            expect(result.appearance).not.toHaveProperty('widgetLabel')
+            expect(result.appearance).not.toHaveProperty('widgetColor')
+        })
+
+        it('removing conditions object makes it go back to the empty conditions object', () => {
+            const inputSurvey = {
+                type: SurveyType.ExternalSurvey,
+                name: 'Test Survey',
+                questions: [],
+                conditions: {
+                    actions: { values: [] },
+                    events: { values: [] },
+                },
+            }
+
+            const result = sanitizeSurvey(inputSurvey)
+
+            // Should remove empty conditions object
+            expect(result.conditions).toEqual({
+                actions: {
+                    values: [],
+                },
+                events: {
+                    values: [],
+                },
+                deviceTypes: undefined,
+                deviceTypesMatchType: undefined,
+                linkedFlagVariant: undefined,
+                seenSurveyWaitPeriodInDays: undefined,
+                url: undefined,
+                urlMatchType: undefined,
+            })
+        })
+
+        it('Remove conditions key if its value is null', () => {
+            const inputSurvey = {
+                type: SurveyType.ExternalSurvey,
+                name: 'Test Survey',
+                questions: [],
+                conditions: null,
+            }
+
+            const result = sanitizeSurvey(inputSurvey)
+
+            expect(result.conditions).toBeUndefined()
+        })
+
+        it('Keep conditions key even if its value is null when option is present', () => {
+            const inputSurvey = {
+                type: SurveyType.ExternalSurvey,
+                name: 'Test Survey',
+                questions: [],
+                conditions: null,
+            }
+
+            const result = sanitizeSurvey(inputSurvey, { keepEmptyConditions: true })
+
+            expect(result.conditions).toBeNull()
         })
     })
 

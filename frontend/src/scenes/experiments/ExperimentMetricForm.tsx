@@ -1,20 +1,30 @@
 import { useEffect, useState } from 'react'
 
+import { IconInfo, IconPencil } from '@posthog/icons'
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { performQuery } from '~/queries/query'
 import {
+    ExperimentExposureCriteria,
+    ExperimentFunnelMetricStep,
     ExperimentMetric,
+    ExperimentMetricSource,
     ExperimentMetricType,
     NodeKind,
     isExperimentFunnelMetric,
@@ -29,7 +39,22 @@ import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandli
 import { commonActionFilterProps } from './Metrics/Selectors'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
-import { getAllowedMathTypes, getDefaultExperimentMetric, getEventCountQuery, getMathAvailability } from './utils'
+import {
+    getAllowedMathTypes,
+    getDefaultExperimentMetric,
+    getEventCountQuery,
+    getExposureConfigDisplayName,
+    getMathAvailability,
+} from './utils'
+
+export function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
+    const exposureConfig = exposureCriteria?.exposure_config
+    if (!exposureConfig) {
+        return '$feature_flag_called'
+    }
+
+    return getExposureConfigDisplayName(exposureConfig)
+}
 
 const loadEventCount = async (
     metric: ExperimentMetric,
@@ -88,18 +113,19 @@ export function ExperimentMetricForm({
     metric,
     handleSetMetric,
     filterTestAccounts,
+    exposureCriteria,
+    openExposureCriteriaModal,
 }: {
     metric: ExperimentMetric
     handleSetMetric: (newMetric: ExperimentMetric) => void
     filterTestAccounts: boolean
+    exposureCriteria?: ExperimentExposureCriteria | undefined
+    openExposureCriteriaModal?: (() => void) | null
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
-
-    // if the metric already is a ratio metric, we want to show the option regardless of the feature state
-    const isRatioMetricEnabled = useFeatureFlag('EXPERIMENTS_RATIO_METRIC') || isExperimentRatioMetric(metric)
 
     const getEventTypeLabel = (): string => {
         if (isExperimentMeanMetric(metric)) {
@@ -124,8 +150,39 @@ export function ExperimentMetricForm({
     }
 
     const handleMetricTypeChange = (newMetricType: ExperimentMetricType): void => {
+        // Extract current sources from the existing metric to preserve selections
+        let sources: ExperimentMetricSource[] = []
+
+        if (isExperimentMeanMetric(metric)) {
+            sources = [metric.source]
+        } else if (isExperimentFunnelMetric(metric)) {
+            sources = metric.series
+        } else if (isExperimentRatioMetric(metric)) {
+            sources = [metric.numerator]
+            if (metric.denominator) {
+                sources.push(metric.denominator)
+            }
+        }
+
+        const newMetric = getDefaultExperimentMetric(newMetricType)
+
+        // Apply the existing sources to the new metric type to preserve selections
+        if (sources.length > 0 && sources[0]) {
+            if (newMetricType === ExperimentMetricType.MEAN && isExperimentMeanMetric(newMetric)) {
+                newMetric.source = sources[0]
+            } else if (newMetricType === ExperimentMetricType.FUNNEL && isExperimentFunnelMetric(newMetric)) {
+                // Funnel metrics only support EventsNode and ActionsNode, not DataWarehouseNode
+                newMetric.series = sources.filter(
+                    (s): s is ExperimentFunnelMetricStep =>
+                        s && (s.kind === NodeKind.EventsNode || s.kind === NodeKind.ActionsNode)
+                )
+            } else if (newMetricType === ExperimentMetricType.RATIO && isExperimentRatioMetric(newMetric)) {
+                newMetric.numerator = sources[0]
+            }
+        }
+
         handleSetMetric({
-            ...getDefaultExperimentMetric(newMetricType),
+            ...newMetric,
             // Keep the current uuid and name
             uuid: metric.uuid,
             name: metric.name,
@@ -145,16 +202,12 @@ export function ExperimentMetricForm({
             description:
                 'Calculates the value per user exposed to the experiment. Useful for measuring count of clicks, revenue or other numeric values.',
         },
-        ...(isRatioMetricEnabled
-            ? [
-                  {
-                      value: ExperimentMetricType.RATIO,
-                      label: 'Ratio',
-                      description:
-                          'Calculates the ratio between two metrics. Useful when you want to use a different denominator than users exposed to the experiment.',
-                  },
-              ]
-            : []),
+        {
+            value: ExperimentMetricType.RATIO,
+            label: 'Ratio',
+            description:
+                'Calculates the ratio between two metrics. Useful when you want to use a different denominator than users exposed to the experiment.',
+        },
     ]
 
     const metricFilter = getFilter(metric)
@@ -173,18 +226,65 @@ export function ExperimentMetricForm({
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
     return (
-        <div className="deprecated-space-y-4">
-            <div>
-                <LemonLabel className="mb-1">Type</LemonLabel>
-                <LemonRadio
-                    data-attr="metrics-selector"
-                    value={metric.metric_type}
-                    onChange={handleMetricTypeChange}
-                    options={radioOptions}
-                />
-            </div>
-            <div>
-                <LemonLabel className="mb-1">Metric</LemonLabel>
+        <SceneContent>
+            <SceneSection title="Shared metric type" className="max-w-prose">
+                <div>
+                    <LemonRadio
+                        data-attr="metrics-selector"
+                        value={metric.metric_type}
+                        onChange={handleMetricTypeChange}
+                        options={radioOptions}
+                    />
+                </div>
+            </SceneSection>
+            <SceneDivider />
+            <SceneSection title="Metric" className="max-w-prose">
+                <LemonBanner
+                    type="info"
+                    action={
+                        exposureCriteria && openExposureCriteriaModal
+                            ? {
+                                  size: 'xsmall',
+                                  onClick: () => openExposureCriteriaModal(),
+                                  icon: <IconPencil />,
+                                  tooltip: 'Edit exposure criteria',
+                              }
+                            : undefined
+                    }
+                >
+                    <span className="inline-flex items-center gap-2 flex-wrap">
+                        {exposureCriteria ? (
+                            <>
+                                Counts only after exposure event{' '}
+                                <LemonTag>{getExposureCriteriaLabel(exposureCriteria)}</LemonTag>
+                            </>
+                        ) : (
+                            <>
+                                Counts only after exposure event (<LemonTag>$feature_flag_called</LemonTag> by default)
+                            </>
+                        )}
+                        <Tooltip
+                            title={
+                                <div className="space-y-2">
+                                    <p>
+                                        Metrics are only counted for users who have been exposed to the experiment. This
+                                        ensures fair comparison between control and test groups.
+                                    </p>
+                                    <p>
+                                        {exposureCriteria
+                                            ? 'The exposure event is shared across all metrics in this experiment.'
+                                            : 'The exposure event will be configured at the experiment level and shared across all metrics.'}
+                                    </p>
+                                    <Link to="https://posthog.com/docs/experiments/exposures">
+                                        Learn more in the docs
+                                    </Link>
+                                </div>
+                            }
+                        >
+                            <IconInfo className="text-muted-alt text-base" />
+                        </Tooltip>
+                    </span>
+                </LemonBanner>
 
                 {isExperimentMeanMetric(metric) && (
                     <>
@@ -227,7 +327,7 @@ export function ExperimentMetricForm({
                         typeKey="experiment-metric"
                         buttonCopy="Add step"
                         showSeriesIndicator={false}
-                        hideRename={true}
+                        hideRename={false}
                         hideDeleteBtn={hideDeleteBtn}
                         sortable={true}
                         showNestedArrow={true}
@@ -305,52 +405,60 @@ export function ExperimentMetricForm({
                         </div>
                     </div>
                 )}
-            </div>
-            <div>
-                <LemonLabel className="mb-1">Goal</LemonLabel>
-                <LemonSelect<ExperimentMetricGoal>
-                    value={metric.goal || ExperimentMetricGoal.Increase}
-                    onChange={(value) => handleSetMetric({ ...metric, goal: value })}
-                    options={[
-                        { value: ExperimentMetricGoal.Increase, label: 'Increase' },
-                        { value: ExperimentMetricGoal.Decrease, label: 'Decrease' },
-                    ]}
-                />
-                <div className="text-muted text-sm mt-1">
-                    For example, conversion rates should increase, while bounce rates should decrease.
+            </SceneSection>
+            <SceneDivider />
+            <SceneSection title="Goal" className="max-w-prose">
+                <div className="flex flex-col gap-1">
+                    <LemonSelect<ExperimentMetricGoal>
+                        value={metric.goal || ExperimentMetricGoal.Increase}
+                        onChange={(value) => handleSetMetric({ ...metric, goal: value })}
+                        options={[
+                            { value: ExperimentMetricGoal.Increase, label: 'Increase' },
+                            { value: ExperimentMetricGoal.Decrease, label: 'Decrease' },
+                        ]}
+                    />
+                    <div className="text-muted text-sm">
+                        For example, conversion rates should increase, while bounce rates should decrease.
+                    </div>
                 </div>
-            </div>
+            </SceneSection>
+            <SceneDivider />
             <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
+            <SceneDivider />
             {isExperimentFunnelMetric(metric) && (
-                <ExperimentMetricFunnelOrderSelector metric={metric} handleSetMetric={handleSetMetric} />
+                <>
+                    <ExperimentMetricFunnelOrderSelector metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                </>
             )}
             {isExperimentMeanMetric(metric) && (
-                <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+                <>
+                    <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                </>
             )}
-            <div>
-                <LemonLabel
-                    className="mb-1"
-                    info={
-                        <div className="flex flex-col gap-2">
-                            <div>This shows recent activity for your selected metric over the past 2 weeks.</div>
-                            <div>
-                                It's a quick health check to ensure your tracking is working properly, so that you'll
-                                receive accurate results when your experiment starts.
-                            </div>
-                            <div>
-                                If you see zero activity, double-check that this metric is being tracked properly in
-                                your application. Head to{' '}
-                                <Link target="_blank" className="font-semibold" to={urls.insightNew()}>
-                                    Product analytics
-                                    <IconOpenInNew fontSize="18" />
-                                </Link>{' '}
-                                to do a detailed analysis of the events received so far.
-                            </div>
+            <SceneSection
+                title="Recent activity"
+                className="max-w-prose"
+                titleHelper={
+                    <div className="flex flex-col gap-2">
+                        <div>This shows recent activity for your selected metric over the past 2 weeks.</div>
+                        <div>
+                            It's a quick health check to ensure your tracking is working properly, so that you'll
+                            receive accurate results when your experiment starts.
                         </div>
-                    }
-                >
-                    Recent activity
-                </LemonLabel>
+                        <div>
+                            If you see zero activity, double-check that this metric is being tracked properly in your
+                            application. Head to{' '}
+                            <Link target="_blank" className="font-semibold" to={urls.insightNew()}>
+                                Product analytics
+                                <IconOpenInNew fontSize="18" />
+                            </Link>{' '}
+                            to do a detailed analysis of the events received so far.
+                        </div>
+                    </div>
+                }
+            >
                 <div className="border rounded p-4 bg-bg-light">
                     {isLoading ? (
                         <div className="flex items-center gap-2">
@@ -370,7 +478,7 @@ export function ExperimentMetricForm({
                         </div>
                     )}
                 </div>
-            </div>
-        </div>
+            </SceneSection>
+        </SceneContent>
     )
 }

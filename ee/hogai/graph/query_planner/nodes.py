@@ -21,17 +21,19 @@ from posthog.schema import (
 
 from posthog.hogql.ai import SCHEMA_MESSAGE
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database, serialize_database
+from posthog.hogql.database.database import Database
 
 from posthog.models.group_type_mapping import GroupTypeMapping
 
-from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
+from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.mixins import TaxonomyUpdateDispatcherNodeMixin
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import dereference_schema, format_events_yaml
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 
-from ..base import AssistantNode
 from .prompts import (
     ACTIONS_EXPLANATION_PROMPT,
     EVENT_DEFINITIONS_PROMPT,
@@ -54,7 +56,11 @@ from .toolkit import (
 )
 
 
-class QueryPlannerNode(AssistantNode):
+class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.QUERY_PLANNER
+
     def _get_dynamic_entity_tools(self):
         """Create dynamic Pydantic models with correct entity types for this team."""
         # Create Literal type with actual entity names
@@ -94,12 +100,13 @@ class QueryPlannerNode(AssistantNode):
         return retrieve_entity_properties_dynamic, retrieve_entity_property_values_dynamic
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        self.dispatch_update_message(state)
         conversation = self._construct_messages(state)
 
         chain = conversation | merge_message_runs() | self._get_model(state)
 
         events_in_context = []
-        if ui_context := self._get_ui_context(state):
+        if ui_context := self.context_manager.get_ui_context(state):
             events_in_context = ui_context.events if ui_context.events else []
 
         output_message = chain.invoke(
@@ -120,7 +127,6 @@ class QueryPlannerNode(AssistantNode):
                 "trends_json_schema": dereference_schema(AssistantTrendsQuery.model_json_schema()),
                 "funnel_json_schema": dereference_schema(AssistantFunnelsQuery.model_json_schema()),
                 "retention_json_schema": dereference_schema(AssistantRetentionQuery.model_json_schema()),
-                "insight_types_prompt": ROOT_INSIGHT_DESCRIPTION_PROMPT,
             },
             config,
         )
@@ -148,8 +154,13 @@ class QueryPlannerNode(AssistantNode):
             reasoning={
                 "summary": "auto",  # Without this, there's no reasoning summaries! Only works with reasoning models
             },
+            include=["reasoning.encrypted_content"],
             team=self._team,
             user=self._user,
+            # LangChain sometimes incorrectly handles reasoning items. They fixed it in the new output version.
+            # Ref: https://forum.langchain.com/t/langgraph-openai-responses-api-400-error-web-search-call-was-provided-without-its-required-reasoning-item/1740/2
+            output_version="responses/v1",
+            disable_streaming=True,
         ).bind_tools(
             [
                 retrieve_event_properties,
@@ -187,8 +198,8 @@ class QueryPlannerNode(AssistantNode):
         and continuation with intermediate steps.
         """
         # Initial conversation setup
-        database = create_hogql_database(team=self._team)
-        serialized_database = serialize_database(
+        database = Database.create_for(team=self._team)
+        serialized_database = database.serialize(
             HogQLContext(team=self._team, enable_select_queries=True, database=database)
         )
         hogql_schema_description = "\n\n".join(
@@ -197,7 +208,7 @@ class QueryPlannerNode(AssistantNode):
                 + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
                 for table_name, table in serialized_database.items()
                 # Only the most important core tables, plus all warehouse tables
-                if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_tables()
+                if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_table_names()
             )
         )
         conversation = ChatPromptTemplate(
@@ -240,6 +251,10 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
     the agent will terminate the conversation and return a message to the root node
     to request additional information.
     """
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.QUERY_PLANNER_TOOLS
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = TaxonomyAgentToolkit(self._team)

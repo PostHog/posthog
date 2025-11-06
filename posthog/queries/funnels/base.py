@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PersonsOnEventsMode
 
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import (
@@ -75,7 +75,7 @@ class ClickhouseFunnelBase(ABC):
         self._filter.hogql_context.modifiers.personsOnEventsMode = alias_poe_mode_for_legacy(team.person_on_events_mode)
 
         # Recreate the database with the legacy-alised PoE mode
-        self._filter.hogql_context.database = create_hogql_database(
+        self._filter.hogql_context.database = Database.create_for(
             team=self._team, modifiers=self._filter.hogql_context.modifiers
         )
 
@@ -721,6 +721,16 @@ class ClickhouseFunnelBase(ABC):
                 select_clause += f", groupArray(10)(step_{i}_matching_event) as step_{i}_matching_events"
             select_clause += f", groupArray(10)(final_matching_event) as final_matching_events"
         return select_clause
+
+    @staticmethod
+    def _order_by(max_steps: int):
+        return "ORDER BY " + ",".join([f"step_{i + 1} DESC" for i in reversed(range(max_steps))])
+
+    def _get_limit(self):
+        if self._filter.limit:
+            return f"LIMIT {self._filter.limit}"
+        # TODO figure out some good default limit
+        return "LIMIT 1000"
 
     def get_query(self) -> str:
         raise NotImplementedError()

@@ -16,6 +16,7 @@ import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
@@ -98,11 +99,16 @@ export function InsightDisplayConfig(): JSX.Element {
     )
 
     const advancedOptions: LemonMenuItems = [
-        ...((isTrends || isRetention) && display !== ChartDisplayType.CalendarHeatmap
+        ...((isTrends && display !== ChartDisplayType.CalendarHeatmap) ||
+        isRetention ||
+        isTrendsFunnel ||
+        isStickiness ||
+        isLifecycle
             ? [
                   {
                       title: 'Display',
                       items: [
+                          ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
                           ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                           ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
@@ -301,7 +307,11 @@ export function InsightDisplayConfig(): JSX.Element {
             </div>
             <div className="flex items-center gap-x-2 flex-wrap">
                 {advancedOptions.length > 0 && (
-                    <LemonMenu items={advancedOptions} closeOnClickInside={false}>
+                    <LemonMenu
+                        items={advancedOptions}
+                        closeOnClickInside={false}
+                        placement={isTrendsFunnel ? 'bottom-end' : undefined}
+                    >
                         <LemonButton size="small" disabledReason={editingDisabledReason}>
                             <span className="font-medium whitespace-nowrap">
                                 Options

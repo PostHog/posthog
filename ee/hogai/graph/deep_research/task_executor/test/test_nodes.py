@@ -1,27 +1,26 @@
 import uuid
+import asyncio
 from typing import cast
 
 from unittest import TestCase
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
-from parameterized import parameterized
-from pydantic import BaseModel
 
 from posthog.schema import (
+    AssistantHogQLQuery,
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
+    AssistantTrendsQuery,
     HumanMessage,
-    ReasoningMessage,
-    TaskExecutionItem,
-    TaskExecutionMessage,
     TaskExecutionStatus,
+    VisualizationMessage,
 )
 
-from ee.hogai.graph.deep_research.task_executor.nodes import TaskExecutorNode
-from ee.hogai.graph.deep_research.types import DeepResearchSingleTaskResult, DeepResearchState, PartialDeepResearchState
-from ee.hogai.utils.types.base import InsightArtifact
+from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
+from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState
+from ee.hogai.utils.types.base import AssistantMessageUnion, InsightArtifact, TaskResult
 
 
 class TestTaskExecutorNode(TestCase):
@@ -34,26 +33,7 @@ class TestTaskExecutorNode(TestCase):
         self.mock_user.id = 1
         self.mock_user.email = "test@example.com"
 
-        self.mock_insights_subgraph = MagicMock()
-        self.node = TaskExecutorNode(self.mock_team, self.mock_user, self.mock_insights_subgraph)
-
-    def _create_task_execution_item(
-        self,
-        task_id: str | None = None,
-        description: str = "Test task",
-        prompt: str = "Test prompt",
-        status: TaskExecutionStatus = TaskExecutionStatus.PENDING,
-        artifact_ids: list[str] | None = None,
-        progress_text: str | None = None,
-    ) -> TaskExecutionItem:
-        return TaskExecutionItem(
-            id=task_id or str(uuid.uuid4()),
-            description=description,
-            prompt=prompt,
-            status=status,
-            artifact_ids=artifact_ids,
-            progress_text=progress_text,
-        )
+        self.node = DeepResearchTaskExecutorNode(self.mock_team, self.mock_user)
 
     def _create_insight_artifact(
         self,
@@ -62,78 +42,69 @@ class TestTaskExecutorNode(TestCase):
         query: str = "Test query",
     ) -> InsightArtifact:
         return InsightArtifact(
-            id=artifact_id or str(uuid.uuid4()),
-            description=description,
-            query=query,
+            task_id=artifact_id or str(uuid.uuid4()),
+            id=None,
+            content=description,
+            query=AssistantHogQLQuery(query=query),
         )
 
-    def _create_assistant_message_with_tool_calls(self, tool_call_id: str = "test_tool_call") -> AssistantMessage:
-        return AssistantMessage(
-            content="Test message",
-            tool_calls=[
-                AssistantToolCall(
-                    id=tool_call_id,
-                    name="test_tool",
-                    args={"test": "args"},
-                )
-            ],
+    def _create_assistant_tool_call(self, tool_call_id: str = "test_tool_call") -> AssistantToolCall:
+        return AssistantToolCall(
+            id=tool_call_id,
+            name="test_tool",
+            args={"test": "args"},
         )
 
-    def _create_state_with_tasks(
-        self,
-        tasks: list[TaskExecutionItem] | None = None,
-        messages: list | None = None,
-        task_results: list[DeepResearchSingleTaskResult] | None = None,
+    def _create_assistant_message_with_tool_calls(
+        self, tool_calls: list[AssistantToolCall] | None = None
+    ) -> AssistantMessage:
+        if not tool_calls:
+            tool_calls = [self._create_assistant_tool_call("test_tool_call")]
+        return AssistantMessage(content="Test message", tool_calls=tool_calls)
+
+    def _create_state_with_assistant_message(
+        self, tool_calls: list[AssistantToolCall] | None = None
     ) -> DeepResearchState:
-        if tasks is None:
-            tasks = [self._create_task_execution_item()]
-        if messages is None:
-            messages = [self._create_assistant_message_with_tool_calls()]
-        if task_results is None:
-            task_results = []
-
+        messages = [self._create_assistant_message_with_tool_calls(tool_calls)]
         return DeepResearchState(
             messages=messages,
-            tasks=tasks,
-            task_results=task_results,
         )
 
 
 class TestTaskExecutorNodeInitialization(TestTaskExecutorNode):
-    def test_node_initializes_with_insights_subgraph(self):
-        """Test that TaskExecutorNode initializes correctly with insights subgraph."""
+    def test_node_initializes_correctly(self):
+        """Test that DeepResearchTaskExecutorNode initializes correctly."""
         self.assertIsNotNone(self.node)
         self.assertEqual(self.node._team, self.mock_team)
         self.assertEqual(self.node._user, self.mock_user)
-        self.assertIsNotNone(self.node._execute_tasks_tool)
-        self.assertEqual(self.node._execute_tasks_tool._insights_subgraph, self.mock_insights_subgraph)
 
 
 class TestTaskExecutorNodeArun(TestTaskExecutorNode):
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.get_stream_writer")
-    async def test_arun_with_valid_tool_call_and_tasks(self, mock_get_stream_writer):
+    @patch("ee.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode.dispatcher")
+    async def test_arun_with_valid_tool_call_and_tasks(self, mock_dispatcher):
         """Test successful execution with valid tool call message and tasks."""
-        mock_writer = MagicMock()
-        mock_get_stream_writer.return_value = mock_writer
-
-        task = self._create_task_execution_item()
-        state = self._create_state_with_tasks(tasks=[task])
         config = RunnableConfig()
+        state = self._create_state_with_assistant_message()
 
-        expected_result = PartialDeepResearchState(
-            messages=[AssistantToolCallMessage(content="Test result", tool_call_id="test_tool_call")]
-        )
-        with patch.object(self.node, "_execute_tasks", return_value=expected_result) as mock_execute:
+        # Mock the insights graph execution
+        with patch.object(self.node, "_execute_task_with_insights") as mock_execute:
+            mock_execute.return_value = TaskResult(
+                id="test_tool_call",
+                result="Task completed",
+                artifacts=[self._create_insight_artifact()],
+                status=TaskExecutionStatus.COMPLETED,
+            )
+
             result = await self.node.arun(state, config)
 
-            self.assertEqual(result, expected_result)
-            mock_execute.assert_called_once_with(state, config, "test_tool_call")
+            self.assertIsInstance(result, PartialDeepResearchState)
+            self.assertEqual(len(result.messages), 2)
+            self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
 
     async def test_arun_raises_error_for_missing_tool_call_message(self):
         """Test that we raise ValueError when no tool call message is found."""
         state = DeepResearchState(
             messages=[HumanMessage(content="Test")],  # No AssistantMessage with tool_calls
-            tasks=[self._create_task_execution_item()],
         )
         config = RunnableConfig()
 
@@ -146,7 +117,6 @@ class TestTaskExecutorNodeArun(TestTaskExecutorNode):
         """Test that arun raises ValueError when AssistantMessage has no tool_calls."""
         state = DeepResearchState(
             messages=[AssistantMessage(content="Test message")],  # No tool_calls
-            tasks=[self._create_task_execution_item()],
         )
         config = RunnableConfig()
 
@@ -155,379 +125,183 @@ class TestTaskExecutorNodeArun(TestTaskExecutorNode):
 
         self.assertEqual(str(cm.exception), "No tool call message found")
 
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.logger")
-    async def test_arun_handles_empty_task_list(self, mock_logger):
-        """Test that arun handles empty task lists gracefully."""
-        state = DeepResearchState(
-            messages=[self._create_assistant_message_with_tool_calls()],
-            tasks=None,  # Empty tasks
-        )
-        config = RunnableConfig()
 
-        result = await self.node.arun(state, config)
+class TestTaskExecutorInsightsExecution(TestTaskExecutorNode):
+    @patch("ee.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode.dispatcher")
+    @patch("ee.hogai.graph.deep_research.task_executor.nodes.InsightsGraph")
+    async def test_execute_task_with_insights_successful(self, mock_insights_graph_class, mock_dispatcher):
+        """Test successful task execution through insights pipeline."""
 
-        result = cast(PartialDeepResearchState, result)
-        self.assertIsInstance(result, PartialDeepResearchState)
-        messages = cast(list[BaseModel], result.messages)
-        self.assertEqual(len(messages), 1)
-        result_message = cast(AssistantToolCallMessage, messages[0])
-        self.assertIsInstance(result_message, AssistantToolCallMessage)
-        self.assertEqual(result_message.content, "No tasks to execute")
-        self.assertEqual(result_message.tool_call_id, "test_tool_call")
-        mock_logger.warning.assert_called_once_with("No research step provided to execute")
+        # Mock the insights graph
+        mock_graph = AsyncMock()
+        mock_insights_graph_class.return_value.compile_full_graph.return_value = mock_graph
 
-
-class TestTaskExecutorNodeExecuteTasks(TestTaskExecutorNode):
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.get_stream_writer")
-    @patch("uuid.uuid4")
-    async def test_execute_tasks_successful_execution(self, mock_uuid, mock_get_stream_writer):
-        """Test successful task execution with proper message flow."""
-        mock_writer = MagicMock()
-        mock_get_stream_writer.return_value = mock_writer
-        mock_uuid.return_value.hex = "test_uuid"
-        mock_uuid.return_value.__str__ = lambda _: "test_uuid"
-
-        task = self._create_task_execution_item(task_id="task_1")
-        artifact = self._create_insight_artifact(artifact_id="artifact_1")
-
-        state = self._create_state_with_tasks(
-            tasks=[task],
-            task_results=[
-                DeepResearchSingleTaskResult(
-                    id="prev_task",
-                    description="Previous task",
-                    result="Previous result",
-                    artifacts=[artifact],
-                    status=TaskExecutionStatus.COMPLETED,
-                )
-            ],
-        )
-        config = RunnableConfig()
-
-        # Mock the streaming execution
-        mock_task_result = DeepResearchSingleTaskResult(
-            id="task_1",
-            description="Test task",
-            result="Task completed successfully",
-            artifacts=[artifact],
-            status=TaskExecutionStatus.COMPLETED,
+        # Create a visualization message that will be extracted
+        viz_message = VisualizationMessage(
+            id="viz_1",
+            answer=AssistantTrendsQuery(series=[]),
         )
 
-        async def mock_astream(input_tuples, config):
-            yield ReasoningMessage(content="Starting task execution")
-            yield mock_task_result
+        # Mock the async stream from insights graph
+        async def mock_astream(*args, **kwargs):
+            yield {("insights_graph", "viz_node"): {"messages": [viz_message]}}
+            yield {
+                ("insights_graph", "final"): {
+                    "messages": [
+                        AssistantToolCallMessage(
+                            content="Insights generated successfully", tool_call_id="task_tool_call_id"
+                        )
+                    ]
+                }
+            }
 
-        with patch.object(self.node._execute_tasks_tool, "astream", side_effect=mock_astream):
-            result = await self.node._execute_tasks(state, config, "test_tool_call")
+        mock_graph.astream = mock_astream
 
-            self.assertIsInstance(result, PartialDeepResearchState)
-            self.assertEqual(len(result.messages), 2)
+        # Execute the task
+        tool_call = self._create_assistant_tool_call()
+        input_dict = {"task_id": "test_tool_call", "task": tool_call, "artifacts": [], "config": RunnableConfig()}
 
-            self.assertIsInstance(result.messages[0], TaskExecutionMessage)
+        result = await self.node._execute_create_insight(input_dict)
 
-            self.assertIsInstance(result.messages[1], AssistantToolCallMessage)
-            self.assertEqual(cast(AssistantToolCallMessage, result.messages[1]).tool_call_id, "test_tool_call")
-            self.assertIn("Task completed successfully", cast(AssistantToolCallMessage, result.messages[1]).content)
+        self.assertIsInstance(result, TaskResult)
+        self.assertIsNotNone(result)  # Ensure result is not None for mypy
+        assert result is not None  # Type narrowing for mypy
+        self.assertEqual(result.id, tool_call.id)
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(len(result.artifacts), 1)
 
-            self.assertEqual(len(result.task_results), 1)
-            self.assertEqual(result.task_results[0], mock_task_result)
+    @patch("ee.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode.dispatcher")
+    @patch("ee.hogai.graph.deep_research.task_executor.nodes.InsightsGraph")
+    async def test_execute_task_with_insights_no_artifacts(self, mock_insights_graph_class, mock_dispatcher):
+        """Test task execution that produces no artifacts."""
+        task = self._create_assistant_tool_call()
 
-            self.assertIsNone(result.tasks)
+        # Mock the insights graph
+        mock_graph = AsyncMock()
+        mock_insights_graph_class.return_value.compile_full_graph.return_value = mock_graph
 
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.get_stream_writer")
-    async def test_execute_tasks_handles_empty_tasks(self, mock_get_stream_writer):
-        """Test that _execute_tasks raises ValueError for empty tasks."""
-        mock_writer = MagicMock()
-        mock_get_stream_writer.return_value = mock_writer
+        # Mock stream with no visualization messages
+        async def mock_astream(*args, **kwargs):
+            yield {
+                ("insights_graph", "final"): {
+                    "messages": [
+                        AssistantToolCallMessage(
+                            content="No insights could be generated", tool_call_id="task_tool_call_id"
+                        )
+                    ]
+                }
+            }
 
-        state = DeepResearchState(
-            messages=[self._create_assistant_message_with_tool_calls()],
-            tasks=[],  # Empty task list
-        )
-        config = RunnableConfig()
+        mock_graph.astream = mock_astream
+        mock_graph.aget_reasoning_message_by_node_name = {}
 
-        with self.assertRaises(ValueError) as cm:
-            await self.node._execute_tasks(state, config, "test_tool_call")
+        # Execute the task
+        input_dict = {"task_id": task.id, "task": task, "artifacts": [], "config": RunnableConfig()}
 
-        self.assertEqual(str(cm.exception), "No tasks to execute")
+        result = await self.node._execute_create_insight(input_dict)
 
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.get_stream_writer")
+        self.assertIsInstance(result, TaskResult)
+        self.assertIsNotNone(result)  # Ensure result is not None for mypy
+        assert result is not None  # Type narrowing for mypy
+        self.assertEqual(result.id, task.id)
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(len(result.artifacts), 0)
+
     @patch("ee.hogai.graph.deep_research.task_executor.nodes.capture_exception")
-    async def test_execute_tasks_handles_exceptions(self, mock_capture, mock_get_stream_writer):
-        """Test that _execute_tasks properly handles and re-raises exceptions."""
-        mock_writer = MagicMock()
-        mock_get_stream_writer.return_value = mock_writer
+    @patch("ee.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode.dispatcher")
+    @patch("ee.hogai.graph.deep_research.task_executor.nodes.InsightsGraph")
+    async def test_execute_task_with_exception(self, mock_insights_graph_class, mock_dispatcher, mock_capture):
+        """Test task execution that encounters an exception."""
+        task = self._create_assistant_tool_call()
 
-        task = self._create_task_execution_item()
-        state = self._create_state_with_tasks(tasks=[task])
+        # Mock the insights graph to raise an exception
+        mock_graph = AsyncMock()
+        mock_insights_graph_class.return_value.compile_full_graph.return_value = mock_graph
+
+        test_exception = Exception("Insights generation failed")
+
+        async def mock_astream(*args, **kwargs):
+            raise test_exception
+
+        mock_graph.astream = mock_astream
+
+        # Execute the task
+        input_dict = {"task_id": task.id, "task": task, "artifacts": [], "config": RunnableConfig()}
+
+        with self.assertRaises(Exception) as cm:
+            await self.node._execute_create_insight(input_dict)
+
+        self.assertEqual(str(cm.exception), "Insights generation failed")
+        mock_capture.assert_called_once_with(test_exception)
+
+
+class TestParallelTaskExecution(TestTaskExecutorNode):
+    @patch("ee.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode.dispatcher")
+    async def test_multiple_tasks_executed_in_parallel(self, mock_dispatcher):
+        """Test that multiple tasks are executed in parallel."""
+        task1 = self._create_assistant_tool_call("task_1")
+        task2 = self._create_assistant_tool_call("task_2")
+        task3 = self._create_assistant_tool_call("task_3")
+
+        state = self._create_assistant_message_with_tool_calls([task1, task2, task3])
         config = RunnableConfig()
 
-        test_exception = Exception("Test exception")
+        execution_order = []
 
-        with patch.object(self.node._execute_tasks_tool, "astream", side_effect=test_exception):
-            with self.assertRaises(Exception) as cm:
-                await self.node._execute_tasks(state, config, "test_tool_call")
+        async def mock_execute_task1(input_dict):
+            await asyncio.sleep(0.1)
+            execution_order.append("task_1")
+            return TaskResult(id="task_1", result="Result 1", artifacts=[], status=TaskExecutionStatus.COMPLETED)
 
-            self.assertEqual(cm.exception, test_exception)
-            mock_capture.assert_called_once_with(test_exception)
+        async def mock_execute_task2(input_dict):
+            await asyncio.sleep(0.05)
+            execution_order.append("task_2")
+            return TaskResult(id="task_2", result="Result 2", artifacts=[], status=TaskExecutionStatus.COMPLETED)
 
+        async def mock_execute_task3(input_dict):
+            execution_order.append("task_3")
+            return TaskResult(id="task_3", result="Result 3", artifacts=[], status=TaskExecutionStatus.COMPLETED)
 
-class TestTaskExecutorNodeStreamingBehavior(TestTaskExecutorNode):
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.get_stream_writer")
-    @patch("uuid.uuid4")
-    async def test_streaming_with_reasoning_messages(self, mock_uuid, mock_get_stream_writer):
-        """Test that reasoning messages are properly streamed during execution."""
-        mock_writer = MagicMock()
-        mock_get_stream_writer.return_value = mock_writer
-        mock_uuid.return_value.__str__ = lambda _: "test_uuid"
+        with patch.object(self.node, "_execute_task_with_insights") as mock_execute:
+            mock_execute.side_effect = [mock_execute_task3, mock_execute_task2, mock_execute_task1]
 
-        task = self._create_task_execution_item()
-        state = self._create_state_with_tasks(tasks=[task])
-        config = RunnableConfig()
+            result = await self.node.arun(cast(DeepResearchState, state), config)
 
-        async def mock_astream(input_tuples, config):
-            yield ReasoningMessage(content="Planning approach")
-            yield ReasoningMessage(content="Executing query")
-            yield DeepResearchSingleTaskResult(
-                id=task.id,
-                description="Test task",
-                result="Success",
-                artifacts=[],
-                status=TaskExecutionStatus.COMPLETED,
-            )
+            # Tasks should complete in order of execution time
+            self.assertEqual(execution_order, ["task_3", "task_2", "task_1"])
 
-        with patch.object(self.node._execute_tasks_tool, "astream", side_effect=mock_astream):
-            await self.node._execute_tasks(state, config, "test_tool_call")
-
-            # Check that reasoning messages were written to stream
-            write_calls = mock_writer.call_args_list
-            reasoning_calls = [
-                call
-                for call in write_calls
-                if any("Planning approach" in str(arg) or "Executing query" in str(arg) for arg in call[0])
-            ]
-            self.assertGreater(len(reasoning_calls), 0)
-
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.get_stream_writer")
-    async def test_task_progress_updates(self, mock_get_stream_writer):
-        """Test that task progress updates are properly handled."""
-        mock_writer = MagicMock()
-        mock_get_stream_writer.return_value = mock_writer
-
-        task = self._create_task_execution_item(task_id="task_1")
-        state = self._create_state_with_tasks(tasks=[task])
-        config = RunnableConfig()
-
-        # Mock callback setup
-        with patch.object(self.node._execute_tasks_tool, "set_reasoning_callback") as mock_set_reasoning:
-            with patch.object(self.node._execute_tasks_tool, "set_task_progress_callback") as mock_set_progress:
-
-                async def mock_astream(input_tuples, config):
-                    yield DeepResearchSingleTaskResult(
-                        id="task_1",
-                        description="Test task",
-                        result="Success",
-                        artifacts=[],
-                        status=TaskExecutionStatus.COMPLETED,
-                    )
-
-                with patch.object(self.node._execute_tasks_tool, "astream", side_effect=mock_astream):
-                    await self.node._execute_tasks(state, config, "test_tool_call")
-
-                    mock_set_reasoning.assert_called_once()
-                    mock_set_progress.assert_called_once()
-
-
-class TestTaskExecutorNodeStateManagement(TestTaskExecutorNode):
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.get_stream_writer")
-    async def test_task_status_transitions(self, mock_get_stream_writer):
-        """Test that task statuses are properly updated during execution."""
-        mock_writer = MagicMock()
-        mock_get_stream_writer.return_value = mock_writer
-
-        task = self._create_task_execution_item(task_id="task_1", status=TaskExecutionStatus.PENDING)
-        state = self._create_state_with_tasks(tasks=[task])
-        config = RunnableConfig()
-
-        async def mock_astream(input_tuples, config):
-            yield DeepResearchSingleTaskResult(
-                id="task_1",
-                description="Test task",
-                result="Success",
-                artifacts=[self._create_insight_artifact(artifact_id="art_1")],
-                status=TaskExecutionStatus.COMPLETED,
-            )
-
-        with patch.object(self.node._execute_tasks_tool, "astream", side_effect=mock_astream):
-            result = await self.node._execute_tasks(state, config, "test_tool_call")
-
-            # Check task status was updated
-            final_message = result.messages[0]
-            self.assertIsInstance(final_message, TaskExecutionMessage)
-            updated_task = cast(TaskExecutionMessage, final_message).tasks[0]
-            self.assertEqual(updated_task.status, TaskExecutionStatus.COMPLETED)
-            self.assertIsNotNone(updated_task.artifact_ids)
-            self.assertEqual(updated_task.artifact_ids, ["art_1"])
-
-    @parameterized.expand(
-        [
-            ["pending"],
-            ["in_progress"],
-            ["completed"],
-            ["failed"],
-        ]
-    )
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.get_stream_writer")
-    async def test_artifact_handling_with_different_task_statuses(self, status_str, mock_get_stream_writer):
-        """Test artifact handling with different task statuses."""
-        mock_writer = MagicMock()
-        mock_get_stream_writer.return_value = mock_writer
-
-        status = TaskExecutionStatus(status_str)
-        task = self._create_task_execution_item(task_id="task_1")
-        artifacts = [self._create_insight_artifact(artifact_id="art_1")]
-        state = self._create_state_with_tasks(
-            tasks=[task],
-            task_results=[
-                DeepResearchSingleTaskResult(
-                    id="prev_task",
-                    description="Previous",
-                    result="Result",
-                    artifacts=artifacts,
-                    status=TaskExecutionStatus.COMPLETED,
-                )
-            ],
-        )
-        config = RunnableConfig()
-
-        async def mock_astream(input_tuples, config):
-            yield DeepResearchSingleTaskResult(
-                id="task_1",
-                description="Test task",
-                result="Result",
-                artifacts=artifacts if status == TaskExecutionStatus.COMPLETED else [],
-                status=status,
-            )
-
-        with patch.object(self.node._execute_tasks_tool, "astream", side_effect=mock_astream):
-            result = await self.node._execute_tasks(state, config, "test_tool_call")
-
-            self.assertEqual(len(result.task_results), 1)
-            self.assertEqual(result.task_results[0].status, status)
-            if status == TaskExecutionStatus.COMPLETED:
-                self.assertEqual(len(result.task_results[0].artifacts), 1)
-            else:
-                self.assertEqual(len(result.task_results[0].artifacts), 0)
-
-
-class TestTaskExecutorNodeEdgeCases(TestTaskExecutorNode):
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.get_stream_writer")
-    async def test_multiple_tasks_execution(self, mock_get_stream_writer):
-        """Test execution with multiple tasks."""
-        mock_writer = MagicMock()
-        mock_get_stream_writer.return_value = mock_writer
-
-        task1 = self._create_task_execution_item(task_id="task_1", description="First task")
-        task2 = self._create_task_execution_item(task_id="task_2", description="Second task")
-        state = self._create_state_with_tasks(tasks=[task1, task2])
-        config = RunnableConfig()
-
-        async def mock_astream(input_tuples, config):
-            for i, (task, _) in enumerate(input_tuples):
-                yield DeepResearchSingleTaskResult(
-                    id=task.id,
-                    description=task.description,
-                    result=f"Result {i + 1}",
-                    artifacts=[],
-                    status=TaskExecutionStatus.COMPLETED,
-                )
-
-        with patch.object(self.node._execute_tasks_tool, "astream", side_effect=mock_astream):
-            result = await self.node._execute_tasks(state, config, "test_tool_call")
-
-            self.assertEqual(len(result.task_results), 2)
-            message_1 = cast(AssistantToolCallMessage, result.messages[1])
-            self.assertIn("Result 1", message_1.content)
-            self.assertIn("Result 2", message_1.content)
-
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.get_stream_writer")
-    async def test_tasks_with_artifact_dependencies(self, mock_get_stream_writer):
-        """Test task execution with artifact dependencies."""
-        mock_writer = MagicMock()
-        mock_get_stream_writer.return_value = mock_writer
-
-        artifact = self._create_insight_artifact(artifact_id="dep_artifact")
-        task = self._create_task_execution_item(task_id="task_1", artifact_ids=["dep_artifact"])
-
-        state = self._create_state_with_tasks(
-            tasks=[task],
-            task_results=[
-                DeepResearchSingleTaskResult(
-                    id="dep_task",
-                    description="Dependency task",
-                    result="Dependency result",
-                    artifacts=[artifact],
-                    status=TaskExecutionStatus.COMPLETED,
-                )
-            ],
-        )
-        config = RunnableConfig()
-
-        captured_input_tuples: list[tuple[TaskExecutionItem, list[InsightArtifact]]] | None = None
-
-        async def mock_astream(input_tuples, config):
-            nonlocal captured_input_tuples
-            captured_input_tuples = input_tuples
-            yield DeepResearchSingleTaskResult(
-                id="task_1",
-                description="Test task",
-                result="Success",
-                artifacts=[],
-                status=TaskExecutionStatus.COMPLETED,
-            )
-
-        with patch.object(self.node._execute_tasks_tool, "astream", side_effect=mock_astream):
-            await self.node._execute_tasks(state, config, "test_tool_call")
-
-            # Check that artifact was passed to the task
-            self.assertIsNotNone(captured_input_tuples)
-            captured_input_tuples = cast(list[tuple[TaskExecutionItem, list[InsightArtifact]]], captured_input_tuples)
-            self.assertEqual(len(captured_input_tuples), 1)
-            task_tuple = captured_input_tuples[0]
-            self.assertEqual(len(task_tuple[1]), 1)  # One artifact passed
-            self.assertEqual(task_tuple[1][0].id, "dep_artifact")
-
-    @parameterized.expand(
-        [
-            [None, "No tasks"],
-            [[], "Empty task list"],
-            [[{"invalid": "task"}], "Invalid task format"],
-        ]
-    )
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.logger")
-    async def test_invalid_task_formats(self, invalid_tasks, test_case, mock_logger):
-        """Test handling of invalid task formats."""
-        state = DeepResearchState(
-            messages=[self._create_assistant_message_with_tool_calls()],
-            tasks=invalid_tasks,
-        )
-        config = RunnableConfig()
-
-        if invalid_tasks is None:
-            # No tasks should be handled gracefully
-            result = await self.node.arun(state, config)
-            result = cast(PartialDeepResearchState, result)
+            # Check final state
             self.assertIsInstance(result, PartialDeepResearchState)
-            self.assertEqual(cast(AssistantToolCallMessage, result.messages[0]).content, "No tasks to execute")
-        elif invalid_tasks == []:
-            # Empty list should be handled gracefully
-            result = await self.node.arun(state, config)
-            result = cast(PartialDeepResearchState, result)
-            self.assertIsInstance(result, PartialDeepResearchState)
-            self.assertEqual(cast(AssistantToolCallMessage, result.messages[0]).content, "No tasks to execute")
-        else:
-            # Invalid task objects would cause validation errors during processing
-            with patch.object(self.node, "_execute_tasks") as mock_execute:
-                mock_execute.side_effect = ValueError("Invalid task format")
-                with self.assertRaises(ValueError):
-                    await self.node.arun(state, config)
+            self.assertEqual(len(result.task_results), 3)
+
+
+class TestArtifactExtraction(TestTaskExecutorNode):
+    def test_extract_artifacts_from_visualization_messages(self):
+        """Test artifact extraction from visualization messages."""
+        task = self._create_assistant_tool_call("task_1")
+
+        viz_message = VisualizationMessage(id="viz_1", answer=AssistantTrendsQuery(series=[]))
+
+        messages: list[AssistantMessageUnion] = [
+            viz_message,
+            AssistantToolCallMessage(content="Complete", tool_call_id="test"),
+        ]
+
+        artifacts = self.node._extract_artifacts(messages, task)
+
+        self.assertEqual(len(artifacts), 1)
+        self.assertEqual(artifacts[0].task_id, "task_1")
+        self.assertEqual(artifacts[0].content, "")
+        self.assertEqual(artifacts[0].query.kind, "TrendsQuery")
+
+    def test_extract_artifacts_handles_no_visualizations(self):
+        """Test artifact extraction when no visualization messages exist."""
+        task = self._create_assistant_tool_call()
+
+        messages: list[AssistantMessageUnion] = [
+            AssistantToolCallMessage(content="No data available", tool_call_id="test"),
+        ]
+
+        artifacts = self.node._extract_artifacts(messages, task)
+
+        self.assertEqual(len(artifacts), 0)

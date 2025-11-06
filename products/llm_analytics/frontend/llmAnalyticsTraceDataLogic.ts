@@ -7,7 +7,7 @@ import {
     DataTableNode,
     LLMTrace,
     LLMTraceEvent,
-    TracesQueryResponse,
+    TraceQueryResponse,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
@@ -20,7 +20,7 @@ import {
     findSidebarOccurrences,
     findTraceOccurrences,
 } from './searchUtils'
-import { formatLLMUsage, normalizeMessages } from './utils'
+import { formatLLMUsage, getEventType, isLLMEvent, normalizeMessages } from './utils'
 
 export interface TraceDataLogicProps {
     traceId: string
@@ -46,6 +46,41 @@ function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogic
 
 const FEEDBACK_EVENTS = new Set(['$ai_feedback', '$ai_metric'])
 
+/**
+ * Find all parent events for a given event, including the event itself
+ */
+function findEventWithParents(
+    targetEvent: LLMTraceEvent,
+    allEvents: LLMTraceEvent[],
+    traceId: string
+): LLMTraceEvent[] {
+    const eventMap = new Map<string, LLMTraceEvent>()
+
+    // Build map of eventId -> event
+    for (const event of allEvents) {
+        const eventId = event.properties.$ai_generation_id ?? event.properties.$ai_span_id ?? event.id
+        eventMap.set(eventId, event)
+    }
+
+    const parentChain: LLMTraceEvent[] = []
+    let currentEvent: LLMTraceEvent | null = targetEvent
+
+    // Walk up the parent chain
+    while (currentEvent) {
+        parentChain.push(currentEvent)
+
+        const parentId: string | undefined =
+            currentEvent.properties.$ai_parent_id ?? currentEvent.properties.$ai_trace_id
+        if (!parentId || parentId === traceId) {
+            break
+        }
+
+        currentEvent = eventMap.get(parentId) || null
+    }
+
+    return parentChain
+}
+
 export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
     props({} as TraceDataLogicProps),
@@ -61,7 +96,7 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
         trace: [
             (s) => [s.response],
             (response): LLMTrace | undefined => {
-                const traceResponse = response as TracesQueryResponse | null
+                const traceResponse = response as TraceQueryResponse | null
                 return traceResponse?.results?.[0]
             },
         ],
@@ -71,13 +106,28 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                 trace ? trace.events.filter((event) => !FEEDBACK_EVENTS.has(event.event)) : [],
         ],
         filteredEvents: [
-            (s) => [s.showableEvents, s.searchQuery],
-            (showableEvents, searchQuery): LLMTraceEvent[] => {
+            (s, p) => [s.showableEvents, s.searchQuery, p.traceId],
+            (showableEvents: LLMTraceEvent[], searchQuery: string, traceId: string): LLMTraceEvent[] => {
                 if (!searchQuery.trim()) {
                     return showableEvents
                 }
 
-                return showableEvents.filter((event) => eventMatchesSearch(event, searchQuery))
+                // Find events that match the search
+                const matchingEvents = showableEvents.filter((event: LLMTraceEvent) =>
+                    eventMatchesSearch(event, searchQuery)
+                )
+
+                // For each matching event, include its parent chain
+                const eventsWithParents = new Set<LLMTraceEvent>()
+
+                for (const matchingEvent of matchingEvents) {
+                    const parentChain = findEventWithParents(matchingEvent, showableEvents, traceId)
+                    for (const event of parentChain) {
+                        eventsWithParents.add(event)
+                    }
+                }
+
+                return Array.from(eventsWithParents)
             },
         ],
         filteredTree: [
@@ -199,6 +249,33 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             (s) => [s.filteredTree],
             (filteredTree: TraceTreeNode[]): EnrichedTraceTreeNode[] => filteredTree.map(enrichNode),
         ],
+        eventMetadata: [
+            (s) => [s.event],
+            (event): Record<string, unknown> | undefined => {
+                if (event && isLLMEvent(event)) {
+                    // Filter out all system properties as they're typically useless for datasets.
+                    return Object.fromEntries(Object.entries(event.properties).filter(([key]) => !key.startsWith('$')))
+                }
+                return undefined
+            },
+        ],
+        availableEventTypes: [
+            (s) => [s.enrichedTree],
+            (enrichedTree: EnrichedTraceTreeNode[]): string[] => {
+                const types = new Set<string>()
+                const addTypesFromTree = (nodes: EnrichedTraceTreeNode[]): void => {
+                    for (const node of nodes) {
+                        types.add(getEventType(node.event))
+                        if (node.children) {
+                            addTypesFromTree(node.children)
+                        }
+                    }
+                }
+                addTypesFromTree(enrichedTree)
+                types.delete('trace')
+                return [...types]
+            },
+        ],
     }),
 ])
 
@@ -301,6 +378,9 @@ function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
 
     return { totalCost, totalLatency, inputTokens, outputTokens, hasGenerationChildren }
 }
+
+// Export the parent chain function for testing
+export { findEventWithParents }
 
 export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTreeNode[] {
     const childrenMap = new Map<any, any[]>()

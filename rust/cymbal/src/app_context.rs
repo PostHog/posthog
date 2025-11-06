@@ -1,4 +1,3 @@
-use aws_config::{BehaviorVersion, Region};
 use common_geoip::GeoIpClient;
 use common_kafka::{
     kafka_consumer::SingleTopicConsumer,
@@ -16,13 +15,15 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::{
-    config::{init_global_state, Config},
+    config::{get_aws_config, init_global_state, Config},
     error::UnhandledError,
     frames::resolver::Resolver,
     symbol_store::{
         caching::{Caching, SymbolSetCache},
         chunk_id::ChunkIdFetcher,
         concurrency,
+        hermesmap::HermesMapProvider,
+        proguard::ProguardProvider,
         saving::Saving,
         sourcemap::SourcemapProvider,
         Catalog, S3Client,
@@ -41,7 +42,8 @@ pub struct AppContext {
     pub kafka_consumer: SingleTopicConsumer,
     pub transactional_producer: Mutex<TransactionalProducer<KafkaContext>>,
     pub immediate_producer: FutureProducer<KafkaContext>,
-    pub pool: PgPool,
+    pub posthog_pool: PgPool,
+    pub persons_pool: PgPool,
     pub catalog: Catalog,
     pub resolver: Resolver,
     pub config: Config,
@@ -82,59 +84,64 @@ impl AppContext {
             create_kafka_producer(&config.kafka, kafka_immediate_liveness).await?;
 
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-        let pool = options.connect(&config.database_url).await?;
+        let persons_options = options.clone();
+        let posthog_pool = options.connect(&config.database_url).await?;
+        let persons_pool = persons_options.connect(&config.persons_url).await?;
 
-        let aws_credentials = aws_sdk_s3::config::Credentials::new(
-            &config.object_storage_access_key_id,
-            &config.object_storage_secret_access_key,
-            None,
-            None,
-            "environment",
-        );
-        let aws_conf = aws_sdk_s3::config::Builder::new()
-            .region(Region::new(config.object_storage_region.clone()))
-            .endpoint_url(&config.object_storage_endpoint)
-            .credentials_provider(aws_credentials)
-            .behavior_version(BehaviorVersion::latest())
-            .force_path_style(config.object_storage_force_path_style)
-            .build();
-        let s3_client = aws_sdk_s3::Client::from_conf(aws_conf);
+        let s3_client = aws_sdk_s3::Client::from_conf(get_aws_config(config).await);
         let s3_client = S3Client::new(s3_client);
         let s3_client = Arc::new(s3_client);
+
+        s3_client.ping_bucket(&config.object_storage_bucket).await?;
 
         let ss_cache = Arc::new(Mutex::new(SymbolSetCache::new(
             config.symbol_store_cache_max_bytes,
         )));
 
         let smp = SourcemapProvider::new(config);
-
-        let chunk_layer = ChunkIdFetcher::new(
+        let smp_chunk = ChunkIdFetcher::new(
             smp,
             s3_client.clone(),
-            pool.clone(),
+            posthog_pool.clone(),
             config.object_storage_bucket.clone(),
         );
-
-        let saving_layer = Saving::new(
-            chunk_layer,
-            pool.clone(),
+        let smp_saving = Saving::new(
+            smp_chunk,
+            posthog_pool.clone(),
             s3_client.clone(),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
-        let caching_layer = Caching::new(saving_layer, ss_cache.clone());
+        let smp_caching = Caching::new(smp_saving, ss_cache.clone());
         // We want to fetch each sourcemap from the outside world
         // exactly once, and if it isn't in the cache, load/parse
         // it from s3 exactly once too. Limiting the per symbol set
         // reference concurrency to 1 ensures this.
-        let limited_layer = concurrency::AtMostOne::new(caching_layer);
+        let smp_atmostonce = concurrency::AtMostOne::new(smp_caching);
+
+        let hmp_chunk = ChunkIdFetcher::new(
+            HermesMapProvider {},
+            s3_client.clone(),
+            posthog_pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+        let hmp_caching = Caching::new(hmp_chunk, ss_cache.clone());
+        // We skip the saving layer for HermesMapProvider, since it'll never fetch something from the outside world.
+
+        let pgp_chunk = ChunkIdFetcher::new(
+            ProguardProvider {},
+            s3_client.clone(),
+            posthog_pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+        let pgp_caching = Caching::new(pgp_chunk, ss_cache.clone());
 
         info!(
             "AppContext initialized, subscribed to topic {}",
             config.consumer.kafka_consumer_topic
         );
 
-        let catalog = Catalog::new(limited_layer);
+        let catalog = Catalog::new(smp_atmostonce, hmp_caching, pgp_caching);
         let resolver = Resolver::new(config);
 
         let team_manager = TeamManager::new(config);
@@ -174,7 +181,8 @@ impl AppContext {
             kafka_consumer,
             transactional_producer: Mutex::new(transactional_producer),
             immediate_producer,
-            pool,
+            posthog_pool,
+            persons_pool,
             catalog,
             resolver,
             config: config.clone(),

@@ -139,6 +139,12 @@ export const legacyEntityToNode = (
                     math: entity.math as MathType,
                 }
             }
+            if (entity.optionalInFunnel) {
+                shared = {
+                    ...shared,
+                    optionalInFunnel: true,
+                }
+            }
         } else if (mathAvailability === MathAvailability.CalendarHeatmapOnly) {
             if (calendarHeatmapMathTypes.includes(entity.math as any)) {
                 shared = {

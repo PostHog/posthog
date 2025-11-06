@@ -8,11 +8,13 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Action
@@ -26,19 +28,25 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
 
     query: EventTaxonomyQuery
     cached_response: CachedEventTaxonomyQueryResponse
+    settings: HogQLGlobalSettings | None
+
+    def __init__(self, *args, settings: HogQLGlobalSettings | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.settings = settings
 
     def _calculate(self):
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 
-        response = execute_hogql_query(
-            query_type="EventTaxonomyQuery",
-            query=query,
-            team=self.team,
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
-        )
+        with tags_context(product=Product.MAX_AI):
+            response = execute_hogql_query(
+                query_type="EventTaxonomyQuery",
+                query=query,
+                team=self.team,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
 
         results: list[EventTaxonomyItem] = []
         for prop, sample_values, sample_count in response.results:
@@ -160,7 +168,10 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
-                            left=ast.Field(chain=["properties", prop]),
+                            left=ast.Call(
+                                name="JSONExtractString",
+                                args=[ast.Field(chain=["properties"]), ast.Constant(value=prop)],
+                            ),
                             op=ast.CompareOperationOp.NotEq,
                             right=ast.Constant(value=""),
                         )

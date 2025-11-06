@@ -5,8 +5,8 @@ from structlog import get_logger
 
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, PartialDeepResearchState
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
-from ee.hogai.utils.types import PartialAssistantState
-from ee.hogai.utils.types.composed import MaxGraphState, MaxNodeName, MaxPartialGraphState
+from ee.hogai.utils.types.base import PartialAssistantState
+from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState, MaxNodeName
 
 # A state update can have a partial state or a LangGraph's reserved dataclasses like Interrupt.
 GraphValueUpdate = dict[MaxNodeName, dict[Any, Any] | Any]
@@ -28,8 +28,8 @@ def is_value_update(update: list[Any]) -> TypeGuard[GraphValueUpdateTuple]:
 
 def validate_value_update(
     update: GraphValueUpdate,
-) -> dict[MaxNodeName, MaxPartialGraphState | Any]:
-    validated_update: dict[MaxNodeName, MaxPartialGraphState | Any] = {}
+) -> dict[MaxNodeName, AssistantMaxPartialGraphState | Any]:
+    validated_update: dict[MaxNodeName, AssistantMaxPartialGraphState | Any] = {}
     for node_name, value in update.items():
         if isinstance(value, dict):
             if isinstance(node_name, TaxonomyNodeName):
@@ -45,6 +45,7 @@ def validate_value_update(
 
 class LangGraphState(TypedDict):
     langgraph_node: MaxNodeName
+    langgraph_checkpoint_ns: str
 
 
 GraphMessageUpdateTuple = tuple[Literal["messages"], tuple[Union[AIMessageChunk, Any], LangGraphState]]
@@ -67,7 +68,9 @@ def is_state_update(update: list[Any]) -> TypeGuard[GraphStateUpdateTuple]:
     return len(update) == 2 and update[0] == "values"
 
 
-def validate_state_update(state_update: dict[Any, Any], state_class: type[MaxGraphState]) -> MaxGraphState:
+def validate_state_update(
+    state_update: dict[Any, Any], state_class: type[AssistantMaxGraphState]
+) -> AssistantMaxGraphState:
     return state_class.model_validate(state_update)
 
 
@@ -83,20 +86,15 @@ def is_task_started_update(
     return len(update) == 2 and update[0] == "debug" and update[1]["type"] == "task"
 
 
-def prepare_reasoning_progress_message(content: str) -> AIMessageChunk:
+def prepare_reasoning_progress_message(content: str) -> str | None:
     """Display progress as a reasoning message"""
     if not content:
         logger.warning("Content is required to prepare a reasoning progress message")
+        return None
     elif len(content) > 200:
         logger.warning("Content is too long to prepare a reasoning progress message", extra={"content": content})
         content = content[:200] + "..."
-    # What we're doing here is emitting an AIMessageChunk that mimics the OpenAI reasoning format
-    # This gets rendered as a ReasoningMessage in the Assistant class
-    # It's a roundabout way of returning a ReasoningMessage, but otherwise we'd have to make larger changes to Assistant
-    return AIMessageChunk(
-        content="",
-        additional_kwargs={"reasoning": {"summary": [{"text": f"**{content}**"}]}},
-    )
+    return content
 
 
 def merge_message_chunk(existing_chunk: AIMessageChunk, new_chunk: AIMessageChunk) -> AIMessageChunk:

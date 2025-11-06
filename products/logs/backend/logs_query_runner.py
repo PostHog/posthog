@@ -1,4 +1,3 @@
-import json
 import datetime as dt
 from zoneinfo import ZoneInfo
 
@@ -30,8 +29,10 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
     cached_response: CachedLogsQueryResponse
     paginator: HogQLHasMorePaginator
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, query, *args, **kwargs):
+        # defensive copy of query because we mutate it
+        super().__init__(query.model_copy(deep=True), *args, **kwargs)
+        assert isinstance(self.query, LogsQuery)
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
@@ -69,7 +70,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                             property_type = property_types.pop()
                     else:
                         property_type = get_property_type(property_filter.value)
-                    property_filter.key += f"__{property_type}"
+                    property_filter.key = f"{property_filter.key}__{property_type}"
                     # for all operators except SET and NOT_SET we add an IS_SET operator to force
                     # the property key bloom filter index to be used.
                     if property_filter.operator not in (PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET):
@@ -108,9 +109,9 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                     "trace_id": result[1],
                     "span_id": result[2],
                     "body": result[3],
-                    "attributes": {k: json.loads(v) for k, v in result[4].items()},
-                    "timestamp": result[5],
-                    "observed_timestamp": result[6],
+                    "attributes": result[4],
+                    "timestamp": result[5].replace(tzinfo=ZoneInfo("UTC")),
+                    "observed_timestamp": result[6].replace(tzinfo=ZoneInfo("UTC")),
                     "severity_text": result[7],
                     "severity_number": result[8],
                     "level": result[9],
@@ -122,35 +123,52 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
 
         return LogsQueryResponse(results=results, **self.paginator.response_params())
 
+    def run(self, *args, **kwargs) -> LogsQueryResponse | CachedLogsQueryResponse:
+        response = super().run(*args, **kwargs)
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        return response
+
     def to_query(self) -> ast.SelectQuery:
-        query = parse_select(
-            """
-            SELECT
-            uuid,
-            hex(trace_id),
-            hex(span_id),
-            body,
-            attributes,
-            timestamp,
-            observed_timestamp,
-            severity_text,
-            severity_number,
-            level,
-            resource_attributes,
-            instrumentation_scope,
-            event_name
-            FROM logs
-        """
+        # utilize a hack to fix read_in_order_optimization not working correctly
+        # from: https://github.com/ClickHouse/ClickHouse/pull/82478/
+        query = self.paginator.paginate(
+            parse_select("""
+                SELECT _part_starting_offset+_part_offset from logs
+            """)
         )
         assert isinstance(query, ast.SelectQuery)
 
-        query.where = self.where()
         order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
-        query.order_by = [
-            parse_order_expr(f"toUnixTimestamp(timestamp) {order_dir}"),
-        ]
 
-        return query
+        query.where = ast.And(exprs=[self.where()])
+        query.order_by = [
+            parse_order_expr("team_id"),
+            parse_order_expr(f"time_bucket {order_dir}"),
+            parse_order_expr(f"timestamp {order_dir}"),
+        ]
+        final_query = parse_select(
+            """
+            SELECT
+                uuid,
+                hex(trace_id),
+                hex(span_id),
+                body,
+                attributes,
+                timestamp,
+                observed_timestamp,
+                severity_text,
+                severity_number,
+                severity_text as level,
+                resource_attributes,
+                instrumentation_scope,
+                event_name
+            FROM logs where (_part_starting_offset+_part_offset) in ({query})
+        """,
+            placeholders={"query": query},
+        )
+        assert isinstance(final_query, ast.SelectQuery)
+        final_query.order_by = [parse_order_expr(f"timestamp {order_dir}")]
+        return final_query
 
     def where(self):
         exprs: list[ast.Expr] = [
@@ -186,6 +204,14 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                     placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm}%")},
                 )
             )
+            # ip addresses are particularly bad at full text searches with our ngram 3 index
+            # match them separately against a materialized column of ip addresses
+            exprs.append(
+                parse_expr(
+                    "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
+                    placeholders={"searchTerm": ast.Constant(value=f"{self.query.searchTerm}")},
+                )
+            )
 
         if self.query.filterGroup:
             exprs.append(property_to_expr(self.query.filterGroup, team=self.team))
@@ -202,6 +228,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             allow_experimental_object_type=False,
             allow_experimental_join_condition=False,
             transform_null_in=False,
+            allow_experimental_analyzer=True,
         )
 
     @cached_property
@@ -214,12 +241,8 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             now=dt.datetime.now(),
         )
 
-        _step = (qdr.date_to() - qdr.date_from()) / 100
-        if _step < dt.timedelta(minutes=1):
-            _step = dt.timedelta(minutes=1)
-
-        _step = dt.timedelta(seconds=int(60 * round(_step.total_seconds() / 60)))
-        interval_type = IntervalType.MINUTE
+        _step = (qdr.date_to() - qdr.date_from()) / 50
+        interval_type = IntervalType.SECOND
 
         def find_closest(target, arr):
             if not arr:
@@ -231,7 +254,14 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         # set the number of intervals to a "round" number of minutes
         # it's hard to reason about the rate of logs on e.g. 13 minute intervals
         # the min interval is 1 minute and max interval is 1 day
-        interval_count = find_closest(_step.total_seconds() // 60, [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440])
+        interval_count = find_closest(
+            _step.total_seconds(),
+            [1, 5, 10] + [x * 60 for x in [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]],
+        )
+
+        if _step >= dt.timedelta(minutes=1):
+            interval_type = IntervalType.MINUTE
+            interval_count //= 60
 
         return QueryDateRange(
             date_range=self.query.dateRange,

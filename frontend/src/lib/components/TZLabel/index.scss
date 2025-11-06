@@ -1,24 +1,12 @@
 .TZLabelPopover {
     margin: -0.25rem;
 
-    .TZLabelPopover__header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-
-        h3 {
-            margin-bottom: 0;
-        }
-    }
-
-    .TZLabelPopover__rows {
-        margin-top: 0.5rem;
-    }
-
     .TZLabelPopover__row {
         display: flex;
         align-items: center;
-        margin-top: 0.5rem;
+        padding: 4px;
+        cursor: pointer;
+        border-radius: 4px;
 
         > :nth-child(1) {
             margin-right: 8px;
@@ -49,6 +37,10 @@
 
         > :nth-child(5) {
             margin-left: 8px;
+        }
+
+        &:hover {
+            background-color: var(--color-bg-primary);
         }
     }
 

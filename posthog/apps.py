@@ -20,12 +20,17 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
+        self._setup_lazy_admin()
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
         posthoganalytics.poll_interval = 90
         posthoganalytics.enable_exception_autocapture = True
         posthoganalytics.log_captured_exceptions = True
-        posthoganalytics.super_properties = {"region": get_instance_region()}
+        posthoganalytics.super_properties = {
+            "region": get_instance_region(),
+            "service": settings.OTEL_SERVICE_NAME,
+            "environment": os.getenv("SENTRY_ENVIRONMENT"),
+        }
 
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
@@ -45,6 +50,7 @@ class PostHogConfig(AppConfig):
             )
             if settings.SERVER_GATEWAY_INTERFACE == "WSGI":
                 async_to_sync(initialize_self_capture_api_token)()
+
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
                 # Sync all organization.available_product_features once on launch, in case plans changed
@@ -74,3 +80,42 @@ class PostHogConfig(AppConfig):
         # Skip during tests since we handle this in conftest.py
         if not settings.TEST:
             queue_sync_hog_function_templates()
+
+    def _setup_lazy_admin(self):
+        """Set up lazy loading of admin classes to avoid importing all at startup."""
+        import sys
+
+        from django.contrib import admin
+
+        class LazyAdminRegistry(dict):
+            """Lazy admin registry that loads admin on first access."""
+
+            _loaded = False
+
+            def _ensure_loaded(self):
+                if not self._loaded:
+                    from posthog.admin import register_all_admin
+
+                    self._loaded = True
+                    register_all_admin()
+
+            # Override only the essential methods that trigger loading
+            def __getitem__(self, key):
+                self._ensure_loaded()
+                return super().__getitem__(key)
+
+            def __iter__(self):
+                self._ensure_loaded()
+                return super().__iter__()
+
+            def __len__(self):
+                self._ensure_loaded()
+                return super().__len__()
+
+            def __contains__(self, key):
+                self._ensure_loaded()
+                return super().__contains__(key)
+
+        # Don't use lazy loading in tests and migrations
+        if not settings.TEST and "migrate" not in sys.argv and "test" not in sys.argv:
+            admin.site._registry = LazyAdminRegistry()

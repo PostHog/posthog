@@ -15,7 +15,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import get_config_for_source
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 ConfigType = TypeVar("ConfigType", bound=Config)
 
@@ -27,6 +28,8 @@ FieldType = Union[
     SourceFieldFileUploadConfig,
     SourceFieldSSHTunnelConfig,
 ]
+
+SourceCredentialsValidationResult = tuple[bool, str | None]
 
 
 class BaseSource(ABC, Generic[ConfigType]):
@@ -48,7 +51,7 @@ class BaseSource(ABC, Generic[ConfigType]):
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
         raise NotImplementedError()
 
-    def get_schemas(self, config: ConfigType, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: ConfigType, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         raise NotImplementedError()
 
     @property

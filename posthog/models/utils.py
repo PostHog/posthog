@@ -1,4 +1,5 @@
 import re
+import json
 import uuid
 import string
 import secrets
@@ -6,8 +7,10 @@ import datetime
 from collections import defaultdict, namedtuple
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
+from decimal import Decimal
 from time import time, time_ns
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connections, models, transaction
@@ -20,6 +23,7 @@ from django.utils.text import slugify
 from posthog.hogql import ast
 
 from posthog.constants import MAX_SLUG_LENGTH
+from posthog.person_db_router import PERSONS_DB_MODELS
 
 if TYPE_CHECKING:
     from random import Random
@@ -277,6 +281,14 @@ def generate_random_token_secret() -> str:
     return "phs_" + generate_random_token(35)  # "s" standing for "secret"
 
 
+def generate_random_oauth_access_token(_request) -> str:
+    return "pha_" + generate_random_token()  # "a" standing for "access"
+
+
+def generate_random_oauth_refresh_token(_request) -> str:
+    return "phr_" + generate_random_token()  # "r" standing for "refresh"
+
+
 def mask_key_value(value: str) -> str:
     """Turn 'phx_123456abcd' into 'phx_...abcd'."""
     if len(value) < 16:
@@ -465,8 +477,26 @@ class RootTeamMixin(models.Model):
         abstract = True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        if self._meta.model_name in PERSONS_DB_MODELS:
+            return self._save_in_persons_db(*args, **kwargs)
+
         if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:  # type: ignore
             self.team = self.team.parent_team  # type: ignore
+        super().save(*args, **kwargs)
+
+    def _save_in_persons_db(self, *args, **kwargs) -> None:
+        """
+        If the model is stored in persons db, referencing the foreign key will raise an error.
+        Reference the actual table column instead and query `team` manually.
+        """
+        team_id: Optional[int] = getattr(self, "team_id", None)
+        if team_id:
+            from posthog.models import Team
+
+            team = Team.objects.get(id=team_id)
+            if hasattr(team, "parent_team") and team.parent_team:
+                self.team_id = team.parent_team.id
+
         super().save(*args, **kwargs)
 
 
@@ -554,3 +584,61 @@ def build_partial_uniqueness_constraint(field: str, related_field: str, constrai
         name=constraint_name,
         condition=Q((f"{related_field}__isnull", False)),
     )
+
+
+class ActivityDetailEncoder(json.JSONEncoder):
+    def default(self, obj):
+        from posthog.models.activity_logging.activity_log import ActivityContextBase, Change, Detail, Trigger
+
+        if isinstance(obj, Detail | Change | Trigger | ActivityContextBase):
+            return obj.__dict__
+        if isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+        if isinstance(obj, datetime.time):
+            return obj.isoformat()
+        if isinstance(obj, datetime.timedelta):
+            return str(obj)
+        if "UUIDT" in globals() and isinstance(obj, UUIDT):
+            return str(obj)
+        if isinstance(obj, UUID):
+            return str(obj)
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "User":
+            return {"first_name": obj.first_name, "email": obj.email}
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "DataWarehouseTable":
+            return obj.name
+        if isinstance(obj, float):
+            return format(obj, ".6f").rstrip("0").rstrip(".")
+        if isinstance(obj, Decimal):
+            return format(obj, ".6f").rstrip("0").rstrip(".")
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "FeatureFlag":
+            return {
+                "id": obj.id,
+                "key": obj.key,
+                "name": obj.name,
+                "filters": obj.filters,
+                "team_id": obj.team_id,
+                "deleted": obj.deleted,
+                "active": obj.active,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Insight":
+            return {
+                "id": obj.id,
+                "short_id": obj.short_id,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Tag":
+            return {
+                "id": obj.id,
+                "name": obj.name,
+                "team_id": obj.team_id,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "UploadedMedia":
+            return {
+                "id": obj.id,
+                "media_location": obj.media_location,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Role":
+            return {
+                "id": obj.id,
+                "name": obj.name,
+            }
+        return json.JSONEncoder.default(self, obj)

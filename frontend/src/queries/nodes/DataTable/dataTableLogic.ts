@@ -185,7 +185,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 columnsInQuery,
                 featureFlags,
                 context
-            ): RequiredExcept<Omit<DataTableNode, 'response'>, 'version'> => {
+            ): RequiredExcept<Omit<DataTableNode, 'response'>, 'version' | 'tags' | 'defaultColumns'> => {
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full
                 const flagQueryRunningTimeEnabled = !!featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]
@@ -221,6 +221,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showColumnConfigurator: query.showColumnConfigurator ?? showIfFull,
                         showPersistentColumnConfigurator: query.showPersistentColumnConfigurator ?? false,
                         showSavedQueries: query.showSavedQueries ?? false,
+                        showSavedFilters: query.showSavedFilters ?? false,
                         showHogQLEditor: query.showHogQLEditor ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
                         showOpenEditorButton:

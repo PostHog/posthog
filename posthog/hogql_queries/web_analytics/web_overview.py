@@ -30,7 +30,9 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
 
     def __init__(self, *args, use_v2_tables: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
-        self.use_v2_tables = use_v2_tables
+        # Determine table version from team property, fallback to parameter for compatibility
+        team_version = getattr(self.team, "web_analytics_pre_aggregated_tables_version", "v2")
+        self.use_v2_tables = team_version == "v2" if team_version else use_v2_tables
         self.preaggregated_query_builder = WebOverviewPreAggregatedQueryBuilder(self)
 
     def to_query(self) -> ast.SelectQuery:

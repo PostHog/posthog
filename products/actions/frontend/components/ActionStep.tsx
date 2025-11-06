@@ -26,11 +26,21 @@ interface Props {
     isOnlyStep: boolean
     index: number
     identifier: string
+    disabledReason?: string
     onDelete: () => void
     onChange: (step: ActionStepType) => void
 }
 
-export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDelete, onChange }: Props): JSX.Element {
+export function ActionStep({
+    step,
+    actionId,
+    isOnlyStep,
+    index,
+    identifier,
+    disabledReason,
+    onDelete,
+    onChange,
+}: Props): JSX.Element {
     const sendStep = (stepToSend: ActionStepType): void => {
         onChange(stepToSend)
     }
@@ -54,13 +64,19 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                             size="small"
                             aria-label="delete"
                             onClick={onDelete}
+                            disabledReason={disabledReason}
                         />
                     )}
                 </div>
-                <TypeSwitcher step={step} sendStep={sendStep} />
+                <TypeSwitcher step={step} sendStep={sendStep} disabledReason={disabledReason} />
 
                 {step.event === '$autocapture' && (
-                    <AutocaptureFields step={step} sendStep={sendStep} actionId={actionId} />
+                    <AutocaptureFields
+                        step={step}
+                        sendStep={sendStep}
+                        actionId={actionId}
+                        disabledReason={disabledReason}
+                    />
                 )}
                 {step.event !== undefined && step.event !== '$autocapture' && step.event !== '$pageview' && (
                     <div className="deprecated-space-y-1">
@@ -75,6 +91,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                             }
                             placeholder="All events"
                             allEventsOption="explicit"
+                            disabled={!!disabledReason}
                         />
 
                         <small>
@@ -91,8 +108,16 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                             step={step}
                             sendStep={sendStep}
                             item="url"
-                            labelExtra={<StringMatchingSelection field="url" step={step} sendStep={sendStep} />}
+                            labelExtra={
+                                <StringMatchingSelection
+                                    field="url"
+                                    step={step}
+                                    sendStep={sendStep}
+                                    disabledReason={disabledReason}
+                                />
+                            }
                             label="URL"
+                            disabledReason={disabledReason}
                         />
                         {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
                             <small>{URL_MATCHING_HINTS[step.url_matching]}</small>
@@ -114,6 +139,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                             })
                         }}
                         showConditionBadge
+                        disabledReason={disabledReason ?? undefined}
                     />
                 </div>
             </div>
@@ -129,6 +155,7 @@ function Option({
     placeholder = 'Specify a value to match on this',
     caption,
     labelExtra: extra_options,
+    disabledReason,
 }: {
     step: ActionStepType
     sendStep: (stepToSend: ActionStepType) => void
@@ -137,6 +164,7 @@ function Option({
     labelExtra?: JSX.Element | string
     placeholder?: string
     caption?: JSX.Element | string
+    disabledReason?: string
 }): JSX.Element {
     const onOptionChange = (val: string): void => {
         sendStep({
@@ -158,6 +186,7 @@ function Option({
                 onChange={onOptionChange}
                 value={step[item] || ''}
                 placeholder={placeholder}
+                disabledReason={disabledReason}
             />
         </div>
     )
@@ -175,10 +204,12 @@ function AutocaptureFields({
     step,
     actionId,
     sendStep,
+    disabledReason,
 }: {
     step: ActionStepType
     sendStep: (stepToSend: ActionStepType) => void
     actionId: number
+    disabledReason?: string
 }): JSX.Element {
     const onSelectElement = (): void => {
         LemonDialog.open({
@@ -200,7 +231,13 @@ function AutocaptureFields({
     return (
         <div className="deprecated-space-y-4">
             <div className="flex items-center gap-2">
-                <LemonButton size="small" type="secondary" onClick={onSelectElement} sideIcon={<IconOpenInApp />}>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={onSelectElement}
+                    sideIcon={<IconOpenInApp />}
+                    disabledReason={disabledReason}
+                >
                     Select element on site
                 </LemonButton>
                 <Link to={`${learnMoreLink}#1-autocapture`} target="_blank">
@@ -211,15 +248,30 @@ function AutocaptureFields({
                 step={step}
                 sendStep={sendStep}
                 item="text"
-                labelExtra={<StringMatchingSelection field="text" step={step} sendStep={sendStep} />}
+                labelExtra={
+                    <StringMatchingSelection
+                        field="text"
+                        step={step}
+                        sendStep={sendStep}
+                        disabledReason={disabledReason}
+                    />
+                }
                 label="Element text"
+                disabledReason={disabledReason}
             />
             <AndSeparator />
             <Option
                 step={step}
                 sendStep={sendStep}
                 item="href"
-                labelExtra={<StringMatchingSelection field="href" step={step} sendStep={sendStep} />}
+                labelExtra={
+                    <StringMatchingSelection
+                        field="href"
+                        step={step}
+                        sendStep={sendStep}
+                        disabledReason={disabledReason}
+                    />
+                }
                 label="Element link target"
                 caption={
                     <>
@@ -227,6 +279,7 @@ function AutocaptureFields({
                         matched.
                     </>
                 }
+                disabledReason={disabledReason}
             />
             {step['tag_name'] ? (
                 <>
@@ -243,6 +296,7 @@ function AutocaptureFields({
                                 instead. This field will disappear when cleared.
                             </span>
                         }
+                        disabledReason={disabledReason}
                     />
                 </>
             ) : undefined}
@@ -259,15 +313,24 @@ function AutocaptureFields({
                         <Link to={`${learnMoreLink}#matching-selectors`}>Learn more in Docs.</Link>
                     </span>
                 }
+                disabledReason={disabledReason}
             />
             <AndSeparator />
             <Option
                 step={step}
                 sendStep={sendStep}
                 item="url"
-                labelExtra={<StringMatchingSelection field="url" step={step} sendStep={sendStep} />}
+                labelExtra={
+                    <StringMatchingSelection
+                        field="url"
+                        step={step}
+                        sendStep={sendStep}
+                        disabledReason={disabledReason}
+                    />
+                }
                 label="Page URL"
                 caption="The page on which the interaction occurred."
+                disabledReason={disabledReason}
             />
             {step?.url_matching && step.url_matching in URL_MATCHING_HINTS && (
                 <small>{URL_MATCHING_HINTS[step.url_matching]}</small>
@@ -279,9 +342,11 @@ function AutocaptureFields({
 function TypeSwitcher({
     step,
     sendStep,
+    disabledReason,
 }: {
     step: ActionStepType
     sendStep: (stepToSend: ActionStepType) => void
+    disabledReason?: string
 }): JSX.Element {
     const handleChange = (type: string): void => {
         if (type === '$autocapture') {
@@ -311,16 +376,19 @@ function TypeSwitcher({
                         value: '$pageview',
                         label: 'Pageview',
                         'data-attr': 'action-type-pageview',
+                        disabledReason,
                     },
                     {
                         value: '$autocapture',
                         label: 'Autocapture',
                         'data-attr': 'action-type-autocapture',
+                        disabledReason,
                     },
                     {
                         value: 'event',
                         label: 'Other events',
                         'data-attr': 'action-type-other',
+                        disabledReason,
                     },
                 ]}
                 fullWidth
@@ -334,10 +402,12 @@ function StringMatchingSelection({
     field,
     step,
     sendStep,
+    disabledReason,
 }: {
     field: 'url' | 'text' | 'href'
     step: ActionStepType
     sendStep: (stepToSend: ActionStepType) => void
+    disabledReason?: string
 }): JSX.Element {
     const key = `${field}_matching` as keyof ActionStepType
     const handleURLMatchChange = (value: string): void => {
@@ -354,14 +424,17 @@ function StringMatchingSelection({
                     {
                         value: 'exact',
                         label: 'matches exactly',
+                        disabledReason,
                     },
                     {
                         value: 'regex',
                         label: 'matches regex',
+                        disabledReason,
                     },
                     {
                         value: 'contains',
                         label: 'contains',
+                        disabledReason,
                     },
                 ]}
                 size="xsmall"

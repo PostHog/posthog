@@ -8,7 +8,17 @@ process.env.TZ = process.env.TZ || 'UTC'
  * https://jestjs.io/docs/en/configuration.html
  */
 
-const esmModules = ['query-selector-shadow-dom', 'react-syntax-highlighter', '@react-hook', '@medv', 'monaco-editor']
+const esmModules = [
+    'query-selector-shadow-dom',
+    'react-syntax-highlighter',
+    '@react-hook',
+    '@medv',
+    'monaco-editor',
+    'mdast-util-find-and-replace',
+    'escape-string-regexp',
+    'unist-util-visit-parents',
+    'unist-util-is',
+]
 const eeFolderExists = fs.existsSync('../ee/frontend/exports.ts')
 function rootDirectories(): string[] {
     const rootDirectories = ['<rootDir>/src', '<rootDir>/../products']
@@ -176,9 +186,7 @@ const config: Config = {
     // ],
 
     // An array of regexp pattern strings that are matched against all test paths, matched tests are skipped
-    // testPathIgnorePatterns: [
-    //   "/node_modules/"
-    // ],
+    testPathIgnorePatterns: ['/node_modules/', '/products/mcp/'],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files
     // testRegex: [],

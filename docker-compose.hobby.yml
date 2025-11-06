@@ -103,6 +103,8 @@ services:
             SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user'
+            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             SESSION_RECORDING_V2_S3_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
@@ -127,6 +129,8 @@ services:
             SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user'
+            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             SESSION_RECORDING_V2_S3_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
@@ -134,6 +138,8 @@ services:
             CDP_REDIS_PORT: 6379
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
         depends_on:
             - db
@@ -299,3 +305,4 @@ volumes:
     redis-data:
     redis7-data:
     kafka-data:
+    redpanda-data:

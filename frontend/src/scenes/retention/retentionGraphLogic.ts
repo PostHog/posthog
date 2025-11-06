@@ -40,7 +40,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                     return {
                         ...cohortRetention,
                         id: datasetIndex,
-                        days: cohortRetention.values.map((_, index) => `${period} ${index}`),
+                        days: cohortRetention.values.map((value) => value.cellDate.toISOString()),
                         labels: cohortRetention.values.map((_, index) => `${period} ${index}`),
                         count: 0,
                         label: cohortRetention.date

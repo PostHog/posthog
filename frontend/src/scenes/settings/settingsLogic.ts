@@ -1,4 +1,5 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import FuseClass from 'fuse.js'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,6 +13,30 @@ import { Realm } from '~/types'
 import { SETTINGS_MAP } from './SettingsMap'
 import type { settingsLogicType } from './settingsLogicType'
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
+
+// Helping kea-typegen navigate the exported default class for Fuse
+export interface SettingsFuse extends FuseClass<Setting> {}
+export interface SectionsFuse extends FuseClass<SettingSection> {}
+
+const getSettingStringValue = (setting: Setting): string => {
+    if (setting.searchTerm) {
+        return setting.searchTerm
+    }
+    if (typeof setting.title === 'string') {
+        return setting.title
+    }
+    return setting.id
+}
+
+const getSectionStringValue = (section: SettingSection): string => {
+    if (section.searchValue) {
+        return section.searchValue
+    }
+    if (typeof section.title === 'string') {
+        return section.title
+    }
+    return section.id
+}
 
 export const settingsLogic = kea<settingsLogicType>([
     props({} as SettingsLogicProps),
@@ -36,6 +61,8 @@ export const settingsLogic = kea<settingsLogicType>([
         selectSetting: (setting: SettingId) => ({ setting }),
         openCompactNavigation: true,
         closeCompactNavigation: true,
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        toggleLevelCollapse: (level: SettingLevelId) => ({ level }),
     }),
 
     reducers(({ props }) => ({
@@ -72,7 +99,45 @@ export const settingsLogic = kea<settingsLogicType>([
                 selectSetting: () => false,
             },
         ],
+
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+
+        collapsedLevels: [
+            {} as Record<SettingLevelId, boolean>,
+            {
+                toggleLevelCollapse: (state, { level }) => ({
+                    ...state,
+                    [level]: !state[level],
+                }),
+                // Auto-expand when selecting a level
+                selectLevel: (state, { level }) => ({
+                    ...state,
+                    [level]: false,
+                }),
+                // Auto-expand when selecting a section
+                selectSection: (state, { level }) => ({
+                    ...state,
+                    [level]: false,
+                }),
+            },
+        ],
     })),
+
+    listeners({
+        selectSection: () => {
+            setTimeout(() => {
+                const mainElement = document.querySelector('main')
+                if (mainElement) {
+                    mainElement.scrollTo({ top: 0, behavior: 'smooth' })
+                }
+            }, 100)
+        },
+    }),
 
     selectors({
         levels: [
@@ -87,8 +152,8 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         sections: [
-            (s) => [s.doesMatchFlags, s.featureFlags, s.isCloudOrDev],
-            (doesMatchFlags, featureFlags, isCloudOrDev): SettingSection[] => {
+            (s) => [s.doesMatchFlags, s.featureFlags, s.isCloudOrDev, s.currentTeam],
+            (doesMatchFlags, featureFlags, isCloudOrDev, currentTeam): SettingSection[] => {
                 const sections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
                     if (section.hideSelfHost && !isCloudOrDev) {
                         return false
@@ -96,6 +161,12 @@ export const settingsLogic = kea<settingsLogicType>([
 
                     return true
                 })
+
+                // If there's no current team, hide project and environment sections entirely
+                if (!currentTeam) {
+                    return sections.filter((section) => section.level !== 'environment' && section.level !== 'project')
+                }
+
                 if (!featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
                     return sections
                         .filter((section) => section.level !== 'project')
@@ -117,14 +188,18 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         selectedLevel: [
-            (s) => [s.selectedLevelRaw, s.selectedSectionIdRaw, s.featureFlags],
-            (selectedLevelRaw, selectedSectionIdRaw, featureFlags): SettingLevelId => {
+            (s) => [s.selectedLevelRaw, s.selectedSectionIdRaw, s.featureFlags, s.currentTeam],
+            (selectedLevelRaw, selectedSectionIdRaw, featureFlags, currentTeam): SettingLevelId => {
                 // As of middle of September 2024, `details` and `danger-zone` are the only sections present
                 // at both Environment and Project levels. Others we want to redirect based on the feature flag.
                 if (
                     !selectedSectionIdRaw ||
                     (!selectedSectionIdRaw.endsWith('-details') && !selectedSectionIdRaw.endsWith('-danger-zone'))
                 ) {
+                    // If there's no current team, default to organization settings
+                    if (!currentTeam) {
+                        return 'organization'
+                    }
                     if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
                         return selectedLevelRaw === 'project' ? 'environment' : selectedLevelRaw
                     }
@@ -176,6 +251,9 @@ export const settingsLogic = kea<settingsLogicType>([
                     if (x.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
                         return false
                     }
+                    if (x.hideWhenNoSection && !selectedSectionId) {
+                        return false
+                    }
                     if (x.allowForTeam) {
                         return x.allowForTeam(currentTeam)
                     }
@@ -214,6 +292,80 @@ export const settingsLogic = kea<settingsLogicType>([
                 }
             },
         ],
+
+        settingsFuse: [
+            (s) => [s.settings],
+            (settings: Setting[]): SettingsFuse => {
+                const settingsWithSearchValues = settings.map((setting) => ({
+                    ...setting,
+                    searchValue: getSettingStringValue(setting),
+                }))
+
+                return new FuseClass(settingsWithSearchValues || [], {
+                    keys: ['searchValue', 'id'],
+                    threshold: 0.3,
+                })
+            },
+        ],
+
+        sectionsFuse: [
+            (s) => [s.sections],
+            (sections: SettingSection[]): SectionsFuse => {
+                const sectionsWithSearchValues = sections.map((section) => ({
+                    ...section,
+                    searchValue: getSectionStringValue(section),
+                    settingsSearchValues: section.settings.map(getSettingStringValue).join(' '),
+                }))
+
+                return new FuseClass(sectionsWithSearchValues || [], {
+                    keys: ['searchValue', 'settingsSearchValues', 'id'],
+                    threshold: 0.3,
+                })
+            },
+        ],
+
+        filteredLevels: [
+            (s) => [s.levels, s.sections, s.searchTerm, s.sectionsFuse, s.settingsFuse],
+            (
+                levels: SettingLevelId[],
+                sections: SettingSection[],
+                searchTerm: string,
+                sectionsFuse: SectionsFuse
+            ): SettingLevelId[] => {
+                if (!searchTerm.trim()) {
+                    return levels
+                }
+
+                return levels.filter((level: SettingLevelId) => {
+                    // Check if level name matches
+                    if (level.toLowerCase().includes(searchTerm.toLowerCase())) {
+                        return true
+                    }
+
+                    // Check if any section in this level matches using FuseJS
+                    const levelSections = sections.filter((section: SettingSection) => section.level === level)
+                    const matchingSections = sectionsFuse.search(searchTerm)
+
+                    return matchingSections.some((result) =>
+                        levelSections.some((section) => section.id === result.item.id)
+                    )
+                })
+            },
+        ],
+
+        filteredSections: [
+            (s) => [s.sections, s.searchTerm, s.sectionsFuse],
+            (sections: SettingSection[], searchTerm: string, sectionsFuse: SectionsFuse): SettingSection[] => {
+                if (!searchTerm.trim()) {
+                    return sections
+                }
+
+                const matchingResults = sectionsFuse.search(searchTerm)
+                const matchingIds = new Set(matchingResults.map((result) => result.item.id))
+
+                return sections.filter((section) => matchingIds.has(section.id))
+            },
+        ],
     }),
     actionToUrl(() => ({
         selectSetting: ({ setting }) => {
@@ -228,6 +380,7 @@ export const settingsLogic = kea<settingsLogicType>([
         ['*/replay/settings']: (_, __, hashParams) => {
             const { selectedSetting } = hashParams
             const selectedSettingId = selectedSetting as SettingId
+
             if (!selectedSettingId) {
                 return
             }

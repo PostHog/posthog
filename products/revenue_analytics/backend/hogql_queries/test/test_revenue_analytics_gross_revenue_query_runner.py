@@ -2,8 +2,14 @@ from decimal import Decimal
 from pathlib import Path
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
-from unittest.mock import ANY
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
+from unittest.mock import ANY, patch
 
 from posthog.schema import (
     CurrencyCode,
@@ -25,9 +31,11 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from posthog.warehouse.models import ExternalDataSchema
-from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 
+from products.data_warehouse.backend.models import ExternalDataSchema
+from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_gross_revenue_query_runner import (
     RevenueAnalyticsGrossRevenueQueryRunner,
 )
@@ -95,10 +103,15 @@ LAST_6_MONTHS_DAYS = ALL_MONTHS_DAYS[:7].copy()
 LAST_6_MONTHS_FAKEDATETIMES = ALL_MONTHS_FAKEDATETIMES[:7].copy()
 
 
-# Commenting because this is flaky right now, we'll investigate and bring back later
-# @snapshot_clickhouse_queries
+@snapshot_clickhouse_queries
 class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-05-30"
+
+    def _create_managed_viewsets(self):
+        self.viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+            team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
+        self.viewset.sync_views()
 
     def _create_purchase_events(self, data):
         person_result = []
@@ -342,18 +355,18 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 "data": [
                     0,
                     0,
-                    Decimal("647.2435553432"),
-                    Decimal("2507.2183953432"),
-                    Decimal("2110.2725453432"),
-                    Decimal("2705.2789111565"),
-                    Decimal("1631.9303277469"),
-                    Decimal("31.2462403432"),
-                    Decimal("31.2462403432"),
-                    Decimal("31.2462403432"),
-                    Decimal("31.2462403432"),
-                    Decimal("31.2462403432"),
-                    Decimal("31.2462403432"),
-                    Decimal("31.2462403432"),
+                    Decimal("646.1471446664"),
+                    Decimal("2506.1219846664"),
+                    Decimal("2109.1761346664"),
+                    Decimal("2668.3175004797"),
+                    Decimal("1621.0866070701"),
+                    Decimal("30.1498296664"),
+                    Decimal("30.1498296664"),
+                    Decimal("30.1498296664"),
+                    Decimal("30.1498296664"),
+                    Decimal("30.1498296664"),
+                    Decimal("30.1498296664"),
+                    Decimal("30.1498296664"),
                     0,
                     0,
                     0,
@@ -367,6 +380,53 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 },
             },
         )
+
+    # NOTE: This can be removed once `managed-viewsets` feature flag is rolled out to all teams
+    def test_with_data_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            self._create_managed_viewsets()
+
+            # Use huge date range to collect all data
+            results = self._run_revenue_analytics_gross_revenue_query(
+                date_range=DateRange(date_from="2024-11-01", date_to="2026-05-01")
+            ).results
+
+            self.assertEqual(len(results), 1)
+
+            self.assertEqual(
+                results[0],
+                {
+                    "label": "stripe.posthog_test",
+                    "days": ALL_MONTHS_DAYS,
+                    "labels": ALL_MONTHS_LABELS,
+                    "data": [
+                        0,
+                        0,
+                        Decimal("646.1471446664"),
+                        Decimal("2506.1219846664"),
+                        Decimal("2109.1761346664"),
+                        Decimal("2668.3175004797"),
+                        Decimal("1621.0866070701"),
+                        Decimal("30.1498296664"),
+                        Decimal("30.1498296664"),
+                        Decimal("30.1498296664"),
+                        Decimal("30.1498296664"),
+                        Decimal("30.1498296664"),
+                        Decimal("30.1498296664"),
+                        Decimal("30.1498296664"),
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "action": {
+                        "days": ALL_MONTHS_FAKEDATETIMES,
+                        "id": "stripe.posthog_test",
+                        "name": "stripe.posthog_test",
+                    },
+                },
+            )
 
     def test_with_data_and_date_range(self):
         results = self._run_revenue_analytics_gross_revenue_query(
@@ -382,9 +442,9 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 "days": ["2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
                 "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"],
                 "data": [
-                    Decimal("2507.2183953432"),
-                    Decimal("2110.2725453432"),
-                    Decimal("2705.2789111565"),
+                    Decimal("2506.1219846664"),
+                    Decimal("2109.1761346664"),
+                    Decimal("2668.3175004797"),
                     0,
                 ],
                 "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
@@ -411,19 +471,18 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 "data": [
                     0,
                     0,
-                    Decimal("647.2435553432"),
-                    Decimal("2507.2183953432"),
-                    Decimal("2110.2725453432"),
-                    # This value is different from the one in the tests above because it doesn't include invoiceless charges
-                    Decimal("2415.3402353432"),
-                    Decimal("1631.9303277469"),
-                    Decimal("31.2462403432"),
-                    Decimal("31.2462403432"),
-                    Decimal("31.2462403432"),
-                    Decimal("31.2462403432"),
-                    Decimal("31.2462403432"),
-                    Decimal("31.2462403432"),
-                    Decimal("31.2462403432"),
+                    Decimal("646.1471446664"),
+                    Decimal("2506.1219846664"),
+                    Decimal("2109.1761346664"),
+                    Decimal("2378.3788246664"),
+                    Decimal("1621.0866070701"),
+                    Decimal("30.1498296664"),
+                    Decimal("30.1498296664"),
+                    Decimal("30.1498296664"),
+                    Decimal("30.1498296664"),
+                    Decimal("30.1498296664"),
+                    Decimal("30.1498296664"),
+                    Decimal("30.1498296664"),
                     0,
                     0,
                     0,
@@ -481,7 +540,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                     Decimal("26.0100949999"),
                     Decimal("1131.8316549999"),
                     Decimal("444.1561449999"),
-                    Decimal("176.5394849999"),
+                    Decimal("140.6744849999"),
                     Decimal("51.5290223463"),
                 ],
                 [
@@ -496,11 +555,11 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 [
                     0,
                     0,
-                    Decimal("5.2361453433"),
-                    Decimal("90.7143953433"),
-                    Decimal("306.0637953433"),
-                    Decimal("88.4030953433"),
-                    Decimal("24.0595554006"),
+                    Decimal("4.1397346665"),
+                    Decimal("89.6179846665"),
+                    Decimal("304.9673846665"),
+                    Decimal("87.3066846665"),
+                    Decimal("22.9631447238"),
                 ],
                 [
                     0,
@@ -518,7 +577,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                     Decimal("24.352335"),
                     Decimal("19.960865"),
                     Decimal("1.462495"),
-                    Decimal("9.74731"),
+                    0,
                 ],
                 [
                     0,
@@ -571,7 +630,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                     Decimal("496.38754"),
                     Decimal("1159.34808"),
                 ],
-                [0, 0, 0, Decimal("1105.82156"), Decimal("273.57025"), Decimal("150.52939"), 0],
+                [0, 0, 0, Decimal("1105.82156"), Decimal("273.57025"), Decimal("114.66439"), 0],
                 [0, 0, 0, Decimal("456.45784"), Decimal("456.45784"), Decimal("1071.67808"), 0],
                 [
                     0,
@@ -587,11 +646,11 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 [
                     0,
                     0,
-                    Decimal("5.2361453433"),
-                    Decimal("5.2361453433"),
-                    Decimal("220.5855453433"),
-                    Decimal("5.2361453433"),
-                    Decimal("24.0595554006"),
+                    Decimal("4.1397346665"),
+                    Decimal("4.1397346665"),
+                    Decimal("219.4891346665"),
+                    Decimal("4.1397346665"),
+                    Decimal("22.9631447238"),
                 ],
                 [
                     0,
@@ -611,7 +670,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                     Decimal("5.758325"),
                     Decimal("1.366855"),
                     Decimal("1.366855"),
-                    Decimal("9.74731"),
+                    0,
                 ],
                 [
                     0,
@@ -635,7 +694,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 Decimal("24.352335"),
                 Decimal("19.960865"),
                 Decimal("1.462495"),
-                Decimal("9.74731"),
+                0,
             ]
         ]
 
@@ -688,11 +747,11 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 [
                     0,
                     0,
-                    Decimal("31.2462403432"),
-                    Decimal("31.2462403432"),
-                    Decimal("391.1714403432"),
-                    Decimal("321.1849161565"),
-                    Decimal("75.5885777469"),
+                    Decimal("30.1498296664"),
+                    Decimal("30.1498296664"),
+                    Decimal("390.0750296664"),
+                    Decimal("320.0885054797"),
+                    Decimal("74.4921670701"),
                 ]
             ],
         )
@@ -756,6 +815,68 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 },
             },
         )
+
+    def test_with_events_data_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            s1 = str(uuid7("2025-01-25"))
+            s2 = str(uuid7("2025-02-03"))
+            s3 = str(uuid7("2025-02-05"))
+            s4 = str(uuid7("2025-02-08"))
+            self._create_purchase_events(
+                [
+                    (
+                        "p1",
+                        [
+                            ("2025-01-25", s1, 55, "USD", "", "", None),  # Subscriptionless event
+                            ("2025-01-25", s1, 42, "USD", "Prod A", "coupon_x", "sub_1"),
+                            ("2025-02-03", s2, 25, "USD", "Prod A", "", "sub_1"),  # Contraction
+                        ],
+                    ),
+                    (
+                        "p2",
+                        [
+                            ("2025-02-05", s3, 43, "BRL", "Prod B", "coupon_y", "sub_2"),
+                            ("2025-03-08", s4, 286, "BRL", "Prod B", "", "sub_2"),  # Expansion
+                        ],
+                    ),
+                ]
+            )
+
+            self.team.revenue_analytics_config.events = [
+                REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(
+                    update={
+                        "subscriptionDropoffMode": "after_dropoff_period",  # More reasonable default for tests
+                    }
+                )
+            ]
+            self.team.revenue_analytics_config.save()
+            self._create_managed_viewsets()
+
+            results = self._run_revenue_analytics_gross_revenue_query(
+                properties=[
+                    RevenueAnalyticsPropertyFilter(
+                        key="source_label",
+                        operator=PropertyOperator.EXACT,
+                        value=["revenue_analytics.events.purchase"],
+                    )
+                ],
+            ).results
+
+            self.assertEqual(len(results), 1)
+            self.assertEqual(
+                results[0],
+                {
+                    "label": "revenue_analytics.events.purchase",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, 0, Decimal("77.309"), Decimal("25.4879321819"), Decimal("36.9999675355"), 0, 0],
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.events.purchase",
+                        "name": "revenue_analytics.events.purchase",
+                    },
+                },
+            )
 
     def test_with_events_data_and_currency_aware_divider(self):
         self.team.revenue_analytics_config.events = [

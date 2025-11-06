@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub remote_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub repo_name: Option<String>,
     pub branch: String,
     pub commit_id: String,
@@ -46,7 +48,7 @@ fn find_git_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
     }
 }
 
-fn get_remote_url(git_dir: &Path) -> Option<String> {
+pub fn get_remote_url(git_dir: &Path) -> Option<String> {
     // Try grab it from the git config
     let config_path = git_dir.join("config");
     if config_path.exists() {
@@ -57,9 +59,14 @@ fn get_remote_url(git_dir: &Path) -> Option<String> {
 
         for line in config_content.lines() {
             let line = line.trim();
-            if line.starts_with("url = ") && line.ends_with(".git") {
-                let url = line.trim_start_matches("url = ");
-                return Some(url.to_string());
+            if line.starts_with("url = ") {
+                let url = line.trim_start_matches("url = ").trim();
+                let normalized = if url.ends_with(".git") {
+                    url.to_string()
+                } else {
+                    format!("{url}.git")
+                };
+                return Some(normalized);
             }
         }
     }
@@ -67,7 +74,7 @@ fn get_remote_url(git_dir: &Path) -> Option<String> {
     None
 }
 
-fn get_repo_name(git_dir: &Path) -> Option<String> {
+pub fn get_repo_name(git_dir: &Path) -> Option<String> {
     // Try grab it from the configured remote, otherwise just use the directory name
     let config_path = git_dir.join("config");
     if config_path.exists() {
@@ -78,7 +85,7 @@ fn get_repo_name(git_dir: &Path) -> Option<String> {
 
         for line in config_content.lines() {
             let line = line.trim();
-            if line.starts_with("url = ") && line.ends_with(".git") {
+            if line.starts_with("url = ") {
                 let url = line.trim_start_matches("url = ");
                 if let Some(repo_name) = url.split('/').next_back() {
                     let clean_name = repo_name.trim_end_matches(".git");

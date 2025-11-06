@@ -14,14 +14,10 @@ pub struct Token {
 }
 
 impl Token {
-    pub fn get_host(&self, host: Option<&str>) -> String {
-        host.map(str::to_string)
-            .unwrap_or_else(|| {
-                self.host
-                    .clone()
-                    .unwrap_or("https://us.posthog.com".to_string())
-            })
-            .to_string()
+    pub fn get_host(&self) -> String {
+        self.host
+            .clone()
+            .unwrap_or("https://us.posthog.com".to_string())
     }
 }
 
@@ -109,7 +105,23 @@ pub fn token_validator(token: &str) -> Result<Validation, CustomUserError> {
     Ok(Validation::Valid)
 }
 
-pub fn load_token() -> Result<Token, Error> {
+pub fn env_id_validator(env_id: &str) -> Result<Validation, CustomUserError> {
+    // Must be a number
+    if env_id.is_empty() {
+        return Ok(Validation::Invalid("Environment ID cannot be empty".into()));
+    }
+
+    // Must be a number
+    if env_id.parse::<u32>().is_err() {
+        return Ok(Validation::Invalid(
+            "Environment ID must be a number".into(),
+        ));
+    }
+
+    Ok(Validation::Valid)
+}
+
+pub fn get_token() -> Result<Token, Error> {
     let env = EnvVarProvider;
     let env_err = match env.get_credentials() {
         Ok(token) => {

@@ -3,6 +3,7 @@ from functools import cache
 
 from infi.clickhouse_orm import migrations
 
+from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import Query, get_cluster
 from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER, CLICKHOUSE_MIGRATIONS_HOST
@@ -17,7 +18,7 @@ def get_migrations_cluster():
 
 def run_sql_with_exceptions(
     sql: str,
-    node_roles: list[NodeRole] | None = None,
+    node_roles: list[NodeRole] | NodeRole | None = None,
     sharded: bool = False,
     is_alter_on_replicated_table: bool = False,
 ):
@@ -52,7 +53,15 @@ def run_sql_with_exceptions(
         configuration, such as when the sharded flag is set for roles other than DATA.
     """
 
+    if node_roles and not isinstance(node_roles, list):
+        node_roles = [node_roles]
+
     node_roles = node_roles or [NodeRole.DATA]
+
+    if settings.E2E_TESTING or settings.DEBUG:
+        # In E2E tests and debug mode, we run migrations on ALL nodes
+        # because we don't have different ClickHouse topologies yet in Docker
+        node_roles = [NodeRole.ALL]
 
     def run_migration():
         if "ON CLUSTER" in sql:
@@ -62,8 +71,8 @@ def run_sql_with_exceptions(
 
         query = Query(sql)
         if sharded:
-            assert (
-                NodeRole.DATA in node_roles and len(node_roles) == 1
+            assert (NodeRole.DATA in node_roles and len(node_roles) == 1) or (
+                settings.E2E_TESTING or settings.DEBUG
             ), "When running migrations on sharded tables, the node_role must be NodeRole.DATA"
             return cluster.map_one_host_per_shard(query).result()
         elif is_alter_on_replicated_table:

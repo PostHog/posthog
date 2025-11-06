@@ -1,14 +1,15 @@
 import json
 import dataclasses
-from datetime import datetime, time, timedelta
-from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union
 from uuid import UUID
 
 from django.conf import settings
+from django.contrib.auth.models import AnonymousUser
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import models, transaction
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
@@ -16,7 +17,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.utils import UUIDT, UUIDTModel
+from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -37,6 +38,7 @@ ActivityScope = Literal[
     "EventDefinition",
     "PropertyDefinition",
     "Notebook",
+    "Endpoint",
     "Dashboard",
     "Replay",
     "Experiment",
@@ -51,6 +53,7 @@ ActivityScope = Literal[
     "ErrorTrackingIssue",
     "DataWarehouseSavedQuery",
     "Organization",
+    "OrganizationDomain",
     "OrganizationMembership",
     "Role",
     "UserGroup",
@@ -70,7 +73,9 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
 ]
-ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
+ChangeAction = Literal[
+    "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out"
+]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -110,65 +115,6 @@ class Detail:
     context: Optional[ActivityContextBase] = None
 
 
-class ActivityDetailEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, Detail | Change | Trigger | ActivityContextBase):
-            return obj.__dict__
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        if isinstance(obj, time):
-            return obj.isoformat()
-        if isinstance(obj, timedelta):
-            return str(obj)
-        if isinstance(obj, UUIDT):
-            return str(obj)
-        if isinstance(obj, UUID):
-            return str(obj)
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "User":
-            return {"first_name": obj.first_name, "email": obj.email}
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "DataWarehouseTable":
-            return obj.name
-        if isinstance(obj, float):
-            # more precision than we'll need but avoids rounding too unnecessarily
-            return format(obj, ".6f").rstrip("0").rstrip(".")
-        if isinstance(obj, Decimal):
-            # more precision than we'll need but avoids rounding too unnecessarily
-            return format(obj, ".6f").rstrip("0").rstrip(".")
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "FeatureFlag":
-            return {
-                "id": obj.id,
-                "key": obj.key,
-                "name": obj.name,
-                "filters": obj.filters,
-                "team_id": obj.team_id,
-                "deleted": obj.deleted,
-                "active": obj.active,
-            }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Insight":
-            return {
-                "id": obj.id,
-                "short_id": obj.short_id,
-            }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Tag":
-            return {
-                "id": obj.id,
-                "name": obj.name,
-                "team_id": obj.team_id,
-            }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "UploadedMedia":
-            return {
-                "id": obj.id,
-                "media_location": obj.media_location,
-            }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Role":
-            return {
-                "id": obj.id,
-                "name": obj.name,
-            }
-
-        return json.JSONEncoder.default(self, obj)
-
-
 class ActivityLog(UUIDTModel):
     class Meta:
         constraints = [
@@ -177,7 +123,50 @@ class ActivityLog(UUIDTModel):
                 check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
             ),
         ]
-        indexes = [models.Index(fields=["team_id", "scope", "item_id"])]
+        indexes = [
+            models.Index(fields=["team_id", "scope", "item_id"]),
+            models.Index(
+                fields=["organization_id", "scope", "-created_at"],
+                name="idx_alog_org_scope_created_at",
+                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
+            ),
+            models.Index(
+                fields=["organization_id"],
+                name="idx_alog_org_detail_exists",
+                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
+            ),
+            # Used for searching on the detail field, e.g. containing a specific value
+            GinIndex(
+                name="activitylog_detail_gin",
+                fields=["detail"],
+                opclasses=["jsonb_ops"],
+            ),
+            # Used primarily for available_filters queries
+            GinIndex(
+                name="idx_alog_detail_gin_path_ops",
+                fields=["detail"],
+                opclasses=["jsonb_path_ops"],
+                condition=models.Q(detail__isnull=False),
+            ),
+            # User-specific filtered queries
+            models.Index(
+                fields=["team_id", "activity", "scope", "user"],
+                name="idx_alog_team_act_scope_usr",
+                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
+            ),
+            # Advanced activity logs: team-scoped queries with ordering
+            models.Index(
+                fields=["team_id", "scope", "-created_at"],
+                name="idx_alog_team_scope_created",
+                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
+            ),
+            # Advanced activity logs: team queries with activity filter
+            models.Index(
+                fields=["team_id", "scope", "activity", "-created_at"],
+                name="idx_alog_team_scp_act_crtd",
+                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
+            ),
+        ]
 
     team_id = models.PositiveIntegerField(null=True)
     organization_id = models.UUIDField(null=True)
@@ -232,6 +221,9 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     "ExternalDataSource": [
         "job_inputs",
     ],
+    "OrganizationDomain": [
+        "scim_bearer_token",
+    ],
 }
 
 field_name_overrides: dict[ActivityScope, dict[str, str]] = {
@@ -261,9 +253,6 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
 
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
-    "PersonalAPIKey": [
-        "last_used_at",
-    ],
     "AlertConfiguration": [
         "last_checked_at",
         "next_check_at",
@@ -271,6 +260,20 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "last_notified_at",
         "last_error_at",
     ],
+    "Dashboard": ["last_accessed_at"],
+    "PersonalAPIKey": [
+        "last_used_at",
+    ],
+}
+
+# Activity visibility restrictions - controls which users can see certain activity logs
+# Used to hide sensitive activities (e.g., impersonated logins) from non-staff users
+activity_visibility_restrictions: dict[ActivityScope, dict[str, Any]] = {
+    "User": {
+        "activities": ["logged_in", "logged_out"],
+        "exclude_when": {"was_impersonated": True},
+        "allow_staff": True,
+    },
 }
 
 field_exclusions: dict[ActivityScope, list[str]] = {
@@ -369,6 +372,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "id",
         "secret_api_token",
         "secret_api_token_backup",
+        "_old_api_token",
     ],
     "Project": ["id", "created_at"],
     "DataWarehouseSavedQuery": [
@@ -380,6 +384,9 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "latest_error",
         "sync_frequency_interval",
         "deleted_name",
+    ],
+    "Endpoint": [
+        "saved_query",
     ],
     "Organization": [
         "teams",
@@ -425,6 +432,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "value",
         "secure_value",
         "last_used_at",
+        "last_rolled_at",
     ],
     "User": [
         "password",
@@ -448,7 +456,16 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     "Action": [
         "bytecode",
         "bytecode_error",
-        "steps_json",
+        "is_calculating",
+        "last_calculated_at",
+        "embedding_last_synced_at",
+        "embedding_version",
+        "last_summarized_at",
+        "action_steps",
+        "events",
+        "plugin_configs",
+        "tagged_items",
+        "survey",
     ],
     "ExternalDataSource": [
         "connection_id",
@@ -647,6 +664,27 @@ def dict_changes_between(
     return changes
 
 
+def _handle_activity_log_transaction(create_fn, error_context: dict):
+    try:
+        # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
+        if not transaction.get_autocommit() and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True):
+            transaction.on_commit(create_fn)
+            return None
+        else:
+            return create_fn()
+
+    except Exception as e:
+        logger.warn(
+            "activity_log.failed_to_write_to_activity_log",
+            **error_context,
+            exception=e,
+        )
+        capture_exception(e)
+        if settings.TEST:
+            raise
+        return None
+
+
 def log_activity(
     *,
     organization_id: Optional[UUID],
@@ -658,6 +696,7 @@ def log_activity(
     detail: Detail,
     was_impersonated: Optional[bool],
     force_save: bool = False,
+    instance_only: bool = False,
 ) -> ActivityLog | None:
     if was_impersonated and user is None:
         logger.warn(
@@ -680,8 +719,8 @@ def log_activity(
             )
             return None
 
-        def _do_log_activity():
-            return ActivityLog.objects.create(
+        def _create_activity_log_instance():
+            return ActivityLog(
                 organization_id=organization_id,
                 team_id=team_id,
                 user=user,
@@ -693,12 +732,32 @@ def log_activity(
                 detail=detail,
             )
 
-        # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
-        if not transaction.get_autocommit() and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True):
-            transaction.on_commit(_do_log_activity)
-            return None
-        else:
-            return _do_log_activity()
+        def _do_log_activity():
+            log = _create_activity_log_instance()
+            return ActivityLog.objects.create(
+                organization_id=log.organization_id,
+                team_id=log.team_id,
+                user=log.user,
+                was_impersonated=log.was_impersonated,
+                is_system=log.is_system,
+                item_id=log.item_id,
+                scope=log.scope,
+                activity=log.activity,
+                detail=log.detail,
+            )
+
+        if instance_only:
+            return _create_activity_log_instance()
+
+        return _handle_activity_log_transaction(
+            _do_log_activity,
+            {
+                "team": team_id,
+                "organization_id": organization_id,
+                "scope": scope,
+                "activity": activity,
+            },
+        )
 
     except Exception as e:
         logger.warn(
@@ -709,12 +768,70 @@ def log_activity(
             activity=activity,
             exception=e,
         )
+        capture_exception(e)
         if settings.TEST:
-            # Re-raise in tests, so that we can catch failures in test suites - but keep quiet in production,
-            # as we currently don't treat activity logs as critical
             raise
+        return None
 
-    return None
+
+class LogActivityEntry(TypedDict, total=False):
+    organization_id: Optional[UUID]
+    team_id: Optional[int]
+    user: Optional["User"]
+    item_id: Optional[Union[int, str, UUID]]
+    scope: Required[str]
+    activity: Required[str]
+    detail: Required[Detail]
+    was_impersonated: Optional[bool]
+    force_save: bool
+
+
+def bulk_log_activity(log_entries: list[LogActivityEntry], batch_size: int = 500) -> list[ActivityLog]:
+    if not log_entries:
+        return []
+
+    activity_logs = []
+    dropped_count = 0
+    for entry in log_entries:
+        log = log_activity(**entry, instance_only=True)
+
+        if log:
+            activity_logs.append(log)
+        else:
+            dropped_count += 1
+            logger.info(
+                "bulk_log_activity.entry_dropped",
+                scope=entry.get("scope"),
+                activity=entry.get("activity"),
+                team_id=entry.get("team_id"),
+                organization_id=entry.get("organization_id"),
+            )
+
+    if dropped_count > 0:
+        logger.info(
+            "bulk_log_activity.entries_dropped",
+            total_entries=len(log_entries),
+            dropped_count=dropped_count,
+            created_count=len(activity_logs),
+        )
+
+    if not activity_logs:
+        return []
+
+    def _do_bulk_create():
+        return ActivityLog.objects.bulk_create(activity_logs, batch_size=batch_size)
+
+    result = _handle_activity_log_transaction(
+        _do_bulk_create,
+        {
+            "count": len(activity_logs),
+            "scope": "bulk_log_activity",
+            "activity": "bulk_create",
+            "log_entries": log_entries,
+        },
+    )
+
+    return result or []
 
 
 @dataclasses.dataclass(frozen=True)
@@ -737,6 +854,36 @@ def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: in
         has_next=activity_page.has_next(),
         has_previous=activity_page.has_previous(),
     )
+
+
+def apply_activity_visibility_restrictions(queryset: QuerySet, user: Union["User", AnonymousUser, None]) -> QuerySet:
+    """
+    Apply visibility restrictions to activity log queryset based on user permissions.
+    """
+    exclusion_queries = []
+    for scope, restrictions in activity_visibility_restrictions.items():
+        if restrictions.get("allow_staff"):
+            if user and not isinstance(user, AnonymousUser) and hasattr(user, "is_staff") and user.is_staff:
+                continue
+
+        activities = restrictions.get("activities", [])
+        exclude_conditions = restrictions.get("exclude_when", {})
+
+        # Build the query: scope AND activity IN [...] AND exclude_conditions
+        query = Q(scope=scope) & Q(activity__in=activities)
+        for field, value in exclude_conditions.items():
+            query &= Q(**{field: value})
+
+        exclusion_queries.append(query)
+
+    # Apply all exclusions with OR logic
+    if exclusion_queries:
+        combined_exclusion = exclusion_queries[0]
+        for q in exclusion_queries[1:]:
+            combined_exclusion |= q
+        queryset = queryset.exclude(combined_exclusion)
+
+    return queryset
 
 
 def load_activity(
@@ -768,7 +915,7 @@ def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int 
 
 @receiver(post_save, sender=ActivityLog)
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
-    from posthog.api.activity_log import ActivityLogSerializer
+    from posthog.api.advanced_activity_logs import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
     from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
@@ -779,23 +926,32 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
         # TODO: Move this into the producer to support dataclasses
         user_data = UserBasicSerializer(instance.user).data if instance.user else None
 
-        if created and instance.team_id is not None:
-            produce_internal_event(
-                team_id=instance.team_id,
-                event=InternalEventEvent(
-                    event="$activity_log_entry_created",
-                    distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
-                    properties=serialized_data,
-                ),
-                person=(
-                    InternalEventPerson(
-                        id=user_data["id"],
-                        properties=user_data,
-                    )
-                    if user_data
-                    else None
-                ),
-            )
+        if created:
+            if instance.team_id is not None:
+                produce_internal_event(
+                    team_id=instance.team_id,
+                    event=InternalEventEvent(
+                        event="$activity_log_entry_created",
+                        distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
+                        properties=serialized_data,
+                    ),
+                    person=(
+                        InternalEventPerson(
+                            id=user_data["id"],
+                            properties=user_data,
+                        )
+                        if user_data
+                        else None
+                    ),
+                )
+            elif instance.organization_id is not None:
+                from posthog.tasks.activity_log import broadcast_activity_log_to_organization
+
+                broadcast_activity_log_to_organization.delay(
+                    organization_id=instance.organization_id,
+                    serialized_data=serialized_data,
+                    user_data=user_data,
+                )
     except Exception as e:
         # We don't want to hard fail here.
         logger.exception("Failed to produce internal event", data=serialized_data, error=e)

@@ -1,24 +1,39 @@
 import { useValues } from 'kea'
 
+import { getColorVar } from 'lib/colors'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 
-import { HogFunctionMetricsLogicProps } from './hogFunctionMetricsLogic'
-
-const METRICS_INFO = {
-    succeeded: 'Total number of events processed successfully',
-    failed: 'Total number of events that had errors during processing',
-    filtered: 'Total number of events that were filtered out',
-    dropped: 'Total number of events that were dropped during processing',
-    disabled_permanently:
-        'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
+export const HOGFUNCTION_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
+    succeeded: {
+        name: 'Success',
+        description: 'Total number of events processed successfully',
+        color: getColorVar('success'),
+    },
+    failed: {
+        name: 'Failure',
+        description: 'Total number of events that had errors during processing',
+        color: getColorVar('danger'),
+    },
+    filtered: {
+        name: 'Filtered',
+        description: 'Total number of events that were filtered out',
+        color: getColorVar('muted'),
+    },
+    disabled_permanently: {
+        name: 'Disabled',
+        description:
+            'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
+        color: getColorVar('danger'),
+    },
 }
 
-export function HogFunctionMetrics({ id }: HogFunctionMetricsLogicProps): JSX.Element {
+export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
     const logic = appMetricsLogic({
         logicKey: `hog-function-metrics-${id}`,
+        loadOnMount: true,
         loadOnChanges: true,
         forceParams: {
             appSource: 'hog_function',
@@ -37,37 +52,18 @@ export function HogFunctionMetrics({ id }: HogFunctionMetricsLogicProps): JSX.El
             </div>
 
             <div className="flex flex-row gap-2 flex-wrap justify-center">
-                <AppMetricSummary
-                    name="Success"
-                    description={METRICS_INFO.succeeded}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('succeeded')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('succeeded', true)}
-                />
-
-                <AppMetricSummary
-                    name="Failure"
-                    description={METRICS_INFO.failed}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('failed')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('failed', true)}
-                />
-
-                <AppMetricSummary
-                    name="Filtered"
-                    description={METRICS_INFO.filtered}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('filtered')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('filtered', true)}
-                />
-
-                <AppMetricSummary
-                    name="Disabled"
-                    description={METRICS_INFO.disabled_permanently}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('disabled_permanently')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('disabled_permanently', true)}
-                />
+                {['succeeded', 'failed', 'filtered', 'disabled_permanently'].map((key) => (
+                    <AppMetricSummary
+                        key={key}
+                        name={HOGFUNCTION_METRICS_INFO[key].name}
+                        description={HOGFUNCTION_METRICS_INFO[key].description}
+                        loading={appMetricsTrendsLoading}
+                        timeSeries={getSingleTrendSeries(key)}
+                        previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
+                        color={HOGFUNCTION_METRICS_INFO[key].color}
+                        colorIfZero={getColorVar('muted')}
+                    />
+                ))}
             </div>
             <AppMetricsTrends appMetricsTrends={appMetricsTrends} loading={appMetricsTrendsLoading} />
         </div>

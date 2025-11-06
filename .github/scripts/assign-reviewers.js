@@ -54,7 +54,14 @@ function fileMatchesPattern(filePath, pattern) {
 
 function getChangedFiles() {
     try {
-        const output = execSync('git diff --name-only origin/master...HEAD', {
+        const { BASE_SHA, HEAD_SHA } = process.env
+        
+        if (!BASE_SHA || !HEAD_SHA) {
+            console.error('BASE_SHA and HEAD_SHA environment variables are required')
+            return []
+        }
+
+        const output = execSync(`git diff --name-only ${BASE_SHA}...${HEAD_SHA}`, {
             encoding: 'utf8',
             stdio: ['pipe', 'pipe', 'ignore'],
         })

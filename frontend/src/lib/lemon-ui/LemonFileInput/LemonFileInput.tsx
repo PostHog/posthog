@@ -3,10 +3,11 @@ import './LemonFileInput.scss'
 import clsx from 'clsx'
 import { ChangeEvent, RefObject, createRef, useEffect, useState } from 'react'
 
+import { IconUpload } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
 
 export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' | 'accept'> {
     value?: File[]
@@ -62,7 +63,7 @@ export const LemonFileInput = ({
     }, [value]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const handleCallToActionClick = (): void => {
-        if (disabledReason === undefined && fileInputRef.current) {
+        if (!disabledReason && fileInputRef.current) {
             fileInputRef.current.click()
         }
     }
@@ -173,7 +174,7 @@ export const LemonFileInput = ({
                     onClick={handleCallToActionClick}
                 >
                     {callToAction || (
-                        <LemonButton icon={<IconUploadFile />} type="tertiary" disabledReason={disabledReason}>
+                        <LemonButton icon={<IconUpload />} type="tertiary" disabledReason={disabledReason}>
                             Click or drag and drop to upload
                             {accept ? ` ${acceptToDisplayName(accept)}` : ''}
                         </LemonButton>

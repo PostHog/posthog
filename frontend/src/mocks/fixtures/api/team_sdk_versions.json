@@ -1,0 +1,24 @@
+{
+    "sdk_versions": {
+        "posthog-python": [
+            {
+                "lib_version": "6.7.4",
+                "max_timestamp": "2025-10-11 21:07:24.248000+00:00",
+                "count": 180
+            }
+        ],
+        "web": [
+            {
+                "lib_version": "1.274.2",
+                "max_timestamp": "2025-10-11 21:08:04.526000+00:00",
+                "count": 1562
+            },
+            {
+                "lib_version": "1.274.1",
+                "max_timestamp": "2025-10-09 23:51:41.925000+00:00",
+                "count": 133
+            }
+        ]
+    },
+    "cached": true
+}

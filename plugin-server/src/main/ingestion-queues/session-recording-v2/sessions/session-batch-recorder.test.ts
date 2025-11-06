@@ -126,6 +126,8 @@ jest.mock('./metrics', () => ({
         incrementSessionsFlushed: jest.fn(),
         incrementEventsFlushed: jest.fn(),
         incrementBytesWritten: jest.fn(),
+        incrementSessionsRateLimited: jest.fn(),
+        incrementEventsRateLimited: jest.fn(),
     },
 }))
 
@@ -187,7 +189,8 @@ describe('SessionBatchRecorder', () => {
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
-            new Date('2025-01-02 00:00:00Z')
+            new Date('2025-01-02 00:00:00Z'),
+            Number.MAX_SAFE_INTEGER
         )
     })
 
@@ -1414,7 +1417,8 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-01T10:00:00.000Z')
+                new Date('2025-01-01T10:00:00.000Z'),
+                Number.MAX_SAFE_INTEGER
             )
             await recorder.record(message)
             await recorder.flush()
@@ -1602,6 +1606,359 @@ describe('SessionBatchRecorder', () => {
             expect(mockWriter.finish).not.toHaveBeenCalled()
             expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('rate limiting', () => {
+        it('should allow events up to the limit', async () => {
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z'),
+                3
+            )
+
+            const messages = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 3000, data: {} }]),
+            ]
+
+            for (const message of messages) {
+                const bytesWritten = await recorder.record(message)
+                expect(bytesWritten).toBeGreaterThan(0)
+            }
+
+            await recorder.flush()
+            const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
+            expect(writtenData).toHaveLength(1)
+        })
+
+        it('should block events after limit is exceeded', async () => {
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z'),
+                2
+            )
+
+            const messages = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 3000, data: {} }]),
+            ]
+
+            const bytesWritten1 = await recorder.record(messages[0])
+            const bytesWritten2 = await recorder.record(messages[1])
+            const bytesWritten3 = await recorder.record(messages[2])
+
+            expect(bytesWritten1).toBeGreaterThan(0)
+            expect(bytesWritten2).toBeGreaterThan(0)
+            expect(bytesWritten3).toBe(0)
+
+            await recorder.flush()
+            const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
+            expect(writtenData).toHaveLength(0)
+        })
+
+        it('should delete session recorders when rate limited', async () => {
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z'),
+                1
+            )
+
+            const messages = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }]),
+            ]
+
+            await recorder.record(messages[0])
+            await recorder.record(messages[1])
+
+            await recorder.flush()
+            expect(mockWriter.writeSession).not.toHaveBeenCalled()
+        })
+
+        it('should track offsets for rate limited events', async () => {
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z'),
+                1
+            )
+
+            const messages = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }], { offset: 100 }),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }], { offset: 101 }),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 3000, data: {} }], { offset: 102 }),
+            ]
+
+            for (const message of messages) {
+                await recorder.record(message)
+            }
+
+            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({ partition: 1, offset: 100 })
+            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({ partition: 1, offset: 101 })
+            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({ partition: 1, offset: 102 })
+        })
+
+        it('should rate limit sessions independently', async () => {
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z'),
+                2
+            )
+
+            const messages = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }]),
+                createMessage('session2', [{ type: EventType.Meta, timestamp: 1100, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }]),
+                createMessage('session2', [{ type: EventType.Meta, timestamp: 2100, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 3000, data: {} }]),
+                createMessage('session2', [{ type: EventType.Meta, timestamp: 3100, data: {} }]),
+            ]
+
+            const results = []
+            for (const message of messages) {
+                results.push(await recorder.record(message))
+            }
+
+            expect(results[0]).toBeGreaterThan(0)
+            expect(results[1]).toBeGreaterThan(0)
+            expect(results[2]).toBeGreaterThan(0)
+            expect(results[3]).toBeGreaterThan(0)
+            expect(results[4]).toBe(0)
+            expect(results[5]).toBe(0)
+
+            await recorder.flush()
+            expect(mockWriter.writeSession).not.toHaveBeenCalled()
+        })
+
+        it('should clear rate limiter state after flush', async () => {
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z'),
+                2
+            )
+
+            const messages1 = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }]),
+            ]
+
+            for (const message of messages1) {
+                await recorder.record(message)
+            }
+
+            await recorder.flush()
+            jest.clearAllMocks()
+            mockStorage.newBatch.mockReturnValue(mockWriter)
+
+            const messages2 = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 3000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 4000, data: {} }]),
+            ]
+
+            const bytesWritten1 = await recorder.record(messages2[0])
+            const bytesWritten2 = await recorder.record(messages2[1])
+
+            expect(bytesWritten1).toBeGreaterThan(0)
+            expect(bytesWritten2).toBeGreaterThan(0)
+        })
+
+        it('should clean up rate limiter state when partition is discarded', async () => {
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z'),
+                1
+            )
+
+            const message1 = createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }], {
+                partition: 1,
+            })
+            const message2 = createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }], {
+                partition: 1,
+            })
+
+            await recorder.record(message1)
+            await recorder.record(message2)
+
+            recorder.discardPartition(1)
+
+            const message3 = createMessage('session1', [{ type: EventType.Meta, timestamp: 3000, data: {} }], {
+                partition: 2,
+            })
+            const bytesWritten = await recorder.record(message3)
+            expect(bytesWritten).toBeGreaterThan(0)
+        })
+
+        it('should handle rate limiting with different team IDs', async () => {
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z'),
+                1
+            )
+
+            const messages = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }], {}, 1),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }], {}, 2),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 3000, data: {} }], {}, 1),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 4000, data: {} }], {}, 2),
+            ]
+
+            const results = []
+            for (const message of messages) {
+                results.push(await recorder.record(message))
+            }
+
+            expect(results[0]).toBeGreaterThan(0)
+            expect(results[1]).toBeGreaterThan(0)
+            expect(results[2]).toBe(0)
+            expect(results[3]).toBe(0)
+        })
+
+        it('should increment rate limited metrics', async () => {
+            const { SessionBatchMetrics } = require('./metrics')
+            jest.clearAllMocks()
+
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z'),
+                2
+            )
+
+            const messages = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 3000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 4000, data: {} }]),
+            ]
+
+            for (const message of messages) {
+                await recorder.record(message)
+            }
+
+            expect(SessionBatchMetrics.incrementSessionsRateLimited).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementEventsRateLimited).toHaveBeenCalledTimes(2)
+        })
+
+        it('should only increment sessionsRateLimited once per session', async () => {
+            const { SessionBatchMetrics } = require('./metrics')
+            jest.clearAllMocks()
+
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z'),
+                1
+            )
+
+            const messages = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 3000, data: {} }]),
+            ]
+
+            for (const message of messages) {
+                await recorder.record(message)
+            }
+
+            expect(SessionBatchMetrics.incrementSessionsRateLimited).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementEventsRateLimited).toHaveBeenCalledTimes(2)
+        })
+
+        it('should increment metrics for each rate limited session', async () => {
+            const { SessionBatchMetrics } = require('./metrics')
+            jest.clearAllMocks()
+
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z'),
+                1
+            )
+
+            const messages = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }]),
+                createMessage('session2', [{ type: EventType.Meta, timestamp: 1100, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }]),
+                createMessage('session2', [{ type: EventType.Meta, timestamp: 2100, data: {} }]),
+            ]
+
+            for (const message of messages) {
+                await recorder.record(message)
+            }
+
+            expect(SessionBatchMetrics.incrementSessionsRateLimited).toHaveBeenCalledTimes(2)
+            expect(SessionBatchMetrics.incrementEventsRateLimited).toHaveBeenCalledTimes(2)
+        })
+
+        it('should reset rate limited tracking after flush', async () => {
+            const { SessionBatchMetrics } = require('./metrics')
+            jest.clearAllMocks()
+
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z'),
+                1
+            )
+
+            const messages1 = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }]),
+            ]
+
+            for (const message of messages1) {
+                await recorder.record(message)
+            }
+
+            await recorder.flush()
+            jest.clearAllMocks()
+            mockStorage.newBatch.mockReturnValue(mockWriter)
+
+            const messages2 = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 3000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 4000, data: {} }]),
+            ]
+
+            for (const message of messages2) {
+                await recorder.record(message)
+            }
+
+            expect(SessionBatchMetrics.incrementSessionsRateLimited).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementEventsRateLimited).toHaveBeenCalledTimes(1)
         })
     })
 })

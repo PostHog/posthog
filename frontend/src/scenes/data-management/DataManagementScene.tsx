@@ -5,7 +5,6 @@ import React from 'react'
 import { IconInfo } from '@posthog/icons'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { PageHeader } from 'lib/components/PageHeader'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { LemonTab } from 'lib/lemon-ui/LemonTabs'
@@ -17,9 +16,11 @@ import { Annotations } from 'scenes/annotations'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
 import { Comments } from 'scenes/data-management/comments/Comments'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import { ActionsTable } from 'products/actions/frontend/components/ActionsTable'
@@ -29,18 +30,22 @@ import { RevenueAnalyticsSettings } from 'products/revenue_analytics/frontend/se
 import type { dataManagementSceneLogicType } from './DataManagementSceneType'
 import { EventDefinitionsTable } from './events/EventDefinitionsTable'
 import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsView'
+import { DataWarehouseManagedViewsetsScene } from './managed-viewsets/DataWarehouseManagedViewsetsScene'
 import { PropertyDefinitionsTable } from './properties/PropertyDefinitionsTable'
+import { SchemaManagement } from './schema/SchemaManagement'
 
 export enum DataManagementTab {
     Actions = 'actions',
     EventDefinitions = 'events',
     PropertyDefinitions = 'properties',
+    SchemaManagement = 'schema',
     Annotations = 'annotations',
     Comments = 'comments',
     History = 'history',
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
     MarketingAnalytics = 'marketing-analytics',
+    DataWarehouseManagedViewsets = 'data-warehouse-managed-viewsets',
 }
 
 type TabConfig = {
@@ -60,7 +65,7 @@ type TabConfig = {
 const tabs: Record<DataManagementTab, TabConfig> = {
     [DataManagementTab.EventDefinitions]: {
         url: urls.eventDefinitions(),
-        label: 'Events',
+        label: 'Event definitions',
         content: <EventDefinitionsTable />,
         tooltipDocLink: 'https://posthog.com/docs/data/events',
     },
@@ -96,6 +101,12 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         ),
         content: <PropertyDefinitionsTable />,
         tooltipDocLink: 'https://posthog.com/docs/new-to-posthog/understand-posthog#properties',
+    },
+    [DataManagementTab.SchemaManagement]: {
+        url: urls.schemaManagement(),
+        label: 'Property Groups',
+        content: <SchemaManagement />,
+        flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
     },
     [DataManagementTab.Annotations]: {
         url: urls.annotations(),
@@ -157,6 +168,12 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         content: <MarketingAnalyticsSettings />,
         flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
     },
+    [DataManagementTab.DataWarehouseManagedViewsets]: {
+        url: urls.dataWarehouseManagedViewsets(),
+        label: 'Managed viewsets',
+        content: <DataWarehouseManagedViewsetsScene />,
+        flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
+    },
 }
 
 const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
@@ -179,16 +196,76 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
         breadcrumbs: [
             (s) => [s.tab],
             (tab): Breadcrumb[] => {
+                if (tab === DataManagementTab.EventDefinitions) {
+                    return [
+                        {
+                            key: Scene.EventDefinition,
+                            name: sceneConfigurations[Scene.EventDefinition].name,
+                            path: urls.eventDefinitions(),
+                            iconType: sceneConfigurations[Scene.EventDefinition].iconType || 'default_icon_type',
+                        },
+                    ]
+                } else if (tab === DataManagementTab.Annotations) {
+                    return [
+                        {
+                            key: Scene.Annotations,
+                            name: sceneConfigurations[Scene.Annotations].name,
+                            path: urls.annotations(),
+                            iconType: sceneConfigurations[Scene.Annotations].iconType || 'default_icon_type',
+                        },
+                    ]
+                } else if (tab === DataManagementTab.PropertyDefinitions) {
+                    return [
+                        {
+                            key: Scene.PropertyDefinition,
+                            name: sceneConfigurations[Scene.PropertyDefinition].name,
+                            path: urls.propertyDefinitions(),
+                            iconType: sceneConfigurations[Scene.PropertyDefinition].iconType || 'default_icon_type',
+                        },
+                    ]
+                } else if (tab === DataManagementTab.Revenue) {
+                    return [
+                        {
+                            key: Scene.RevenueAnalytics,
+                            name: sceneConfigurations[Scene.RevenueAnalytics].name,
+                            path: urls.revenueSettings(),
+                            iconType: sceneConfigurations[Scene.RevenueAnalytics].iconType || 'default_icon_type',
+                        },
+                    ]
+                } else if (tab === DataManagementTab.Comments) {
+                    return [
+                        {
+                            key: Scene.Comments,
+                            name: sceneConfigurations[Scene.Comments].name,
+                            path: urls.comments(),
+                            iconType: sceneConfigurations[Scene.Comments].iconType || 'default_icon_type',
+                        },
+                    ]
+                } else if (tab === DataManagementTab.IngestionWarnings) {
+                    return [
+                        {
+                            key: Scene.IngestionWarnings,
+                            name: sceneConfigurations[Scene.IngestionWarnings].name,
+                            path: urls.ingestionWarnings(),
+                            iconType: sceneConfigurations[Scene.IngestionWarnings].iconType || 'default_icon_type',
+                        },
+                    ]
+                } else if (tab === DataManagementTab.MarketingAnalytics) {
+                    return [
+                        {
+                            key: Scene.WebAnalyticsMarketing,
+                            name: sceneConfigurations[Scene.WebAnalyticsMarketing].name,
+                            path: urls.marketingAnalytics(),
+                            iconType: sceneConfigurations[Scene.WebAnalyticsMarketing].iconType || 'default_icon_type',
+                        },
+                    ]
+                }
                 return [
-                    {
-                        key: Scene.DataManagement,
-                        name: `Data management`,
-                        path: tabs.events.url,
-                    },
                     {
                         key: tab,
                         name: capitalizeFirstLetter(tab),
                         path: tabs[tab].url,
+                        iconType: 'event_definition',
                     },
                 ]
             },
@@ -197,11 +274,30 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): DataManagementTab[] => {
                 const allTabs = Object.entries(tabs)
+
                 return allTabs
                     .filter(([_, tab]) => {
                         return !tab.flag || !!featureFlags[tab.flag]
                     })
                     .map(([tabName, _]) => tabName) as DataManagementTab[]
+            },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.tab],
+            (tab: DataManagementTab): SidePanelSceneContext | null => {
+                const tabToScopeMap: Partial<Record<DataManagementTab, ActivityScope>> = {
+                    [DataManagementTab.EventDefinitions]: ActivityScope.EVENT_DEFINITION,
+                    [DataManagementTab.PropertyDefinitions]: ActivityScope.PROPERTY_DEFINITION,
+                    [DataManagementTab.Actions]: ActivityScope.ACTION,
+                }
+
+                const currentScope = tabToScopeMap[tab]
+                if (currentScope) {
+                    return {
+                        activity_scope: currentScope,
+                    }
+                }
+                return null
             },
         ],
     }),
@@ -249,12 +345,7 @@ export function DataManagementScene(): JSX.Element | null {
     const { enabledTabs, tab } = useValues(dataManagementSceneLogic)
 
     if (enabledTabs.includes(tab)) {
-        return (
-            <>
-                <PageHeader buttons={<>{tabs[tab].buttons}</>} />
-                {tabs[tab].content}
-            </>
-        )
+        return <>{tabs[tab].content}</>
     }
     return null
 }

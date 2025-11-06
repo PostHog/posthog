@@ -1,10 +1,9 @@
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconEllipsis } from '@posthog/icons'
+import { IconEllipsis, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -15,24 +14,19 @@ import {
     LemonTable,
     LemonTag,
     LemonTagType,
-    SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, CyclotronJobInvocationGlobals, GroupType, GroupTypeIndex, LogEntry } from '~/types'
+import { CyclotronJobInvocationGlobals, GroupType, GroupTypeIndex, LogEntry } from '~/types'
 
 import {
     convertToHogFunctionInvocationGlobals,
@@ -41,11 +35,7 @@ import {
 import { hogFunctionTestLogic } from '../configuration/hogFunctionTestLogic'
 import { HogFunctionFilters } from '../filters/HogFunctionFilters'
 import { tagTypeForLevel } from '../logs/LogsViewer'
-import {
-    CyclotronJobTestInvocationResultWithEventId,
-    HogFunctionTestingLogicProps,
-    hogFunctionTestingLogic,
-} from './hogFunctionTestingLogic'
+import { CyclotronJobTestInvocationResultWithEventId, hogFunctionTestingLogic } from './hogFunctionTestingLogic'
 
 const buildGlobals = (
     row: any,
@@ -80,194 +70,36 @@ const buildGlobals = (
     return globals
 }
 
-export function HogFunctionTesting({ id }: HogFunctionTestingLogicProps): JSX.Element {
-    const { selectingMany, eventsWithRetries, loadingRetries, selectedForRetry } = useValues(
-        hogFunctionTestingLogic({ id })
-    )
-    const { setSelectingMany, retryInvocation, selectForRetry, deselectForRetry, resetSelectedForRetry } = useActions(
-        hogFunctionTestingLogic({ id })
-    )
-    const {
-        loading,
-        loaded,
-        showPaygate,
-        groupTypes,
-        configuration,
-        isConfigurationSubmitting,
-        willReEnableOnSave,
-        willChangeEnabledOnSave,
-        configurationChanged,
-    } = useValues(hogFunctionConfigurationLogic({ id }))
-    const { submitConfiguration } = useActions(hogFunctionConfigurationLogic({ id }))
+export function HogFunctionTesting(): JSX.Element | null {
+    const { logicProps } = useValues(hogFunctionConfigurationLogic)
+    const id = logicProps.id
 
-    if (loading && !loaded) {
-        return <SpinnerOverlay />
-    }
-
-    if (!loaded || !id) {
-        return <NotFound object="Hog function" />
-    }
-
-    if (showPaygate) {
-        return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
+    if (!id) {
+        return null
     }
 
     return (
-        <BindLogic logic={hogFunctionConfigurationLogic} props={{ id }}>
+        <BindLogic logic={hogFunctionTestingLogic} props={{ id }}>
             <div className="deprecated-space-y-3">
-                <PageHeader
-                    buttons={
-                        <>
-                            {!selectingMany ? (
-                                <LemonButton size="small" type="secondary" onClick={() => setSelectingMany(true)}>
-                                    Select invocations
-                                </LemonButton>
-                            ) : (
-                                <>
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        onClick={() => {
-                                            setSelectingMany(false)
-                                            resetSelectedForRetry()
-                                        }}
-                                    >
-                                        Cancel
-                                    </LemonButton>
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        onClick={() =>
-                                            selectedForRetry.length === eventsWithRetries.length
-                                                ? deselectForRetry(eventsWithRetries.map((row) => row[0].uuid))
-                                                : selectForRetry(eventsWithRetries.map((row) => row[0].uuid))
-                                        }
-                                    >
-                                        <span>
-                                            {selectedForRetry.length === eventsWithRetries.length
-                                                ? 'Deselect all'
-                                                : 'Select all'}
-                                        </span>
-                                    </LemonButton>
-                                    <LemonButton
-                                        size="small"
-                                        type="primary"
-                                        onClick={() => {
-                                            LemonDialog.open({
-                                                title: 'Test selected events',
-                                                content: `Are you sure you want to test the selected events? Please don't close the window until the invocations have completed.`,
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                },
-                                                primaryButton: {
-                                                    children: 'Test selected events',
-                                                    onClick: () => {
-                                                        eventsWithRetries
-                                                            .filter((row) => selectedForRetry.includes(row[0].uuid))
-                                                            .forEach((row) =>
-                                                                retryInvocation({
-                                                                    eventId: row[0].uuid,
-                                                                    globals: buildGlobals(
-                                                                        row,
-                                                                        groupTypes,
-                                                                        configuration?.name ?? 'Unnamed'
-                                                                    ),
-                                                                })
-                                                            )
-                                                    },
-                                                },
-                                            })
-                                        }}
-                                        loading={loadingRetries.length > 0}
-                                        disabledReason={
-                                            loadingRetries.length > 0
-                                                ? 'Please wait for the current tests to complete.'
-                                                : selectedForRetry.length === 0
-                                                  ? 'No invocations selected'
-                                                  : undefined
-                                        }
-                                    >
-                                        Test selected
-                                    </LemonButton>
-                                </>
-                            )}
-                            {configurationChanged ? (
-                                <LemonButton
-                                    type="primary"
-                                    htmlType="submit"
-                                    onClick={submitConfiguration}
-                                    loading={isConfigurationSubmitting}
-                                >
-                                    Save
-                                    {willReEnableOnSave
-                                        ? ' & re-enable'
-                                        : willChangeEnabledOnSave
-                                          ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
-                                          : ''}
-                                </LemonButton>
-                            ) : null}
-                        </>
-                    }
-                />
                 <LemonBanner type="info">
                     <span>
                         This is a list of all events matching your filters. You can run the function using these
                         historical events.
                     </span>
                 </LemonBanner>
-                <RunsFilters id={id} />
-                <TestingEventsList id={id} />
+                <div className="flex items-center gap-2 justify-bewtween">
+                    <div className="flex items-center gap-2 flex-1">
+                        <RunsFilters />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <TestRunnerOptions />
+                    </div>
+                </div>
+
+                <TestingEventsList />
             </div>
         </BindLogic>
-    )
-}
-
-export function RetryStatusIcon({
-    retries = [],
-    showLabel = false,
-}: {
-    retries: CyclotronJobTestInvocationResultWithEventId[]
-    showLabel?: boolean
-}): JSX.Element {
-    const colorForStatus = (status: string): 'success' | 'primary' | 'warning' | 'danger' | 'default' => {
-        switch (status) {
-            case 'success':
-                return 'success'
-            case 'error':
-                return 'danger'
-            default:
-                return 'default'
-        }
-    }
-
-    const status = retries.some((retry) => retry.status === 'success') ? 'success' : 'error'
-    const color = colorForStatus(status)
-
-    return (
-        <Tooltip
-            title={
-                <>
-                    Run status: {status}
-                    {retries.length > 1 && (
-                        <>
-                            <br />
-                            Attempts: {retries.length}
-                        </>
-                    )}
-                </>
-            }
-        >
-            <span
-                className={clsx(
-                    `RetryStatusIcon h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs select-none`,
-                    color === 'primary' && 'RetryStatusIcon--pulse',
-                    showLabel ? '' : 'w-6',
-                    retries.length > 0 ? `border-${color} text-${color}-dark` : ''
-                )}
-            >
-                {showLabel ? <span className="text-center">{status}</span> : retries.length}
-            </span>
-        </Tooltip>
     )
 }
 
@@ -281,10 +113,93 @@ function EmptyColumn(): JSX.Element {
     )
 }
 
-function RunsFilters({ id }: { id: string }): JSX.Element {
-    const logic = hogFunctionTestingLogic({ id })
-    const { eventsLoading, baseEventsQuery } = useValues(logic)
-    const { loadEvents, changeDateRange, loadTotalEvents } = useActions(logic)
+function TestRunnerOptions(): JSX.Element {
+    const { selectingMany, eventsWithRetries, loadingRetries, selectedForRetry } = useValues(hogFunctionTestingLogic)
+    const { setSelectingMany, retryInvocation, selectForRetry, deselectForRetry, resetSelectedForRetry } =
+        useActions(hogFunctionTestingLogic)
+    const { groupTypes, configuration } = useValues(hogFunctionConfigurationLogic)
+
+    return (
+        <>
+            {!selectingMany ? (
+                <LemonButton size="small" type="secondary" onClick={() => setSelectingMany(true)}>
+                    Select invocations
+                </LemonButton>
+            ) : (
+                <>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={() => {
+                            setSelectingMany(false)
+                            resetSelectedForRetry()
+                        }}
+                    >
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={() =>
+                            selectedForRetry.length === eventsWithRetries.length
+                                ? deselectForRetry(eventsWithRetries.map((row) => row[0].uuid))
+                                : selectForRetry(eventsWithRetries.map((row) => row[0].uuid))
+                        }
+                    >
+                        <span>
+                            {selectedForRetry.length === eventsWithRetries.length ? 'Deselect all' : 'Select all'}
+                        </span>
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        onClick={() => {
+                            LemonDialog.open({
+                                title: 'Test selected events',
+                                content: `Are you sure you want to test the selected events? Please don't close the window until the invocations have completed.`,
+                                secondaryButton: {
+                                    children: 'Cancel',
+                                },
+                                primaryButton: {
+                                    children: 'Test selected events',
+                                    onClick: () => {
+                                        eventsWithRetries
+                                            .filter((row) => selectedForRetry.includes(row[0].uuid))
+                                            .forEach((row) =>
+                                                retryInvocation({
+                                                    eventId: row[0].uuid,
+                                                    globals: buildGlobals(
+                                                        row,
+                                                        groupTypes,
+                                                        configuration?.name ?? 'Unnamed'
+                                                    ),
+                                                })
+                                            )
+                                    },
+                                },
+                            })
+                        }}
+                        loading={loadingRetries.length > 0}
+                        disabledReason={
+                            loadingRetries.length > 0
+                                ? 'Please wait for the current tests to complete.'
+                                : selectedForRetry.length === 0
+                                  ? 'No invocations selected'
+                                  : undefined
+                        }
+                    >
+                        Test selected
+                    </LemonButton>
+                </>
+            )}
+        </>
+    )
+}
+
+function RunsFilters(): JSX.Element {
+    const { eventsLoading, baseEventsQuery } = useValues(hogFunctionTestingLogic)
+    const { loadEvents, changeDateRange, loadTotalEvents } = useActions(hogFunctionTestingLogic)
+    const { logicProps } = useValues(hogFunctionConfigurationLogic)
     const [dropdownOpen, setDropdownOpen] = useState(false)
 
     const handleRefresh = (): void => {
@@ -293,7 +208,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
     }
 
     return (
-        <div className="flex gap-2 items-center">
+        <>
             <LemonButton
                 onClick={handleRefresh}
                 loading={eventsLoading}
@@ -316,7 +231,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
                 overlay={
                     <Form
                         logic={hogFunctionConfigurationLogic}
-                        props={{ id }}
+                        props={logicProps}
                         formKey="configuration"
                         className="deprecated-space-y-3"
                     >
@@ -333,12 +248,11 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
                     Filters
                 </LemonButton>
             </LemonDropdown>
-        </div>
+        </>
     )
 }
 
-function TestingEventsList({ id }: { id: string }): JSX.Element | null {
-    const logic = hogFunctionTestingLogic({ id })
+function TestingEventsList(): JSX.Element | null {
     const {
         eventsLoading,
         eventsWithRetries,
@@ -348,7 +262,7 @@ function TestingEventsList({ id }: { id: string }): JSX.Element | null {
         loadingRetries,
         selectingMany,
         selectedForRetry,
-    } = useValues(logic)
+    } = useValues(hogFunctionTestingLogic)
     const {
         retryInvocation,
         loadNextEventsPage,
@@ -357,8 +271,9 @@ function TestingEventsList({ id }: { id: string }): JSX.Element | null {
         collapseRow,
         selectForRetry,
         deselectForRetry,
-    } = useActions(logic)
-    const { groupTypes, configuration, logicProps } = useValues(hogFunctionConfigurationLogic({ id }))
+    } = useActions(hogFunctionTestingLogic)
+    const { groupTypes, configuration, logicProps } = useValues(hogFunctionConfigurationLogic)
+    const id = logicProps.id ?? 'new'
     const { setSampleGlobals, toggleExpanded } = useActions(hogFunctionTestLogic(logicProps))
 
     return (

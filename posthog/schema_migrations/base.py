@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
 
-from posthog.schema import NodeKind
-
 
 class SchemaMigration(ABC):
     """
@@ -12,7 +10,7 @@ class SchemaMigration(ABC):
     * `transform`: A method that takes a dict query and returns a new dict query with the updated schema version.
     """
 
-    targets: dict[NodeKind, int] = {}
+    targets: dict[str, int] = {}
 
     def __call__(self, query: dict) -> dict:
         """Apply if version matches, otherwise return untouched."""

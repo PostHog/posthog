@@ -4,6 +4,7 @@ import { UUIDT } from '../../../utils/utils'
 import { captureIngestionWarning } from '../utils'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
+import { createDefaultSyncMergeMode } from './person-merge-types'
 import { PersonPropertiesSizeViolationError } from './repositories/person-repository'
 
 jest.mock('../utils', () => ({
@@ -49,7 +50,8 @@ describe('PersonCreateService', () => {
             true,
             mockKafkaProducer,
             mockPersonStore,
-            0
+            0,
+            createDefaultSyncMergeMode()
         )
 
         personCreateService = new PersonCreateService(personContext)
@@ -129,6 +131,7 @@ describe('PersonCreateService', () => {
                 {
                     personId: 'test-person-id',
                     distinctId: 'test-distinct-id',
+                    eventUuid: creatorEventUuid,
                     teamId: teamId,
                     message: 'Person properties exceeds size limit and was rejected',
                 }

@@ -37,6 +37,7 @@ export type SurveyQuestionBranchingType = 'next_question' | 'end' | 'response_ba
 export interface SurveyQuestionSchema {
     type: SurveyQuestionType
     question: string
+    id?: string
     description?: string
     descriptionContentType?: SurveyQuestionDescriptionContentType
     optional?: boolean
@@ -107,4 +108,41 @@ export interface SurveyAppearanceSchema {
     textSubtleColor?: string
     ratingButtonColor?: string
     ratingButtonActiveColor?: string
+}
+
+// Survey response analysis schema - for MaxTool LLM analysis
+export interface SurveyAnalysisResponseItem {
+    /**
+     * The response text content
+     * @default ""
+     */
+    responseText: string
+    /**
+     * Response timestamp
+     * @default ""
+     */
+    timestamp: string
+    /**
+     * Whether this is an open-ended response
+     * @default true
+     */
+    isOpenEnded: boolean
+}
+
+export interface SurveyAnalysisQuestionGroup {
+    /**
+     * Question text
+     * @default "Unknown question"
+     */
+    questionName: string
+    /**
+     * Question identifier
+     * @default "unknown"
+     */
+    questionId: string
+    /**
+     * List of responses for this question
+     * @default []
+     */
+    responses: SurveyAnalysisResponseItem[]
 }

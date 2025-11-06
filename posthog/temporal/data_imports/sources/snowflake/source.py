@@ -22,7 +22,8 @@ from posthog.temporal.data_imports.sources.snowflake.snowflake import (
     get_schemas as get_snowflake_schemas,
     snowflake_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
+
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
 
 SnowflakeErrors = {
     "No active warehouse selected in the current session": "No warehouse found for selected role",
@@ -44,6 +45,8 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.SNOWFLAKE,
             caption="Enter your Snowflake credentials to automatically pull your Snowflake data into the PostHog Data warehouse.",
+            iconPath="/static/services/snowflake.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/snowflake",
             fields=cast(
                 list[FieldType],
                 [
@@ -147,7 +150,7 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
             ),
         )
 
-    def get_schemas(self, config: SnowflakeSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: SnowflakeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         schemas = []
 
         db_schemas = get_snowflake_schemas(config)

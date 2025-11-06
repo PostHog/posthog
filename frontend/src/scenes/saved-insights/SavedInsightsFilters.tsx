@@ -1,18 +1,20 @@
 import { useValues } from 'kea'
 
-import { IconCalendar } from '@posthog/icons'
+import { IconCalendar, IconFlag } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { InsightType, SavedInsightsTabs } from '~/types'
 
 export function SavedInsightsFilters({
@@ -22,13 +24,10 @@ export function SavedInsightsFilters({
     filters: SavedInsightFilters
     setFilters: (filters: Partial<SavedInsightFilters>) => void
 }): JSX.Element {
-    const { nameSortedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { tab, createdBy, insightType, dateFrom, dateTo, search, hideFeatureFlagInsights } = filters
 
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const showPathsV2 = !!featureFlags[FEATURE_FLAGS.PATHS_V2]
-
-    const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search } = filters
 
     const insightTypeOptions = INSIGHT_TYPE_OPTIONS.filter((option) => {
         if (option.value === InsightType.PATHS_V2 && !showPathsV2) {
@@ -38,7 +37,7 @@ export function SavedInsightsFilters({
     })
 
     return (
-        <div className={cn('flex justify-between gap-2 mb-2 items-center flex-wrap', newSceneLayout && 'mb-0')}>
+        <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
             <LemonInput
                 type="search"
                 placeholder="Search for insights"
@@ -46,25 +45,6 @@ export function SavedInsightsFilters({
                 value={search || ''}
             />
             <div className="flex items-center gap-2 flex-wrap">
-                {nameSortedDashboards.length > 0 && (
-                    <div className="flex items-center gap-2">
-                        <span>On dashboard:</span>
-                        <LemonSelect
-                            size="small"
-                            options={nameSortedDashboards.map((nsd) => ({
-                                value: nsd.id,
-                                label: nsd.name,
-                            }))}
-                            value={dashboardId}
-                            onChange={(newValue) => {
-                                setFilters({ dashboardId: newValue })
-                            }}
-                            dropdownMatchSelectWidth={false}
-                            data-attr="insight-on-dashboard"
-                            allowClear={true}
-                        />
-                    </div>
-                )}
                 <div className="flex items-center gap-2">
                     <span>Type:</span>
                     <LemonSelect
@@ -100,7 +80,43 @@ export function SavedInsightsFilters({
                         />
                     </div>
                 ) : null}
+                <FeatureFlagInsightsToggle
+                    hideFeatureFlagInsights={hideFeatureFlagInsights ?? undefined}
+                    onToggle={(checked) => setFilters({ hideFeatureFlagInsights: checked })}
+                />
             </div>
         </div>
+    )
+}
+
+const FeatureFlagInsightsToggle = ({
+    hideFeatureFlagInsights,
+    onToggle,
+}: {
+    hideFeatureFlagInsights?: boolean
+    onToggle: (checked: boolean) => void
+}): JSX.Element => {
+    return (
+        <Tooltip
+            title={
+                <div>
+                    <p>
+                        PostHog automatically creates insights by default for feature flags to help you understand their
+                        performance.
+                    </p>
+                    <p>Use this toggle to hide these auto-generated insights from your insights list.</p>
+                </div>
+            }
+            placement="top"
+        >
+            <LemonButton
+                icon={<IconFlag />}
+                onClick={() => onToggle(!hideFeatureFlagInsights)}
+                type="secondary"
+                size="small"
+            >
+                Hide feature flag insights: <LemonSwitch checked={hideFeatureFlagInsights || false} className="ml-1" />
+            </LemonButton>
+        </Tooltip>
     )
 }

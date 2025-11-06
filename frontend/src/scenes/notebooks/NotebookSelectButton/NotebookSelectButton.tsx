@@ -2,15 +2,15 @@ import { BuiltLogic, useActions, useValues } from 'kea'
 import { ReactChild, ReactElement, useEffect } from 'react'
 
 import { IconNotebook, IconPlus } from '@posthog/icons'
-import { LemonDivider, LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonDivider, LemonDropdown, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { PopoverProps } from 'lib/lemon-ui/Popover'
 import { IconWithCount } from 'lib/lemon-ui/icons'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import {
     NotebookSelectButtonLogicProps,
@@ -23,6 +23,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import { NotebookListItemType, NotebookTarget } from '../types'
+import { NOTEBOOK_DROPDOWN_LIMIT } from './notebookSelectButtonLogic'
 
 export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
     newNotebookTitle?: string
@@ -43,6 +44,43 @@ export type NotebookSelectButtonProps = NotebookSelectProps &
         children?: ReactChild
     }
 
+// Cleaning up Session Summaries notebooks to reduce repeated noise in the picker.
+// If we match:
+//  - show a small tag "Session summaries report" in the meta line
+//  - strip that leading segment from the visible title
+export const SESSION_SUMMARY_PREFIX = 'Session summaries report'
+export const SESSION_PREFIX_REGEX = /^Session summaries report\s*[-–—:]*\s*/i
+export const LEADING_SEPARATORS_REGEX = /^[\s]*[-–—:•·]+\s*/
+export const TRAILING_DATE_REGEX = /\s*\((\d{4}-\d{2}-\d{2})\)\s*$/
+
+export function isSessionSummaryTitle(title?: string): boolean {
+    if (!title) {
+        return false
+    }
+    return SESSION_PREFIX_REGEX.test(title.trim())
+}
+export function stripSessionSummaryPrefix(title?: string): string | null {
+    if (title == null) {
+        return null
+    }
+    if (!isSessionSummaryTitle(title)) {
+        return title
+    }
+    // Remove the prefix and any immediately following separators
+    let cleaned = title.replace(SESSION_PREFIX_REGEX, '')
+    // Extra safety: if there are still leading separators, drop them
+    cleaned = cleaned.replace(LEADING_SEPARATORS_REGEX, '')
+    // Extract trailing date (if present) and drop it from the string
+    cleaned = cleaned.replace(TRAILING_DATE_REGEX, '')
+    cleaned = cleaned.trim()
+    // If no content remains after stripping, leave the original title as-is
+    // so cases like "Session summaries report (YYYY-MM-DD)" remain unchanged.
+    if (!cleaned.length) {
+        return title
+    }
+    return cleaned
+}
+
 function NotebooksChoiceList(props: {
     notebooks: NotebookListItemType[]
     emptyState: string
@@ -54,6 +92,10 @@ function NotebooksChoiceList(props: {
                 <div className="px-2 py-1">{props.emptyState}</div>
             ) : (
                 props.notebooks.map((notebook, i) => {
+                    const isSession = isSessionSummaryTitle(notebook.title || undefined)
+                    const renderedTitle = isSession
+                        ? stripSessionSummaryPrefix(notebook.title || undefined) || notebook.title
+                        : notebook.title
                     return (
                         <LemonButton
                             key={i}
@@ -69,7 +111,18 @@ function NotebooksChoiceList(props: {
                             fullWidth
                             onClick={() => props.onClick(notebook.short_id)}
                         >
-                            <span className="truncate">{notebook.title || `Untitled (${notebook.short_id})`}</span>
+                            <div className="flex flex-col text-left w-full">
+                                <span className="truncate">{renderedTitle || `Untitled (${notebook.short_id})`}</span>
+                                <span className="text-muted-alt text-xs">
+                                    {notebook.created_by?.first_name || notebook.created_by?.email || 'Unknown'}
+                                    {` · ${dayjs(notebook.last_modified_at ?? notebook.created_at).fromNow()}`}
+                                    {isSession ? (
+                                        <LemonTag size="small" type="muted" className="ml-2 inline-block align-middle">
+                                            {SESSION_SUMMARY_PREFIX}
+                                        </LemonTag>
+                                    ) : null}
+                                </span>
+                            </div>
                         </LemonButton>
                     )
                 })
@@ -83,9 +136,10 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
 
     const { resource, newNotebookTitle } = props
     const notebookResource = resource && typeof resource !== 'boolean' ? resource : null
-    const { notebooksLoading, notebooksContainingResource, notebooksNotContainingResource, searchQuery } =
-        useValues(logic)
-    const { setShowPopover, setSearchQuery, loadNotebooksContainingResource, loadAllNotebooks } = useActions(logic)
+    const { notebooksLoading, notebooksContainingResource, notebooksNotContainingResource, searchQuery, createdBy } =
+        useValues(logic as any)
+    const { setShowPopover, setSearchQuery, setCreatedBy, loadNotebooksContainingResource, loadAllNotebooks } =
+        useActions(logic as any)
     const { createNotebook } = useActions(notebooksModel)
 
     const openAndAddToNotebook = (notebookShortId: string, exists: boolean): void => {
@@ -132,17 +186,21 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                     onChange={(s) => setSearchQuery(s)}
                     fullWidth
                 />
-                <AccessControlledLemonButton
-                    data-attr="notebooks-select-button-create"
-                    fullWidth
-                    icon={<IconPlus />}
-                    onClick={openNewNotebook}
+                <MemberSelect value={createdBy} onChange={(user) => setCreatedBy(user?.uuid ?? null)} />
+                <AccessControlAction
                     resourceType={AccessControlResourceType.Notebook}
                     minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Notebook]}
                 >
-                    New notebook
-                </AccessControlledLemonButton>
+                    <LemonButton
+                        data-attr="notebooks-select-button-create"
+                        fullWidth
+                        icon={<IconPlus />}
+                        onClick={openNewNotebook}
+                    >
+                        New notebook
+                    </LemonButton>
+                </AccessControlAction>
+
                 <LemonButton
                     fullWidth
                     onClick={() => {
@@ -192,6 +250,12 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                                 openAndAddToNotebook(notebookShortId, false)
                             }}
                         />
+                        {(notebooksContainingResource.length >= NOTEBOOK_DROPDOWN_LIMIT ||
+                            notebooksNotContainingResource.length >= NOTEBOOK_DROPDOWN_LIMIT) && (
+                            <div className="text-xs text-muted-alt px-2 py-1 border-t">
+                                Showing first {NOTEBOOK_DROPDOWN_LIMIT} results. Use search to narrow down.
+                            </div>
+                        )}
                     </>
                 )}
             </div>

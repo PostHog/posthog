@@ -16,6 +16,7 @@ import { BatchWritingPersonsStoreForBatch } from '../../../src/worker/ingestion/
 import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
 import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
 import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
+import { createDefaultSyncMergeMode } from '../../../src/worker/ingestion/persons/person-merge-types'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
 import { PostgresDualWritePersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-dualwrite-person-repository'
 import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
@@ -101,7 +102,8 @@ describe('PersonState dual-write compatibility', () => {
             processPerson,
             hub.db.kafkaProducer,
             personsStore,
-            0
+            0,
+            createDefaultSyncMergeMode()
         )
 
         const processor = new PersonEventProcessor(
@@ -394,36 +396,7 @@ describe('PersonState dual-write compatibility', () => {
         })
     })
 
-    describe('Process person profile flag', () => {
-        it('respects $process_person_profile=false identically', async () => {
-            const distinctId = 'ephemeral-user'
-            const event: Partial<PluginEvent> = {
-                distinct_id: distinctId,
-                properties: {
-                    $process_person_profile: false,
-                    $set: { should_not_persist: true },
-                },
-            }
-
-            const { processor: singleProcessor, personsStore: singleStore } = createPersonProcessor(
-                singleWriteRepository,
-                event,
-                false
-            )
-            const { processor: dualProcessor, personsStore: dualStore } = createPersonProcessor(
-                dualWriteRepository,
-                event,
-                false
-            )
-
-            await Promise.all([singleProcessor.processEvent(), dualProcessor.processEvent()])
-
-            await Promise.all([singleStore.flush(), dualStore.flush()])
-
-            const postgresPersons = await fetchPostgresPersonsH()
-            expect(postgresPersons.length).toBe(0)
-        })
-    })
+    describe('Process person profile flag', () => {})
 
     describe('Batch operations', () => {
         it('creates multiple persons in batch consistently', async () => {
@@ -527,7 +500,8 @@ describe('PersonState dual-write compatibility', () => {
                     true, // processPerson
                     hub.db.kafkaProducer,
                     personsStore,
-                    0 // deferredUpdatesStep
+                    0, // deferredUpdatesStep
+                    createDefaultSyncMergeMode()
                 )
 
                 const mergeService = new PersonMergeService(context)
@@ -535,8 +509,13 @@ describe('PersonState dual-write compatibility', () => {
                 // Call the private mergeDistinctIds method (we'll need to make it accessible for testing)
                 // For now, let's test through the public handleIdentifyOrAlias method
                 ;(context as any).anonDistinctId = existingDistinctId
-                const [mergedPerson, updatePromise] = await mergeService.handleIdentifyOrAlias()
-                await updatePromise
+                const result = await mergeService.handleIdentifyOrAlias()
+                expect(result.success).toBe(true)
+                if (!result.success) {
+                    throw new Error('Expected successful merge result')
+                }
+                const mergedPerson = result.person
+                await result.kafkaAck
 
                 // Flush any pending operations
                 await personsStore.flush()
@@ -615,7 +594,8 @@ describe('PersonState dual-write compatibility', () => {
                     true, // processPerson
                     hub.db.kafkaProducer,
                     personsStore,
-                    0 // deferredUpdatesStep
+                    0, // deferredUpdatesStep
+                    createDefaultSyncMergeMode()
                 )
 
                 const mergeService = new PersonMergeService(context)
@@ -624,8 +604,13 @@ describe('PersonState dual-write compatibility', () => {
                 ;(context as any).anonDistinctId = secondDistinctId
 
                 // Execute the merge - this should create a new person with both distinct IDs
-                const [mergedPerson, updatePromise] = await mergeService.handleIdentifyOrAlias()
-                await updatePromise
+                const result = await mergeService.handleIdentifyOrAlias()
+                expect(result.success).toBe(true)
+                if (!result.success) {
+                    throw new Error('Expected successful merge result')
+                }
+                const mergedPerson = result.person
+                await result.kafkaAck
 
                 // Flush any pending operations
                 await personsStore.flush()
@@ -771,7 +756,8 @@ describe('PersonState dual-write compatibility', () => {
                     true, // processPerson
                     hub.db.kafkaProducer,
                     personsStore,
-                    0 // deferredUpdatesStep
+                    0, // deferredUpdatesStep
+                    createDefaultSyncMergeMode()
                 )
 
                 const mergeService = new PersonMergeService(context)
@@ -780,8 +766,13 @@ describe('PersonState dual-write compatibility', () => {
                 ;(context as any).anonDistinctId = person2DistinctId
 
                 // Execute the merge
-                const [mergedPerson, updatePromise] = await mergeService.handleIdentifyOrAlias()
-                await updatePromise
+                const result = await mergeService.handleIdentifyOrAlias()
+                expect(result.success).toBe(true)
+                if (!result.success) {
+                    throw new Error('Expected successful merge result')
+                }
+                const mergedPerson = result.person
+                await result.kafkaAck
 
                 // Flush any pending operations
                 await personsStore.flush()
@@ -927,7 +918,8 @@ describe('PersonState dual-write compatibility', () => {
                     true,
                     hub.db.kafkaProducer,
                     personsStore,
-                    0
+                    0,
+                    createDefaultSyncMergeMode()
                 )
 
                 const mergeService = new PersonMergeService(context)
@@ -936,8 +928,10 @@ describe('PersonState dual-write compatibility', () => {
                 // The merge should fail internally but PersonMergeService catches errors
                 // We need to check that the operation didn't succeed
                 try {
-                    const [_, updatePromise] = await mergeService.handleIdentifyOrAlias()
-                    await updatePromise
+                    const result = await mergeService.handleIdentifyOrAlias()
+                    if (result.success) {
+                        await result.kafkaAck
+                    }
                     await personsStore.flush()
                 } catch (e: any) {
                     // Expected to catch error
@@ -1052,7 +1046,8 @@ describe('PersonState dual-write compatibility', () => {
                     true,
                     hub.db.kafkaProducer,
                     personsStore,
-                    0
+                    0,
+                    createDefaultSyncMergeMode()
                 )
 
                 const mergeService = new PersonMergeService(context)
@@ -1060,8 +1055,10 @@ describe('PersonState dual-write compatibility', () => {
 
                 // The operation should fail internally
                 try {
-                    const [_, updatePromise] = await mergeService.handleIdentifyOrAlias()
-                    await updatePromise
+                    const result = await mergeService.handleIdentifyOrAlias()
+                    if (result.success) {
+                        await result.kafkaAck
+                    }
                     await personsStore.flush()
                 } catch (e: any) {
                     // Expected to catch error

@@ -1,0 +1,34 @@
+[package]
+name = "embedding-worker"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tokio = { workspace = true }
+envconfig = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+health = { path = "../common/health" }
+axum = { workspace = true }
+metrics = { workspace = true }
+common-metrics = { path = "../common/metrics" }
+common-alloc = { path = "../common/alloc" }
+common-kafka = { path = "../common/kafka" }
+common-types = { path = "../common/types" }
+anyhow = { workspace = true } # We use anyhow for now because we're in hack it ship it mode, real error types later
+sqlx = { workspace = true }
+uuid = { workspace = true }
+posthog-rs = { workspace = true }
+futures.workspace = true
+reqwest.workspace = true
+tiktoken-rs.workspace = true
+leaky-bucket = "1.1.2" # Arguably we should just implement this, but :shrug:
+moka.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+
+
+[lints]
+workspace = true

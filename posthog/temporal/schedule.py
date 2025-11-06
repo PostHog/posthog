@@ -6,6 +6,7 @@ from django.conf import settings
 
 import structlog
 from asgiref.sync import async_to_sync
+from temporalio import common
 from temporalio.client import (
     Client,
     Schedule,
@@ -17,12 +18,12 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
-from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE, MAX_AI_TASK_QUEUE
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
@@ -39,7 +40,7 @@ async def create_sync_vectors_schedule(client: Client):
             "ai-sync-vectors",
             asdict(SyncVectorsInputs(embedding_versions=EmbeddingVersion(actions=LATEST_ACTIONS_EMBEDDING_VERSION))),
             id="ai-sync-vectors-schedule",
-            task_queue=MAX_AI_TASK_QUEUE,
+            task_queue=settings.MAX_AI_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
     )
@@ -59,7 +60,7 @@ async def create_run_quota_limiting_schedule(client: Client):
             "run-quota-limiting",
             asdict(RunQuotaLimitingInputs()),
             id="run-quota-limiting-schedule",
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.BILLING_TASK_QUEUE,
         ),
         spec=ScheduleSpec(cron_expressions=["10,25,40,55 * * * *"]),  # Run at minutes 10, 25, 40, and 55 of every hour
     )
@@ -82,7 +83,7 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
             "schedule-all-subscriptions",
             asdict(ScheduleAllSubscriptionsWorkflowInputs()),
             id="schedule-all-subscriptions-schedule",
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
         ),
         spec=ScheduleSpec(cron_expressions=["55 * * * *"]),  # Run at minute 55 of every hour
     )
@@ -108,7 +109,7 @@ async def create_upgrade_queries_schedule(client: Client):
             "upgrade-queries",
             asdict(UpgradeQueriesWorkflowInputs()),
             id="upgrade-queries-schedule",
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=6))]),
     )
@@ -129,7 +130,7 @@ async def create_salesforce_enrichment_schedule(client: Client):
             "salesforce-enrichment-async",
             SalesforceEnrichmentInputs(chunk_size=DEFAULT_CHUNK_SIZE),
             id="salesforce-enrichment-schedule",
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.BILLING_TASK_QUEUE,
         ),
         spec=ScheduleSpec(
             calendars=[
@@ -150,10 +151,47 @@ async def create_salesforce_enrichment_schedule(client: Client):
         )
 
 
+async def create_enforce_max_replay_retention_schedule(client: Client):
+    """Create or update the schedule for the enforce max replay retention workflow.
+
+    This schedule runs daily at 1 AM UTC.
+    """
+    enforce_max_replay_retention_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "enforce-max-replay-retention",
+            EnforceMaxReplayRetentionInput(dry_run=False),
+            id="enforce-max-replay-retention-schedule",
+            task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=1,
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 1 AM UTC",
+                    hour=[ScheduleRange(start=1, end=1)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "enforce-max-replay-retention-schedule"):
+        await a_update_schedule(client, "enforce-max-replay-retention-schedule", enforce_max_replay_retention_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "enforce-max-replay-retention-schedule",
+            enforce_max_replay_retention_schedule,
+            trigger_immediately=False,
+        )
+
+
 schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
     create_upgrade_queries_schedule,
+    create_enforce_max_replay_retention_schedule,
 ]
 
 if settings.EE_AVAILABLE:

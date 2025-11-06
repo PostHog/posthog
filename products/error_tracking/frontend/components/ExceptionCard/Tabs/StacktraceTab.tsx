@@ -11,6 +11,7 @@ import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItemIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -19,6 +20,7 @@ import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrim
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionAttributesPreview } from '../../ExceptionAttributesPreview'
+import { ReleasePreviewPill } from '../../ExceptionAttributesPreview/ReleasesPreview/ReleasePreviewPill'
 import { FixModal } from '../FixModal'
 import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from '../Stacktrace/StacktraceBase'
 import { StacktraceGenericDisplay } from '../Stacktrace/StacktraceGenericDisplay'
@@ -43,11 +45,13 @@ export function StacktraceTab({
     const { exceptionAttributes, exceptionList } = useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
+
     return (
         <TabsPrimitiveContent {...props}>
             <SubHeader className="justify-between">
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
+                    <ReleasePreviewPill />
                 </div>
                 <ButtonGroupPrimitive size="sm">
                     {showFixButton && (
@@ -57,7 +61,7 @@ export function StacktraceTab({
                             tooltip="Generate AI prompt to fix this error"
                         >
                             <IconMagicWand />
-                            Fix with AI
+                            Get AI prompt
                         </ButtonPrimitive>
                     )}
                     <ShowDropDownMenu>
@@ -109,18 +113,20 @@ function ShowDropDownMenu({ children }: { children: React.ReactNode }): JSX.Elem
         <DropdownMenu>
             <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
             <DropdownMenuContent>
-                <DropdownMenuCheckboxItem checked={showAllFrames} onCheckedChange={setShowAllFrames} asChild>
-                    <ButtonPrimitive menuItem size="sm">
-                        <DropdownMenuItemIndicator intent="checkbox" />
-                        All frames
-                    </ButtonPrimitive>
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuCheckboxItem checked={showAsText} onCheckedChange={setShowAsText} asChild>
-                    <ButtonPrimitive menuItem size="sm">
-                        <DropdownMenuItemIndicator intent="checkbox" />
-                        As text
-                    </ButtonPrimitive>
-                </DropdownMenuCheckboxItem>
+                <DropdownMenuGroup>
+                    <DropdownMenuCheckboxItem checked={showAllFrames} onCheckedChange={setShowAllFrames} asChild>
+                        <ButtonPrimitive menuItem size="sm">
+                            <DropdownMenuItemIndicator intent="checkbox" />
+                            All frames
+                        </ButtonPrimitive>
+                    </DropdownMenuCheckboxItem>
+                    <DropdownMenuCheckboxItem checked={showAsText} onCheckedChange={setShowAsText} asChild>
+                        <ButtonPrimitive menuItem size="sm">
+                            <DropdownMenuItemIndicator intent="checkbox" />
+                            As text
+                        </ButtonPrimitive>
+                    </DropdownMenuCheckboxItem>
+                </DropdownMenuGroup>
             </DropdownMenuContent>
         </DropdownMenu>
     )

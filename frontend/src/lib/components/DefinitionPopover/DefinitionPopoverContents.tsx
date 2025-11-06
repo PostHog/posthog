@@ -229,13 +229,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             <>
                 {sharedComponents}
                 <ActionPopoverInfo entity={_definition} />
-                {(_definition?.steps?.length || 0) > 0 && <LemonDivider className="DefinitionPopover my-4" />}
-                <DefinitionPopover.Grid cols={2}>
-                    <DefinitionPopover.Card
-                        title="First seen"
-                        value={_definition.created_at && <TZLabel time={_definition.created_at} />}
-                    />
-                </DefinitionPopover.Grid>
             </>
         )
     }

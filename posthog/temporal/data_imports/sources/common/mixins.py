@@ -5,7 +5,8 @@ from typing import Any
 from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
 from posthog.utils import get_instance_region
-from posthog.warehouse.models.ssh_tunnel import SSHTunnel
+
+from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnel
 
 
 class SSHTunnelMixin:
@@ -78,7 +79,7 @@ class ValidateDatabaseHostMixin:
         if using_ssh_tunnel:
             return True, None
 
-        if host.startswith("172") or host.startswith("10") or host.startswith("localhost"):
+        if host.startswith("172.") or host.startswith("10.") or host.startswith("localhost"):
             if is_cloud():
                 region = get_instance_region()
                 if (region == "US" and team_id == 2) or (region == "EU" and team_id == 1):

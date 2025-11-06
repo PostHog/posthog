@@ -16,7 +16,8 @@ from posthog.temporal.data_imports.sources.generated_configs import SalesforceSo
 from posthog.temporal.data_imports.sources.salesforce.auth import salesforce_refresh_access_token
 from posthog.temporal.data_imports.sources.salesforce.salesforce import salesforce_source
 from posthog.temporal.data_imports.sources.salesforce.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -25,7 +26,9 @@ class SalesforceSource(BaseSource[SalesforceSourceConfig], OAuthMixin):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SALESFORCE
 
-    def get_schemas(self, config: SalesforceSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: SalesforceSourceConfig, team_id: int, with_counts: bool = False
+    ) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -41,6 +44,8 @@ class SalesforceSource(BaseSource[SalesforceSourceConfig], OAuthMixin):
         return SourceConfig(
             name=SchemaExternalDataSourceType.SALESFORCE,
             caption="Select an existing Salesforce account to link to PostHog or create a new connection",
+            iconPath="/static/services/salesforce.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/salesforce",
             fields=cast(
                 list[FieldType],
                 [

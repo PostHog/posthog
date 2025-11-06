@@ -3,9 +3,7 @@ import './LemonButton.scss'
 import clsx from 'clsx'
 import React, { useContext } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
-
-import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { Link } from '../Link'
@@ -73,12 +71,16 @@ export interface LemonButtonPropsBase
     'aria-label'?: string
     /** Whether to truncate the button's text if necessary */
     truncate?: boolean
+    /** Prevent dialog from closing when clicked */
+    preventClosing?: boolean
     /** Wrap the main button element with a container element */
     buttonWrapper?: (button: JSX.Element) => JSX.Element
     /** Static offset (px) to adjust tooltip arrow position. Should only be used with fixed tooltipPlacement */
     tooltipArrowOffset?: number
     /** Whether to force the tooltip to be visible. */
     tooltipForceMount?: boolean
+    /** Whether to stop event propagation on click */
+    stopPropagation?: boolean
 }
 
 export type SideAction = Pick<
@@ -98,6 +100,7 @@ export type SideAction = Pick<
     | 'aria-label'
     | 'status'
     | 'targetBlank'
+    | 'size'
 > & {
     dropdown?: LemonButtonDropdown
     /**
@@ -112,11 +115,13 @@ export interface LemonButtonWithoutSideActionProps extends LemonButtonPropsBase 
     sideIcon?: React.ReactElement | null
     sideAction?: null
 }
+
 /** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
 export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
     sideAction?: SideAction
     sideIcon?: null
 }
+
 export type LemonButtonProps = LemonButtonWithoutSideActionProps | LemonButtonWithSideActionProps
 
 /** Styled button. */
@@ -151,6 +156,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 buttonWrapper,
                 tooltipDocLink,
                 tooltipForceMount,
+                stopPropagation,
                 ...buttonProps
             },
             ref
@@ -238,7 +244,16 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         truncate && 'LemonButton--truncate',
                         className
                     )}
-                    onClick={!disabled ? onClick : undefined}
+                    onClick={
+                        !disabled
+                            ? (event) => {
+                                  if (stopPropagation) {
+                                      event.stopPropagation()
+                                  }
+                                  onClick?.(event)
+                              }
+                            : undefined
+                    }
                     // We are using the ARIA disabled instead of native HTML because of this:
                     // https://css-tricks.com/making-disabled-buttons-more-inclusive/
                     aria-disabled={disabled}
@@ -248,7 +263,11 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                     <span className="LemonButton__chrome">
                         {icon ? <span className="LemonButton__icon">{icon}</span> : null}
                         {children ? <span className="LemonButton__content">{children}</span> : null}
-                        {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
+                        {sideIcon ? (
+                            <span className="LemonButton__icon">{sideIcon}</span>
+                        ) : targetBlank ? (
+                            <IconExternal />
+                        ) : null}
                     </span>
                 </ButtonComponent>
             )

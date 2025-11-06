@@ -108,6 +108,9 @@ def to_dict(query: BaseModel) -> dict:
                         "showTrendLines",
                         "showMovingAverage",
                         "movingAverageIntervals",
+                        "stacked",
+                        "detailedResultsAggregationType",
+                        "showFullUrls",
                     ]
                 }
 

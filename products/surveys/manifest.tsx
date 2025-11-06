@@ -1,9 +1,7 @@
-import { IconMessage } from '@posthog/icons'
-
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Surveys',
@@ -16,7 +14,7 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         survey: {
             name: 'Survey',
-            icon: <IconMessage />,
+            iconType: 'survey',
             href: (ref: string) => urls.survey(ref),
             iconColor: ['var(--color-product-surveys-light)'],
             filterKey: 'survey',
@@ -27,6 +25,8 @@ export const manifest: ProductManifest = {
             path: `Survey`,
             type: 'survey',
             href: urls.survey('new'),
+            iconType: 'survey',
+            iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
         },
     ],
     treeItemsProducts: [
@@ -35,6 +35,10 @@ export const manifest: ProductManifest = {
             category: 'Behavior',
             type: 'survey',
             href: urls.surveys(),
+            iconType: 'survey',
+            iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+            sceneKey: 'Surveys',
+            sceneKeys: ['Survey', 'Surveys'],
         },
     ],
 }

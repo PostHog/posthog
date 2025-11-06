@@ -7,7 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 function ElixirInstallSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.Elixir}>
-            {'def deps do\n    [\n        {:posthog, "~> 0.1"}\n    ]\nend'}
+            {'def deps do\n    [\n        {:posthog, "~> 1.1.0"}\n    ]\nend'}
         </CodeSnippet>
     )
 }

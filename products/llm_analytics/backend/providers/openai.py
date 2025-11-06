@@ -56,7 +56,9 @@ class OpenAIProvider:
         if not posthog_client:
             raise ValueError("PostHog client not found")
 
-        self.client = OpenAI(api_key=self.get_api_key(), posthog_client=posthog_client)
+        self.client = OpenAI(
+            api_key=self.get_api_key(), posthog_client=posthog_client, base_url=settings.OPENAI_BASE_URL
+        )
         self.validate_model(model_id)
         self.model_id = model_id
 

@@ -9,8 +9,13 @@ import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordin
 import { ReadingHog } from 'lib/components/hedgehogs'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/types'
 
 import { IngestionWarning, IngestionWarningSummary, ingestionWarningsLogic } from './ingestionWarningsLogic'
@@ -249,9 +254,15 @@ export function IngestionWarningsView(): JSX.Element {
     const { setSearchQuery } = useActions(ingestionWarningsLogic)
 
     return (
-        <div data-attr="manage-events-table">
-            <div className="flex flex-col deprecated-space-y-2">
-                <div>Data ingestion related warnings from past 30 days.</div>
+        <SceneContent data-attr="manage-events-table">
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.IngestionWarnings].name}
+                description={sceneConfigurations[Scene.IngestionWarnings].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.IngestionWarnings].iconType || 'default_icon_type',
+                }}
+            />
+            <SceneSection>
                 <LemonInput
                     fullWidth
                     value={searchQuery}
@@ -315,7 +326,7 @@ export function IngestionWarningsView(): JSX.Element {
                     }}
                     noSortingCancellation
                 />
-            </div>
+            </SceneSection>
             {showProductIntro && (
                 <ProductIntroduction
                     productName="Ingestion warnings"
@@ -327,7 +338,7 @@ export function IngestionWarningsView(): JSX.Element {
                     customHog={ReadingHog}
                 />
             )}
-        </div>
+        </SceneContent>
     )
 }
 

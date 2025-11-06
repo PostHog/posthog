@@ -21,5 +21,14 @@
     ],
     "importOrderSeparation": true,
     "importOrderSortSpecifiers": true,
-    "importOrderParserPlugins": ["typescript", "jsx", "classProperties", "decorators-legacy"]
+    "importOrderParserPlugins": ["typescript", "jsx", "classProperties", "decorators-legacy"],
+    "proseWrap": "preserve",
+    "overrides": [
+        {
+            "files": ["*.md", "*.mdx"],
+            "options": {
+                "tabWidth": 2
+            }
+        }
+    ]
 }

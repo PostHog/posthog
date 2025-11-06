@@ -162,6 +162,40 @@ async fn it_drops_events_if_dropper_enabled() -> Result<()> {
 }
 
 #[tokio::test]
+async fn it_redacts_ip_address_of_capture_internal_events() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    let event = json!({
+        "token": token,
+        "event": "test_event_from_capture_internal",
+        "distinct_id": distinct_id,
+        "properties": {
+            "capture_internal": true
+        }
+    });
+    let res = server.capture_events(event.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let event = main_topic.next_event()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "ip": "127.0.0.1",
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn it_captures_a_posthogjs_array() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
@@ -374,52 +408,91 @@ async fn it_overflows_events_on_specified_keys() -> Result<()> {
     let res = server.capture_events(batch_3.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
-    // main toppic results
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token2}:{distinct_id1}")
+    // main topic results - these should NOT have force_disable_person_processing header
+    let (event, headers) = topic.next_message_with_headers()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token2,
+            "distinct_id": distinct_id1,
+        })
     );
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token3}:{distinct_id1}")
+    assert!(
+        !headers.contains_key("force_disable_person_processing"),
+        "Main topic events should not have force_disable_person_processing header"
     );
 
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token3}:{distinct_id2}")
+    let (event, headers) = topic.next_message_with_headers()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token3,
+            "distinct_id": distinct_id1,
+        })
     );
+    assert!(!headers.contains_key("force_disable_person_processing"));
 
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token3}:{distinct_id3}")
+    let (event, headers) = topic.next_message_with_headers()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token3,
+            "distinct_id": distinct_id2,
+        })
     );
+    assert!(!headers.contains_key("force_disable_person_processing"));
+
+    let (event, headers) = topic.next_message_with_headers()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token3,
+            "distinct_id": distinct_id3,
+        })
+    );
+    assert!(!headers.contains_key("force_disable_person_processing"));
 
     topic.assert_empty();
 
-    // Expected events should be in overflow topic, but have no
-    // message key as overflow events are round-robined
+    // Overflow events should have force_disable_person_processing header set to "true"
+    let (event, headers) = overflow_topic.next_message_with_headers()?;
     assert_json_include!(
-        actual: overflow_topic.next_event()?,
+        actual: event,
         expected: json!({
             "token": token1,
             "distinct_id": distinct_id1,
         })
     );
+    assert_eq!(
+        headers.get("force_disable_person_processing"),
+        Some(&"true".to_string()),
+        "Overflow events should have force_disable_person_processing set to true"
+    );
 
+    let (event, headers) = overflow_topic.next_message_with_headers()?;
     assert_json_include!(
-        actual: overflow_topic.next_event()?,
+        actual: event,
         expected: json!({
             "token": token1,
             "distinct_id": distinct_id2,
         })
     );
+    assert_eq!(
+        headers.get("force_disable_person_processing"),
+        Some(&"true".to_string())
+    );
 
+    let (event, headers) = overflow_topic.next_message_with_headers()?;
     assert_json_include!(
-        actual: overflow_topic.next_event()?,
+        actual: event,
         expected: json!({
             "token": token2,
             "distinct_id": distinct_id2,
         })
+    );
+    assert_eq!(
+        headers.get("force_disable_person_processing"),
+        Some(&"true".to_string())
     );
 
     overflow_topic.assert_empty();
@@ -516,43 +589,89 @@ async fn it_overflows_events_on_specified_keys_preserving_locality() -> Result<(
     let res = server.capture_events(batch_3.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
-    // main topic results
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token2}:{distinct_id1}")
+    // main topic results - should NOT have force_disable_person_processing header
+    let (event, headers) = topic.next_message_with_headers()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token2,
+            "distinct_id": distinct_id1,
+        })
     );
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token3}:{distinct_id1}")
-    );
+    assert!(!headers.contains_key("force_disable_person_processing"));
 
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token3}:{distinct_id2}")
+    let (event, headers) = topic.next_message_with_headers()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token3,
+            "distinct_id": distinct_id1,
+        })
     );
+    assert!(!headers.contains_key("force_disable_person_processing"));
 
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token3}:{distinct_id3}")
+    let (event, headers) = topic.next_message_with_headers()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token3,
+            "distinct_id": distinct_id2,
+        })
     );
+    assert!(!headers.contains_key("force_disable_person_processing"));
+
+    let (event, headers) = topic.next_message_with_headers()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token3,
+            "distinct_id": distinct_id3,
+        })
+    );
+    assert!(!headers.contains_key("force_disable_person_processing"));
 
     topic.assert_empty();
 
-    // Expected events should be in overflow topic, but should
-    // retain original partition keys, so fetch-by-key works here
+    // Overflow events should have force_disable_person_processing header set to "true"
+    // and should retain original partition keys when locality is preserved
+    let (event, headers) = overflow_topic.next_message_with_headers()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token1,
+            "distinct_id": distinct_id1,
+        })
+    );
     assert_eq!(
-        overflow_topic.next_message_key()?.unwrap(),
-        format!("{token1}:{distinct_id1}")
+        headers.get("force_disable_person_processing"),
+        Some(&"true".to_string()),
+        "Overflow events should have force_disable_person_processing set to true"
     );
 
+    let (event, headers) = overflow_topic.next_message_with_headers()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token1,
+            "distinct_id": distinct_id2,
+        })
+    );
     assert_eq!(
-        overflow_topic.next_message_key()?.unwrap(),
-        format!("{token1}:{distinct_id2}")
+        headers.get("force_disable_person_processing"),
+        Some(&"true".to_string())
     );
 
+    let (event, headers) = overflow_topic.next_message_with_headers()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token2,
+            "distinct_id": distinct_id2,
+        })
+    );
     assert_eq!(
-        overflow_topic.next_message_key()?.unwrap(),
-        format!("{token2}:{distinct_id2}")
+        headers.get("force_disable_person_processing"),
+        Some(&"true".to_string())
     );
 
     overflow_topic.assert_empty();
@@ -561,145 +680,78 @@ async fn it_overflows_events_on_specified_keys_preserving_locality() -> Result<(
 }
 
 #[tokio::test]
-async fn it_reroutes_to_historical_on_specified_keys() -> Result<()> {
+async fn it_should_not_set_force_disable_person_processing_header_when_rate_limited() -> Result<()>
+{
     setup_tracing();
 
-    // token only will be limited by candidate list
     let token1 = String::from("token1");
     let distinct_id1 = String::from("user1");
 
-    // token:distinct_id will be limited by candidate list
-    let token2 = String::from("token2");
-    let distinct_id2 = String::from("user2");
-    let key2 = format!("{token2}:{distinct_id2}");
-
-    // won't be limited other than by burst/rate-limits
-    let token3 = String::from("token3");
-    let distinct_id3 = String::from("user3");
-
     let topic = EphemeralTopic::new().await;
-    let historical_topic = EphemeralTopic::new().await;
+    let overflow_topic = EphemeralTopic::new().await;
 
     let mut config = DEFAULT_CONFIG.clone();
-
-    // enable historical rerouting but focus this test on token1, key2
-    config.enable_historical_rerouting = true;
-    config.historical_rerouting_threshold_days = 30_i64; // 30 days won't interfere w/test!
-    config.historical_tokens_keys = Some(format!("{token1},{key2}"));
-
+    // NO forced overflow keys - only rate limiting
+    config.ingestion_force_overflow_by_token_distinct_id = None;
     config.kafka.kafka_hosts = "localhost:9092".to_string();
-    config.kafka.kafka_producer_linger_ms = 0; // Send messages immediately
-    config.kafka.kafka_message_timeout_ms = 10000; // 10s timeout
+    config.kafka.kafka_producer_linger_ms = 0;
+    config.kafka.kafka_message_timeout_ms = 10000;
     config.kafka.kafka_producer_max_retries = 3;
     config.kafka.kafka_topic = topic.topic_name().to_string();
-    config.kafka.kafka_historical_topic = historical_topic.topic_name().to_string();
-    config.overflow_enabled = false;
-    config.overflow_burst_limit = NonZeroU32::new(10).unwrap();
-    config.overflow_per_second_limit = NonZeroU32::new(10).unwrap();
+    config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
+    config.overflow_enabled = true;
+    // Very low limits to trigger rate-based overflow
+    config.overflow_burst_limit = NonZeroU32::new(1).unwrap();
+    config.overflow_per_second_limit = NonZeroU32::new(1).unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
-    let batch_1 = json!([
-    // all events with token1 should be in overflow
-    {
+    // Send both events in a single batch to ensure rate limiting triggers
+    // First event goes to main, second should overflow
+    let events = json!([{
         "token": token1,
         "event": "event1",
         "distinct_id": distinct_id1,
-    },
-    {
+    },{
         "token": token1,
         "event": "event2",
-        "distinct_id": distinct_id2,
-    }]);
-
-    let batch_2 = json!([
-    // only events with token2:distinct_id2 should be in overflow
-    {
-        "token": token2,
-        "event": "event3",
-        "distinct_id": distinct_id2,
-    },
-    {
-        "token": token2,
-        "event": "event4",
         "distinct_id": distinct_id1,
     }]);
 
-    let batch_3 = json!([
-    // all events for token3 and token3:distinct_id3 should be in main topic
-    {
-        "token": token3,
-        "event": "event5",
-        "distinct_id": distinct_id1,
-    },
-    {
-        "token": token3,
-        "event": "event6",
-        "distinct_id": distinct_id2,
-    },
-    {
-        "token": token3,
-        "event": "event7",
-        "distinct_id": distinct_id3,
-    }]);
-
-    let res = server.capture_events(batch_1.to_string()).await;
+    let res = server.capture_events(events.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
-    let res = server.capture_events(batch_2.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
-
-    let res = server.capture_events(batch_3.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
-
-    // main toppic results
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token2}:{distinct_id1}")
-    );
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token3}:{distinct_id1}")
-    );
-
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token3}:{distinct_id2}")
-    );
-
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token3}:{distinct_id3}")
-    );
-
-    topic.assert_empty();
-
-    // Expected events should be in historical topic
+    // First event in main topic should NOT have the header
+    let (event, headers) = topic.next_message_with_headers()?;
     assert_json_include!(
-        actual: historical_topic.next_event()?,
+        actual: event,
         expected: json!({
             "token": token1,
             "distinct_id": distinct_id1,
         })
     );
+    assert!(
+        !headers.contains_key("force_disable_person_processing"),
+        "Main topic events should not have force_disable_person_processing header"
+    );
 
+    topic.assert_empty();
+
+    // Rate-limited overflow event should NOT have the header
+    let (event, headers) = overflow_topic.next_message_with_headers()?;
     assert_json_include!(
-        actual: historical_topic.next_event()?,
+        actual: event,
         expected: json!({
             "token": token1,
-            "distinct_id": distinct_id2,
+            "distinct_id": distinct_id1,
         })
     );
-
-    assert_json_include!(
-        actual: historical_topic.next_event()?,
-        expected: json!({
-            "token": token2,
-            "distinct_id": distinct_id2,
-        })
+    assert!(
+        !headers.contains_key("force_disable_person_processing"),
+        "Rate-limited overflow events should NOT have force_disable_person_processing header"
     );
 
-    historical_topic.assert_empty();
+    overflow_topic.assert_empty();
 
     Ok(())
 }
@@ -728,7 +780,6 @@ async fn it_reroutes_to_historical_on_event_timestamp() -> Result<()> {
     // enable historical rerouting for events w/timestamp older than 1 day
     config.enable_historical_rerouting = true;
     config.historical_rerouting_threshold_days = 1_i64;
-    config.historical_tokens_keys = None;
 
     config.kafka.kafka_hosts = "localhost:9092".to_string();
     config.kafka.kafka_producer_linger_ms = 0; // Send messages immediately

@@ -21,6 +21,8 @@ __all__ = [
     "QueryAndPlanAlignment",
     "TimeRangeRelevancy",
     "InsightEvaluationAccuracy",
+    "DashboardCreationAccuracy",
+    "SemanticSimilarity",
 ]
 
 
@@ -39,27 +41,29 @@ class ToolRelevance(ScorerWithPartial):
             raise TypeError(f"Eval case expected must be an AssistantToolCall, not {type(expected)}")
         if not isinstance(output, AssistantMessage):
             raise TypeError(f"Eval case output must be an AssistantMessage, not {type(output)}")
-        if output.tool_calls and len(output.tool_calls) > 1:
-            raise ValueError("Parallel tool calls not supported by this scorer yet")
-        score = 0.0  # 0.0 to 1.0
-        if output.tool_calls and len(output.tool_calls) == 1:
-            tool_call = output.tool_calls[0]
-            # 0.5 point for getting the tool right
-            if tool_call.name == expected.name:
-                score += 0.5
-                if not expected.args:
-                    score += 0.5 if not tool_call.args else 0  # If no args expected, only score for lack of args
-                else:
-                    score_per_arg = 0.5 / len(expected.args)
-                    for arg_name, expected_arg_value in expected.args.items():
-                        if arg_name in self.semantic_similarity_args:
-                            arg_similarity = AnswerSimilarity(model="text-embedding-3-small").eval(
-                                output=tool_call.args.get(arg_name), expected=expected_arg_value
-                            )
-                            score += arg_similarity.score * score_per_arg
-                        elif tool_call.args.get(arg_name) == expected_arg_value:
-                            score += score_per_arg
-        return Score(name=self._name(), score=score)
+
+        best_score = 0.0  # 0.0 to 1.0
+        if output.tool_calls:
+            # Check all tool calls and return the best match
+            for tool_call in output.tool_calls:
+                score = 0.0
+                # 0.5 point for getting the tool right
+                if tool_call.name == expected.name:
+                    score += 0.5
+                    if not expected.args:
+                        score += 0.5 if not tool_call.args else 0  # If no args expected, only score for lack of args
+                    else:
+                        score_per_arg = 0.5 / len(expected.args)
+                        for arg_name, expected_arg_value in expected.args.items():
+                            if arg_name in self.semantic_similarity_args:
+                                arg_similarity = AnswerSimilarity(model="text-embedding-3-small").eval(
+                                    output=tool_call.args.get(arg_name), expected=expected_arg_value
+                                )
+                                score += arg_similarity.score * score_per_arg
+                            elif tool_call.args.get(arg_name) == expected_arg_value:
+                                score += score_per_arg
+                best_score = max(best_score, score)
+        return Score(name=self._name(), score=best_score)
 
 
 class PlanAndQueryOutput(TypedDict, total=False):
@@ -400,3 +404,113 @@ class InsightEvaluationAccuracy(ScorerWithPartial):
                 "evaluation_explanation": evaluation_result.get("explanation", ""),
             },
         )
+
+
+class DashboardCreationAccuracy(LLMClassifier):
+    """Evaluate how well the generated dashboard creation output matches the expected input requirements."""
+
+    async def _run_eval_async(self, output: str, expected: dict | None = None, **kwargs):
+        if not output:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No output provided"})
+        return await super()._run_eval_async(output, expected, **kwargs)
+
+    def _run_eval_sync(self, output: str, expected: dict | None = None, **kwargs):
+        if not output:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No output provided"})
+        return super()._run_eval_sync(output, expected, **kwargs)
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="dashboard_creation_accuracy",
+            prompt_template="""
+You will be given the expected dashboard creation requirements and the actual generated output to evaluate how well the output matches the input requirements.
+
+<evaluation_criteria>
+1. Dashboard Creation Success: The output should indicate successful dashboard creation (success: true, dashboard_id present, no error_message).
+2. Dashboard Name Appropriateness: If a dashboard name is provided, it should be relevant to the requested content.
+3. Insight Requirements Fulfillment: The created insights should match the search_insights_queries from the input:
+   - Number of insights mentioned should match the number of insights in the `search_insights_queries` field.
+   - Each insight should address the corresponding query requirements mentioned in the `search_insights_queries` field.
+   - Insight names and descriptions should be appropriate for the requested content
+   - The dashboard name should be relevant to the `dashboard_name` field.
+   - If an insight was not created it should be mentioned in the output message as such.
+4. Query Alignment: The dashboard should fulfill the `dashboard_name` requirements.
+5. Error Handling: If there are errors, they should be meaningful and not due to basic validation failures.
+6. Make sure to check that the dashboards and insights have the corresponding hyperlinks.
+</evaluation_criteria>
+
+<expected_vs_actual_output>
+Expected dashboard creation requirements:
+<expected_output>
+{{expected}}
+</expected_output>
+
+Actual generated output:
+<actual_output>
+{{output}}
+</actual_output>
+</expected_vs_actual_output>
+
+How would you rate how well the generated output matches the expected output requirements? Choose one:
+- perfect: The output perfectly fulfills all requirements from the expected output.
+- near_perfect: The output fulfills most requirements with at most one minor detail missed.
+- good: The output fulfills the main requirements but has some minor discrepancies.
+- fair: The output partially fulfills the requirements but misses some important aspects.
+- poor: The output has significant gaps in fulfilling the requirements.
+- failed: The output completely fails to meet the requirements or has critical errors.
+
+Be strict about matching the specific insight requirements and dashboard creation success.
+""".strip(),
+            choice_scores={
+                "perfect": 1.0,
+                "near_perfect": 0.9,
+                "good": 0.75,
+                "fair": 0.5,
+                "poor": 0.25,
+                "failed": 0.0,
+            },
+            model="gpt-4.1",
+            max_tokens=1024,
+            **kwargs,
+        )
+
+
+class SemanticSimilarity(ScorerWithPartial):
+    """Simple semantic similarity scorer for string comparison using embeddings."""
+
+    def __init__(self, *, model: str = "text-embedding-3-small", **kwargs):
+        super().__init__(**kwargs)
+        self.model = model
+
+    def _run_eval_sync(self, output: str | None, expected: str | None = None, **kwargs):
+        if expected is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expected value provided"})
+        if output is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No output provided"})
+        similarity_scorer = AnswerSimilarity(model=self.model)
+        result = similarity_scorer.eval(output=output, expected=expected)
+        # Return score with threshold consideration
+        return Score(
+            name=self._name(),
+            score=result.score,
+            metadata={
+                "expected_query": expected,
+                "actual_query": output,
+            },
+        )
+
+
+class ExactMatch(ScorerWithPartial):
+    """Evaluate if the output exactly matches the expected value."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def _run_eval_sync(self, output: str | None, expected: str | None = None, **kwargs):
+        if expected is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expected value provided"})
+        if output is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No output provided"})
+        if output == expected:
+            return Score(name=self._name(), score=1.0, metadata={"output": output, "expected": expected})
+        return Score(name=self._name(), score=0.0, metadata={"output": output, "expected": expected})

@@ -1,5 +1,7 @@
 # ruff: noqa: T201 allow print statements
 
+import os
+import sys
 import logging
 import secrets
 import datetime as dt
@@ -9,14 +11,12 @@ from typing import Optional
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
-from dagster_graphql import DagsterGraphQLClient
-
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
+from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
-from posthog.settings import DAGSTER_UI_HOST, DAGSTER_UI_PORT
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
@@ -80,8 +80,26 @@ class Command(BaseCommand):
         parser.add_argument(
             "--staff",
             action="store_true",
+            default=True,
+            help="Whether the demo user should be a staff user (default: True)",
+        )
+        parser.add_argument(
+            "--skip-materialization",
+            action="store_true",
             default=False,
-            help="Create a staff user",
+            help="Skip materializing common columns after data generation",
+        )
+        parser.add_argument(
+            "--skip-flag-sync",
+            action="store_true",
+            default=False,
+            help="Skip syncing feature flags from API after data generation",
+        )
+        parser.add_argument(
+            "--say-on-complete",
+            action="store_true",
+            default=sys.platform == "darwin",
+            help="Use text-to-speech to say when the process is complete",
         )
 
     def handle(self, *args, **options):
@@ -90,12 +108,14 @@ class Command(BaseCommand):
         now = options.get("now") or dt.datetime.now(dt.UTC)
         existing_team_id = options.get("team_id")
         existing_team: Optional[Team] = None
+
         if existing_team_id is not None and existing_team_id != 0:
             try:
                 existing_team = Team.objects.get(pk=existing_team_id)
             except Team.DoesNotExist:
                 print(f"Team with ID {options['team_id']} does not exist!")
                 return
+
         print("Instantiating the Matrix...")
         try:
             RelevantMatrix = {"hedgebox": HedgeboxMatrix, "spikegpt": SpikeGPTMatrix}[options["product"]]
@@ -148,28 +168,41 @@ class Command(BaseCommand):
                         gen_issues(team_for_issues)
             except exceptions.ValidationError as e:
                 print(f"Error: {e}")
+            if not options.get("skip_materialization"):
+                print("Materializing common columns...")
+                self.materialize_common_columns(options["days_past"])
             else:
-                print(
-                    "\nMaster project reset!\n"
-                    if existing_team_id == 0
-                    else (
-                        f"\nDemo data ready for project {team.name}!\n"
-                        if existing_team_id is not None
-                        else f"\nDemo data ready for {user.email}!\n\n"
-                        "Pre-fill the login form with this link:\n"
-                        f"http://localhost:8000/login?email={user.email}\n"
-                        f"The password is:\n{password}\n\n"
-                        "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                        f"http://localhost:8000/signup?email={user.email}\n"
-                    )
-                )
-            print("Materializing common columns...")
-            self.materialize_common_columns(options["days_past"])
+                print("Skipping materialization of common columns.")
 
-            print("Running dagster materializations...")
-            self.initialize_dagster_materialization(options["days_past"])
+            if not options.get("skip_flag_sync"):
+                print("Syncing feature flags from API...")
+                try:
+                    sync_feature_flags_from_api(distinct_id="generate_demo_data", output_fn=self.stdout.write)
+                except Exception as e:
+                    print(f"Feature flag sync failed: {e}")
+                    print("Continuing anyway...")
+            else:
+                print("Skipping feature flag sync.")
+            print(
+                "\nMaster project reset!\n"
+                if existing_team_id == 0
+                else (
+                    f"\nDemo data ready for project {team.name}!\n"
+                    if existing_team_id is not None
+                    else f"\nDemo data ready for {user.email}!\n\n"
+                    "Pre-fill the login form with this link:\n"
+                    f"http://localhost:8010/login?email={user.email}\n"
+                    f"The password is:\n{password}\n\n"
+                    "If running demo mode (DEMO=1), log in instantly with this link:\n"
+                    f"http://localhost:8010/signup?email={user.email}\n"
+                )
+            )
+            if options["say_on_complete"]:
+                os.system('say "demo data ready" || true')
         else:
             print("Dry run - not saving results.")
+            if options["say_on_complete"]:
+                os.system('say "demo data completed (dry run)" || true')
 
     @staticmethod
     def print_results(matrix: Matrix, *, seed: str, duration: float, verbosity: int):
@@ -291,84 +324,3 @@ class Command(BaseCommand):
             ],
             backfill_period_days=backfill_days,
         )
-
-    def initialize_dagster_materialization(self, backfill_days: int):
-        # Use GraphQL to connect to dagster development server.
-        # I tried some other approaches, i.e. CLI and python client, but these were both extremely slow and spun
-        # up a new instance of the Dagster code server for each request, which is not what we want. This API returns
-        # immediately and is non-blocking.
-        client = DagsterGraphQLClient(DAGSTER_UI_HOST, port_number=DAGSTER_UI_PORT)
-
-        # Launch the hourly job (non-partitioned)
-        client.submit_job_execution(
-            job_name="web_pre_aggregate_current_day_hourly_job",
-            repository_location_name="dags.locations.web_analytics",
-            repository_name="__repository__",
-        )
-
-        # Submit partitioned runs for daily jobs.
-        # DagsterGraphQLClient doesn't provide a nice way to do this, so we have to use the raw GraphQL mutation.
-        end_date = dt.datetime.now()
-        partition_list = [
-            (end_date - dt.timedelta(days=backfill_days - i)).strftime("%Y-%m-%d") for i in range(backfill_days + 1)
-        ]
-
-        daily_asset_names = ["web_analytics_stats_table_daily", "web_analytics_bounces_daily"]
-        result = client._execute(
-            self.backfill_mutation_gql(),
-            {
-                "backfillParams": {
-                    "tags": [{"key": "generate_demo_data", "value": "true"}],
-                    "assetSelection": [{"path": [asset_name]} for asset_name in daily_asset_names],
-                    "partitionNames": partition_list,
-                    "fromFailure": False,
-                }
-            },
-        )
-
-        backfill_result = result["launchPartitionBackfill"]
-        if backfill_result["__typename"] != "LaunchBackfillSuccess":
-            raise Exception(backfill_result)
-
-    def backfill_mutation_gql(self):
-        # this comes straight out of the network tab, sadly not supported by the client SDK
-        return """
-            mutation LaunchPartitionBackfill($backfillParams: LaunchBackfillParams!) {
-                launchPartitionBackfill(backfillParams: $backfillParams) {
-                    ... on LaunchBackfillSuccess {
-                        backfillId
-                        __typename
-                    }
-                    ... on PartitionSetNotFoundError {
-                        message
-                        __typename
-                    }
-                    ... on PartitionKeysNotFoundError {
-                        message
-                        __typename
-                    }
-                    ...PythonErrorFragment
-                    __typename
-                }
-            }
-
-            fragment PythonErrorFragment on PythonError {
-                message
-                stack
-                errorChain {
-                    ...PythonErrorChain
-                    __typename
-                }
-                __typename
-            }
-
-            fragment PythonErrorChain on ErrorChainLink {
-                isExplicitLink
-                error {
-                    message
-                    stack
-                    __typename
-                }
-                __typename
-            }
-    """

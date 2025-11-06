@@ -17,7 +17,7 @@ from rest_framework.response import Response
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import groups, report_organization_action, report_organization_deleted
@@ -130,6 +130,7 @@ class OrganizationSerializer(
             "member_count",
             "is_ai_data_processing_approved",
             "default_experiment_stats_method",
+            "default_anonymize_ips",
             "default_role_id",
         ]
         read_only_fields = [
@@ -171,7 +172,9 @@ class OrganizationSerializer(
             else instance.teams.none()
         )
         # Support old access control system
-        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
+        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user).select_related(
+            "project"
+        )
         return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
     def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
@@ -215,28 +218,24 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ]
             if not is_cloud():
                 create_permissions.append(PremiumMultiorganizationPermission())
+
             return create_permissions
 
-        if self.action == "update":
-            create_permissions = [
+        if self.action in ["update", "partial_update"]:
+            update_permissions = [
                 permission()
-                for permission in [permissions.IsAuthenticated, TimeSensitiveActionPermission, APIScopePermission]
+                for permission in [
+                    permissions.IsAuthenticated,
+                    TimeSensitiveActionPermission,
+                    APIScopePermission,
+                    OrganizationAdminWritePermissions,
+                ]
             ]
 
-            if any(
-                key in self.request.data
-                for key in [
-                    "members_can_invite",
-                    "members_can_use_personal_api_keys",
-                    "allow_publicly_shared_resources",
-                ]
-            ):
-                create_permissions.append(OrganizationAdminWritePermissions())
-
             if not is_cloud():
-                create_permissions.append(PremiumMultiorganizationPermission())
+                update_permissions.append(PremiumMultiorganizationPermission())
 
-            return create_permissions
+            return update_permissions
 
         # We don't override for other actions
         raise NotImplementedError()
@@ -247,6 +246,10 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
             if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
                 queryset = queryset.filter(id__in=scoped_organizations)
+        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
+            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
+                queryset = queryset.filter(id__in=scoped_organizations)
+
         return queryset
 
     def safely_get_object(self, queryset):
@@ -324,6 +327,29 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Set user context for activity logging
         with ImpersonatedContext(request):
             return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if "enforce_2fa" in request.data:
+            enforce_2fa_value = request.data["enforce_2fa"]
+            organization = self.get_object()
+            user = cast(User, request.user)
+
+            # Add capture event for 2FA enforcement change
+            posthoganalytics.capture(
+                "organization 2fa enforcement toggled",
+                distinct_id=str(user.distinct_id),
+                properties={
+                    "enabled": enforce_2fa_value,
+                    "organization_id": str(organization.id),
+                    "organization_name": organization.name,
+                    "user_role": user.organization_memberships.get(organization=organization).level,
+                },
+                groups=groups(organization),
+            )
+
+        # Set user context for activity logging
+        with ImpersonatedContext(request):
+            return super().partial_update(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         # Set user context for activity logging

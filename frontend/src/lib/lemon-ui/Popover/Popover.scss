@@ -2,6 +2,8 @@
     z-index: var(--z-popover);
     display: flex;
     flex-direction: row;
+    isolation: isolate;
+    transform: translateZ(0);
     perspective: 80rem;
     perspective-origin: top;
 
@@ -31,7 +33,7 @@
     overflow: visible; // Explicitly `visible`. We can't set `hidden`, because that would hide the popover arrow
     background: var(--color-bg-surface-popover);
     border: 1px solid var(--secondary-3000-button-border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-elevation-3000);
     opacity: 0;
     transition:
@@ -127,7 +129,7 @@
 
 .Popover__content {
     max-height: 100%;
-    border-radius: calc(var(--radius) - 1px);
+    border-radius: calc(var(--radius-lg) - 1px);
 }
 
 .Popover--padded .Popover__content > .ScrollableShadows__inner {

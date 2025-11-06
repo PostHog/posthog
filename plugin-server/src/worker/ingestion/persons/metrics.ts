@@ -133,6 +133,12 @@ export const twoPhaseCommitFailuresCounter = new Counter({
     labelNames: ['tag', 'phase'], // phase: fn_failed, prepare_left_failed, prepare_right_failed, commit_left_failed, commit_right_failed, rollback_left_failed, rollback_right_failed, run_failed
 })
 
+export const maxPreparedTransactionsExceededCounter = new Counter({
+    name: 'person_dualwrite_max_prepared_transactions_exceeded_total',
+    help: 'Number of times max_prepared_transactions limit was exceeded during two-phase commit',
+    labelNames: ['tag', 'side'], // side: left, right
+})
+
 export const dualWriteComparisonCounter = new Counter({
     name: 'person_dualwrite_comparison_total',
     help: 'Comparison results between primary and secondary databases in dual-write mode',
@@ -177,3 +183,27 @@ export function observeLatencyByVersion(person: InternalPerson | undefined, star
     const versionBucket = getVersionBucketLabel(person.version)
     personOperationLatencyByVersionSummary.labels(operation, versionBucket).observe(performance.now() - start)
 }
+
+export const personProfileUpdateOutcomeCounter = new Counter({
+    name: 'person_profile_update_outcome_total',
+    help: 'Outcome of person profile update operations at event level',
+    labelNames: ['outcome'], // outcome: changed, ignored, no_change, unsupported
+})
+
+export const personProfileIgnoredPropertiesCounter = new Counter({
+    name: 'person_profile_ignored_properties_total',
+    help: 'Count of specific properties that were ignored during person profile updates at event level',
+    labelNames: ['property'],
+})
+
+export const personProfileBatchUpdateOutcomeCounter = new Counter({
+    name: 'person_profile_batch_update_outcome_total',
+    help: 'Outcome of person profile update operations at batch level',
+    labelNames: ['outcome'], // outcome: changed, ignored, no_change
+})
+
+export const personProfileBatchIgnoredPropertiesCounter = new Counter({
+    name: 'person_profile_batch_ignored_properties_total',
+    help: 'Count of specific properties that were ignored during person profile updates at batch level',
+    labelNames: ['property'],
+})

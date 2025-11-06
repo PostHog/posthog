@@ -1,8 +1,11 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { getDefaultInterval, objectsEqual } from 'lib/utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -15,7 +18,7 @@ import {
     RevenueAnalyticsPropertyFilters,
     RevenueAnalyticsTopCustomersGroupBy,
 } from '~/queries/schema/schema-general'
-import { Breadcrumb, InsightLogicProps, SimpleIntervalType } from '~/types'
+import { Breadcrumb, InsightLogicProps, InsightShortId, SimpleIntervalType } from '~/types'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
@@ -26,6 +29,22 @@ export enum RevenueAnalyticsQuery {
     GROSS_REVENUE,
     METRICS,
     TOP_CUSTOMERS,
+}
+
+export const REVENUE_ANALYTICS_QUERY_TO_SHORT_ID: Record<RevenueAnalyticsQuery, InsightShortId> = {
+    [RevenueAnalyticsQuery.OVERVIEW]: 'revenue-analytics-overview' as InsightShortId,
+    [RevenueAnalyticsQuery.MRR]: 'revenue-analytics-mrr' as InsightShortId,
+    [RevenueAnalyticsQuery.GROSS_REVENUE]: 'revenue-analytics-gross-revenue' as InsightShortId,
+    [RevenueAnalyticsQuery.METRICS]: 'revenue-analytics-metrics' as InsightShortId,
+    [RevenueAnalyticsQuery.TOP_CUSTOMERS]: 'revenue-analytics-top-customers' as InsightShortId,
+}
+
+export const REVENUE_ANALYTICS_QUERY_TO_NAME: Record<RevenueAnalyticsQuery, string> = {
+    [RevenueAnalyticsQuery.OVERVIEW]: 'Revenue Analytics Overview',
+    [RevenueAnalyticsQuery.MRR]: 'MRR',
+    [RevenueAnalyticsQuery.GROSS_REVENUE]: 'Gross Revenue',
+    [RevenueAnalyticsQuery.METRICS]: 'Revenue Metrics',
+    [RevenueAnalyticsQuery.TOP_CUSTOMERS]: 'Top Customers',
 }
 
 export const REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID = 'revenue-analytics'
@@ -104,6 +123,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setMRRMode: (mrrMode: MRRMode) => ({ mrrMode }),
         setInsightsDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setTopCustomersDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
+        setBreakdownProperties: (breakdownProperties: RevenueAnalyticsBreakdown[]) => ({ breakdownProperties }),
         addBreakdown: (breakdown: RevenueAnalyticsBreakdown) => ({ breakdown }),
         removeBreakdown: (breakdown: RevenueAnalyticsBreakdown) => ({ breakdown }),
     }),
@@ -142,6 +162,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 removeBreakdown: (state, { breakdown }) => {
                     return state.filter((b) => b.property !== breakdown.property || b.type !== breakdown.type)
                 },
+                setBreakdownProperties: (_, { breakdownProperties }) => breakdownProperties,
             },
         ],
         mrrMode: [
@@ -182,6 +203,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                     key: 'RevenueAnalytics',
                     name: 'Revenue analytics',
                     path: urls.revenueAnalytics(),
+                    iconType: 'revenue_analytics',
                 },
             ],
         ],
@@ -275,14 +297,66 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 }
             },
         ],
+
+        maxContext: [
+            (s) => [s.queries],
+            (queries): MaxContextInput[] => {
+                return [
+                    createMaxContextHelpers.insight(
+                        {
+                            id: RevenueAnalyticsQuery.MRR,
+                            short_id: REVENUE_ANALYTICS_QUERY_TO_SHORT_ID[RevenueAnalyticsQuery.MRR],
+                            name: REVENUE_ANALYTICS_QUERY_TO_NAME[RevenueAnalyticsQuery.MRR],
+                            query: queries[RevenueAnalyticsQuery.MRR],
+                        },
+                        {
+                            revenueAnalyticsQuery: RevenueAnalyticsQuery.MRR,
+                        }
+                    ),
+                    createMaxContextHelpers.insight(
+                        {
+                            id: RevenueAnalyticsQuery.GROSS_REVENUE,
+                            short_id: REVENUE_ANALYTICS_QUERY_TO_SHORT_ID[RevenueAnalyticsQuery.GROSS_REVENUE],
+                            name: REVENUE_ANALYTICS_QUERY_TO_NAME[RevenueAnalyticsQuery.GROSS_REVENUE],
+                            query: queries[RevenueAnalyticsQuery.GROSS_REVENUE],
+                        },
+                        {
+                            revenueAnalyticsQuery: RevenueAnalyticsQuery.GROSS_REVENUE,
+                        }
+                    ),
+                    createMaxContextHelpers.insight(
+                        {
+                            id: RevenueAnalyticsQuery.METRICS,
+                            short_id: REVENUE_ANALYTICS_QUERY_TO_SHORT_ID[RevenueAnalyticsQuery.METRICS],
+                            name: REVENUE_ANALYTICS_QUERY_TO_NAME[RevenueAnalyticsQuery.METRICS],
+                            query: queries[RevenueAnalyticsQuery.METRICS],
+                        },
+                        {
+                            revenueAnalyticsQuery: RevenueAnalyticsQuery.METRICS,
+                        }
+                    ),
+                    createMaxContextHelpers.insight(
+                        {
+                            id: RevenueAnalyticsQuery.TOP_CUSTOMERS,
+                            short_id: REVENUE_ANALYTICS_QUERY_TO_SHORT_ID[RevenueAnalyticsQuery.TOP_CUSTOMERS],
+                            name: REVENUE_ANALYTICS_QUERY_TO_NAME[RevenueAnalyticsQuery.TOP_CUSTOMERS],
+                            query: queries[RevenueAnalyticsQuery.TOP_CUSTOMERS],
+                        },
+                        {
+                            revenueAnalyticsQuery: RevenueAnalyticsQuery.TOP_CUSTOMERS,
+                        }
+                    ),
+                ]
+            },
+        ],
     }),
-    actionToUrl(() => ({
+    tabAwareActionToUrl(() => ({
         setDates: ({ dateFrom, dateTo }): string =>
             setQueryParams({ date_from: dateFrom ?? '', date_to: dateTo ?? '' }),
         setRevenueAnalyticsFilters: ({ revenueAnalyticsFilters }): string =>
             setQueryParams({ filters: JSON.stringify(revenueAnalyticsFilters) }),
     })),
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.revenueAnalytics()]: (_, { filters, date_from, date_to }) => {
             if (
                 (date_from && date_from !== values.dateFilter.dateFrom) ||

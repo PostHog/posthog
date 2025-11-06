@@ -43,5 +43,5 @@ export const MRRTile = (): JSX.Element => {
         [query, events.length]
     )
 
-    return <Query query={query} readOnly context={context} />
+    return <Query attachTo={revenueAnalyticsLogic} query={query} readOnly context={context} />
 }

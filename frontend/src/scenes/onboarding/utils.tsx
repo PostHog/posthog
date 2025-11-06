@@ -1,7 +1,7 @@
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { type AvailableOnboardingProducts, PipelineTab, ProductKey } from '~/types'
+import { type AvailableOnboardingProducts, ProductKey } from '~/types'
 
 export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.PRODUCT_ANALYTICS]: {
@@ -23,8 +23,8 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         icon: 'IconDatabase',
         iconColor: 'rgb(133 103 255)',
         breadcrumbsName: 'Data Warehouse',
-        url: urls.pipeline(PipelineTab.Sources),
-        scene: Scene.Pipeline,
+        url: urls.dataPipelines('sources'),
+        scene: Scene.DataPipelines,
     },
     [ProductKey.SESSION_REPLAY]: {
         name: 'Session Replay',
@@ -62,5 +62,12 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         iconColor: 'rgb(235 157 42)',
         url: urls.errorTracking(),
         scene: Scene.ErrorTracking,
+    },
+    [ProductKey.LLM_ANALYTICS]: {
+        name: 'LLM Analytics',
+        icon: 'IconLlmAnalytics',
+        iconColor: 'rgb(182 42 217)',
+        url: urls.llmAnalyticsDashboard(),
+        scene: Scene.LLMAnalytics,
     },
 }

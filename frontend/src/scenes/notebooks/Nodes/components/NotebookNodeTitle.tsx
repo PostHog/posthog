@@ -3,15 +3,16 @@ import posthog from 'posthog-js'
 import { KeyboardEvent } from 'react'
 import { useEffect, useState } from 'react'
 
-import { LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
+import { NotebookNodeType } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'
 
 export function NotebookNodeTitle(): JSX.Element {
     const { isEditable } = useValues(notebookLogic)
-    const { nodeAttributes, title, titlePlaceholder, isEditingTitle } = useValues(notebookNodeLogic)
+    const { nodeAttributes, title, titlePlaceholder, isEditingTitle, nodeType } = useValues(notebookNodeLogic)
     const { updateAttributes, toggleEditingTitle } = useActions(notebookNodeLogic)
     const [newValue, setNewValue] = useState('')
 
@@ -40,22 +41,48 @@ export function NotebookNodeTitle(): JSX.Element {
         }
     }
 
-    return !isEditable ? (
-        <span title={title} className="NotebookNodeTitle">
-            {title}
+    const suggestedTaskTitle = (
+        <span className="NotebookNodeTitle flex items-center gap-2" title={title}>
+            <LemonTag type="warning" size="small">
+                Suggested task
+            </LemonTag>
+            <span className="truncate">{title}</span>
         </span>
-    ) : !isEditingTitle ? (
-        <Tooltip title="Double click to edit title">
-            <span
-                title={title}
-                className="NotebookNodeTitle NotebookNodeTitle--editable"
-                onDoubleClick={() => {
-                    toggleEditingTitle(true)
-                    posthog.capture('notebook editing node title')
-                }}
-            >
+    )
+
+    return !isEditable ? (
+        nodeType === NotebookNodeType.TaskCreate ? (
+            suggestedTaskTitle
+        ) : (
+            <span title={title} className="NotebookNodeTitle">
                 {title}
             </span>
+        )
+    ) : !isEditingTitle ? (
+        <Tooltip title="Double click to edit title">
+            {nodeType === NotebookNodeType.TaskCreate ? (
+                <span
+                    title={title}
+                    className="NotebookNodeTitle NotebookNodeTitle--editable"
+                    onDoubleClick={() => {
+                        toggleEditingTitle(true)
+                        posthog.capture('notebook editing node title')
+                    }}
+                >
+                    {suggestedTaskTitle}
+                </span>
+            ) : (
+                <span
+                    title={title}
+                    className="NotebookNodeTitle NotebookNodeTitle--editable"
+                    onDoubleClick={() => {
+                        toggleEditingTitle(true)
+                        posthog.capture('notebook editing node title')
+                    }}
+                >
+                    {title}
+                </span>
+            )}
         </Tooltip>
     ) : (
         <LemonInput

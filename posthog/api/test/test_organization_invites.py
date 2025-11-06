@@ -16,7 +16,7 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team.team import Team
 
 from ee.models import Role, RoleMembership
-from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.rbac.access_control import AccessControl
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
@@ -188,26 +188,35 @@ class TestOrganizationInvitesAPI(APIBaseTest):
     def test_can_specify_private_project_access_in_invite(self):
         email = "x@posthog.com"
         count = OrganizationInvite.objects.count()
-        private_team = Team.objects.create(organization=self.organization, name="Private Team", access_control=True)
-        ExplicitTeamMembership.objects.create(
+        private_team = Team.objects.create(organization=self.organization, name="Private Team")
+
+        # Set up new access control system - restrict project to no default access
+        AccessControl.objects.create(
             team=private_team,
-            parent_membership=self.organization_membership,
-            level=ExplicitTeamMembership.Level.ADMIN,
+            access_level="none",
+            resource="project",
+            resource_id=str(private_team.id),
+        )
+        # Grant admin access to current user
+        AccessControl.objects.create(
+            team=private_team,
+            access_level="admin",
+            resource="project",
+            resource_id=str(private_team.id),
+            organization_member=self.organization_membership,
         )
         response = self.client.post(
             "/api/organizations/@current/invites/",
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team.id, "level": "admin"}],
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         obj = OrganizationInvite.objects.get(id=response.json()["id"])
         self.assertEqual(obj.level, OrganizationMembership.Level.MEMBER)
-        self.assertEqual(
-            obj.private_project_access, [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}]
-        )
+        self.assertEqual(obj.private_project_access, [{"id": private_team.id, "level": "admin"}])
         self.assertEqual(OrganizationInvite.objects.count(), count + 1)
 
         # if member of org but admin of team, should be able to invite new project admins to private project
@@ -221,15 +230,13 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team.id, "level": "admin"}],
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         obj = OrganizationInvite.objects.get(id=response.json()["id"])
         self.assertEqual(obj.level, OrganizationMembership.Level.MEMBER)
-        self.assertEqual(
-            obj.private_project_access, [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}]
-        )
+        self.assertEqual(obj.private_project_access, [{"id": private_team.id, "level": "admin"}])
         self.assertEqual(OrganizationInvite.objects.count(), count + 1)
 
     def test_can_invite_to_private_project_if_user_has_implicit_access_to_team(self):
@@ -243,22 +250,28 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         email = "x@posthog.com"
         count = OrganizationInvite.objects.count()
-        private_team = Team.objects.create(organization=self.organization, name="Private Team", access_control=True)
+        private_team = Team.objects.create(organization=self.organization, name="Private Team")
+
+        # Set up new access control system - restrict project to no default access
+        AccessControl.objects.create(
+            team=private_team,
+            access_level="none",
+            resource="project",
+            resource_id=str(private_team.id),
+        )
         response = self.client.post(
             "/api/organizations/@current/invites/",
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team.id, "level": "admin"}],
             },
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         obj = OrganizationInvite.objects.get(id=response.json()["id"])
         self.assertEqual(obj.level, OrganizationMembership.Level.MEMBER)
-        self.assertEqual(
-            obj.private_project_access, [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}]
-        )
+        self.assertEqual(obj.private_project_access, [{"id": private_team.id, "level": "admin"}])
         self.assertEqual(OrganizationInvite.objects.count(), count + 1)
         # reset the org membership level in case it's used in other tests
         org_membership.level = OrganizationMembership.Level.MEMBER
@@ -268,13 +281,21 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         email = "x@posthog.com"
         count = OrganizationInvite.objects.count()
         other_org = Organization.objects.create(name="Other Org")
-        team_in_other_org = Team.objects.create(organization=other_org, name="Private Team", access_control=True)
+        team_in_other_org = Team.objects.create(organization=other_org, name="Private Team")
+
+        # Set up new access control system - restrict project to no default access
+        AccessControl.objects.create(
+            team=team_in_other_org,
+            access_level="none",
+            resource="project",
+            resource_id=str(team_in_other_org.id),
+        )
         response = self.client.post(
             "/api/organizations/@current/invites/",
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": team_in_other_org.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": team_in_other_org.id, "level": "admin"}],
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -293,13 +314,21 @@ class TestOrganizationInvitesAPI(APIBaseTest):
     def test_invite_fails_if_inviter_does_not_have_access_to_team(self):
         email = "xx@posthog.com"
         count = OrganizationInvite.objects.count()
-        private_team = Team.objects.create(organization=self.organization, name="Private Team", access_control=True)
+        private_team = Team.objects.create(organization=self.organization, name="Private Team")
+
+        # Set up new access control system - restrict project to no default access
+        AccessControl.objects.create(
+            team=private_team,
+            access_level="none",
+            resource="project",
+            resource_id=str(private_team.id),
+        )
         response = self.client.post(
             "/api/organizations/@current/invites/",
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team.id, "level": "admin"}],
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -318,21 +347,32 @@ class TestOrganizationInvitesAPI(APIBaseTest):
     def test_invite_fails_if_inviter_level_is_lower_than_requested_level(self):
         email = "x@posthog.com"
         count = OrganizationInvite.objects.count()
-        private_team = Team.objects.create(organization=self.organization, name="Private Team", access_control=True)
+        private_team = Team.objects.create(organization=self.organization, name="Private Team")
         organization_membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
         organization_membership.level = OrganizationMembership.Level.MEMBER
         organization_membership.save()
-        ExplicitTeamMembership.objects.create(
+
+        # Set up new access control system - restrict project to no default access
+        AccessControl.objects.create(
             team=private_team,
-            parent_membership=self.organization_membership,
-            level=ExplicitTeamMembership.Level.MEMBER,
+            access_level="none",
+            resource="project",
+            resource_id=str(private_team.id),
+        )
+        # Grant member access to current user
+        AccessControl.objects.create(
+            team=private_team,
+            access_level="member",
+            resource="project",
+            resource_id=str(private_team.id),
+            organization_member=self.organization_membership,
         )
         response = self.client.post(
             "/api/organizations/@current/invites/",
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team.id, "level": "admin"}],
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -508,9 +548,33 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.organization_membership.save()
         invite = OrganizationInvite.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
-        self.assertEqual(response.content, b"")  # Empty response
+        # Members should not be able to delete invites
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Your organization access level is insufficient", response.json()["detail"])
+        # Invite should still exist
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite.id).exists())
+
+    def test_delete_organization_invite_if_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        invite = OrganizationInvite.objects.create(organization=self.organization)
+        response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
+        # Admins should be able to delete invites
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(OrganizationInvite.objects.exists())
+        self.assertEqual(response.content, b"")  # Empty response
+        # Invite should be deleted
+        self.assertFalse(OrganizationInvite.objects.filter(id=invite.id).exists())
+
+    def test_delete_organization_invite_if_owner(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        invite = OrganizationInvite.objects.create(organization=self.organization)
+        response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
+        # Owners should be able to delete invites
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.content, b"")  # Empty response
+        # Invite should be deleted
+        self.assertFalse(OrganizationInvite.objects.filter(id=invite.id).exists())
 
     # Combine pending invites
 
@@ -519,19 +583,26 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.client.force_login(admin_user)
 
         email = "x@posthog.com"
-        private_team_1 = Team.objects.create(organization=self.organization, name="Private Team 1", access_control=True)
-        private_team_2 = Team.objects.create(organization=self.organization, name="Private Team 2", access_control=True)
+        private_team_1 = Team.objects.create(organization=self.organization, name="Private Team 1")
+        private_team_2 = Team.objects.create(organization=self.organization, name="Private Team 2")
 
-        ExplicitTeamMembership.objects.create(
-            team=private_team_1,
-            parent_membership=self.organization_membership,
-            level=ExplicitTeamMembership.Level.ADMIN,
-        )
-        ExplicitTeamMembership.objects.create(
-            team=private_team_2,
-            parent_membership=self.organization_membership,
-            level=ExplicitTeamMembership.Level.ADMIN,
-        )
+        # Set up new access control system for both teams
+        for team in [private_team_1, private_team_2]:
+            # Restrict project to no default access
+            AccessControl.objects.create(
+                team=team,
+                access_level="none",
+                resource="project",
+                resource_id=str(team.id),
+            )
+            # Grant admin access to current user
+            AccessControl.objects.create(
+                team=team,
+                access_level="admin",
+                resource="project",
+                resource_id=str(team.id),
+                organization_member=self.organization_membership,
+            )
 
         # Create first invite with member access to team 1
         first_invite = self.client.post(
@@ -539,7 +610,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team_1.id, "level": ExplicitTeamMembership.Level.MEMBER}],
+                "private_project_access": [{"id": private_team_1.id, "level": "member"}],
             },
         ).json()
 
@@ -549,7 +620,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.ADMIN,
-                "private_project_access": [{"id": private_team_2.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team_2.id, "level": "admin"}],
             },
         ).json()
 
@@ -559,7 +630,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team_1.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team_1.id, "level": "admin"}],
                 "combine_pending_invites": True,
             },
         )
@@ -576,8 +647,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Check that private project access is combined with highest levels
         expected_access = [
-            {"id": private_team_1.id, "level": ExplicitTeamMembership.Level.ADMIN},
-            {"id": private_team_2.id, "level": ExplicitTeamMembership.Level.ADMIN},
+            {"id": private_team_1.id, "level": "admin"},
+            {"id": private_team_2.id, "level": "admin"},
         ]
         self.assertEqual(len(combined_invite["private_project_access"]), 2)
         for access in expected_access:
@@ -993,10 +1064,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         """
         Test that organization admins can invite users to teams with the new access control system
         """
-        # Create a team with access_control=False (using new access control system)
-        team = Team.objects.create(organization=self.organization, name="New Team", access_control=False)
-
-        # Import AccessControl
+        # Create a team using new access control system (no legacy access_control field)
+        team = Team.objects.create(organization=self.organization, name="New Team")
 
         # Create an admin user
         admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
@@ -1009,7 +1078,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/invites/",
             {
                 "target_email": "test@posthog.com",
-                "private_project_access": [{"id": team.id, "level": OrganizationMembership.Level.MEMBER}],
+                "private_project_access": [{"id": team.id, "level": "member"}],
             },
         )
 
@@ -1020,16 +1089,14 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
         self.assertEqual(len(invite.private_project_access), 1)
         self.assertEqual(invite.private_project_access[0]["id"], team.id)
-        self.assertEqual(invite.private_project_access[0]["level"], OrganizationMembership.Level.MEMBER)
+        self.assertEqual(invite.private_project_access[0]["level"], "member")
 
     def test_can_invite_with_new_access_control_as_org_member_to_non_private_team(self):
         """
         Test that organization members can invite users to non-private teams with the new access control system
         """
-        # Create a team with access_control=False (using new access control system)
-        team = Team.objects.create(organization=self.organization, name="New Team", access_control=False)
-
-        # Import AccessControl
+        # Create a team using new access control system (no legacy access_control field)
+        team = Team.objects.create(organization=self.organization, name="New Team")
 
         # Create a member user
         member_user = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
@@ -1042,7 +1109,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/invites/",
             {
                 "target_email": "test@posthog.com",
-                "private_project_access": [{"id": team.id, "level": OrganizationMembership.Level.MEMBER}],
+                "private_project_access": [{"id": team.id, "level": "member"}],
             },
         )
 
@@ -1053,17 +1120,14 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
         self.assertEqual(len(invite.private_project_access), 1)
         self.assertEqual(invite.private_project_access[0]["id"], team.id)
-        self.assertEqual(invite.private_project_access[0]["level"], OrganizationMembership.Level.MEMBER)
+        self.assertEqual(invite.private_project_access[0]["level"], "member")
 
     def test_cannot_invite_with_new_access_control_as_org_member_to_private_team(self):
         """
         Test that organization members cannot invite users to private teams with the new access control system
         """
-        # Create a team with access_control=False (using new access control system)
-        team = Team.objects.create(organization=self.organization, name="New Team", access_control=False)
-
-        # Import AccessControl
-        from ee.models.rbac.access_control import AccessControl
+        # Create a team using new access control system (no legacy access_control field)
+        team = Team.objects.create(organization=self.organization, name="New Team")
 
         # Create a member user
         member_user = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
@@ -1079,7 +1143,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/invites/",
             {
                 "target_email": "test@posthog.com",
-                "private_project_access": [{"id": team.id, "level": OrganizationMembership.Level.MEMBER}],
+                "private_project_access": [{"id": team.id, "level": "member"}],
             },
         )
 
@@ -1094,11 +1158,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         """
         Test that team admins can invite users to private teams with the new access control system
         """
-        # Create a team with access_control=False (using new access control system)
-        team = Team.objects.create(organization=self.organization, name="New Team", access_control=False)
-
-        # Import AccessControl
-        from ee.models.rbac.access_control import AccessControl
+        # Create a team using new access control system (no legacy access_control field)
+        team = Team.objects.create(organization=self.organization, name="New Team")
 
         # Create a member user
         member_user = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
@@ -1124,7 +1185,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/invites/",
             {
                 "target_email": "test@posthog.com",
-                "private_project_access": [{"id": team.id, "level": OrganizationMembership.Level.MEMBER}],
+                "private_project_access": [{"id": team.id, "level": "member"}],
             },
         )
 
@@ -1135,7 +1196,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
         self.assertEqual(len(invite.private_project_access), 1)
         self.assertEqual(invite.private_project_access[0]["id"], team.id)
-        self.assertEqual(invite.private_project_access[0]["level"], OrganizationMembership.Level.MEMBER)
+        self.assertEqual(invite.private_project_access[0]["level"], "member")
 
     @patch("posthoganalytics.capture")
     def test_add_organization_invite_case_insensitive_email_normalization(self, mock_capture):

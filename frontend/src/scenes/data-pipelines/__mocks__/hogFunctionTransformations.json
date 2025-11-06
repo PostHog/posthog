@@ -1,0 +1,124 @@
+{
+    "count": 2,
+    "next": null,
+    "previous": null,
+    "results": [
+        {
+            "id": "0196900f-1b68-0000-6e5a-09819169d275",
+            "type": "transformation",
+            "kind": null,
+            "name": "GeoIP",
+            "description": "Enrich events with GeoIP data",
+            "created_at": "2025-05-02T08:13:51.340570Z",
+            "created_by": null,
+            "updated_at": "2025-05-27T14:49:22.040684Z",
+            "enabled": true,
+            "hog": "return event",
+            "bytecode": null,
+            "transpiled": null,
+            "inputs_schema": [],
+            "inputs": {},
+            "filters": {
+                "bytecode": ["_H", 1, 29]
+            },
+            "masking": null,
+            "mappings": null,
+            "icon_url": "/static/transformations/geoip.png",
+            "template": {
+                "mapping_templates": null,
+                "mappings": null,
+                "status": "stable",
+                "free": true,
+                "type": "transformation",
+                "id": "plugin-posthog-plugin-geoip",
+                "name": "GeoIP",
+                "hog": "return event",
+                "inputs_schema": [],
+                "category": ["Custom"],
+                "description": "Enrich events with GeoIP data",
+                "filters": null,
+                "masking": null,
+                "icon_url": "/static/transformations/geoip.png",
+                "kind": null
+            },
+            "status": {
+                "state": 1,
+                "rating": 1,
+                "tokens": 10000
+            },
+            "execution_order": 1
+        },
+        {
+            "id": "01970c27-1f3c-0000-204e-7c07e375065c",
+            "type": "transformation",
+            "kind": null,
+            "name": "Drop Events",
+            "description": "Drop events based on defined filters.",
+            "created_at": "2025-05-26T10:32:59.967742Z",
+            "created_by": {
+                "id": 1,
+                "uuid": "0196900f-1824-0000-d3e0-f19bb3d70020",
+                "distinct_id": "WudLIpIOOPgWUyhrq4VhgLB2R2T8585jfoqEIbO3ZTL",
+                "first_name": "Ben",
+                "last_name": "",
+                "email": "ben@posthog.com",
+                "is_email_verified": true,
+                "hedgehog_config": null,
+                "role_at_organization": "engineering"
+            },
+            "updated_at": "2025-05-27T14:49:22.078803Z",
+            "enabled": true,
+            "hog": "return null",
+            "bytecode": ["_H", 1, 31, 38],
+            "transpiled": null,
+            "inputs_schema": [],
+            "inputs": {},
+            "filters": {
+                "events": [
+                    {
+                        "id": "CHANGE-ME",
+                        "name": "CHANGE-ME",
+                        "type": "events",
+                        "order": 0
+                    }
+                ],
+                "bytecode": ["_H", 1, 32, "CHANGE-ME", 32, "event", 1, 1, 11, 3, 1, 4, 1]
+            },
+            "masking": null,
+            "mappings": null,
+            "icon_url": "/static/hedgehog/builder-hog-01.png",
+            "template": {
+                "mapping_templates": null,
+                "mappings": null,
+                "status": "beta",
+                "free": true,
+                "type": "transformation",
+                "id": "template-drop-events",
+                "name": "Drop Events",
+                "hog": "return null",
+                "inputs_schema": [],
+                "category": ["Custom"],
+                "description": "Drop events based on defined filters.",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "CHANGE-ME",
+                            "name": "CHANGE-ME",
+                            "type": "events",
+                            "order": 0
+                        }
+                    ]
+                },
+                "masking": null,
+                "icon_url": "/static/hedgehog/builder-hog-01.png",
+                "kind": null
+            },
+            "status": {
+                "state": 1,
+                "rating": 1,
+                "tokens": 10000
+            },
+            "execution_order": 2
+        }
+    ]
+}

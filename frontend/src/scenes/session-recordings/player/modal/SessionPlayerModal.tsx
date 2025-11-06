@@ -1,10 +1,9 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
-import { PlayerMeta } from '../player-meta/PlayerMeta'
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
 
@@ -22,12 +21,12 @@ export function SessionPlayerModal(): JSX.Element | null {
 
     // activeSessionRecording?.matching_events should always be a single element array
     // but, we're filtering and using flatMap just in case
-    const eventUUIDs =
+    const matchedEvents =
         activeSessionRecording?.matching_events
             ?.filter((matchingEvents) => {
                 return matchingEvents.session_id === activeSessionRecording?.id
             })
-            .flatMap((matchedRecording) => matchedRecording.events.map((x) => x.uuid)) || []
+            .flatMap((matchedRecording) => matchedRecording.events) || []
 
     const logicProps: SessionRecordingPlayerLogicProps = {
         playerKey: 'modal',
@@ -35,7 +34,7 @@ export function SessionPlayerModal(): JSX.Element | null {
         autoPlay: true,
         matchingEventsMatchType: {
             matchType: 'uuid',
-            eventUUIDs: eventUUIDs,
+            matchedEvents: matchedEvents,
         },
     }
 
@@ -53,15 +52,8 @@ export function SessionPlayerModal(): JSX.Element | null {
             zIndex="1161"
             hideCloseButton={true}
         >
-            <header>
-                {activeSessionRecording ? (
-                    <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
-                        <PlayerMeta />
-                    </BindLogic>
-                ) : null}
-            </header>
             <LemonModal.Content embedded>
-                {activeSessionRecording?.id && <SessionRecordingPlayer {...logicProps} noMeta noBorder />}
+                {activeSessionRecording?.id && <SessionRecordingPlayer {...logicProps} noBorder />}
             </LemonModal.Content>
         </LemonModal>
     )

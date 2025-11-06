@@ -1,5 +1,6 @@
 use axum::{extract::State, http::HeaderMap};
 use bytes::Bytes;
+use common_types::ProjectId;
 use serde_json::Value;
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use uuid::Uuid;
@@ -42,11 +43,13 @@ pub struct RequestPropertyOverrides {
 /// Represents all context required for evaluating a set of feature flags.
 pub struct FeatureFlagEvaluationContext {
     pub team_id: i32,
-    pub project_id: i64,
+    pub project_id: ProjectId,
     pub distinct_id: String,
     pub feature_flags: FeatureFlagList,
-    pub reader: Arc<dyn common_database::Client + Send + Sync>,
-    pub writer: Arc<dyn common_database::Client + Send + Sync>,
+    pub persons_reader: Arc<dyn common_database::Client + Send + Sync>,
+    pub persons_writer: Arc<dyn common_database::Client + Send + Sync>,
+    pub non_persons_reader: Arc<dyn common_database::Client + Send + Sync>,
+    pub non_persons_writer: Arc<dyn common_database::Client + Send + Sync>,
     pub cohort_cache: Arc<CohortCacheManager>,
     pub person_property_overrides: Option<HashMap<String, Value>>,
     pub group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,

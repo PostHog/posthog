@@ -9,7 +9,7 @@
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)) 
-  SETTINGS optimize_aggregation_in_order=1) AS persons GLOBAL LEFT JOIN (
+  SETTINGS optimize_aggregation_in_order=1) AS persons LEFT JOIN (
   SELECT extended_properties.string_prop AS string_prop, extended_properties.int_prop AS int_prop, extended_properties.bool_prop AS bool_prop, string_prop AS persons__extended_properties___string_prop 
   FROM s3(%(hogql_val_3_sensitive)s, %(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_4)s, %(hogql_val_5)s) AS extended_properties) AS persons__extended_properties ON equals(persons.persons___properties___email, persons__extended_properties.persons__extended_properties___string_prop) 
   WHERE ifNull(equals(bool_prop, 1), 0) 

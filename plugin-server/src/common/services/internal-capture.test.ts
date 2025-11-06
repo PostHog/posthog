@@ -15,6 +15,7 @@ describe('InternalCaptureService', () => {
             headers: {},
             json: () => Promise.resolve({}),
             text: () => Promise.resolve(''),
+            dump: () => Promise.resolve(),
         })
         service = new InternalCaptureService({ CAPTURE_INTERNAL_URL: 'http://localhost:8010/capture' })
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })

@@ -1,17 +1,17 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
 
-import { IconEllipsis, IconPeople } from '@posthog/icons'
+import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonMenu } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { OnboardingStepKey, ProductKey } from '~/types'
@@ -40,9 +40,15 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs
-                tabKey="persons"
-                buttons={
+            <PersonsManagementSceneTabs tabKey="persons" />
+
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.Persons].name}
+                description={sceneConfigurations[Scene.Persons].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Persons].iconType || 'default_icon_type',
+                }}
+                actions={
                     <LemonMenu
                         items={[
                             {
@@ -74,18 +80,6 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     </LemonMenu>
                 }
             />
-
-            <SceneTitleSection
-                name="People"
-                description="A catalog of all the people behind your events"
-                resourceType={{
-                    type: 'person',
-                    typePlural: 'persons',
-                    forceIcon: <IconPeople />,
-                }}
-                docsURL="https://posthog.com/docs/data/persons"
-            />
-            <SceneDivider />
 
             <Query
                 uniqueKey={`persons-query-${tabId}`}

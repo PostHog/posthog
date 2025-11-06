@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
@@ -21,7 +22,7 @@ export function StacktraceGenericDisplay({
     renderEmpty,
 }: StacktraceBaseDisplayProps): JSX.Element {
     const { exceptionAttributes, hasStacktrace } = useValues(errorPropertiesLogic)
-    const { loading, showAllFrames } = useValues(exceptionCardLogic)
+    const { issueId, loading, showAllFrames } = useValues(exceptionCardLogic)
     const { runtime } = exceptionAttributes || {}
     const renderExceptionHeader = useCallback(
         ({ type, value, loading, part }: ExceptionHeaderProps): JSX.Element => {
@@ -47,6 +48,9 @@ export function StacktraceGenericDisplay({
                     showAllFrames={showAllFrames}
                     renderExceptionHeader={renderExceptionHeader}
                     onFrameContextClick={(_, e) => cancelEvent(e)}
+                    onFirstFrameExpanded={() => {
+                        posthog.capture('error_tracking_stacktrace_explored', { issue_id: issueId })
+                    }}
                 />
             )}
             {!loading && !hasStacktrace && renderEmpty()}
@@ -77,26 +81,28 @@ export function StacktraceGenericExceptionHeader({
                     </>
                 )}
             </div>
-            <div
-                className={cn('font-medium text-[var(--gray-8)] leading-6', {
-                    'line-clamp-1': truncate,
-                })}
-            >
-                {loading ? (
-                    <LemonSkeleton className="w-[50%] h-2" />
-                ) : isScriptError ? (
-                    <Tooltip
-                        title="This error occurs when JavaScript errors are caught by the browser but details are hidden due to cross-origin restrictions."
-                        docLink="https://posthog.com/docs/error-tracking/common-questions#what-is-a-script-error-with-no-stack-traces"
-                        placement="right-end"
-                        delayMs={50}
-                    >
-                        <span>{value}</span>
-                    </Tooltip>
-                ) : (
-                    value || 'Unknown message'
-                )}
-            </div>
+            {(loading || value) && (
+                <div
+                    className={cn('font-medium text-[var(--gray-8)] leading-6', {
+                        'line-clamp-1': truncate,
+                    })}
+                >
+                    {loading ? (
+                        <LemonSkeleton className="w-[50%] h-2" />
+                    ) : isScriptError ? (
+                        <Tooltip
+                            title="This error occurs when JavaScript errors are caught by the browser but details are hidden due to cross-origin restrictions."
+                            docLink="https://posthog.com/docs/error-tracking/common-questions#what-is-a-script-error-with-no-stack-traces"
+                            placement="right-end"
+                            delayMs={50}
+                        >
+                            <span>{value}</span>
+                        </Tooltip>
+                    ) : (
+                        value
+                    )}
+                </div>
+            )}
         </div>
     )
 }

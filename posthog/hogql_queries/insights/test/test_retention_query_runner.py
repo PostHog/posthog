@@ -2950,9 +2950,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         # Extract distinct_ids from results to check (order might vary)
         # Format is [[person_dict, intervals_list], ...]
-        distinct_ids = {tuple(actor[0]["distinct_ids"]) for actor in actors_day1_interval0}
-        self.assertIn(("alias1", "person1"), distinct_ids)
-        self.assertIn(("person2",), distinct_ids)
+        distinct_ids = {frozenset(actor[0]["distinct_ids"]) for actor in actors_day1_interval0}
+        self.assertIn(frozenset(["alias1", "person1"]), distinct_ids)
+        self.assertIn(frozenset(["person2"]), distinct_ids)
 
         # Test actors for day 1 interval 3 (people who signed up on day 1 and returned on day 4)
         actors_day1_interval3 = self.run_actors_query(interval=1, query=query)
@@ -4527,7 +4527,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
     def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):
-        self.run_query(query={}, limit_context=LimitContext.QUERY_ASYNC)
+        self.run_query(query={}, limit_context=LimitContext.RETENTION)
 
         mock_sync_execute.assert_called_once()
         self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
@@ -5021,3 +5021,840 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0]["id"], person2.uuid)
         self.assertEqual(result[0][1], [0, 2])
+
+    def test_retention_breakdown_person_property_is_stable(self):
+        # This test reproduces the bug where a person's breakdown value splits between
+        # empty string and actual value, causing major countries to drop from top breakdown list
+
+        # Create person who will have country property added later
+        person_no_country = Person.objects.create(team=self.team, distinct_ids=["person_no_country"], properties={})
+
+        # Create person who always has country
+        # person_with_country
+        Person.objects.create(team=self.team, distinct_ids=["person_with_country"], properties={"country": "Taiwan"})
+
+        # Create events for both people
+        _create_events(
+            self.team,
+            [
+                ("person_no_country", _date(0)),  # Event when person has no country
+                ("person_no_country", _date(1)),  # Retention event when person has no country
+                ("person_with_country", _date(0)),  # Event for person with Taiwan
+                ("person_with_country", _date(1)),  # Retention event for person with Taiwan
+            ],
+        )
+
+        # Now update the person to have a country (simulating property being set later)
+        person_no_country.properties = {"country": "Taiwan"}
+        person_no_country.save()
+
+        # Create more events after the property is set
+        _create_events(
+            self.team,
+            [
+                ("person_no_country", _date(2)),  # Event when person now has Taiwan as country
+                ("person_with_country", _date(2)),  # Another event for consistent person
+            ],
+        )
+
+        # Create many other people with unique countries to fill up breakdown slots
+        # This simulates the real scenario where major countries get pushed out
+        for i in range(20):
+            Person.objects.create(team=self.team, distinct_ids=[f"person_{i}"], properties={"country": f"Country_{i}"})
+            _create_events(self.team, [(f"person_{i}", _date(0)), (f"person_{i}", _date(1))])
+
+        query = {
+            "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+            "retentionFilter": {"period": "Day", "totalIntervals": 7},
+            "breakdownFilter": {
+                "breakdown": "country",
+                "breakdown_type": "person",
+            },
+        }
+
+        results = self.run_query(query)
+
+        # Extract breakdown values
+        breakdown_values = {r["breakdown_value"] for r in results}
+
+        # This test will FAIL with current logic because:
+        # 1. person_no_country's events will be split between "" (empty) and "Taiwan"
+        # 2. This makes Taiwan appear to have only 1 person instead of 2
+        # 3. Taiwan gets pushed out by the 20 other countries in the breakdown limit
+
+        # The test expects Taiwan to be in the results (it should have 2 people)
+        # but with the current bug, it might not be due to the splitting issue
+        self.assertIn(
+            "Taiwan",
+            breakdown_values,
+            "Taiwan should appear in breakdown results but got pushed out due to person property splitting bug",
+        )
+
+        # Taiwan should show 2 people in the cohort, not split between empty and Taiwan
+        taiwan_results = [r for r in results if r["breakdown_value"] == "Taiwan"]
+        if taiwan_results:
+            # Day 0 cohort should have 2 people (both person_no_country and person_with_country)
+            taiwan_day0_cohort = next((r for r in taiwan_results if r["label"] == "Day 0"), None)
+            if taiwan_day0_cohort:
+                self.assertEqual(
+                    taiwan_day0_cohort["values"][0]["count"],
+                    2,
+                    "Taiwan cohort should have 2 people, not split due to property timing",
+                )
+
+    def test_retention_breakdown_uses_most_recent_property_value(self):
+        # This test validates that when a user's breakdown property changes over time,
+        # they are counted using their most recent property value for ranking purposes.
+
+        # Create a user whose country changes from '' -> 'Canada' -> 'USA' over time
+        person_changing = Person.objects.create(
+            team=self.team,
+            distinct_ids=["person_changing"],
+            properties={},  # Initially no country
+        )
+
+        # Day 0: Event with no country (empty string)
+        _create_events(self.team, [("person_changing", _date(0))])
+
+        # Update person to have Canada as country
+        person_changing.properties = {"country": "Canada"}
+        person_changing.save()
+
+        # Day 1: Event with Canada
+        _create_events(self.team, [("person_changing", _date(1))])
+
+        # Update person to have USA as country (most recent)
+        person_changing.properties = {"country": "USA"}
+        person_changing.save()
+
+        # Day 2: Event with USA (this should be the canonical value)
+        _create_events(self.team, [("person_changing", _date(2))])
+
+        # Create a baseline USA user to ensure USA gets ranked properly
+        Person.objects.create(team=self.team, distinct_ids=["usa_baseline"], properties={"country": "USA"})
+        _create_events(self.team, [("usa_baseline", _date(0))])
+
+        # Create some other countries to fill up breakdown slots
+        for i in range(15):
+            Person.objects.create(team=self.team, distinct_ids=[f"other_{i}"], properties={"country": f"Other_{i}"})
+            _create_events(self.team, [(f"other_{i}", _date(0))])
+
+        query = {
+            "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+            "retentionFilter": {"period": "Day", "totalIntervals": 7},
+            "breakdownFilter": {
+                "breakdown": "country",
+                "breakdown_type": "person",
+                "breakdown_limit": 5,  # Limit to top 5 to force ranking logic
+            },
+        }
+
+        results = self.run_query(query)
+        breakdown_values = {r["breakdown_value"] for r in results}
+
+        # USA should be in the top results because it has 2 users (person_changing + usa_baseline)
+        # based on the most recent property values
+        self.assertIn(
+            "USA", breakdown_values, "USA should be in top breakdown results based on most recent property values"
+        )
+
+        # Canada should NOT be in the top results because person_changing's final value is USA
+        self.assertNotIn(
+            "Canada",
+            breakdown_values,
+            "Canada should not be in top breakdown results as person_changing's final value is USA",
+        )
+
+        # Verify USA has 2 users in the Day 0 cohort
+        usa_results = [r for r in results if r["breakdown_value"] == "USA"]
+        usa_day0_cohort = next((r for r in usa_results if r["label"] == "Day 0"), None)
+        assert usa_day0_cohort is not None
+        self.assertEqual(
+            usa_day0_cohort["values"][0]["count"],
+            2,
+            "USA should have 2 users: person_changing (latest value) + usa_baseline",
+        )
+
+    def test_retention_breakdown_other_grouping_logic(self):
+        # This test validates that breakdown values are correctly sorted by frequency
+        # and that the least frequent ones are grouped into "Other"
+
+        # Create countries with different user counts to test ranking
+        # USA: 5 users (should be #1)
+        for i in range(5):
+            Person.objects.create(team=self.team, distinct_ids=[f"usa_user_{i}"], properties={"country": "USA"})
+            _create_events(self.team, [(f"usa_user_{i}", _date(0))])
+
+        # Canada: 3 users (should be #2)
+        for i in range(3):
+            Person.objects.create(team=self.team, distinct_ids=[f"can_user_{i}"], properties={"country": "Canada"})
+            _create_events(self.team, [(f"can_user_{i}", _date(0))])
+
+        # Germany: 2 users (should be #3)
+        for i in range(2):
+            Person.objects.create(team=self.team, distinct_ids=[f"ger_user_{i}"], properties={"country": "Germany"})
+            _create_events(self.team, [(f"ger_user_{i}", _date(0))])
+
+        # France: 1 user (should be grouped into "Other" with breakdown_limit=3)
+        Person.objects.create(team=self.team, distinct_ids=["fra_user"], properties={"country": "France"})
+        _create_events(self.team, [("fra_user", _date(0))])
+
+        # Spain: 1 user (should be grouped into "Other" with breakdown_limit=3)
+        Person.objects.create(team=self.team, distinct_ids=["spa_user"], properties={"country": "Spain"})
+        _create_events(self.team, [("spa_user", _date(0))])
+
+        query = {
+            "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+            "retentionFilter": {"period": "Day", "totalIntervals": 7},
+            "breakdownFilter": {
+                "breakdown": "country",
+                "breakdown_type": "person",
+                "breakdown_limit": 3,  # Only top 3 should be shown individually
+            },
+        }
+
+        results = self.run_query(query)
+        breakdown_values = {r["breakdown_value"] for r in results}
+
+        # Top 3 countries should be present
+        self.assertIn("USA", breakdown_values, "USA should be in top 3 (5 users)")
+        self.assertIn("Canada", breakdown_values, "Canada should be in top 3 (3 users)")
+        self.assertIn("Germany", breakdown_values, "Germany should be in top 3 (2 users)")
+
+        # Bottom 2 countries should be grouped into "Other"
+        self.assertNotIn("France", breakdown_values, "France should be grouped into Other (1 user)")
+        self.assertNotIn("Spain", breakdown_values, "Spain should be grouped into Other (1 user)")
+        self.assertIn(BREAKDOWN_OTHER_STRING_LABEL, breakdown_values, "Other group should be present")
+
+        # Verify the "Other" group has the correct count (France + Spain = 2 users)
+        other_results = [r for r in results if r["breakdown_value"] == BREAKDOWN_OTHER_STRING_LABEL]
+        other_day0_cohort = next((r for r in other_results if r["label"] == "Day 0"), None)
+        assert other_day0_cohort is not None
+        self.assertEqual(
+            other_day0_cohort["values"][0]["count"],
+            2,
+            "Other group should contain 2 users (France + Spain)",
+        )
+
+        # Verify the top countries have correct counts
+        usa_results = [r for r in results if r["breakdown_value"] == "USA"]
+        usa_day0_cohort = next((r for r in usa_results if r["label"] == "Day 0"), None)
+        assert usa_day0_cohort is not None
+        self.assertEqual(usa_day0_cohort["values"][0]["count"], 5, "USA should have 5 users")
+
+        canada_results = [r for r in results if r["breakdown_value"] == "Canada"]
+        canada_day0_cohort = next((r for r in canada_results if r["label"] == "Day 0"), None)
+        assert canada_day0_cohort is not None
+        self.assertEqual(canada_day0_cohort["values"][0]["count"], 3, "Canada should have 3 users")
+
+    def test_retention_24h_window_calculation(self):
+        # This test validates that 24-hour window retention works differently from calendar-based retention
+        # Key difference: with 24h windows, intervals are calculated from each user's first event timestamp,
+        # not from calendar day boundaries
+
+        # Create a user who:
+        # - Does first event at 11 PM on Day 0
+        # - Does return event at 1 AM on Day 1 (only 2 hours later, same 24h window)
+        # - Does return event at 11 PM on Day 1 (24 hours later, next 24h window)
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+        _create_events(
+            self.team,
+            [
+                ("person1", datetime(2020, 6, 10, 23, 0).isoformat()),  # Day 0, 11 PM (t_0)
+                ("person1", datetime(2020, 6, 11, 1, 0).isoformat()),  # Day 1, 1 AM (2 hours after t_0)
+                ("person1", datetime(2020, 6, 11, 23, 0).isoformat()),  # Day 1, 11 PM (24 hours after t_0)
+            ],
+            event="$pageview",
+        )
+
+        # Test with calendar-based retention (default)
+        calendar_result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                },
+            }
+        )
+
+        # With calendar dates:
+        # - Day 0: user did event (11 PM)
+        # - Day 1: user did event (both 1 AM and 11 PM count as Day 1)
+        # Expected: Day 0 retention = 1, Day 1 retention = 1
+        calendar_day_0 = next(row for row in calendar_result if row["label"] == "Day 0")
+        self.assertEqual(calendar_day_0["values"][0]["count"], 1)  # Day 0
+        self.assertEqual(calendar_day_0["values"][1]["count"], 1)  # Day 1 (both events count)
+
+        # Test with 24-hour window retention
+        window_result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "timeWindowMode": "24_hour_windows",
+                },
+            }
+        )
+
+        # With 24-hour windows (relative to user's first event at 11 PM):
+        # - Interval 0 (0-24h): events at 11 PM Day 0 and 1 AM Day 1 (2h after start)
+        # - Interval 1 (24-48h): event at 11 PM Day 1 (24h after start)
+        # Expected: Interval 0 retention = 1, Interval 1 retention = 1
+        window_day_0 = next(row for row in window_result if row["label"] == "Day 0")
+        self.assertEqual(window_day_0["values"][0]["count"], 1)  # Interval 0 (includes 1 AM event)
+        self.assertEqual(window_day_0["values"][1]["count"], 1)  # Interval 1 (11 PM event)
+
+        # Create another test case where the difference is more obvious
+        # User 2:
+        # - Does first event at 1 AM on Day 1
+        # - Does return event at 11 PM on Day 1 (22 hours later, same 24h window)
+        # - Does return event at 2 AM on Day 2 (25 hours later, next 24h window)
+        _person2 = Person.objects.create(team=self.team, distinct_ids=["person2"])
+        _create_events(
+            self.team,
+            [
+                ("person2", datetime(2020, 6, 11, 1, 0).isoformat()),  # Day 1, 1 AM (t_0)
+                ("person2", datetime(2020, 6, 11, 23, 0).isoformat()),  # Day 1, 11 PM (22 hours after t_0)
+                ("person2", datetime(2020, 6, 12, 2, 0).isoformat()),  # Day 2, 2 AM (25 hours after t_0)
+            ],
+            event="$pageview",
+        )
+
+        # With calendar dates: person2 starts on Day 1
+        calendar_result_2 = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                },
+            }
+        )
+
+        # Day 1 cohort: person2 did event on Day 1 (1 AM) and Day 2 (2 AM)
+        calendar_day_1 = next(row for row in calendar_result_2 if row["label"] == "Day 1")
+        self.assertEqual(calendar_day_1["values"][0]["count"], 2)  # Day 0 (same day, includes person1 and person2)
+        self.assertEqual(calendar_day_1["values"][1]["count"], 1)  # Day 1 (next day, only person2)
+
+        # With 24-hour windows
+        window_result_2 = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "timeWindowMode": "24_hour_windows",
+                },
+            }
+        )
+
+        # Interval 0 (0-24h from 1 AM): includes 1 AM and 11 PM events
+        # Interval 1 (24-48h from 1 AM): includes 2 AM Day 2 event
+        window_day_1 = next(row for row in window_result_2 if row["label"] == "Day 1")
+        self.assertEqual(window_day_1["values"][0]["count"], 1)  # Interval 0 (includes 11 PM same day)
+        self.assertEqual(window_day_1["values"][1]["count"], 1)  # Interval 1 (2 AM next day)
+
+    def test_retention_24h_window_with_person_breakdown(self):
+        # Test 24-hour windows with person property breakdown
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"], properties={"country": "USA"})
+        _person2 = Person.objects.create(team=self.team, distinct_ids=["person2"], properties={"country": "Canada"})
+
+        _create_events(
+            self.team,
+            [
+                ("person1", datetime(2020, 6, 10, 23, 0).isoformat()),  # 11 PM
+                ("person1", datetime(2020, 6, 11, 22, 0).isoformat()),  # 23h later (same window)
+                ("person2", datetime(2020, 6, 10, 12, 0).isoformat()),  # 12 PM
+                ("person2", datetime(2020, 6, 11, 13, 0).isoformat()),  # 25h later (next window)
+            ],
+            event="$pageview",
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "timeWindowMode": "24_hour_windows",
+                },
+                "breakdownFilter": {"breakdown": "country", "breakdown_type": "person"},
+            }
+        )
+
+        # USA: person1's return event is in interval 0 (within 24h)
+        usa_row = next(row for row in result if row.get("breakdown_value") == "USA")
+        self.assertEqual(usa_row["values"][0]["count"], 1)  # Interval 0
+        self.assertEqual(usa_row["values"][1]["count"], 0)  # Interval 1
+
+        # Canada: person2's return event is in interval 1 (after 24h)
+        canada_row = next(row for row in result if row.get("breakdown_value") == "Canada")
+        self.assertEqual(canada_row["values"][0]["count"], 1)  # Interval 0
+        self.assertEqual(canada_row["values"][1]["count"], 1)  # Interval 1
+
+    def test_retention_24h_window_with_event_breakdown(self):
+        # Test 24-hour windows with event property breakdown
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", datetime(2020, 6, 10, 14, 0).isoformat(), {"browser": "Chrome"}),  # 2 PM
+                ("person1", datetime(2020, 6, 11, 13, 0).isoformat(), {"browser": "Chrome"}),  # 23h later
+                ("person1", datetime(2020, 6, 11, 15, 0).isoformat(), {"browser": "Firefox"}),  # 25h later
+            ],
+            event="$pageview",
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "timeWindowMode": "24_hour_windows",
+                },
+                "breakdownFilter": {"breakdown": "browser", "breakdown_type": "event"},
+            }
+        )
+
+        # Chrome: both events in interval 0 (within 24h)
+        chrome_row = next(row for row in result if row.get("breakdown_value") == "Chrome")
+        self.assertEqual(chrome_row["values"][0]["count"], 1)  # Interval 0
+
+        # Firefox: event in interval 1 (after 24h)
+        firefox_row = next(row for row in result if row.get("breakdown_value") == "Firefox")
+        self.assertEqual(firefox_row["values"][0]["count"], 1)  # Interval 0
+        self.assertEqual(firefox_row["values"][1]["count"], 1)  # Interval 1
+
+    def test_retention_24h_window_first_time_ever(self):
+        # Test 24-hour windows with first-ever retention
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+        _person2 = Person.objects.create(team=self.team, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                # person1: first event at 2 PM, second at 11 PM (9h later)
+                ("person1", datetime(2020, 6, 10, 14, 0).isoformat()),
+                ("person1", datetime(2020, 6, 10, 23, 0).isoformat()),
+                # person2: first event at 11 PM, second at 10 PM next day (23h later)
+                ("person2", datetime(2020, 6, 10, 23, 0).isoformat()),
+                ("person2", datetime(2020, 6, 11, 22, 0).isoformat()),
+            ],
+            event="$pageview",
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "timeWindowMode": "24_hour_windows",
+                    "retentionType": "retention_first_ever_occurrence",
+                },
+            }
+        )
+
+        # Both users should be in Day 0 cohort
+        day_0 = next(row for row in result if row["label"] == "Day 0")
+        self.assertEqual(day_0["values"][0]["count"], 2)  # Both users in interval 0
+        self.assertEqual(day_0["values"][1]["count"], 0)  # No one returned after 24h
+
+    def test_retention_24h_window_first_time_matching_filters(self):
+        # Test 24-hour windows with first time matching filters
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                # First event doesn't match filter
+                ("person1", datetime(2020, 6, 10, 10, 0).isoformat(), {"browser": "Safari"}),
+                # First event matching filter at 2 PM (this is t_0)
+                ("person1", datetime(2020, 6, 10, 14, 0).isoformat(), {"browser": "Chrome"}),
+                # Return event at 1 PM next day (23h later, same window)
+                ("person1", datetime(2020, 6, 11, 13, 0).isoformat(), {"browser": "Chrome"}),
+                # Return event at 3 PM next day (25h later, next window)
+                ("person1", datetime(2020, 6, 11, 15, 0).isoformat(), {"browser": "Chrome"}),
+            ],
+            event="$pageview",
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "targetEntity": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "properties": [{"key": "browser", "value": "Chrome", "type": "event"}],
+                    },
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "timeWindowMode": "24_hour_windows",
+                    "retentionType": "retention_first_time",
+                },
+            }
+        )
+
+        # User cohorted at 2 PM on Day 0
+        day_0 = next(row for row in result if row["label"] == "Day 0")
+        self.assertEqual(day_0["values"][0]["count"], 1)  # Interval 0 (includes 1 PM event)
+        self.assertEqual(day_0["values"][1]["count"], 1)  # Interval 1 (3 PM event)
+
+    def test_retention_24h_window_with_minimum_occurrences(self):
+        # Test 24-hour windows with minimum occurrences
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+        _person2 = Person.objects.create(team=self.team, distinct_ids=["person2"])
+        _person3 = Person.objects.create(team=self.team, distinct_ids=["person3"])
+
+        _create_events(
+            self.team,
+            [
+                # person1: start at 12 PM, no return (not retained)
+                ("person1", datetime(2020, 6, 10, 12, 0).isoformat()),
+                # person2: start at 12 PM, returns once in interval 1 (not enough)
+                ("person2", datetime(2020, 6, 10, 12, 0).isoformat()),
+                ("person2", datetime(2020, 6, 11, 13, 0).isoformat()),  # 25h later, interval 1
+                # person3: start at 12 PM, returns twice in interval 1 (enough)
+                ("person3", datetime(2020, 6, 10, 12, 0).isoformat()),
+                ("person3", datetime(2020, 6, 11, 13, 0).isoformat()),  # 25h later, interval 1
+                ("person3", datetime(2020, 6, 11, 14, 0).isoformat()),  # 26h later, interval 1
+            ],
+            event="$pageview",
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "timeWindowMode": "24_hour_windows",
+                    "minimumOccurrences": 2,
+                },
+            }
+        )
+
+        day_0 = next(row for row in result if row["label"] == "Day 0")
+        self.assertEqual(day_0["values"][0]["count"], 3)  # All users start
+        # person3 returned 2+ times, person2 returned once (counted if min=1)
+        self.assertGreaterEqual(day_0["values"][1]["count"], 1)  # At least person3
+
+    def test_retention_24h_window_with_week_interval(self):
+        # Test 24-hour windows with weekly intervals
+        # With week period and 24h windows, it uses 7-day (168 hour) rolling windows
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                # Start on Day 0 at 2 PM
+                ("person1", datetime(2020, 6, 10, 14, 0).isoformat()),
+                # Return 6 days later (within 7-day window)
+                ("person1", datetime(2020, 6, 16, 14, 0).isoformat()),
+                # Return 8 days later (next 7-day window)
+                ("person1", datetime(2020, 6, 18, 14, 0).isoformat()),
+            ],
+            event="$pageview",
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(20)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "period": "Week",
+                    "timeWindowMode": "24_hour_windows",
+                },
+            }
+        )
+
+        # Verify at least one cohort exists and has data
+        self.assertGreater(len(result), 0)
+        week_0 = result[0]
+        self.assertGreater(len(week_0["values"]), 0)
+
+    def test_retention_24h_window_with_properties_on_events(self):
+        # Test 24-hour windows with properties on start and return events
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                # Start event with property at 2 PM
+                ("person1", datetime(2020, 6, 10, 14, 0).isoformat(), {"premium": "true"}),
+                # Return event with property at 1 PM next day (23h later)
+                ("person1", datetime(2020, 6, 11, 13, 0).isoformat(), {"premium": "true"}),
+                # Return event without property at 3 PM next day (doesn't count)
+                ("person1", datetime(2020, 6, 11, 15, 0).isoformat(), {"premium": "false"}),
+            ],
+            event="$pageview",
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "targetEntity": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "properties": [{"key": "premium", "value": "true", "type": "event"}],
+                    },
+                    "returningEntity": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "properties": [{"key": "premium", "value": "true", "type": "event"}],
+                    },
+                    "totalIntervals": 3,
+                    "timeWindowMode": "24_hour_windows",
+                },
+            }
+        )
+
+        day_0 = next(row for row in result if row["label"] == "Day 0")
+        self.assertEqual(day_0["values"][0]["count"], 1)  # Interval 0 (1 PM return counts)
+        self.assertEqual(day_0["values"][1]["count"], 0)  # Interval 1 (3 PM doesn't count)
+
+    def test_retention_24h_window_with_cohort_breakdown(self):
+        # Test 24-hour windows with cohort breakdown
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "country", "value": "USA", "type": "person"}]}],
+            name="USA Cohort",
+        )
+
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"], properties={"country": "USA"})
+
+        _create_events(
+            self.team,
+            [
+                ("person1", datetime(2020, 6, 10, 14, 0).isoformat()),  # 2 PM
+                ("person1", datetime(2020, 6, 11, 13, 0).isoformat()),  # 23h later
+            ],
+            event="$pageview",
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "timeWindowMode": "24_hour_windows",
+                },
+                "breakdownFilter": {"breakdown": str(cohort1.pk), "breakdown_type": "cohort"},
+            }
+        )
+
+        cohort_row = next(row for row in result if row.get("breakdown_value") == str(cohort1.pk))
+        self.assertEqual(cohort_row["values"][0]["count"], 1)  # Interval 0
+        self.assertEqual(cohort_row["values"][1]["count"], 0)  # Interval 1
+
+    def test_retention_24h_window_weekly_cohorts(self):
+        # Test 24-hour windows with weekly retention cohorts
+        # Week period with 24h windows uses 7-day (168 hour) rolling windows
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                # person1: start June 10, return within 7 days and after 7 days
+                ("person1", datetime(2020, 6, 10, 14, 0).isoformat()),  # Wed 2 PM
+                ("person1", datetime(2020, 6, 16, 12, 0).isoformat()),  # Tue 12 PM (6d 22h later, same 7d window)
+                ("person1", datetime(2020, 6, 18, 14, 0).isoformat()),  # Thu 2 PM (8 days later, next 7d window)
+            ],
+            event="$pageview",
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(15)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "period": "Week",
+                    "timeWindowMode": "24_hour_windows",
+                },
+            }
+        )
+
+        # Verify we have results (weekly cohorts with 24h windows)
+        # Note: This validates the query runs successfully with Week period + 24h windows
+        self.assertIsInstance(result, list)
+
+    def test_retention_24h_window_monthly_cohorts(self):
+        # Test 24-hour windows with monthly retention cohorts
+        # Month period with 24h windows uses 30-day (720 hour) rolling windows
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                # person1: start June 10, return within 30 days
+                ("person1", datetime(2020, 6, 10, 14, 0).isoformat()),  # June 10, 2 PM
+                ("person1", datetime(2020, 7, 9, 12, 0).isoformat()),  # July 9, 12 PM (29d 22h later, same 30d window)
+                ("person1", datetime(2020, 7, 15, 14, 0).isoformat()),  # July 15, 2 PM (35 days later, next 30d window)
+            ],
+            event="$pageview",
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {
+                    "date_from": datetime(2020, 6, 1).isoformat(),
+                    "date_to": datetime(2020, 8, 1).isoformat(),
+                },
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "period": "Month",
+                    "timeWindowMode": "24_hour_windows",
+                },
+            }
+        )
+
+        # Verify we have results (monthly cohorts with 24h windows)
+        # Note: This validates the query runs successfully with Month period + 24h windows
+        self.assertIsInstance(result, list)
+
+    def test_retention_24h_window_weekly_with_breakdown(self):
+        # Test 24-hour windows with weekly cohorts and breakdown
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"], properties={"country": "USA"})
+        _person2 = Person.objects.create(team=self.team, distinct_ids=["person2"], properties={"country": "Canada"})
+
+        _create_events(
+            self.team,
+            [
+                # USA person: start Week 0, return within 7 days
+                ("person1", datetime(2020, 6, 10, 14, 0).isoformat()),
+                ("person1", datetime(2020, 6, 16, 13, 0).isoformat()),  # 5d 23h later
+                # Canada person: start Week 0, no return
+                ("person2", datetime(2020, 6, 10, 15, 0).isoformat()),
+            ],
+            event="$pageview",
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(15)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "period": "Week",
+                    "timeWindowMode": "24_hour_windows",
+                },
+                "breakdownFilter": {"breakdown": "country", "breakdown_type": "person"},
+            }
+        )
+
+        # Verify we have breakdown results
+        self.assertGreater(len(result), 0)
+        # Should have USA and Canada breakdowns
+        breakdown_values = {r.get("breakdown_value") for r in result}
+        self.assertIn("USA", breakdown_values)
+        self.assertIn("Canada", breakdown_values)
+
+    def test_retention_24h_window_monthly_first_time_ever(self):
+        # Test 24-hour windows with monthly cohorts and first-ever retention
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                # First event on June 10
+                ("person1", datetime(2020, 6, 10, 14, 0).isoformat()),
+                # Return within 30 days
+                ("person1", datetime(2020, 7, 8, 14, 0).isoformat()),  # 28 days later
+                # Return after 30 days
+                ("person1", datetime(2020, 7, 15, 14, 0).isoformat()),  # 35 days later
+            ],
+            event="$pageview",
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {
+                    "date_from": datetime(2020, 6, 1).isoformat(),
+                    "date_to": datetime(2020, 8, 1).isoformat(),
+                },
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "period": "Month",
+                    "timeWindowMode": "24_hour_windows",
+                    "retentionType": "retention_first_ever_occurrence",
+                },
+            }
+        )
+
+        # Verify we have results (monthly cohorts with 24h windows and first-ever)
+        # Note: This validates the query runs successfully with Month period + 24h windows + first-ever
+        self.assertIsInstance(result, list)
+
+    # TRICKY: for later if/when we want a different ranking logic for breakdowns
+    # def test_retention_breakdown_ranking_by_unique_users(self):
+    #     # This test validates that breakdown ranking is based on unique users, not sum of cohort sizes.
+    #     # It creates a scenario where one breakdown value has more unique users, but another has a higher
+    #     # sum of cohort sizes due to very active, recurring users.
+
+    #     # USA: 10 unique users, each starting a cohort once on Day 0
+    #     for i in range(10):
+    #         Person.objects.create(team=self.team, distinct_ids=[f"usa_user_{i}"], properties={"country": "USA"})
+    #         _create_events(self.team, [(f"usa_user_{i}", _date(0))])
+
+    #     # Canada: 3 unique users, but they are very active and start cohorts on 5 different days
+    #     for i in range(3):
+    #         Person.objects.create(team=self.team, distinct_ids=[f"can_user_{i}"], properties={"country": "Canada"})
+    #         for day in range(5):
+    #             _create_events(self.team, [(f"can_user_{i}", _date(day))])
+
+    #     # With the flawed logic (sum of cohorts):
+    #     # USA score = 10 (10 users on day 0)
+    #     # Canada score = 15 (3 users * 5 days)
+    #     # Canada will be ranked higher.
+
+    #     # With the correct logic (unique users):
+    #     # USA score = 10
+    #     # Canada score = 3
+    #     # USA will be ranked higher.
+
+    #     query = {
+    #         "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+    #         "retentionFilter": {"period": "Day", "totalIntervals": 7},
+    #         "breakdownFilter": {
+    #             "breakdown": "country",
+    #             "breakdown_type": "person",
+    #             "breakdown_limit": 1,
+    #         },
+    #     }
+
+    #     results = self.run_query(query)
+    #     breakdown_values = {r["breakdown_value"] for r in results}
+
+    #     # The test asserts that USA is the top breakdown, which should fail with the current logic
+    #     self.assertIn("USA", breakdown_values)
+    #     self.assertNotIn("Canada", breakdown_values)
+    #     self.assertIn(BREAKDOWN_OTHER_STRING_LABEL, breakdown_values)  # Canada should be in "Other"

@@ -1,29 +1,47 @@
 import logging
+import traceback
 from typing import cast
 
-from django.utils import timezone
-
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
-from .models import Task, TaskProgress
-from .serializers import TaskSerializer
+from .agents import get_agent_dict_by_id, get_all_agents
+from .models import Task, TaskRun
+from .serializers import (
+    AgentDefinitionSerializer,
+    AgentListResponseSerializer,
+    ErrorResponseSerializer,
+    TaskRunAppendLogRequestSerializer,
+    TaskRunDetailSerializer,
+    TaskSerializer,
+    TaskUpdatePositionRequestSerializer,
+)
 from .temporal.client import execute_task_processing_workflow
 
+logger = logging.getLogger(__name__)
 
+
+@extend_schema(tags=["tasks"])
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """
+    API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+    """
+
     serializer_class = TaskSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    # Scope and object used by APIScopePermission. Use either an existing object name or INTERNAL to bypass access-level mapping.
-    required_scopes = ["INTERNAL"]
-    scope_object = "INTERNAL"
+    scope_object = "task"
     queryset = Task.objects.all()
-    # Require the 'tasks' PostHog feature flag for all actions
     posthog_feature_flag = {
         "tasks": [
             "list",
@@ -32,262 +50,284 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "update",
             "partial_update",
             "destroy",
-            "update_status",
             "update_position",
-            "bulk_reorder",
             "progress",
             "progress_stream",
+            "run",
         ]
     }
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team=self.team).order_by("position")
+        qs = queryset.filter(team=self.team).order_by("position")
+
+        params = self.request.query_params if hasattr(self, "request") else {}
+
+        # Filter by origin product
+        origin_product = params.get("origin_product")
+        if origin_product:
+            qs = qs.filter(origin_product=origin_product)
+
+        stage = params.get("stage")
+        if stage:
+            qs = qs.filter(runs__stage=stage)
+
+        # Filter by repository or organization inside repository_config JSON
+        organization = params.get("organization")
+        repository = params.get("repository")
+
+        if repository:
+            repo_str = repository.strip()
+            if "/" in repo_str:
+                org_part, repo_part = repo_str.split("/", 1)
+                org_part = org_part.strip()
+                repo_part = repo_part.strip()
+                if org_part and repo_part:
+                    qs = qs.filter(
+                        repository_config__organization__iexact=org_part,
+                        repository_config__repository__iexact=repo_part,
+                    )
+                elif repo_part:
+                    qs = qs.filter(repository_config__repository__iexact=repo_part)
+                elif org_part:
+                    qs = qs.filter(repository_config__organization__iexact=org_part)
+            else:
+                qs = qs.filter(repository_config__repository__iexact=repo_str)
+
+        if organization:
+            qs = qs.filter(repository_config__organization__iexact=organization.strip())
+
+        # Prefetch runs to avoid N+1 queries when fetching latest_run
+        qs = qs.prefetch_related("runs")
+
+        return qs
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
 
     def perform_create(self, serializer):
-        import logging
-
-        logger = logging.getLogger(__name__)
         logger.info(f"Creating task with data: {serializer.validated_data}")
         serializer.save(team=self.team)
 
+    def _trigger_workflow(self, task: Task) -> None:
+        try:
+            logger.info(f"Attempting to trigger task processing workflow for task {task.id}")
+            execute_task_processing_workflow(
+                task_id=str(task.id),
+                team_id=task.team.id,
+                user_id=getattr(self.request.user, "id", None),
+            )
+            logger.info(f"Workflow trigger completed for task {task.id}")
+        except Exception as e:
+            logger.exception(f"Failed to trigger task processing workflow for task {task.id}: {e}")
+
+            logger.exception(f"Workflow error traceback: {traceback.format_exc()}")
+
     def perform_update(self, serializer):
-        import logging
-
-        logger = logging.getLogger(__name__)
-
-        # Get the current task state before update
         task = cast(Task, serializer.instance)
-        previous_status = task.status
-
         logger.info(f"perform_update called for task {task.id} with validated_data: {serializer.validated_data}")
-
-        # Save the changes
         serializer.save()
+        logger.info(f"Task {task.id} updated successfully")
 
-        # Check if status changed and trigger workflow
-        new_status = serializer.validated_data.get("status", previous_status)
-        if new_status != previous_status:
-            logger.info(f"Task {task.id} status changed from {previous_status} to {new_status}")
+    @validated_request(
+        request_serializer=TaskUpdatePositionRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="Task with updated position"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid position"),
+            404: OpenApiResponse(description="Task not found"),
+        },
+        summary="Update task position",
+        description="Update the position of a task within its current stage",
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["patch"], required_scopes=["task:write"])
+    def update_position(self, request, pk=None, **kwargs):
+        task = self.get_object()
 
-            try:
-                logger.info(f"Attempting to trigger workflow for task {task.id}")
-                execute_task_processing_workflow(
-                    task_id=str(task.id),
-                    team_id=task.team.id,
-                    previous_status=previous_status,
-                    new_status=new_status,
-                    user_id=getattr(self.request.user, "id", None),
-                )
-                logger.info(f"Workflow trigger completed for task {task.id}")
-            except Exception as e:
-                logger.exception(f"Failed to trigger task processing workflow for task {task.id}: {e}")
-                import traceback
+        new_position = request.validated_data.get("position")
 
-                logger.exception(f"Workflow error traceback: {traceback.format_exc()}")
-        else:
-            logger.info(f"Task {task.id} updated but status unchanged ({previous_status})")
+        if new_position is None:
+            return Response(
+                ErrorResponseSerializer({"error": "Position is required"}).data, status=status.HTTP_400_BAD_REQUEST
+            )
 
-    @action(detail=True, methods=["patch"])
-    def update_status(self, request, pk=None):
-        import logging
+        task.position = new_position
+        task.save()
 
-        logger = logging.getLogger(__name__)
+        return Response(TaskSerializer(task).data)
 
-        logger.info(f"update_status called for task {pk} with data: {request.data}")
-
+    @validated_request(
+        request_serializer=None,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="Workflow started for task"),
+            404: OpenApiResponse(description="Task not found"),
+        },
+        summary="Run task",
+        description="Kick off the workflow for the task in its current stage.",
+    )
+    @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
+    def run(self, request, pk=None, **kwargs):
         task = cast(Task, self.get_object())
-        new_status = request.data.get("status")
 
-        logger.info(f"Task {task.id}: current_status={task.status}, new_status={new_status}")
+        logger.info(f"Triggering workflow for task {task.id}")
 
-        if new_status and new_status in Task.Status.values:
-            previous_status = task.status
-            task.status = new_status
-            task.save()
+        self._trigger_workflow(task)
 
-            logger.info(f"Task {task.id} status updated from {previous_status} to {new_status}")
+        return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
 
-            # Trigger Temporal workflow for background processing
-            try:
-                logger.info(f"Attempting to trigger workflow for task {task.id}")
-                execute_task_processing_workflow(
-                    task_id=str(task.id),
-                    team_id=task.team.id,
-                    previous_status=previous_status,
-                    new_status=new_status,
-                    user_id=getattr(request.user, "id", None),
-                )
-                logger.info(f"Workflow trigger completed for task {task.id}")
-            except Exception as e:
-                # Log the error but don't fail the status update
-                logger.exception(f"Failed to trigger task processing workflow for task {task.id}: {e}")
-                import traceback
 
-                logger.exception(f"Workflow error traceback: {traceback.format_exc()}")
+@extend_schema(tags=["task-runs"])
+class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """
+    API for managing task runs. Each run represents an execution of a task.
+    """
 
-            return Response(TaskSerializer(task).data)
-        else:
-            logger.warning(f"Invalid status '{new_status}' for task {pk}. Valid statuses: {Task.Status.values}")
-        return Response({"error": "Invalid status"}, status=status.HTTP_400_BAD_REQUEST)
+    serializer_class = TaskRunDetailSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    scope_object = "task"
+    queryset = TaskRun.objects.select_related("task").all()
+    posthog_feature_flag = {
+        "tasks": [
+            "list",
+            "retrieve",
+            "create",
+            "update",
+            "partial_update",
+            "progress_run",
+            "set_output",
+            "append_log",
+        ]
+    }
+    http_method_names = ["get", "post", "patch", "head", "options"]
+    filter_rewrite_rules = {"team_id": "team_id"}
 
-    @action(detail=True, methods=["patch"])
-    def update_position(self, request, pk=None):
-        task = self.get_object()
-        new_position = request.data.get("position")
-        if new_position is not None:
-            task.position = new_position
-            task.save()
-            return Response(TaskSerializer(task).data)
-        return Response({"error": "Position is required"}, status=status.HTTP_400_BAD_REQUEST)
+    def safely_get_queryset(self, queryset):
+        # Task runs are always scoped to a specific task
+        task_id = self.kwargs.get("parent_lookup_task_id")
+        if not task_id:
+            raise NotFound("Task ID is required")
 
-    @action(detail=False, methods=["post"], url_path="bulk_reorder")
-    def bulk_reorder(self, request, *args, **kwargs):
-        """
-        Reorder tasks in bulk across one or more columns (statuses).
+        # Verify task belongs to team
+        if not Task.objects.filter(id=task_id, team=self.team).exists():
+            raise NotFound("Task not found")
 
-        Expected payload:
-        {
-            "columns": {
-                "TODO": ["id1", "id2", ...],
-                "IN_PROGRESS": ["id3", ...],
-                ...
-            }
-        }
-        Only the provided IDs will be updated. Positions are assigned based on array order (0..n-1),
-        and status is set to the column key.
-        """
-        from django.db import transaction
+        return queryset.filter(team=self.team, task_id=task_id)
 
-        payload = request.data or {}
-        columns = payload.get("columns") or {}
-        if not isinstance(columns, dict) or not columns:
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "team": self.team}
+
+    def perform_create(self, serializer):
+        task_id = self.kwargs.get("parent_lookup_task_id")
+        if not task_id:
+            raise NotFound("Task ID is required")
+        task = Task.objects.get(id=task_id, team=self.team)
+        serializer.save(team=self.team, task=task)
+
+    @validated_request(
+        request_serializer=None,
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated output"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Set run output",
+        description="Update the output field for a task run (e.g., PR URL, commit SHA, etc.)",
+    )
+    @action(detail=True, methods=["patch"], url_path="set_output", required_scopes=["task:write"])
+    def set_output(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+
+        output_data = request.data.get("output", {})
+        if not isinstance(output_data, dict):
             return Response(
-                {"error": "columns is required and must be a non-empty object"}, status=status.HTTP_400_BAD_REQUEST
+                ErrorResponseSerializer({"error": "output must be a dictionary"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Flatten all ids and validate
-        all_ids = []
-        for status_key, id_list in columns.items():
-            if status_key not in Task.Status.values:
-                return Response({"error": f"Invalid status '{status_key}'"}, status=status.HTTP_400_BAD_REQUEST)
-            if not isinstance(id_list, list):
-                return Response(
-                    {"error": f"columns['{status_key}'] must be a list of task ids"}, status=status.HTTP_400_BAD_REQUEST
-                )
-            all_ids.extend(id_list)
+        # TODO: Validate output data according to schema for the task type.
+        task_run.output = output_data
+        task_run.save(update_fields=["output", "updated_at"])
 
-        if not all_ids:
-            return Response({"updated": 0, "tasks": []})
+        return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
-        # Fetch tasks that belong to the current team
-        tasks = Task.objects.filter(team=self.team, id__in=all_ids)
-        task_by_id = {str(t.id): t for t in tasks}
+    @validated_request(
+        request_serializer=TaskRunAppendLogRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated log"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid log entries"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Append log entries",
+        description="Append one or more log entries to the task run log array",
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="append_log", required_scopes=["task:write"])
+    def append_log(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
 
-        # Ensure all provided ids belong to the team
-        missing = [tid for tid in all_ids if tid not in task_by_id]
-        if missing:
-            return Response(
-                {"error": f"Some task ids were not found for this team: {missing}"}, status=status.HTTP_400_BAD_REQUEST
+        entries = request.validated_data["entries"]
+        task_run.append_log(entries)
+
+        return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+
+
+@extend_schema(tags=["agents"])
+class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    API for retrieving agent definitions. Agents are automation services that can be assigned to tasks to process them.
+    """
+
+    serializer_class = AgentDefinitionSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    queryset = None  # No model queryset since we're using hardcoded agents
+    scope_object = "task"
+    posthog_feature_flag = {"tasks": ["list", "retrieve"]}
+
+    @validated_request(
+        request_serializer=None,
+        responses={
+            200: OpenApiResponse(
+                response=AgentListResponseSerializer,
+                description="List of agent definitions",
+                examples=[
+                    OpenApiExample(
+                        "Agent List Response",
+                        description="Example response with available agents",
+                        response_only=True,
+                        value={
+                            "results": [
+                                {
+                                    "id": "claude_code_agent",
+                                    "name": "Claude Code Agent",
+                                    "agent_type": "code_execution",
+                                    "description": "Executes code changes and technical tasks using Claude Code",
+                                    "config": {"timeout": 3600, "sandbox": True},
+                                    "is_active": True,
+                                }
+                            ]
+                        },
+                    )
+                ],
             )
+        },
+        summary="List agent definitions",
+        description="Get a list of available agent definitions that can be assigned to tasks.",
+    )
+    def list(self, request, *args, **kwargs):
+        agents = get_all_agents()
+        return Response(AgentListResponseSerializer({"results": agents}).data)
 
-        updated = []
-        with transaction.atomic():
-            for status_key, id_list in columns.items():
-                for idx, tid in enumerate(id_list):
-                    task = task_by_id[str(tid)]
-                    if task.status != status_key or task.position != idx:
-                        task.status = status_key
-                        task.position = idx
-                        updated.append(task)
+    @validated_request(
+        request_serializer=None,
+        responses={
+            200: OpenApiResponse(response=AgentDefinitionSerializer, description="Agent definition"),
+            404: OpenApiResponse(description="Agent not found"),
+        },
+        summary="Get agent definition",
+        description="Retrieve a specific agent definition by ID.",
+    )
+    def retrieve(self, request, pk=None, *args, **kwargs):
+        agent = get_agent_dict_by_id(pk)
+        if agent:
+            return Response(AgentDefinitionSerializer(agent).data)
 
-            if updated:
-                Task.objects.bulk_update(updated, ["status", "position"])  # updated_at handled by model defaults if any
-
-        # Return serialized updated tasks
-        serialized = TaskSerializer(updated, many=True, context=self.get_serializer_context()).data
-        return Response({"updated": len(updated), "tasks": serialized})
-
-    @action(detail=True, methods=["get"])
-    def progress(self, request, pk=None, **kwargs):
-        """Get the latest progress for a task's Claude Code execution."""
-        task = self.get_object()
-        try:
-            # Get the most recent progress record for this task
-            progress = TaskProgress.objects.filter(task=task, team=self.team).order_by("-created_at").first()
-
-            if not progress:
-                return Response({"has_progress": False, "message": "No execution progress found for this task"})
-
-            return Response(
-                {
-                    "has_progress": True,
-                    "id": progress.id,
-                    "status": progress.status,
-                    "current_step": progress.current_step,
-                    "completed_steps": progress.completed_steps,
-                    "total_steps": progress.total_steps,
-                    "progress_percentage": progress.progress_percentage,
-                    "output_log": progress.output_log,
-                    "error_message": progress.error_message,
-                    "created_at": progress.created_at,
-                    "updated_at": progress.updated_at,
-                    "completed_at": progress.completed_at,
-                    "workflow_id": progress.workflow_id,
-                    "workflow_run_id": progress.workflow_run_id,
-                }
-            )
-
-        except Exception:
-            logging.exception("Error fetching task progress")
-            return Response(
-                {"error": "An internal error occurred while fetching progress."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-    @action(detail=True, methods=["get"])
-    def progress_stream(self, request, pk=None, **kwargs):
-        """Get real-time progress updates (polling endpoint)."""
-        task = self.get_object()
-        since = request.query_params.get("since")  # Timestamp to get updates since
-
-        try:
-            queryset = TaskProgress.objects.filter(task=task, team=self.team).order_by("-created_at")
-
-            if since:
-                from django.utils.dateparse import parse_datetime
-
-                since_dt = parse_datetime(since)
-                if since_dt:
-                    queryset = queryset.filter(updated_at__gt=since_dt)
-
-            progress_records = queryset[:5]  # Limit to 5 most recent
-
-            return Response(
-                {
-                    "progress_updates": [
-                        {
-                            "id": p.id,
-                            "status": p.status,
-                            "current_step": p.current_step,
-                            "completed_steps": p.completed_steps,
-                            "total_steps": p.total_steps,
-                            "progress_percentage": p.progress_percentage,
-                            "output_log": p.output_log,
-                            "error_message": p.error_message,
-                            "updated_at": p.updated_at,
-                            "workflow_id": p.workflow_id,
-                        }
-                        for p in progress_records
-                    ],
-                    "server_time": timezone.now().isoformat(),
-                }
-            )
-
-        except Exception:
-            return Response(
-                {"error": "An internal error occurred while fetching progress stream."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        raise NotFound(f"Unable to find agent definition")

@@ -1,16 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { playerCommentOverlayLogic } from './playerFrameCommentOverlayLogic'
 
-const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
+/**
+ * Only exported individually so we can easily put it in a story file
+ */
+export const PlayerCommentModal = (): JSX.Element => {
     const {
-        isCommenting,
         sessionPlayerData: { sessionRecordingId },
         logicProps,
     } = useValues(sessionRecordingPlayerLogic)
@@ -18,10 +21,11 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
 
     const playerCommentOverlayLogicProps = { recordingId: sessionRecordingId, ...logicProps }
     const theBuiltOverlayLogic = playerCommentOverlayLogic(playerCommentOverlayLogicProps)
-    const { recordingComment, isRecordingCommentSubmitting } = useValues(theBuiltOverlayLogic)
-    const { submitRecordingComment, resetRecordingComment } = useActions(theBuiltOverlayLogic)
+    const { recordingComment, isRecordingCommentSubmitting, richContentEditor } = useValues(theBuiltOverlayLogic)
+    const { submitRecordingComment, resetRecordingComment, setRichContentEditor, setRichContent } =
+        useActions(theBuiltOverlayLogic)
 
-    return isCommenting ? (
+    return (
         <div className="absolute bottom-4 left-4 z-20 w-90">
             <div className="flex flex-col bg-primary border border-border rounded p-2 shadow-lg">
                 <Form
@@ -47,10 +51,19 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                     </div>
                     <div>
                         <LemonField name="content">
-                            <LemonTextAreaMarkdown
-                                placeholder="Comment on this recording?"
+                            <LemonRichContentEditor
+                                placeholder="Comment on this recording? Use @ to mention team members"
                                 data-attr="create-recording-comment-input"
-                                maxLength={400}
+                                onPressCmdEnter={submitRecordingComment}
+                                initialContent={recordingComment.richContent}
+                                onCreate={setRichContentEditor}
+                                onUpdate={() => {
+                                    // it can't be null by now, but TS doesn't know that
+                                    if (richContentEditor) {
+                                        setRichContent(richContentEditor.getJSON())
+                                    }
+                                }}
+                                minRows={3}
                             />
                         </LemonField>
                     </div>
@@ -79,10 +92,11 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                 </Form>
             </div>
         </div>
-    ) : null
+    )
 }
 
 export function PlayerFrameCommentOverlay(): JSX.Element | null {
     const { isCommenting } = useValues(sessionRecordingPlayerLogic)
-    return isCommenting ? <PlayerFrameCommentOverlayContent /> : null
+
+    return isCommenting ? <PlayerCommentModal /> : null
 }

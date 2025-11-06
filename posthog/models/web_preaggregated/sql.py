@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
@@ -11,11 +13,22 @@ def is_eu_cluster() -> bool:
     return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
 
 
-def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
+def get_create_clause(table_name: str, replace: bool = False) -> str:
+    use_replace = replace or settings.DEBUG
+    if use_replace:
+        return f"CREATE OR REPLACE TABLE {table_name}"
+    return f"CREATE TABLE IF NOT EXISTS {table_name}"
+
+
+def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, force_unique_zk_path=False, replace=False):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
+    if force_unique_zk_path:
+        engine.set_zookeeper_path_key(str(uuid.uuid4()))
+
+    create_clause = get_create_clause(table_name, replace)
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
+    {create_clause} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -28,13 +41,19 @@ def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
     """
 
 
-def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None, on_cluster=True):
+def HOURLY_TABLE_TEMPLATE(
+    table_name, columns, order_by, ttl=None, on_cluster=True, force_unique_zk_path=False, replace=False
+):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
+    if force_unique_zk_path:
+        engine.set_zookeeper_path_key(str(uuid.uuid4()))
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
+    create_clause = get_create_clause(table_name, replace)
+
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
+    {create_clause} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -82,6 +101,175 @@ def DROP_WEB_STATS_STAGING_SQL():
 
 def DROP_WEB_BOUNCES_STAGING_SQL():
     return _DROP_TABLE_TEMPLATE("web_pre_aggregated_bounces_staging")
+
+
+def REPLACE_WEB_BOUNCES_HOURLY_STAGING_SQL():
+    return HOURLY_TABLE_TEMPLATE(
+        "web_bounces_hourly_staging",
+        WEB_BOUNCES_COLUMNS,
+        WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"),
+        ttl="24 HOUR",
+        force_unique_zk_path=True,
+        replace=True,
+        on_cluster=False,
+    )
+
+
+def REPLACE_WEB_STATS_HOURLY_STAGING_SQL():
+    return HOURLY_TABLE_TEMPLATE(
+        "web_stats_hourly_staging",
+        WEB_STATS_COLUMNS,
+        WEB_STATS_ORDER_BY_FUNC("period_bucket"),
+        ttl="24 HOUR",
+        force_unique_zk_path=True,
+        replace=True,
+        on_cluster=False,
+    )
+
+
+# Hardcoded production column definitions to match exact table structure
+#
+# NOTE: These definitions exist because the production destination tables have a different
+# column order than what our WEB_STATS_COLUMNS/WEB_BOUNCES_COLUMNS generate. Specifically,
+# mat_metadata_loggedIn appears at the END of the production tables (due to migration via
+# ALTER TABLE ADD COLUMN), but our code generates it in the middle. For REPLACE PARTITION
+# to work, staging and destination tables must have identical column order and types.
+#
+# Production table schemas extracted from DESCRIBE TABLE commands:
+WEB_STATS_V2_PRODUCTION_COLUMNS = """
+    pathname String,
+    entry_pathname String,
+    end_pathname String,
+    browser String,
+    os String,
+    viewport_width Int64,
+    viewport_height Int64,
+    referring_domain String,
+    utm_source String,
+    utm_medium String,
+    utm_campaign String,
+    utm_term String,
+    utm_content String,
+    country_code String,
+    city_name String,
+    region_code String,
+    region_name String,
+    has_gclid Bool,
+    has_gad_source_paid_search Bool,
+    has_fbclid Bool,
+    mat_metadata_backend Nullable(String),
+    persons_uniq_state AggregateFunction(uniq, UUID),
+    sessions_uniq_state AggregateFunction(uniq, String),
+    pageviews_count_state AggregateFunction(sum, UInt64),
+    mat_metadata_loggedIn Nullable(Bool)
+"""
+
+WEB_BOUNCES_V2_PRODUCTION_COLUMNS = """
+    entry_pathname String,
+    end_pathname String,
+    browser String,
+    os String,
+    viewport_width Int64,
+    viewport_height Int64,
+    referring_domain String,
+    utm_source String,
+    utm_medium String,
+    utm_campaign String,
+    utm_term String,
+    utm_content String,
+    country_code String,
+    city_name String,
+    region_code String,
+    region_name String,
+    has_gclid Bool,
+    has_gad_source_paid_search Bool,
+    has_fbclid Bool,
+    mat_metadata_backend Nullable(String),
+    persons_uniq_state AggregateFunction(uniq, UUID),
+    sessions_uniq_state AggregateFunction(uniq, String),
+    pageviews_count_state AggregateFunction(sum, UInt64),
+    bounces_count_state AggregateFunction(sum, UInt64),
+    total_session_duration_state AggregateFunction(sum, Int64),
+    total_session_count_state AggregateFunction(sum, UInt64),
+    mat_metadata_loggedIn Nullable(Bool)
+"""
+
+# Production ORDER BY clauses extracted from production tables
+# These exclude nullable columns to avoid ClickHouse "Sorting key contains nullable columns" error
+WEB_STATS_V2_PRODUCTION_ORDER_BY = """(
+    team_id,
+    period_bucket,
+    host,
+    device_type,
+    pathname,
+    entry_pathname,
+    end_pathname,
+    browser,
+    os,
+    viewport_width,
+    viewport_height,
+    referring_domain,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    country_code,
+    city_name,
+    region_code,
+    region_name,
+    has_gclid,
+    has_gad_source_paid_search,
+    has_fbclid
+)"""
+
+WEB_BOUNCES_V2_PRODUCTION_ORDER_BY = """(
+    team_id,
+    period_bucket,
+    host,
+    device_type,
+    entry_pathname,
+    end_pathname,
+    browser,
+    os,
+    viewport_width,
+    viewport_height,
+    referring_domain,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    country_code,
+    city_name,
+    region_code,
+    region_name,
+    has_gclid,
+    has_gad_source_paid_search,
+    has_fbclid
+)"""
+
+
+def REPLACE_WEB_STATS_V2_STAGING_SQL():
+    return TABLE_TEMPLATE(
+        "web_pre_aggregated_stats_staging",
+        WEB_STATS_V2_PRODUCTION_COLUMNS,
+        WEB_STATS_V2_PRODUCTION_ORDER_BY,
+        force_unique_zk_path=True,
+        replace=True,
+        on_cluster=False,
+    )
+
+
+def REPLACE_WEB_BOUNCES_V2_STAGING_SQL():
+    return TABLE_TEMPLATE(
+        "web_pre_aggregated_bounces_staging",
+        WEB_BOUNCES_V2_PRODUCTION_COLUMNS,
+        WEB_BOUNCES_V2_PRODUCTION_ORDER_BY,
+        force_unique_zk_path=True,
+        replace=True,
+        on_cluster=False,
+    )
 
 
 WEB_ANALYTICS_DIMENSIONS = [

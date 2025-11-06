@@ -24,12 +24,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import SessionAuthentication
-from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle
+from posthog.rate_limit import LLMGatewayBurstRateThrottle, LLMGatewaySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from products.llm_analytics.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
 from products.llm_analytics.backend.providers.codestral import CodestralConfig, CodestralProvider
+from products.llm_analytics.backend.providers.formatters.tools_handler import LLMToolsHandler, ToolFormat
 from products.llm_analytics.backend.providers.gemini import GeminiConfig, GeminiProvider
 from products.llm_analytics.backend.providers.inkeep import InkeepConfig, InkeepProvider
 from products.llm_analytics.backend.providers.openai import OpenAIConfig, OpenAIProvider
@@ -51,7 +52,7 @@ class LLMProxyCompletionSerializer(serializers.Serializer):
     thinking = serializers.BooleanField(default=False, required=False)
     temperature = serializers.FloatField(required=False)
     max_tokens = serializers.IntegerField(required=False)
-    tools = serializers.ListField(child=serializers.DictField(), required=False)
+    tools = serializers.JSONField(required=False)
     reasoning_level = serializers.ChoiceField(
         choices=["minimal", "low", "medium", "high"], required=False, allow_null=True
     )
@@ -82,7 +83,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     def get_throttles(self):
-        return [LLMProxyBurstRateThrottle(), LLMProxySustainedRateThrottle()]
+        return [LLMGatewayBurstRateThrottle(), LLMGatewaySustainedRateThrottle()]
 
     def validate_feature_flag(self, request):
         if not request.user or not request.user.is_authenticated:
@@ -160,6 +161,21 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 messages = serializer.validated_data.get("messages")
                 if not self.validate_messages(messages):
                     return Response({"error": "Invalid messages"}, status=400)
+                # Process tools using LLMToolsHandler
+                tools_data = serializer.validated_data.get("tools")
+                tools_handler = LLMToolsHandler(tools_data)
+
+                # Convert tools to appropriate format based on provider type
+                if isinstance(provider, OpenAIProvider):
+                    processed_tools = tools_handler.convert_to(ToolFormat.OPENAI)
+                elif isinstance(provider, AnthropicProvider):
+                    processed_tools = tools_handler.convert_to(ToolFormat.ANTHROPIC)
+                elif isinstance(provider, GeminiProvider):
+                    processed_tools = tools_handler.convert_to(ToolFormat.GEMINI)
+                else:
+                    # For other providers (like Inkeep), we don't have tools support yet
+                    processed_tools = None
+
                 # Build kwargs common to all providers
                 stream_kwargs: dict[str, Any] = {
                     "system": serializer.validated_data.get("system"),
@@ -167,7 +183,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     "thinking": serializer.validated_data.get("thinking", False),
                     "temperature": serializer.validated_data.get("temperature"),
                     "max_tokens": serializer.validated_data.get("max_tokens"),
-                    "tools": serializer.validated_data.get("tools"),
+                    "tools": processed_tools,
                     "distinct_id": distinct_id,
                     "trace_id": trace_id,
                     "properties": properties,

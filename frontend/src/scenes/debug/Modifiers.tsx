@@ -118,6 +118,22 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
                 />
             </LemonLabel>
             <LemonLabel className={labelClassName}>
+                <div>Projection pushdown:</div>
+                <LemonSelect
+                    options={[
+                        { value: true, label: 'true' },
+                        { value: false, label: 'false' },
+                    ]}
+                    onChange={(value) =>
+                        setQuery({
+                            ...query,
+                            modifiers: { ...query.modifiers, optimizeProjections: value },
+                        })
+                    }
+                    value={query.modifiers?.optimizeProjections ?? response?.modifiers?.optimizeProjections}
+                />
+            </LemonLabel>
+            <LemonLabel className={labelClassName}>
                 <div>Property Groups:</div>
                 <LemonSelect
                     options={[
@@ -155,7 +171,7 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
             )}
 
             <LemonLabel className={labelClassName}>
-                <div>Use pre-aggregated tables:</div>
+                <div>Pre-aggregation transformation:</div>
                 <LemonSelect
                     options={[
                         { value: true, label: 'true' },
@@ -164,13 +180,32 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
                     onChange={(value) =>
                         setQuery({
                             ...query,
-                            modifiers: { ...query.modifiers, useWebAnalyticsPreAggregatedTables: value },
+                            modifiers: { ...query.modifiers, usePreaggregatedTableTransforms: value },
                         })
                     }
                     value={
-                        query.modifiers?.useWebAnalyticsPreAggregatedTables ??
-                        response?.modifiers?.useWebAnalyticsPreAggregatedTables
+                        query.modifiers?.usePreaggregatedTableTransforms ??
+                        response?.modifiers?.usePreaggregatedTableTransforms
                     }
+                />
+            </LemonLabel>
+
+            <LemonLabel className={labelClassName}>
+                <div>Session table version:</div>
+                <LemonSelect<Exclude<HogQLQueryModifiers['sessionTableVersion'], undefined>>
+                    options={[
+                        { value: 'auto', label: 'auto' },
+                        { value: 'v1', label: 'v1' },
+                        { value: 'v2', label: 'v2' },
+                        { value: 'v3', label: 'v3' },
+                    ]}
+                    onChange={(value) =>
+                        setQuery({
+                            ...query,
+                            modifiers: { ...query.modifiers, sessionTableVersion: value },
+                        })
+                    }
+                    value={query.modifiers?.sessionTableVersion ?? response?.modifiers?.sessionTableVersion ?? 'auto'}
                 />
             </LemonLabel>
         </div>

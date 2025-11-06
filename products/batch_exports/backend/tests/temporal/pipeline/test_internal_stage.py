@@ -8,12 +8,20 @@ import pytest
 from unittest import mock
 from unittest.mock import patch
 
+from django.conf import settings
+
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
+    get_s3_staging_folder,
     insert_into_internal_stage_activity,
+)
+from products.batch_exports.backend.tests.temporal.utils.s3 import (
+    assert_files_in_s3,
+    create_test_client,
+    delete_all_from_s3,
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -196,4 +204,73 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_sessio
             "batch_export_id": insert_inputs.batch_export_id,
             "product": "batch_export",
         }
+    )
+
+
+@pytest.fixture
+async def minio_client():
+    """Manage an S3 client to interact with a MinIO bucket."""
+    async with create_test_client(
+        "s3",
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+    ) as minio_client:
+        yield minio_client
+
+        await delete_all_from_s3(minio_client, settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix="")
+
+
+@pytest.mark.parametrize("interval", ["day", "every 5 minutes"], indirect=True)
+# single quotes in parameters have caused query formatting to break in the past
+@pytest.mark.parametrize("exclude_events", [None, ["'"]])
+@pytest.mark.parametrize(
+    "model",
+    [
+        BatchExportModel(name="events", schema=None),
+    ],
+)
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+async def test_insert_into_stage_activity_for_events_model(
+    generate_test_data,
+    interval,
+    activity_environment,
+    data_interval_start,
+    minio_client,
+    data_interval_end,
+    ateam,
+    model: BatchExportModel,
+    exclude_events,
+):
+    """Test that the insert_into_internal_stage_activity produces expected files in S3."""
+
+    include_events = None
+    batch_export_id = str(uuid.uuid4())
+
+    insert_inputs = BatchExportInsertIntoInternalStageInputs(
+        team_id=ateam.pk,
+        batch_export_id=batch_export_id,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
+        include_events=include_events,
+        run_id=None,
+        batch_export_schema=None,
+        batch_export_model=model,
+        backfill_details=None,
+        destination_default_fields=None,
+    )
+
+    await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+
+    await assert_files_in_s3(
+        minio_client,
+        bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
+        key_prefix=get_s3_staging_folder(
+            batch_export_id,
+            data_interval_start=data_interval_start.isoformat(),
+            data_interval_end=data_interval_end.isoformat(),
+        ),
+        file_format="Arrow",
+        compression=None,
+        json_columns=None,
     )

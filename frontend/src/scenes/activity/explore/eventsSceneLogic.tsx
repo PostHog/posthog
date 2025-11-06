@@ -10,6 +10,7 @@ import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -40,13 +41,9 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    key: 'Activity',
-                    name: `Activity`,
-                    path: urls.activity(),
-                },
-                {
                     key: Scene.ExploreEvents,
-                    name: 'Explore',
+                    name: sceneConfigurations[Scene.ExploreEvents].name,
+                    iconType: sceneConfigurations[Scene.ExploreEvents].iconType || 'default_icon_type',
                 },
             ],
         ],

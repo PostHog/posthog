@@ -4,18 +4,19 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
 
-import { findNextAction } from '../hogflow-utils'
-import { findContinueAction } from '../hogflow-utils'
-import { ActionHandler, ActionHandlerResult } from './action.interface'
+import { findContinueAction, findNextAction } from '../hogflow-utils'
+import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
 const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
 
 export class ConditionalBranchHandler implements ActionHandler {
-    async execute(
-        invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
-    ): Promise<ActionHandlerResult> {
+    async execute({
+        invocation,
+        action,
+    }: ActionHandlerOptions<
+        Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
+    >): Promise<ActionHandlerResult> {
         const conditionResult = await checkConditions(
             invocation,
             action.type === 'conditional_branch'
@@ -31,12 +32,12 @@ export class ConditionalBranchHandler implements ActionHandler {
         )
 
         if (conditionResult.scheduledAt) {
-            return { scheduledAt: conditionResult.scheduledAt }
+            return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
         } else if (conditionResult.nextAction) {
-            return { nextAction: conditionResult.nextAction }
+            return { nextAction: conditionResult.nextAction, result: { conditionResult } }
         }
 
-        return { nextAction: findContinueAction(invocation) }
+        return { nextAction: findContinueAction(invocation), result: { conditionResult } }
     }
 }
 
@@ -49,12 +50,11 @@ export async function checkConditions(
 }> {
     // the index is used to find the right edge
     for (const [index, condition] of action.config.conditions.entries()) {
-        // TODO(messaging): Figure out error handling here - do we throw or just move on to other conditions?
+        // TODO(team-workflows): Figure out error handling here - do we throw or just move on to other conditions?
         const filterResults = await filterFunctionInstrumented({
             fn: invocation.hogFlow,
             filters: condition.filters,
             filterGlobals: invocation.filterGlobals,
-            eventUuid: invocation.state.event.uuid,
         })
 
         if (filterResults.match) {

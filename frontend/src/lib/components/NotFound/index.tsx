@@ -13,6 +13,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
@@ -31,9 +32,10 @@ interface NotFoundProps {
     meta?: {
         urlId?: string
     }
+    className?: string
 }
 
-export function NotFound({ object, caption, meta }: NotFoundProps): JSX.Element {
+export function NotFound({ object, caption, meta, className }: NotFoundProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -46,9 +48,12 @@ export function NotFound({ object, caption, meta }: NotFoundProps): JSX.Element 
     })
 
     return (
-        <div className="NotFoundComponent" data-attr={`not-found-${object.replace(/\s/g, '-').toLowerCase()}`}>
+        <div
+            className={cn('NotFoundComponent', className)}
+            data-attr={`not-found-${object.replace(/\s/g, '-').toLowerCase()}`}
+        >
             {!nodeLogic ? <div className="NotFoundComponent__graphic" /> : null}
-            <h1 className="text-3xl font-bold mt-4 mb-0">
+            <h1 className="text-2xl font-bold mt-4 mb-0">
                 {appContext?.suggested_users_with_access
                     ? 'Log in as a customer to access this project'
                     : `${capitalizeFirstLetter(object)} not found`}
@@ -141,27 +146,74 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
                     label: `${user.first_name} ${user.last_name} (${user.email})`,
                     tooltip: `Log in as ${user.first_name}`,
                     sideIcon: user.id === successfulUserId ? <IconCheckCircle /> : <IconArrowRight />,
-                    onClick: () => {
+                    onClick: async () => {
                         setIsLoginInProgress(true)
-                        fetch(`/admin/login/user/${user.id}/`, {
-                            method: 'POST',
-                            credentials: 'same-origin',
-                            mode: 'cors',
-                            headers: {
-                                'X-CSRFToken': getCookie('posthog_csrftoken') as string,
-                            },
-                        })
-                            .then((response) => {
-                                if (response.status !== 200) {
-                                    throw new Error(`django-loginas request resulted in status ${response.status}`)
-                                }
-                                setSuccessfulUserId(user.id)
-                                window.location.reload()
+
+                        try {
+                            // check if admin OAuth2 verification is needed
+                            const authCheckResponse = await fetch('/admin/auth_check', {
+                                method: 'GET',
+                                credentials: 'same-origin',
+                                redirect: 'manual',
                             })
-                            .catch(() => {
-                                lemonToast.error(`Failed to log in as ${user.first_name}`)
-                                setIsLoginInProgress(false) // Only set to false if we aren't about to reload the page
+
+                            if (!authCheckResponse.ok) {
+                                // Need OAuth2 verification - open a popup
+                                const width = 600
+                                const height = 700
+                                const left = window.screen.width / 2 - width / 2
+                                const top = window.screen.height / 2 - height / 2
+
+                                const authWindow = window.open(
+                                    '/admin/oauth2/success', // This will redirect to OAuth2
+                                    'admin_oauth2',
+                                    `width=${width},height=${height},top=${top},left=${left},toolbar=no,location=no,directories=no,status=no,menubar=no,scrollbars=yes,resizable=yes`
+                                )
+
+                                // Wait for the OAuth2 completion message
+                                await new Promise<void>((resolve) => {
+                                    const handleMessage = (event: MessageEvent): void => {
+                                        if (event.origin !== window.location.origin) {
+                                            return
+                                        }
+                                        if (event.data?.type === 'oauth2_complete') {
+                                            window.removeEventListener('message', handleMessage)
+                                            resolve()
+                                        }
+                                    }
+                                    window.addEventListener('message', handleMessage)
+
+                                    // Also poll to check if the window was closed manually
+                                    const checkClosed = setInterval(() => {
+                                        if (authWindow?.closed) {
+                                            clearInterval(checkClosed)
+                                            window.removeEventListener('message', handleMessage)
+                                            resolve()
+                                        }
+                                    }, 500)
+                                })
+                            }
+
+                            // Now proceed with the login-as request
+                            const loginResponse = await fetch(`/admin/login/user/${user.id}/`, {
+                                method: 'POST',
+                                credentials: 'same-origin',
+                                mode: 'cors',
+                                headers: {
+                                    'X-CSRFToken': getCookie('posthog_csrftoken') as string,
+                                },
                             })
+
+                            if (!loginResponse.ok) {
+                                throw new Error(`django-loginas request resulted in status ${loginResponse.status}`)
+                            }
+
+                            setSuccessfulUserId(user.id)
+                            window.location.reload()
+                        } catch {
+                            lemonToast.error(`Failed to log in as ${user.first_name}`)
+                            setIsLoginInProgress(false) // Only set to false if we aren't about to reload the page
+                        }
                     },
                 }))}
                 tooltipPlacement="right"

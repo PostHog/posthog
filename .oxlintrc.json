@@ -15,7 +15,8 @@
         "common/hogvm/typescript/dist",
         "common/plugin_transpiler/dist",
         "common/hogvm/__tests__/__snapshots__",
-        "common/hogvm/__tests__/__snapshots__/**"
+        "common/hogvm/__tests__/__snapshots__/**",
+        "frontend/src/queries/validators.js"
     ],
     "rules": {
         "no-constant-condition": "off",
@@ -31,6 +32,7 @@
         "@typescript-eslint/no-inferrable-types": "off",
         "@typescript-eslint/ban-ts-comment": "off",
         "@typescript-eslint/no-explicit-any": "off",
+        "check-tag-names": "off",
         "no-unused-vars": [
             "error",
             {

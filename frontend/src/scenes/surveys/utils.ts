@@ -3,7 +3,8 @@ import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
-import { NewSurvey } from 'scenes/surveys/constants'
+import { dateStringToDayJs } from 'lib/utils'
+import { NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
@@ -97,10 +98,28 @@ export const getResponseFieldWithId = (
 }
 
 export function sanitizeSurveyDisplayConditions(
-    displayConditions?: SurveyDisplayConditions | null
+    displayConditions?: SurveyDisplayConditions | null,
+    surveyType?: SurveyType
 ): SurveyDisplayConditions | null {
     if (!displayConditions) {
         return null
+    }
+
+    if (surveyType === SurveyType.ExternalSurvey) {
+        return {
+            actions: {
+                values: [],
+            },
+            events: {
+                values: [],
+            },
+            deviceTypes: undefined,
+            deviceTypesMatchType: undefined,
+            linkedFlagVariant: undefined,
+            seenSurveyWaitPeriodInDays: undefined,
+            url: undefined,
+            urlMatchType: undefined,
+        }
     }
 
     const trimmedUrl = displayConditions.url?.trim()
@@ -130,7 +149,8 @@ export function sanitizeSurveyDisplayConditions(
 
 export function sanitizeSurveyAppearance(
     appearance?: SurveyAppearance | null,
-    isPartialResponsesEnabled = false
+    isPartialResponsesEnabled = false,
+    surveyType?: SurveyType
 ): SurveyAppearance | null {
     if (!appearance) {
         return null
@@ -147,6 +167,8 @@ export function sanitizeSurveyAppearance(
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
         thankYouMessageHeader: sanitizeHTML(appearance.thankYouMessageHeader ?? ''),
         thankYouMessageDescription: sanitizeHTML(appearance.thankYouMessageDescription ?? ''),
+        surveyPopupDelaySeconds:
+            surveyType === SurveyType.ExternalSurvey ? undefined : appearance.surveyPopupDelaySeconds,
     }
 }
 
@@ -457,7 +479,11 @@ export function buildPartialResponsesFilter(survey: Survey): string {
     ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
 }
 
-export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
+interface SanitizeSurveyOptions {
+    keepEmptyConditions?: boolean
+}
+
+export function sanitizeSurvey(survey: Partial<Survey>, options?: SanitizeSurveyOptions): Partial<Survey> {
     const sanitizedQuestions =
         survey.questions?.map((question) => ({
             ...question,
@@ -465,7 +491,11 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
             description: sanitizeHTML(question.description ?? ''),
         })) || []
 
-    const sanitizedAppearance = sanitizeSurveyAppearance(survey.appearance, survey.enable_partial_responses ?? false)
+    const sanitizedAppearance = sanitizeSurveyAppearance(
+        survey.appearance,
+        survey.enable_partial_responses ?? false,
+        survey.type
+    )
 
     // Remove widget-specific fields if survey type is not Widget
     if (survey.type !== SurveyType.Widget && sanitizedAppearance) {
@@ -474,14 +504,21 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
         delete sanitizedAppearance.widgetColor
     }
 
-    const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
+    const conditions = sanitizeSurveyDisplayConditions(survey.conditions, survey.type)
     const sanitized: Partial<Survey> = {
         ...survey,
         conditions: conditions,
         questions: sanitizedQuestions,
         appearance: sanitizedAppearance,
     }
-    if (!conditions || Object.keys(conditions).length === 0) {
+
+    if (survey.type === SurveyType.ExternalSurvey) {
+        sanitized.remove_targeting_flag = true
+        sanitized.linked_flag_id = null
+        sanitized.targeting_flag_filters = undefined
+    }
+
+    if (options?.keepEmptyConditions !== true && (!conditions || Object.keys(conditions).length === 0)) {
         delete sanitized.conditions
     }
     if (!sanitizedAppearance || Object.keys(sanitizedAppearance).length === 0) {
@@ -523,9 +560,10 @@ export function calculateSurveyRates(stats: SurveyStats | null): SurveyRates {
     return defaultRates
 }
 
-export function captureMaxAISurveyCreationException(error?: string): void {
+export function captureMaxAISurveyCreationException(error?: string, source?: SURVEY_CREATED_SOURCE): void {
     posthog.captureException(error || 'Undefined error when creating MaxAI survey', {
         action: 'max-ai-survey-creation-failed',
+        source: source,
     })
 }
 
@@ -562,18 +600,20 @@ export function buildSurveyTimestampFilter(
     // ----- Handle FROM date -----
     if (dateRange.date_from) {
         // Parse user-provided date and ensure it's not before survey creation
-        const userFromDate = dayjs.utc(dateRange.date_from).startOf('day')
-        const surveyStartDate = dayjs.utc(fromDate)
+        const userFromDate = dateStringToDayJs(dateRange.date_from)?.startOf('day')
 
-        if (userFromDate.isAfter(surveyStartDate)) {
+        if (userFromDate && userFromDate.isAfter(fromDate)) {
             fromDate = userFromDate.format(DATE_FORMAT)
         }
     }
 
     // ----- Handle TO date -----
     if (dateRange.date_to) {
-        const userToDate = dayjs.utc(dateRange.date_to).endOf('day')
-        toDate = userToDate.format(DATE_FORMAT)
+        const userToDate = dateStringToDayJs(dateRange.date_to)?.endOf('day')
+
+        if (userToDate && userToDate.isBefore(toDate)) {
+            toDate = userToDate.format(DATE_FORMAT)
+        }
     }
 
     return `AND timestamp >= '${fromDate}'

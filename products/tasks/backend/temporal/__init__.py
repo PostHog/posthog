@@ -1,36 +1,36 @@
-from .activities import (
-    ai_agent_work_activity,
-    get_task_details_activity,
-    process_task_moved_to_todo_activity,
-    update_issue_github_info_activity,
-    update_issue_status_activity,
+from .process_task.activities import (
+    check_snapshot_exists_for_repository,
+    cleanup_personal_api_key,
+    cleanup_sandbox,
+    clone_repository,
+    create_sandbox_from_snapshot,
+    create_snapshot,
+    execute_task_in_sandbox,
+    get_sandbox_for_setup,
+    get_task_details,
+    inject_github_token,
+    inject_personal_api_key,
+    setup_repository,
+    track_workflow_event,
 )
-from .github_activities import (
-    cleanup_repo_activity,
-    clone_repo_and_create_branch_activity,
-    commit_changes_activity,
-    commit_local_changes_activity,
-    create_branch_activity,
-    create_pr_activity,
-    validate_github_integration_activity,
-)
-from .workflows import TaskProcessingWorkflow
+from .process_task.workflow import ProcessTaskWorkflow
 
 WORKFLOWS = [
-    TaskProcessingWorkflow,
+    ProcessTaskWorkflow,
 ]
 
 ACTIVITIES = [
-    process_task_moved_to_todo_activity,
-    update_issue_status_activity,
-    ai_agent_work_activity,
-    get_task_details_activity,
-    update_issue_github_info_activity,
-    clone_repo_and_create_branch_activity,
-    cleanup_repo_activity,
-    validate_github_integration_activity,
-    create_branch_activity,
-    create_pr_activity,
-    commit_changes_activity,
-    commit_local_changes_activity,
+    get_task_details,
+    check_snapshot_exists_for_repository,
+    get_sandbox_for_setup,
+    clone_repository,
+    inject_github_token,
+    inject_personal_api_key,
+    setup_repository,
+    create_snapshot,
+    create_sandbox_from_snapshot,
+    execute_task_in_sandbox,
+    cleanup_personal_api_key,
+    cleanup_sandbox,
+    track_workflow_event,
 ]

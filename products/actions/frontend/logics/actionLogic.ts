@@ -2,7 +2,6 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
@@ -88,36 +87,21 @@ export const actionLogic = kea<actionLogicType>([
         breadcrumbs: [
             (s) => [
                 s.action,
-                s.featureFlags,
                 (state, props) =>
                     actionEditLogic.findMounted(String(props?.id || 'new'))?.selectors.action(state).name || null,
             ],
-            (action, featureFlags, inProgressName): Breadcrumb[] => [
-                {
-                    key: Scene.DataManagement,
-                    name: `Data management`,
-                    path: urls.eventDefinitions(),
-                },
+            (action, inProgressName): Breadcrumb[] => [
                 {
                     key: DataManagementTab.Actions,
                     name: 'Actions',
                     path: urls.actions(),
+                    iconType: 'action',
                 },
                 {
                     key: [Scene.Action, action?.id || 'new'],
                     name: inProgressName ?? (action?.name || ''),
-                    // We don't want to enable renaming if the flag is enabled
-                    ...(!featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT] && {
-                        onRename: async (name: string) => {
-                            const id = action?.id
-                            const actionEditLogicActions = actionEditLogic.find(String(id || 'new'))
-                            actionEditLogicActions.actions.setActionValue('name', name)
-                            if (id) {
-                                await actionEditLogicActions.asyncActions.submitAction()
-                            }
-                        },
-                    }),
                     forceEditMode: !action?.id,
+                    iconType: 'action',
                 },
             ],
         ],
@@ -129,8 +113,8 @@ export const actionLogic = kea<actionLogicType>([
                     ? {
                           activity_scope: ActivityScope.ACTION,
                           activity_item_id: `${action.id}`,
-                          //   access_control_resource: 'action',
-                          //   access_control_resource_id: `${action.id}`,
+                          access_control_resource: 'action',
+                          access_control_resource_id: `${action.id}`,
                       }
                     : null
             },

@@ -19,7 +19,8 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import ChargebeeSourceConfig
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -28,7 +29,7 @@ class ChargebeeSource(BaseSource[ChargebeeSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CHARGEBEE
 
-    def get_schemas(self, config: ChargebeeSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: ChargebeeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -68,7 +69,8 @@ class ChargebeeSource(BaseSource[ChargebeeSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CHARGEBEE,
-            caption="",
+            docsUrl="https://posthog.com/docs/cdp/sources/chargebee",
+            iconPath="/static/services/chargebee.png",
             fields=cast(
                 list[FieldType],
                 [

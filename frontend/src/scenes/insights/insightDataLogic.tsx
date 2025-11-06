@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { actionToUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { objectsEqual } from 'lib/utils'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
@@ -14,7 +14,7 @@ import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryN
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
-import { DataVisualizationNode, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isHogQuery, isInsightVizNode } from '~/queries/utils'
 import { ExportContext, InsightLogicProps, InsightType } from '~/types'
 
@@ -24,7 +24,7 @@ import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
-import { crushDraftQueryForLocalStorage, crushDraftQueryForURL, isQueryTooLarge } from './utils'
+import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
 import { compareQuery } from './utils/queryUtils'
 
 export const insightDataLogic = kea<insightDataLogicType>([
@@ -36,8 +36,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
         values: [
             insightLogic,
             ['insight', 'savedInsight'],
-            insightSceneLogic,
-            ['insightId', 'insightMode', 'activeSceneId'],
             teamLogic,
             ['currentTeamId'],
             dataNodeLogic({
@@ -193,9 +191,21 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 return null
             },
         ],
+        hogQLVariables: [
+            (s) => [s.query],
+            (query): Record<string, HogQLVariable> | undefined => {
+                if (isDataVisualizationNode(query) && isHogQLQuery(query.source)) {
+                    return query.source.variables
+                }
+                if (isHogQLQuery(query)) {
+                    return query.variables
+                }
+                return undefined
+            },
+        ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         setInsight: ({ insight: { query, result }, options: { overrideQuery } }) => {
             // we don't want to override the query for example when updating the insight's name
             if (!overrideQuery) {
@@ -217,17 +227,38 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
         setQuery: ({ query }) => {
+            // If we have a tabId, then this is an insight scene on a tab. Sync the query to the URL
+            if (props.tabId && sceneLogic.values.activeTabId === props.tabId) {
+                const insightId = insightSceneLogic.findMounted({ tabId: props.tabId })?.values.insightId
+                const { pathname, searchParams, hashParams } = router.values.currentLocation
+                if (query && (values.queryChanged || insightId === 'new' || insightId?.startsWith('new-'))) {
+                    const { insight: _, ...hash } = hashParams // remove existing /new#insight=TRENDS param
+                    router.actions.replace(pathname, searchParams, {
+                        ...hash,
+                        q: query,
+                    })
+                } else {
+                    const { q: _, ...hash } = hashParams // remove existing insight query hash param
+                    router.actions.replace(pathname, searchParams, hash)
+                }
+            }
+
             // if the query is not changed, don't save it
             if (!query || !values.queryChanged) {
                 return
             }
+
             // only run on insight scene
             if (sceneLogic.values.activeSceneId !== Scene.Insight) {
                 return
             }
+
             // don't save for saved insights
-            if (insightSceneLogic.values.insightId !== 'new') {
-                return
+            if (props.tabId && sceneLogic.values.activeTabId === props.tabId) {
+                const insightId = insightSceneLogic.findMounted({ tabId: props.tabId })?.values.insightId
+                if (insightId && insightId !== 'new' && !insightId.startsWith('new-')) {
+                    return
+                }
             }
 
             if (isQueryTooLarge(query)) {
@@ -245,25 +276,4 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setQuery(props.cachedInsight.query)
         }
     }),
-    actionToUrl(({ values }) => ({
-        setQuery: ({ query }) => {
-            if (
-                values.queryChanged &&
-                sceneLogic.values.activeSceneId === Scene.Insight &&
-                insightSceneLogic.values.insightId === 'new'
-            ) {
-                // query is changed and we are in edit mode
-                return [
-                    router.values.currentLocation.pathname,
-                    {
-                        ...router.values.currentLocation.searchParams,
-                    },
-                    {
-                        ...router.values.currentLocation.hashParams,
-                        q: crushDraftQueryForURL(query),
-                    },
-                ]
-            }
-        },
-    })),
 ])

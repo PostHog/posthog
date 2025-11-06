@@ -5,33 +5,25 @@ from typing import Annotated, Literal, Optional
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
-from posthog.schema import PlanningStepStatus, TaskExecutionItem, TaskExecutionStatus
+from posthog.schema import DeepResearchNotebook
 
-from ee.hogai.utils.types import AssistantMessageUnion, BaseState, InsightArtifact, add_and_merge_messages
-from ee.hogai.utils.types.base import append, replace
+from ee.hogai.utils.types.base import (
+    AssistantMessageUnion,
+    BaseStateWithMessages,
+    BaseStateWithTasks,
+    add_and_merge_messages,
+    append,
+    replace,
+)
 
-
-class DeepResearchTodo(BaseModel):
-    """
-    A TO-DO item in the research plan.
-    """
-
-    id: int
-    description: str
-    status: PlanningStepStatus
-    priority: Literal["low", "medium", "high"]
+NotebookInfo = DeepResearchNotebook
 
 
-class DeepResearchSingleTaskResult(BaseModel):
-    """
-    The result of an individual task.
-    """
-
+class TodoItem(BaseModel):
+    content: str = Field(..., min_length=1)
+    status: Literal["pending", "in_progress", "completed"]
     id: str
-    description: str
-    result: str
-    artifacts: list[InsightArtifact] = Field(default=[])
-    status: TaskExecutionStatus
+    priority: Literal["low", "medium", "high"]
 
 
 class DeepResearchIntermediateResult(BaseModel):
@@ -43,18 +35,10 @@ class DeepResearchIntermediateResult(BaseModel):
     artifact_ids: list[str] = Field(default=[])
 
 
-class _SharedDeepResearchState(BaseState):
-    todos: Annotated[Optional[list[DeepResearchTodo]], replace] = Field(default=None)
+class _SharedDeepResearchState(BaseStateWithMessages, BaseStateWithTasks):
+    todos: Annotated[Optional[list[TodoItem]], replace] = Field(default=None)
     """
     The current TO-DO list.
-    """
-    tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
-    """
-    The current tasks.
-    """
-    task_results: Annotated[list[DeepResearchSingleTaskResult], append] = Field(default=[])
-    """
-    Results of tasks executed by assistants.
     """
     intermediate_results: Annotated[list[DeepResearchIntermediateResult], append] = Field(default=[])
     """
@@ -64,9 +48,13 @@ class _SharedDeepResearchState(BaseState):
     """
     The ID of the previous OpenAI Responses API response.
     """
-    notebook_short_id: Optional[str] = Field(default=None)
+    conversation_notebooks: Annotated[list[NotebookInfo], append] = Field(default=[])
     """
-    The short ID of the notebook being used.
+    All notebooks created across the entire conversation.
+    """
+    current_run_notebooks: Annotated[Optional[list[NotebookInfo]], replace] = Field(default=None)
+    """
+    Notebooks created in the current deep research run (reset on new run).
     """
 
 
@@ -93,3 +81,4 @@ class DeepResearchNodeName(StrEnum):
     PLANNER_TOOLS = "planner_tools"
     TASK_EXECUTOR = "task_executor"
     REPORT = "report"
+    TITLE_GENERATOR = "title_generator"

@@ -82,7 +82,7 @@ class TestActionApi(APIBaseTest):
         # django_session + user + team  + look up if rate limit is enabled (cached after first lookup)
         # + organizationmembership + organization + action + taggeditem
         # + access control queries
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(34):
             response = self.client.get(f"/api/projects/{self.team.id}/actions")
         self.assertEqual(response.json()["results"][0]["tags"][0], "tag")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

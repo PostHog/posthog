@@ -19,7 +19,7 @@ common-types = { path = "../common/types" }
 common-dns = { path = "../common/dns" }
 common-redis = { path = "../common/redis" }
 limiters = { path = "../common/limiters" }
-posthog-symbol-data = "0.1.0"
+posthog-symbol-data = "0.3.0"
 common-geoip = { path = "../common/geoip" }
 hogvm = { path = "../common/hogvm" }
 thiserror = { workspace = true }
@@ -28,6 +28,7 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 sourcemap = "9.0.0"
 symbolic = { version = "12.12.1", features = ["sourcemapcache"] }
+proguard = "5.6.2"
 reqwest = { workspace = true }
 sha2 = "0.10.8"
 aws-config = { workspace = true }

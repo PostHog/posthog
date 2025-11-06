@@ -3,6 +3,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -57,7 +58,7 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
 
     actionToUrl(({ values }) => {
         return {
-            setTab: () => [urls.replay(values.tab), router.values.searchParams],
+            setTab: () => [urls.replay(values.tab), router.values.searchParams, router.values.hashParams],
         }
     }),
 
@@ -71,11 +72,13 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
                         key: Scene.Replay,
                         name: 'Replay',
                         path: urls.replay(),
+                        iconType: sceneConfigurations[Scene.Replay].iconType || 'default_icon_type',
                     })
                 }
                 breadcrumbs.push({
                     key: tab,
                     name: humanFriendlyTabName(tab),
+                    iconType: sceneConfigurations[Scene.Replay].iconType || 'default_icon_type',
                 })
 
                 return breadcrumbs
@@ -83,13 +86,15 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             () => [router.selectors.searchParams],
-            (searchParams: Record<string, any>): SidePanelSceneContext | null => {
+            (searchParams: Record<string, any>): SidePanelSceneContext => {
                 return searchParams.sessionRecordingId
                     ? {
                           activity_scope: ActivityScope.REPLAY,
                           activity_item_id: searchParams.sessionRecordingId,
                       }
-                    : null
+                    : {
+                          activity_scope: ActivityScope.REPLAY,
+                      }
             },
         ],
     })),

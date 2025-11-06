@@ -1,0 +1,64 @@
+{
+    "baseline": {
+        "denominator_sum": 1636.0,
+        "denominator_sum_squares": 3760.0,
+        "key": "control",
+        "number_of_samples": 989,
+        "numerator_denominator_sum_product": 1636.0,
+        "sum": 859.0,
+        "sum_squares": 859.0,
+        "validation_failures": []
+    },
+    "cache_key": "cache_40de1256ea5a2265e4563ccb18687a44",
+    "cache_target_age": "2025-09-05T17:03:41.131006Z",
+    "calculation_trigger": null,
+    "credible_intervals": null,
+    "insight": null,
+    "is_cached": true,
+    "kind": "ExperimentQuery",
+    "last_refresh": "2025-09-04T17:03:41.131006Z",
+    "metric": null,
+    "next_allowed_client_refresh": "2025-09-04T17:04:41.131006Z",
+    "p_value": null,
+    "probability": null,
+    "query_metadata": {
+        "events": [],
+        "updated_at": "2025-09-04T17:03:45.098248Z"
+    },
+    "query_status": null,
+    "significance_code": null,
+    "significant": null,
+    "stats_version": null,
+    "timezone": "UTC",
+    "variant_results": [
+        {
+            "chance_to_win": 0.9996603338403114,
+            "credible_interval": [0.03653074985064239, 0.13612429044231514],
+            "denominator_sum": 1236.0,
+            "denominator_sum_squares": 2634.0,
+            "key": "test-1",
+            "method": "bayesian",
+            "number_of_samples": 874,
+            "numerator_denominator_sum_product": 1236.0,
+            "significant": true,
+            "sum": 705.0,
+            "sum_squares": 705.0,
+            "validation_failures": []
+        },
+        {
+            "chance_to_win": 6.225433946014957e-9,
+            "credible_interval": [-0.1407071884984351, -0.06863959478972097],
+            "denominator_sum": 2174.0,
+            "denominator_sum_squares": 5478.0,
+            "key": "test-2",
+            "method": "bayesian",
+            "number_of_samples": 1137,
+            "numerator_denominator_sum_product": 2174.0,
+            "significant": true,
+            "sum": 1022.0,
+            "sum_squares": 1022.0,
+            "validation_failures": []
+        }
+    ],
+    "variants": null
+}

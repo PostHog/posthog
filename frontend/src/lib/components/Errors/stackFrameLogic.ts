@@ -1,5 +1,6 @@
-import { actions, kea, path } from 'kea'
+import { actions, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 
@@ -40,6 +41,7 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                         return values.stackFrameRecords
                     }
                     const { results } = await api.errorTracking.stackFrames(rawIds)
+
                     return mapStackFrameRecords(results, values.stackFrameRecords)
                 },
                 loadForSymbolSet: async ({ symbolSetId }) => {
@@ -48,5 +50,14 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                 },
             },
         ],
+    })),
+
+    listeners(() => ({
+        loadFromRawIdsSuccess: ({ stackFrameRecords }) => {
+            const recordsWithContext = Object.values(stackFrameRecords).filter((record) => record.context)
+            posthog.capture('error_tracking_frame_context_loaded', {
+                frame_count: recordsWithContext.length,
+            })
+        },
     })),
 ])

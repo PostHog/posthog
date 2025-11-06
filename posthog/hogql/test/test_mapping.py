@@ -7,16 +7,15 @@ from posthog.test.base import BaseTest
 from posthog.hogql.ast import DateType, FloatType, IntegerType
 from posthog.hogql.base import UnknownType
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.functions.core import HogQLFunctionMeta, compare_types
 from posthog.hogql.functions.mapping import (
     HOGQL_CLICKHOUSE_FUNCTIONS,
-    HogQLFunctionMeta,
-    compare_types,
     find_hogql_aggregation,
     find_hogql_function,
     find_hogql_posthog_function,
 )
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 
@@ -87,12 +86,12 @@ class TestMappings(BaseTest):
                 ((UnknownType(),), DateType()),
             ],
         )
-        ast = print_ast(
+        sql, _ = prepare_and_print_ast(
             parse_expr("overloadedFunction(dateEmittingFunction('123123'))"),
             HogQLContext(self.team.pk, enable_select_queries=True),
             "clickhouse",
         )
-        assert "overloadSuccess" in ast
+        assert "overloadSuccess" in sql
 
     @freeze_time("2023-01-01T12:00:00Z")
     def test_postgres_functions(self):
@@ -329,3 +328,64 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["spanish_name"], "Spanish")
         self.assertEqual(result_dict["invalid_code"], "Unknown")
         self.assertEqual(result_dict["null_code"], "Unknown")
+
+    def test_isValidJSON_function(self):
+        """Test that isValidJSON translates correctly from HogQL to ClickHouse."""
+        response = execute_hogql_query(
+            """
+            SELECT
+                isValidJSON('{"valid": true}') as valid_json,
+                isValidJSON('invalid json') as invalid_json
+            """,
+            self.team,
+        )
+
+        if response.columns is None:
+            raise ValueError("Query returned no columns")
+        result_dict = dict(zip(response.columns, response.results[0]))
+
+        # Verify HogQL to ClickHouse translation works correctly
+        self.assertEqual(result_dict["valid_json"], 1)
+        self.assertEqual(result_dict["invalid_json"], 0)
+
+    def test_JSONHas_function(self):
+        """Test that JSONHas translates correctly from HogQL to ClickHouse."""
+        response = execute_hogql_query(
+            """
+            SELECT
+                JSONHas('{"a": "hello", "b": [-100, 200.0, 300]}', 'b') as has_key,
+                JSONHas('{"a": "hello", "b": [-100, 200.0, 300]}', 'nonexistent') as missing_key
+            """,
+            self.team,
+        )
+
+        if response.columns is None:
+            raise ValueError("Query returned no columns")
+        result_dict = dict(zip(response.columns, response.results[0]))
+
+        # Verify HogQL to ClickHouse translation works correctly
+        self.assertEqual(result_dict["has_key"], 1)
+        self.assertEqual(result_dict["missing_key"], 0)
+
+    def test_json_functions_basic(self):
+        """Test basic JSON functions translate correctly from HogQL to ClickHouse."""
+        response = execute_hogql_query(
+            """
+            SELECT
+                JSONLength('{"a": [1, 2, 3], "b": {"c": "hello"}}') as obj_length,
+                JSONArrayLength('[1, 2, 3, 4, 5]') as array_length,
+                JSONType('{"key": "value"}', 'key') as string_type,
+                JSONExtract('{"num": 42}', 'num', 'Int32') as extracted_int
+            """,
+            self.team,
+        )
+
+        if response.columns is None:
+            raise ValueError("Query returned no columns")
+        result_dict = dict(zip(response.columns, response.results[0]))
+
+        # Verify basic functionality
+        self.assertEqual(result_dict["obj_length"], 2)  # 2 keys in object
+        self.assertEqual(result_dict["array_length"], 5)  # 5 elements in array
+        self.assertEqual(result_dict["string_type"], "String")  # type of "value"
+        self.assertEqual(result_dict["extracted_int"], 42)  # extracted integer

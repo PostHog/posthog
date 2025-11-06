@@ -1,25 +1,49 @@
 import { useValues } from 'kea'
 
+import { getColorVar } from 'lib/colors'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 
-const METRICS_INFO = {
-    succeeded: 'Total number of runs processed successfully',
-    failed: 'Total number of runs that had errors during processing',
-    canceled: 'Total number of runs that were canceled',
+export const BATCH_EXPORT_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
+    succeeded: {
+        name: 'Success',
+        description: 'Total number of runs processed successfully',
+        color: getColorVar('success'),
+    },
+    rows_exported: {
+        name: 'Rows exported',
+        description: 'Total number of rows successfully exported',
+        color: getColorVar('success'),
+    },
+    failed: {
+        name: 'Failure',
+        description: 'Total number of runs that had errors during processing',
+        color: getColorVar('danger'),
+    },
+    failed_billing: {
+        name: 'Billing limit',
+        description: 'Total number of runs that failed due to exceeding billing limit',
+        color: getColorVar('danger'),
+    },
+    canceled: {
+        name: 'Canceled',
+        description: 'Total number of runs that were canceled',
+        color: getColorVar('warning'),
+    },
 }
 
 export function BatchExportsMetrics({ id }: { id: string }): JSX.Element {
     const logicKey = `batch-exports-metrics-${id}`
     const logic = appMetricsLogic({
         logicKey,
+        loadOnMount: true,
         loadOnChanges: true,
         forceParams: {
             appSource: 'batch_export',
             appSourceId: id,
-            metricName: Object.keys(METRICS_INFO),
+            metricName: Object.keys(BATCH_EXPORT_METRICS_INFO),
             breakdownBy: 'metric_name',
         },
     })
@@ -33,28 +57,18 @@ export function BatchExportsMetrics({ id }: { id: string }): JSX.Element {
             </div>
 
             <div className="flex flex-row gap-2 flex-wrap justify-center">
-                <AppMetricSummary
-                    name="Success"
-                    description={METRICS_INFO.succeeded}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('succeeded')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('succeeded', true)}
-                />
-
-                <AppMetricSummary
-                    name="Failure"
-                    description={METRICS_INFO.failed}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('failed')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('failed', true)}
-                />
-                <AppMetricSummary
-                    name="Canceled"
-                    description={METRICS_INFO.canceled}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('canceled')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('canceled', true)}
-                />
+                {['succeeded', 'rows_exported', 'failed', 'failed_billing', 'canceled'].map((key) => (
+                    <AppMetricSummary
+                        key={key}
+                        name={BATCH_EXPORT_METRICS_INFO[key].name}
+                        description={BATCH_EXPORT_METRICS_INFO[key].description}
+                        loading={appMetricsTrendsLoading}
+                        timeSeries={getSingleTrendSeries(key)}
+                        previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
+                        color={BATCH_EXPORT_METRICS_INFO[key].color}
+                        colorIfZero={getColorVar('muted')}
+                    />
+                ))}
             </div>
             <AppMetricsTrends appMetricsTrends={appMetricsTrends} loading={appMetricsTrendsLoading} />
         </div>

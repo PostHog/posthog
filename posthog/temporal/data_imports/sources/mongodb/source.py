@@ -20,7 +20,8 @@ from posthog.temporal.data_imports.sources.mongodb.mongo import (
     get_schemas as get_mongo_schemas,
     mongo_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -29,7 +30,7 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MONGODB
 
-    def get_schemas(self, config: MongoDBSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: MongoDBSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         mongo_schemas = get_mongo_schemas(config)
 
         filtered_results = [
@@ -75,11 +76,12 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
             schemas = self.get_schemas(config, team_id)
             if len(schemas) == 0:
                 return False, "No collections found in database"
-        except OperationFailure:
-            return False, "MongoDB authentication failed"
+        except OperationFailure as e:
+            capture_exception(e)
+            return False, f"MongoDB authentication failed: {str(e)}"
         except Exception as e:
             capture_exception(e)
-            return False, "Failed to connect to MongoDB database"
+            return False, f"Failed to connect to MongoDB database: {str(e)}"
 
         return True, None
 
@@ -101,6 +103,8 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
             label="MongoDB",
             caption="Enter your MongoDB connection string to automatically pull your MongoDB data into the PostHog Data warehouse.",
             betaSource=True,
+            iconPath="/static/services/Mongodb.svg",
+            docsUrl="https://posthog.com/docs/cdp/sources/mongodb",
             fields=cast(
                 list[FieldType],
                 [

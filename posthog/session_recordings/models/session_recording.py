@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal, Optional, Union
 
 from django.conf import settings
@@ -11,7 +12,7 @@ from posthog.models.utils import UUIDTModel
 from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
-from posthog.tasks.tasks import ee_persist_single_recording
+from posthog.tasks.tasks import ee_persist_single_recording_v2
 
 
 class SessionRecording(UUIDTModel):
@@ -62,6 +63,8 @@ class SessionRecording(UUIDTModel):
     ongoing: Optional[bool] = None
     activity_score: Optional[float] = None
     ttl_days: Optional[int] = None
+    expiry_time: Optional[datetime] = None
+    recording_ttl: Optional[int] = None
 
     # Metadata can be loaded from Clickhouse or S3
     _metadata: Optional[RecordingMetadata] = None
@@ -76,7 +79,7 @@ class SessionRecording(UUIDTModel):
         else:
             # Try to load from Clickhouse
             metadata = SessionReplayEvents().get_metadata(
-                team_id=self.team.pk,
+                team=self.team,
                 session_id=self.session_id,
                 recording_start_time=self.start_time,
             )
@@ -101,6 +104,9 @@ class SessionRecording(UUIDTModel):
             self.console_log_count = metadata["console_log_count"]
             self.console_warn_count = metadata["console_warn_count"]
             self.console_error_count = metadata["console_error_count"]
+            self.retention_period_days = metadata["retention_period_days"]
+            self.expiry_time = metadata["expiry_time"]
+            self.recording_ttl = metadata["recording_ttl"]
 
         return True
 
@@ -201,6 +207,9 @@ class SessionRecording(UUIDTModel):
             recording.set_start_url_from_urls(ch_recording.get("urls", None), ch_recording.get("first_url", None))
             recording.ongoing = bool(ch_recording.get("ongoing", False))
             recording.activity_score = ch_recording.get("activity_score", None)
+            recording.retention_period_days = ch_recording.get("retention_period_days", None)
+            recording.expiry_time = ch_recording.get("expiry_time", None)
+            recording.recording_ttl = ch_recording.get("recording_ttl", None)
 
             recordings.append(recording)
 
@@ -218,4 +227,4 @@ class SessionRecording(UUIDTModel):
 @mutable_receiver(models.signals.post_save, sender=SessionRecording)
 def attempt_persist_recording(sender, instance: SessionRecording, created: bool, **kwargs):
     if created:
-        ee_persist_single_recording.delay(instance.session_id, instance.team_id)
+        ee_persist_single_recording_v2.delay(instance.session_id, instance.team_id)

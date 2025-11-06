@@ -1,4 +1,6 @@
-from typing import Optional
+from typing import Any, Optional
+
+from django.conf import settings
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr
@@ -27,7 +29,7 @@ def _build_event_filter_expr(filter: dict) -> ast.Expr:
     """Build expression for a single event filter."""
     event_name = filter.get("id")
     if event_name is None:
-        return ast.Constant(value=1)  # Match all events
+        return ast.Constant(value=True)  # Match all events
     return parse_expr("event = {event}", {"event": ast.Constant(value=event_name)})
 
 
@@ -157,8 +159,99 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
         if "bytecode_error" in filters:
             del filters["bytecode_error"]
     except Exception as e:
-        # TODO: Better reporting of this issue
+        error_msg = str(e)
+
+        # Check if the error is about cohorts and if test account filters are involved
+        if "Can't use cohorts in real-time filters" in error_msg and filters.get("filter_test_accounts", False):
+            # Check if team has cohort filters in test account filters
+            if team.test_account_filters:
+                cohort_filters = [
+                    f
+                    for f in team.test_account_filters
+                    if isinstance(f, dict)
+                    and f.get("type") in ["cohort", "static-cohort", "precalculated-cohort", "dynamic-cohort"]
+                ]
+                if cohort_filters:
+                    # Extract cohort information for the error message
+                    cohort_info = []
+                    for cohort_filter in cohort_filters:
+                        value = cohort_filter.get("value")
+                        if value:
+                            cohort_info.append(f"cohort id={value}")
+
+                    cohort_names = " (" + ", ".join(cohort_info) + ")" if cohort_info else ""
+                    site_url = settings.SITE_URL.rstrip("/")
+                    error_msg = (
+                        f"Can't use cohorts in real-time filters. "
+                        f"Update your filters at: {site_url}/project/{team.id}/settings/project#internal-user-filtering. "
+                        f"Please inline the relevant expressions{cohort_names}."
+                    )
+
         filters["bytecode"] = None
-        filters["bytecode_error"] = str(e)
+        filters["bytecode_error"] = error_msg
 
     return filters
+
+
+# Realtime Cohort helpers
+
+
+def build_behavioral_event_expr(behavioral_filter: dict, team: Team) -> ast.Expr | None:
+    """Build combined expression for a behavioral event filter (event AND its per-filter properties).
+
+    Supports only performed_event and performed_event_multiple (non-temporal bytecode use-case).
+    Returns None for unsupported behavioral filters.
+    """
+    value = behavioral_filter.get("value")
+    if value not in {"performed_event", "performed_event_multiple"}:
+        # Unsupported behavioral types do not contribute to realtime bytecode
+        return None
+
+    event_name = behavioral_filter.get("key")
+    if not isinstance(event_name, str) or not event_name:
+        return None
+
+    parts: list[ast.Expr] = [parse_expr("event = {event}", {"event": ast.Constant(value=event_name)})]
+    # Optional per-filter event properties
+    event_filters = behavioral_filter.get("event_filters") or []
+    if isinstance(event_filters, list) and event_filters:
+        parts.append(property_to_expr(event_filters, team))
+
+    return _combine_expressions(parts)
+
+
+def cohort_filters_to_expr(filters: dict, team: Team) -> ast.Expr:
+    """Assemble a HogQL expression for cohort filters similarly to hog function filters.
+
+    - Recursively walks the cohort `properties` group
+    - For behavioral filters, builds event matcher AND per-filter properties
+    - For other filters, defers to property_to_expr
+    """
+
+    def _node_to_expr(node: Any) -> ast.Expr:
+        if isinstance(node, list):
+            return _combine_expressions([_node_to_expr(child) for child in node])
+        if not isinstance(node, dict):
+            return ast.Constant(value=True)
+
+        node_type = node.get("type")
+        # PropertyGroup: {"type": "AND"|"OR", "values": [...]}
+        if node_type in ("AND", "OR") and isinstance(node.get("values"), list):
+            exprs = [_node_to_expr(child) for child in node["values"]]
+            if node_type == "AND":
+                return ast.And(exprs=exprs)
+            else:
+                return ast.Or(exprs=exprs)
+
+        if node_type == "behavioral":
+            expr = build_behavioral_event_expr(node, team)
+            # Return True for unsupported behavioral filters
+            return expr if expr is not None else ast.Constant(value=True)
+
+        # Fallback to standard property handling (event/person/group/etc.)
+        return property_to_expr(node, team)
+
+    props = filters.get("properties")
+    if not props:
+        return ast.Constant(value=True)
+    return _node_to_expr(props)

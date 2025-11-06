@@ -3,27 +3,17 @@ import { expect, test } from '../utils/playwright-test-base'
 test.describe('SQL Editor', () => {
     test.beforeEach(async ({ page }) => {
         await page.goToMenuItem('sql-editor')
-
-        await page.locator('[data-attr=sql-editor-new-tab-button]').click()
     })
 
     test('See SQL Editor', async ({ page }) => {
         await expect(page.locator('[data-attr=editor-scene]')).toBeVisible()
         await expect(page.locator('[data-attr=sql-editor-source-empty-state]')).toBeVisible()
-        await expect(page.getByText('Untitled 1')).toBeVisible()
-    })
-
-    test('Create new query tab', async ({ page }) => {
-        await page.locator('[data-attr=sql-editor-new-tab-button]').click()
-        await expect(page.locator('[data-attr=sql-editor-new-tab-button]')).toBeVisible()
-        // two tabs
-        await expect(page.getByText('Untitled 1')).toBeVisible()
-        await expect(page.getByText('Untitled 2')).toBeVisible()
+        await expect(page.getByText('SQL query')).toBeVisible()
     })
 
     test('Add source link', async ({ page }) => {
         await page.locator('[data-attr=sql-editor-add-source]').click()
-        await expect(page).toHaveURL(/.*\/pipeline\/new\/source/)
+        await expect(page).toHaveURL(/.*\/data-warehouse\/new-source/)
     })
 
     test('Run query', async ({ page }) => {
@@ -37,14 +27,33 @@ test.describe('SQL Editor', () => {
     })
 
     test('Save view', async ({ page }) => {
+        // Wait for the query editor to be visible and ready
+        await expect(page.locator('[data-attr=hogql-query-editor]')).toBeVisible()
         await page.locator('[data-attr=hogql-query-editor]').click()
         await page.locator('textarea[aria-roledescription="editor"]').fill('SELECT 1')
 
+        // Wait for save button to be enabled before clicking
+        await expect(page.locator('[data-attr=sql-editor-save-view-button]')).toBeEnabled()
         await page.locator('[data-attr=sql-editor-save-view-button]').click()
-        await page.locator('[data-attr=sql-editor-input-save-view-name]').fill('test_view')
-        await page.getByText('Submit').click()
 
-        await expect(page.getByText('test_view successfully created')).toBeVisible()
+        // Wait for the modal/dialog to appear and be ready
+        const nameInput = page.locator('[data-attr=sql-editor-input-save-view-name]')
+        await expect(nameInput).toBeVisible()
+
+        // Use a unique name to avoid conflicts with retries
+        const uniqueViewName = `test_view_${Date.now()}`
+        await nameInput.fill(uniqueViewName)
+
+        // Wait for the Submit button to be enabled (form validation may need time)
+        const submitButton = page.getByRole('button', { name: 'Submit' })
+        await expect(submitButton).toBeEnabled()
+
+        // Click submit
+        await submitButton.click()
+
+        // Wait for the success message which confirms the API call completed
+        await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
+        await expect(page.getByText(`Editing view "${uniqueViewName}"`)).toBeVisible()
     })
 
     test('Materialize view pane', async ({ page }) => {

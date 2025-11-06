@@ -13,7 +13,15 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyDataNode } from '~/queries/schema/schema-general'
-import { CohortType, ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext, SidePanelTab } from '~/types'
+import {
+    APIErrorType,
+    CohortType,
+    ExportContext,
+    ExportedAssetType,
+    ExporterFormat,
+    LocalExportContext,
+    SidePanelTab,
+} from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'
 
@@ -33,6 +41,8 @@ export const exportsLogic = kea<exportsLogicType>([
         addFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         removeFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
+        setAssetFormat: (format: ExporterFormat | null) => ({ format }),
+        setHasReachedExportFullVideoLimit: (hasReached: boolean) => ({ hasReached }),
         startReplayExport: (
             sessionRecordingId: string,
             format?: ExporterFormat,
@@ -46,6 +56,7 @@ export const exportsLogic = kea<exportsLogicType>([
                 filename?: string
             }
         ) => ({ sessionRecordingId, format, timestamp, duration, mode, options }),
+        startHeatmapExport: (export_context: ExportContext) => ({ export_context }),
     }),
 
     connect(() => ({
@@ -59,12 +70,24 @@ export const exportsLogic = kea<exportsLogicType>([
                 loadExportsSuccess: (_, { exports }) => exports,
             },
         ],
+        assetFormat: [
+            null as ExporterFormat | null,
+            {
+                setAssetFormat: (_, { format }) => format,
+            },
+        ],
         freshUndownloadedExports: [
             [] as ExportedAssetType[],
             {
                 addFresh: (state, { exportedAsset }) =>
                     state.some((asset) => asset.id === exportedAsset.id) ? state : [...state, exportedAsset],
                 removeFresh: (state, { exportedAsset }) => state.filter((asset) => asset.id !== exportedAsset.id),
+            },
+        ],
+        hasReachedExportFullVideoLimit: [
+            false,
+            {
+                setHasReachedExportFullVideoLimit: (_, { hasReached }) => hasReached,
             },
         ],
     }),
@@ -124,6 +147,9 @@ export const exportsLogic = kea<exportsLogicType>([
                 lemonToast.error('Cohort save failed')
             }
         },
+        setAssetFormat: () => {
+            actions.loadExports()
+        },
         startReplayExport: async ({
             sessionRecordingId,
             format = ExporterFormat.PNG,
@@ -148,15 +174,31 @@ export const exportsLogic = kea<exportsLogicType>([
 
             actions.startExport(exportData)
         },
+        startHeatmapExport: async ({ export_context }) => {
+            const exportData: TriggerExportProps = {
+                export_format: ExporterFormat.PNG,
+                export_context: export_context,
+            }
+
+            actions.startExport(exportData)
+        },
     })),
 
-    loaders(() => ({
+    loaders(({ values, actions }) => ({
         exports: [
             [] as ExportedAssetType[],
             {
                 loadExports: async (_, breakpoint) => {
                     await breakpoint(100)
-                    const response = await api.exports.list()
+                    const params: Record<string, any> = {}
+
+                    // Add format filter if set
+                    const format = values.assetFormat
+                    if (format) {
+                        params.export_format = format
+                    }
+
+                    const response = await api.exports.list(undefined, params)
                     breakpoint()
 
                     return response.results
@@ -177,9 +219,9 @@ export const exportsLogic = kea<exportsLogicType>([
                                 expires_after: dayjs().add(6, 'hour').toJSON(),
                             })
 
-                            const currentExports = exportsLogic.values.exports
+                            const currentExports = values.exports
                             const updatedExports = [response, ...currentExports.filter((e) => e.id !== response.id)]
-                            exportsLogic.actions.loadExportsSuccess(updatedExports)
+                            actions.loadExportsSuccess(updatedExports)
 
                             // If this was a blocking export, we should download it now
                             if (response && response.has_content) {
@@ -188,8 +230,22 @@ export const exportsLogic = kea<exportsLogicType>([
                                 lemonToast.error('Export failed: ' + response.exception)
                             }
                         } catch (error) {
-                            const message = error instanceof Error ? error.message : String(error)
-                            lemonToast.error('Export failed: ' + message)
+                            const apiError = error as { data?: APIErrorType }
+                            // Show a survey when the user reaches the export limit
+                            if (apiError?.data?.attr === 'export_limit_exceeded') {
+                                actions.setHasReachedExportFullVideoLimit(true)
+                                lemonToast.error(apiError?.data?.detail || 'You reached your export limit.', {
+                                    button: {
+                                        label: 'I want more',
+                                        className: 'replay-export-limit-reached-button',
+                                        action: () => {}, //we trigger the survey by clicking the button, but we need to keep the action for the toast to show
+                                        dataAttr: 'export-limit-reached-button',
+                                    },
+                                })
+                            } else {
+                                const message = error instanceof Error ? error.message : String(error)
+                                lemonToast.error('Export failed: ' + message)
+                            }
                         }
                     })()
 

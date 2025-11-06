@@ -1,10 +1,13 @@
 import isEqual from 'lodash.isequal'
 import { ReactNode } from 'react'
 
+import { IconWarning } from '@posthog/icons'
+import { LemonButtonProps } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
+import { ensureStringIsNotBlank, humanFriendlyNumber, isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
@@ -16,9 +19,12 @@ import { examples } from '~/queries/examples'
 import {
     ActionsNode,
     BreakdownFilter,
+    DashboardFilter,
     DataWarehouseNode,
     EventsNode,
+    FileSystemIconType,
     HogQLQuery,
+    HogQLVariable,
     InsightVizNode,
     Node,
     NodeKind,
@@ -28,7 +34,13 @@ import {
     ResultCustomizationByPosition,
     ResultCustomizationByValue,
 } from '~/queries/schema/schema-general'
-import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
+import {
+    containsHogQLQuery,
+    isDataTableNode,
+    isDataWarehouseNode,
+    isEventsNode,
+    isInsightVizNode,
+} from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
@@ -543,7 +555,7 @@ export function getTrendResultCustomization(
 ): ResultCustomization | undefined {
     const resultCustomizationKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset)
     return resultCustomizations && Object.keys(resultCustomizations).includes(resultCustomizationKey)
-        ? resultCustomizations[resultCustomizationKey]
+        ? (resultCustomizations as any)[resultCustomizationKey]
         : undefined
 }
 
@@ -572,7 +584,13 @@ export function getTrendResultCustomizationColorToken(
     // for result customizations without a configuration, the color is determined
     // by the position in the dataset. colors repeat after all options
     // have been exhausted.
-    const datasetPosition = getTrendDatasetPosition(dataset)
+    // For comparison data (current vs previous periods), use colorIndex to ensure
+    // they get the same base color when customizing by value
+    const isValueBasedCustomization = !resultCustomizationBy || resultCustomizationBy === ResultCustomizationBy.Value
+    const datasetPosition =
+        isValueBasedCustomization && dataset.colorIndex !== undefined
+            ? dataset.colorIndex
+            : getTrendDatasetPosition(dataset)
     const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
 
     return resultCustomization && resultCustomization.color
@@ -694,4 +712,55 @@ export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
     }
 
     return Array.from(changedLabels).sort()
+}
+
+export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
+    if (!query?.kind) {
+        return 'product_analytics'
+    }
+
+    let nodeKind: NodeKind
+    if ((isDataTableNode(query) && containsHogQLQuery(query)) || isInsightVizNode(query)) {
+        nodeKind = query.source.kind
+    } else {
+        nodeKind = query.kind
+    }
+
+    // Map NodeKind to the fileSystemType color names
+    const nodeKindToColor: Partial<Record<NodeKind, FileSystemIconType>> = {
+        [NodeKind.TrendsQuery]: 'insight/trends',
+        [NodeKind.FunnelsQuery]: 'insight/funnels',
+        [NodeKind.RetentionQuery]: 'insight/retention',
+        [NodeKind.PathsQuery]: 'insight/paths',
+        [NodeKind.StickinessQuery]: 'insight/stickiness',
+        [NodeKind.LifecycleQuery]: 'insight/lifecycle',
+        [NodeKind.HogQuery]: 'insight/hog',
+        [NodeKind.HogQLQuery]: 'insight/hog',
+        [NodeKind.DataVisualizationNode]: 'insight/hog',
+        [NodeKind.DataTableNode]: 'insight/hog',
+    }
+
+    const mappedIconType: FileSystemIconType = nodeKindToColor[nodeKind] || 'product_analytics'
+
+    return mappedIconType
+}
+
+export const getOverrideWarningPropsForButton = (
+    filtersOverride: DashboardFilter | null | undefined,
+    variablesOverride: Record<string, HogQLVariable> | null | undefined
+): Pick<LemonButtonProps, 'icon' | 'tooltip'> => {
+    const filterOverridesExist =
+        isObject(filtersOverride) &&
+        Object.values(filtersOverride).some((value) => value !== null && (!Array.isArray(value) || value.length > 0))
+    const variableOverridesExist = isObject(variablesOverride) && !isEmptyObject(variablesOverride)
+
+    const overrideType =
+        filterOverridesExist && variableOverridesExist ? 'overrides' : filterOverridesExist ? 'filters' : 'variables'
+
+    return filterOverridesExist || variableOverridesExist
+        ? {
+              icon: <IconWarning />,
+              tooltip: `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`,
+          }
+        : {}
 }

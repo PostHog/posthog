@@ -2,6 +2,7 @@ import classNames from 'classnames'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { lowercaseFirstLetter } from 'lib/utils'
 
 import { MetadataTag } from '../components/MetadataTag'
@@ -16,6 +17,7 @@ export function MetadataHeader({
     isError,
     cacheReadTokens,
     cacheWriteTokens,
+    timestamp,
 }: {
     inputTokens?: number
     outputTokens?: number
@@ -26,6 +28,7 @@ export function MetadataHeader({
     latency?: number
     isError?: boolean
     className?: string
+    timestamp?: string
 }): JSX.Element {
     return (
         <div className={classNames('flex flex-wrap gap-2', className)}>
@@ -33,6 +36,7 @@ export function MetadataHeader({
             {typeof latency === 'number' && (
                 <MetadataTag label="Latency">{`${Math.round(latency * 10e2) / 10e2} s of latency`}</MetadataTag>
             )}
+            {timestamp && <MetadataTag label="Timestamp">{dayjs(timestamp).format('MMM D, YYYY h:mm A')}</MetadataTag>}
             {typeof inputTokens === 'number' && typeof outputTokens === 'number' && (
                 <MetadataTag label="Token usage">
                     {`${inputTokens} prompt tokens → ${outputTokens} completion tokens (∑ ${
@@ -41,10 +45,10 @@ export function MetadataHeader({
                 </MetadataTag>
             )}
             {typeof cacheReadTokens === 'number' && cacheReadTokens > 0 && (
-                <MetadataTag label="Cache read">{`${cacheReadTokens} tokens`}</MetadataTag>
+                <MetadataTag label="Cache read">{`${cacheReadTokens} cache read tokens`}</MetadataTag>
             )}
             {typeof cacheWriteTokens === 'number' && cacheWriteTokens > 0 && (
-                <MetadataTag label="Cache write">{`${cacheWriteTokens} tokens`}</MetadataTag>
+                <MetadataTag label="Cache write">{`${cacheWriteTokens} cache write tokens`}</MetadataTag>
             )}
             {model && (
                 <MetadataTag label="Model" textToCopy={lowercaseFirstLetter(model)}>

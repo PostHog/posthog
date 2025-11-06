@@ -1,6 +1,6 @@
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ExperimentFunnelMetric, ExperimentMetric } from '~/queries/schema/schema-general'
 import { StepOrderValue } from '~/types'
 
@@ -44,8 +44,7 @@ export function ExperimentMetricFunnelOrderSelector({
     }
 
     return (
-        <div className="flex items-center gap-2">
-            <LemonLabel info={<StepOrderInfo />}>Step order</LemonLabel>
+        <SceneSection title="Step order" titleHelper={<StepOrderInfo />} className="max-w-prose">
             <LemonSelect
                 data-attr="experiment-funnel-order-selector"
                 value={metric.funnel_order_type || StepOrderValue.ORDERED}
@@ -53,6 +52,6 @@ export function ExperimentMetricFunnelOrderSelector({
                 dropdownMatchSelectWidth={false}
                 options={funnelOrderOptions}
             />
-        </div>
+        </SceneSection>
     )
 }

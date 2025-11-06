@@ -12,6 +12,7 @@ import {
     DataWarehousePopoverField,
     ExcludedProperties,
     ListStorage,
+    SelectedProperties,
     SimpleOption,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -19,6 +20,7 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { Link } from 'lib/lemon-ui/Link'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, isString, pluralize, toParams } from 'lib/utils'
 import {
@@ -28,8 +30,13 @@ import {
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
+import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
+import {
+    getProductEventFilterOptions,
+    getProductEventPropertyFilterOptions,
+} from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -118,7 +125,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['currentProjectId'],
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
-            dataWarehouseSceneLogic, // This logic needs to be connected to stop the popover from erroring out
+            dataWarehouseSettingsSceneLogic, // This logic needs to be connected to stop the popover from erroring out
             ['dataWarehouseTables'],
             dataWarehouseJoinsLogic,
             ['columnsJoinedToPersons'],
@@ -177,6 +184,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     })),
     selectors({
         selectedItemMeta: [() => [(_, props) => props.filter], (filter) => filter],
+        showNumericalPropsOnly: [
+            () => [(_, props) => props.showNumericalPropsOnly],
+            (showNumericalPropsOnly) => showNumericalPropsOnly ?? false,
+        ],
         taxonomicFilterLogicKey: [
             (_, p) => [p.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
@@ -200,6 +211,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.excludedProperties],
             (excludedProperties) => (excludedProperties ?? {}) as ExcludedProperties,
         ],
+        selectedProperties: [
+            () => [(_, props) => props.selectedProperties],
+            (selectedProperties) => (selectedProperties ?? {}) as SelectedProperties,
+        ],
         propertyAllowList: [
             () => [(_, props) => props.propertyAllowList],
             (propertyAllowList) => propertyAllowList as TaxonomicFilterLogicProps['propertyAllowList'],
@@ -211,6 +226,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         allowNonCapturedEvents: [
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
+        ],
+        hideBehavioralCohorts: [
+            () => [(_, props) => props.hideBehavioralCohorts],
+            (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
         ],
         taxonomicGroups: [
             (s) => [
@@ -225,6 +244,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.eventMetadataPropertyDefinitions,
                 s.eventOrdering,
                 s.maxContextOptions,
+                s.hideBehavioralCohorts,
             ],
             (
                 currentTeam: TeamType,
@@ -237,7 +257,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 propertyFilters,
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 eventOrdering: string | null,
-                maxContextOptions: MaxContextTaxonomicFilterOption[]
+                maxContextOptions: MaxContextTaxonomicFilterOption[],
+                hideBehavioralCohorts: boolean
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
@@ -249,8 +270,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         options: [{ name: 'All events', value: null }].filter(
                             (o) => !excludedProperties[TaxonomicFilterGroupType.Events]?.includes(o.value)
                         ),
-                        // the default ordering for the API is "both"
-                        // so we don't need to add an ordering param in that case
                         endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                             event_type: EventDefinitionType.Event,
                             exclude_hidden: true,
@@ -260,9 +279,36 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? [],
                         getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
                         getValue: (eventDefinition: Record<string, any>) =>
-                            // Use the property's "name" when available, or "value" if a local option
                             'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
                         ...eventTaxonomicGroupProps,
+                    },
+                    {
+                        name: 'Internal Events',
+                        searchPlaceholder: 'internal events',
+                        type: TaxonomicFilterGroupType.InternalEvents,
+                        options: [
+                            { name: 'All internal events', value: null },
+                            ...getProductEventFilterOptions('activity-log').map((item) => ({
+                                name: item.label,
+                                value: item.value,
+                            })),
+                        ],
+                        getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
+                        getValue: (eventDefinition: Record<string, any>) =>
+                            'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
+                        ...eventTaxonomicGroupProps,
+                    },
+                    {
+                        name: 'Activity log properties',
+                        searchPlaceholder: 'activity log properties',
+                        type: TaxonomicFilterGroupType.ActivityLogProperties,
+                        options: getProductEventPropertyFilterOptions('activity-log').map((value) => ({
+                            name: value,
+                            value,
+                            group: TaxonomicFilterGroupType.EventProperties,
+                        })),
+                        getIcon: getPropertyDefinitionIcon,
+                        getPopoverHeader: () => 'Activity log properties',
                     },
                     {
                         name: 'Actions',
@@ -279,7 +325,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Data warehouse tables',
                         searchPlaceholder: 'data warehouse tables',
                         type: TaxonomicFilterGroupType.DataWarehouse,
-                        logic: dataWarehouseSceneLogic,
+                        logic: dataWarehouseSettingsSceneLogic,
                         value: 'dataWarehouseTablesAndViews',
                         getName: (table: DatabaseSchemaTable) => table.name,
                         getValue: (table: DatabaseSchemaTable) => table.name,
@@ -362,8 +408,21 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         excludedProperties:
                             excludedProperties?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
-                        propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties],
+                        propertyAllowList:
+                            propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(),
+                    },
+                    {
+                        name: 'Internal event properties',
+                        searchPlaceholder: 'internal event properties',
+                        type: TaxonomicFilterGroupType.InternalEventProperties,
+                        options: getProductEventPropertyFilterOptions('activity-log').map((value) => ({
+                            name: value,
+                            value,
+                            group: TaxonomicFilterGroupType.EventProperties,
+                        })),
+                        getIcon: getPropertyDefinitionIcon,
+                        getPopoverHeader: () => 'Internal event properties',
                     },
                     {
                         name: 'Event metadata',
@@ -439,12 +498,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'exceptions',
                         type: TaxonomicFilterGroupType.ErrorTrackingProperties,
                         options: [
-                            ...[
-                                '$exception_types',
-                                '$exception_values',
-                                '$exception_sources',
-                                '$exception_functions',
-                            ].map((value) => ({ name: value, value, group: TaxonomicFilterGroupType.EventProperties })),
+                            ...getProductEventPropertyFilterOptions('error-tracking').map((value) => ({
+                                name: value,
+                                value,
+                                group: TaxonomicFilterGroupType.EventProperties,
+                            })),
                             ...(currentTeam?.person_display_name_properties
                                 ? currentTeam.person_display_name_properties.map((property) => ({
                                       name: property,
@@ -535,7 +593,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         }).url,
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.name,
-                        propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties],
+                        propertyAllowList:
+                            propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(true),
                     },
                     {
@@ -550,6 +609,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: function _getIcon(): JSX.Element {
                             return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
                         },
+                        footerMessage: hideBehavioralCohorts ? (
+                            <>
+                                <Link to={COHORT_BEHAVIORAL_LIMITATIONS_URL} target="_blank">
+                                    Some cohorts excluded due to containing behavioral filters.
+                                </Link>
+                            </>
+                        ) : undefined,
                     },
                     {
                         name: 'Cohorts',
@@ -672,12 +738,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.SessionProperties,
                         ...(propertyAllowList
                             ? {
-                                  options: propertyAllowList[TaxonomicFilterGroupType.SessionProperties]?.map(
-                                      (property: string) => ({
+                                  options: propertyAllowList[TaxonomicFilterGroupType.SessionProperties]
+                                      ?.filter(isString)
+                                      ?.map((property: string) => ({
                                           name: property,
                                           value: property,
-                                      })
-                                  ),
+                                      })),
                               }
                             : {
                                   endpoint: `api/environments/${teamId}/sessions/property_definitions`,

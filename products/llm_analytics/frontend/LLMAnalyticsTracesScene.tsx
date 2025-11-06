@@ -5,76 +5,96 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { LLMTrace } from '~/queries/schema/schema-general'
-import { QueryContextColumnComponent } from '~/queries/types'
+import { DataTableNode, LLMTrace } from '~/queries/schema/schema-general'
+import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
-import { formatLLMCost, formatLLMLatency, formatLLMUsage, normalizeMessages, removeMilliseconds } from './utils'
+import { formatLLMCost, formatLLMLatency, formatLLMUsage, getTraceTimestamp, normalizeMessages } from './utils'
 
 export function LLMAnalyticsTraces(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(llmAnalyticsLogic)
-    const { tracesQuery } = useValues(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
+    const { tracesQuery, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsLogic)
+
     return (
         <DataTable
-            query={tracesQuery}
+            query={{
+                ...tracesQuery,
+                showSavedFilters: true,
+            }}
             setQuery={(query) => {
                 if (!isTracesQuery(query.source)) {
                     throw new Error('Invalid query')
                 }
                 setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
                 setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-                setPropertyFilters(query.source.properties || [])
-                setTracesQuery(query)
+
+                const newPropertyFilters = query.source.properties || []
+                if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
+                    setPropertyFilters(newPropertyFilters)
+                }
             }}
-            context={{
-                emptyStateHeading: 'There were no traces in this period',
-                emptyStateDetail: 'Try changing the date range or filters.',
-                columns: {
-                    id: {
-                        title: 'ID',
-                        render: IDColumn,
-                    },
-                    inputState: {
-                        title: 'Input message',
-                        render: InputMessageColumn,
-                    },
-                    outputState: {
-                        title: 'Output message',
-                        render: OutputMessageColumn,
-                    },
-                    timestamp: {
-                        title: 'Time',
-                        render: TimestampColumn,
-                    },
-                    traceName: {
-                        title: 'Trace Name',
-                        render: TraceNameColumn,
-                    },
-                    person: {
-                        title: 'Person',
-                    },
-                    totalLatency: {
-                        title: 'Latency',
-                        render: LatencyColumn,
-                    },
-                    usage: {
-                        title: 'Token Usage',
-                        render: UsageColumn,
-                    },
-                    totalCost: {
-                        title: 'Total Cost',
-                        render: CostColumn,
-                    },
-                },
-            }}
+            context={useTracesQueryContext()}
             uniqueKey="llm-analytics-traces"
         />
     )
+}
+
+export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
+    return {
+        emptyStateHeading: 'There were no traces in this period',
+        emptyStateDetail: 'Try changing the date range or filters.',
+        columns: {
+            id: {
+                title: 'ID',
+                render: IDColumn,
+            },
+            inputState: {
+                title: 'Input message',
+                render: InputMessageColumn,
+            },
+            outputState: {
+                title: 'Output message',
+                render: OutputMessageColumn,
+            },
+            timestamp: {
+                title: 'Time',
+                render: TimestampColumn,
+            },
+            traceName: {
+                title: 'Trace Name',
+                render: TraceNameColumn,
+            },
+            person: {
+                title: 'Person',
+            },
+            errors: {
+                renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
+                render: ErrorsColumn,
+            },
+            totalLatency: {
+                renderTitle: () => <Tooltip title="Total latency of all operations in this trace">Latency</Tooltip>,
+                render: LatencyColumn,
+            },
+            usage: {
+                renderTitle: () => (
+                    <Tooltip title="Total token usage (input + output) for this trace">Token Usage</Tooltip>
+                ),
+                render: UsageColumn,
+            },
+            totalCost: {
+                renderTitle: () => (
+                    <Tooltip title="Total cost of all generations and embeddings in this trace">Cost</Tooltip>
+                ),
+                render: CostColumn,
+            },
+        },
+    }
 }
 
 const IDColumn: QueryContextColumnComponent = ({ record }) => {
@@ -83,8 +103,8 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
         <strong>
             <Tooltip title={row.id}>
                 <Link
-                    className="ph-no-capture"
-                    to={urls.llmAnalyticsTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
+                    to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
+                    data-attr="trace-id-link"
                 >
                     {row.id.slice(0, 4)}...{row.id.slice(-4)}
                 </Link>
@@ -98,8 +118,8 @@ const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
     return (
         <strong>
             <Link
-                className="ph-no-capture"
-                to={urls.llmAnalyticsTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
+                to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
+                data-attr="trace-name-link"
             >
                 {row.traceName || '–'}
             </Link>
@@ -137,6 +157,15 @@ const CostColumn: QueryContextColumnComponent = ({ record }) => {
     return <>–</>
 }
 CostColumn.displayName = 'CostColumn'
+
+const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    if (typeof row.errorCount === 'number' && row.errorCount > 0) {
+        return <LemonTag type="danger">{row.errorCount}</LemonTag>
+    }
+    return <>–</>
+}
+ErrorsColumn.displayName = 'ErrorsColumn'
 
 const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace

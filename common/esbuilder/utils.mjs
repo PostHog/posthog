@@ -28,6 +28,31 @@ export function copyPublicFolder(srcDir, destDir) {
     })
 }
 
+export function copySnappyWASMFile(absWorkingDir) {
+    try {
+        fse.copyFileSync(
+            path.resolve(absWorkingDir, 'node_modules/snappy-wasm/es/snappy_bg.wasm'),
+            path.resolve(absWorkingDir, 'dist/snappy_bg.wasm')
+        )
+    } catch (error) {
+        console.warn('Could not copy snappy wasm file:', error.message)
+    }
+}
+
+export function copyRRWebWorkerFiles(absWorkingDir) {
+    try {
+        const rrwebSourceDir = path.resolve(absWorkingDir, 'node_modules/@posthog/rrweb/dist')
+        const distDir = path.resolve(absWorkingDir, 'dist')
+        const files = fse.readdirSync(rrwebSourceDir)
+        const mapFiles = files.filter((f) => f.startsWith('image-bitmap-data-url-worker-') && f.endsWith('.js.map'))
+        mapFiles.forEach((file) => {
+            fse.copyFileSync(path.join(rrwebSourceDir, file), path.join(distDir, file))
+        })
+    } catch (error) {
+        console.warn('Could not copy rrweb map files:', error.message)
+    }
+}
+
 /** Update the file's modified and accessed times to now. */
 async function touchFile(file) {
     const now = new Date()
@@ -103,7 +128,7 @@ export function copyIndexHtml(
         path.resolve(absWorkingDir, to),
         fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' }).replace(
             '</head>',
-            `   <script type="application/javascript">
+            `   <script nonce="{{ request.csp_nonce }}" type="application/javascript">
                     // NOTE: the link for the stylesheet will be added just
                     // after this script block. The react code will need the
                     // body to have been parsed before it is able to interact

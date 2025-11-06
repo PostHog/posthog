@@ -1,3 +1,4 @@
+import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
@@ -10,6 +11,8 @@ import { setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
+import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
+import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
@@ -23,20 +26,18 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from './config/kafka-topics'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
-import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
+import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
+import { startEvaluationScheduler } from './main/ingestion-queues/evaluation-scheduler'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
-import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
-import { PostgresRouter } from './utils/db/postgres'
-import { createRedisClient } from './utils/db/redis'
 import { isTestEnv } from './utils/env-utils'
+import { initializeHeapDump } from './utils/heap-dump'
 import { logger } from './utils/logger'
 import { NodeInstrumentation } from './utils/node-instrumentation'
-import { getObjectStorage } from './utils/object_storage'
 import { captureException, shutdown as posthogShutdown } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
 import { delay } from './utils/utils'
@@ -60,6 +61,7 @@ export class PluginServer {
     hub?: Hub
     expressApp: express.Application
     nodeInstrumentation: NodeInstrumentation
+    private podTerminationTimer?: NodeJS.Timeout
 
     constructor(
         config: Partial<PluginsServerConfig> = {},
@@ -76,6 +78,23 @@ export class PluginServer {
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
     }
 
+    private setupPodTermination(): void {
+        // Base timeout from config (convert minutes to milliseconds)
+        const baseTimeoutMs = this.config.POD_TERMINATION_BASE_TIMEOUT_MINUTES * 60 * 1000
+
+        // Add jitter: random value between 0 and configured jitter (convert minutes to milliseconds)
+        const jitterMs = Math.random() * this.config.POD_TERMINATION_JITTER_MINUTES * 60 * 1000
+
+        const totalTimeoutMs = baseTimeoutMs + jitterMs
+
+        logger.info('⏰', `Pod termination scheduled in ${Math.round(totalTimeoutMs / 1000 / 60)} minutes`)
+
+        this.podTerminationTimer = setTimeout(() => {
+            logger.info('⏰', 'Pod termination timeout reached, shutting down gracefully...')
+            void this.stop()
+        }, totalTimeoutMs)
+    }
+
     async start(): Promise<void> {
         const startupTimer = new Date()
         this.setupListeners()
@@ -84,11 +103,19 @@ export class PluginServer {
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config, capabilities))
 
-        // // Creating a dedicated single-connection redis client to this Redis, as it's not relevant for hobby
-        // // and cloud deploys don't have concurrent uses. We should abstract multi-Redis into a router util.
-        const captureRedis = this.config.CAPTURE_CONFIG_REDIS_HOST
-            ? await createRedisClient(this.config.CAPTURE_CONFIG_REDIS_HOST)
-            : undefined
+        // Initialize heap dump functionality for all services
+        if (this.config.HEAP_DUMP_ENABLED) {
+            let heapDumpS3Client: S3Client | undefined
+            if (this.config.HEAP_DUMP_S3_BUCKET && this.config.HEAP_DUMP_S3_REGION) {
+                const s3Config: S3ClientConfig = {
+                    region: this.config.HEAP_DUMP_S3_REGION,
+                }
+
+                heapDumpS3Client = new S3Client(s3Config)
+            }
+
+            initializeHeapDump(this.config, heapDumpS3Client)
+        }
 
         let _initPluginsPromise: Promise<void> | undefined
 
@@ -142,48 +169,17 @@ export class PluginServer {
                 serviceLoaders.push(() => startAsyncWebhooksHandlerConsumer(hub))
             }
 
-            if (capabilities.sessionRecordingBlobIngestion) {
-                serviceLoaders.push(async () => {
-                    const postgres = hub?.postgres ?? new PostgresRouter(this.config)
-                    const s3 = hub?.objectStorage ?? getObjectStorage(this.config)
-
-                    if (!s3) {
-                        throw new Error("Can't start session recording blob ingestion without object storage")
-                    }
-                    // NOTE: We intentionally pass in the original this.config as the ingester uses both kafkas
-                    const ingester = new SessionRecordingIngester(this.config, postgres, s3, false, captureRedis)
-                    await ingester.start()
-
-                    return {
-                        id: 'session-recordings-blob',
-                        onShutdown: async () => await ingester.stop(),
-                        healthcheck: () => ingester.isHealthy() ?? false,
-                    }
-                })
-            }
-
-            if (capabilities.sessionRecordingBlobOverflowIngestion) {
-                serviceLoaders.push(async () => {
-                    const postgres = hub?.postgres ?? new PostgresRouter(this.config)
-                    const s3 = hub?.objectStorage ?? getObjectStorage(this.config)
-
-                    if (!s3) {
-                        throw new Error("Can't start session recording blob ingestion without object storage")
-                    }
-                    // NOTE: We intentionally pass in the original this.config as the ingester uses both kafkas
-                    // NOTE: We don't pass captureRedis to disable overflow computation on the overflow topic
-                    const ingester = new SessionRecordingIngester(this.config, postgres, s3, true, undefined)
-                    await ingester.start()
-                    return ingester.service
-                })
+            if (capabilities.evaluationScheduler) {
+                serviceLoaders.push(() => startEvaluationScheduler(hub))
             }
 
             if (capabilities.sessionRecordingBlobIngestionV2) {
                 serviceLoaders.push(async () => {
-                    const postgres = hub?.postgres ?? new PostgresRouter(this.config)
-                    const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(this.config))
+                    const actualHub = hub ?? (await createHub(this.config))
+                    const postgres = actualHub.postgres
+                    const producer = actualHub.kafkaProducer
 
-                    const ingester = new SessionRecordingIngesterV2(this.config, false, postgres, producer)
+                    const ingester = new SessionRecordingIngesterV2(actualHub, false, postgres, producer)
                     await ingester.start()
                     return ingester.service
                 })
@@ -191,10 +187,11 @@ export class PluginServer {
 
             if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
                 serviceLoaders.push(async () => {
-                    const postgres = hub?.postgres ?? new PostgresRouter(this.config)
-                    const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(this.config))
+                    const actualHub = hub ?? (await createHub(this.config))
+                    const postgres = actualHub.postgres
+                    const producer = actualHub.kafkaProducer
 
-                    const ingester = new SessionRecordingIngesterV2(this.config, true, postgres, producer)
+                    const ingester = new SessionRecordingIngesterV2(actualHub, true, postgres, producer)
                     await ingester.start()
                     return ingester.service
                 })
@@ -260,6 +257,14 @@ export class PluginServer {
                 })
             }
 
+            if (capabilities.cdpCyclotronWorkerDelay) {
+                serviceLoaders.push(async () => {
+                    const delayConsumer = new CdpCyclotronDelayConsumer(hub)
+                    await delayConsumer.start()
+                    return delayConsumer.service
+                })
+            }
+
             // The service commands is always created
             serviceLoaders.push(() => {
                 const serverCommands = new ServerCommands(hub)
@@ -272,6 +277,22 @@ export class PluginServer {
                     const worker = new CdpBehaviouralEventsConsumer(hub)
                     await worker.start()
                     return worker.service
+                })
+            }
+
+            if (capabilities.cdpCohortMembership) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpCohortMembershipConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.logsIngestion) {
+                serviceLoaders.push(async () => {
+                    const consumer = new LogsIngestionConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
                 })
             }
 
@@ -289,6 +310,11 @@ export class PluginServer {
 
             pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
             logger.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
+
+            // Setup pod termination if enabled
+            if (this.config.POD_TERMINATION_ENABLED) {
+                this.setupPodTermination()
+            }
         } catch (error) {
             captureException(error)
             logger.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
@@ -331,6 +357,12 @@ export class PluginServer {
         }
 
         this.stopping = true
+
+        // Clear pod termination timer if it exists
+        if (this.podTerminationTimer) {
+            clearTimeout(this.podTerminationTimer)
+            this.podTerminationTimer = undefined
+        }
 
         this.nodeInstrumentation.cleanup()
 

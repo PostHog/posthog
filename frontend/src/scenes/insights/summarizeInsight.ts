@@ -150,6 +150,10 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
         if (query.trendsFilter?.formula) {
             summary = `${query.trendsFilter.formula} on ${summary}`
         }
+        if (query.trendsFilter?.formulaNodes) {
+            const formulas = query.trendsFilter?.formulaNodes.map((node) => node.custom_name || node.formula).join(', ')
+            summary = `${formulas} on ${summary}`
+        }
 
         return summary
     } else if (isFunnelsQuery(query)) {
@@ -160,7 +164,15 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
                 : query.funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED
                   ? '&'
                   : '→'
-        summary = `${query.series.map((s) => getDisplayNameFromEntityNode(s)).join(` ${linkSymbol} `)} ${
+        summary = `${query.series
+            .map((s) => {
+                let eventName = getDisplayNameFromEntityNode(s)
+                if (s.optionalInFunnel) {
+                    eventName += ' (optional)'
+                }
+                return eventName
+            })
+            .join(` ${linkSymbol} `)} ${
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         } conversion`
         if (query.funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert) {

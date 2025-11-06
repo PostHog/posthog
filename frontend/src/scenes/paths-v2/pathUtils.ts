@@ -28,8 +28,6 @@ export interface PathNodeData {
     source: PathNodeData
     target: PathNodeData
 }
-<<<<<<< HEAD
-=======
 
 export function roundedRect(
     x: number,
@@ -131,4 +129,3 @@ export const isSelectedPathStartOrEnd = (
                 (cardName === funnelSource?.series[funnelStep! - 2].name && isPathStart)))
     )
 }
->>>>>>> master

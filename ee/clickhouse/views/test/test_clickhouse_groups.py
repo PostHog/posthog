@@ -12,20 +12,19 @@ from flaky import flaky
 from orjson import orjson
 from rest_framework import status
 
-from posthog.schema import HogQLQueryResponse
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import GroupTypeMapping, GroupUsageMetric, Notebook, Person
+from posthog.models import GroupTypeMapping, GroupUsageMetric, Person
 from posthog.models.group.util import create_group
-from posthog.models.notebook import ResourceNotebook
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 PATH = "ee.clickhouse.views.groups"
 
@@ -817,193 +816,12 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 404)
 
     @freeze_time("2021-05-02")
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    @flaky(max_runs=3, min_passes=1)
-    def test_upsert_properties_add_success(self, mock_capture):
-        group_type_mapping = create_group_type_mapping_without_created_at(
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type_index=0,
-            group_type="organization",
-        )
-        group = create_group(
-            team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
-            group_key="org:5",
-            properties={"name": "Mr. Krabs"},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
-            group_key="org:55",
-            properties={"name": "Mr. Krabs"},
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/groups/upsert_properties?group_key=org:5&group_type_index=0",
-            {"industry": "technology", "plan": "enterprise"},
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {
-                "created_at": "2021-05-02T00:00:00Z",
-                "group_key": "org:5",
-                "group_properties": {"industry": "technology", "name": "Mr. Krabs", "plan": "enterprise"},
-                "group_type_index": 0,
-            },
-        )
-
-        query_response: HogQLQueryResponse = execute_hogql_query(
-            parse_select(
-                """
-                select properties
-                from groups
-                where index = {index}
-                  and key = {key}
-                """,
-                placeholders={
-                    "index": ast.Constant(value=group.group_type_index),
-                    "key": ast.Constant(value=group.group_key),
-                },
-            ),
-            self.team,
-        )
-        self.assertEqual(
-            query_response.results,
-            [('{"name": "Mr. Krabs", "industry": "technology", "plan": "enterprise"}',)],
-        )
-
-        mock_capture.assert_called_once_with(
-            token=self.team.api_token,
-            event_name="$groupidentify",
-            event_source="ee_ch_views_groups",
-            distinct_id=str(self.team.uuid),
-            timestamp=mock.ANY,
-            properties={
-                "$group_type": group_type_mapping.group_type,
-                "$group_key": group.group_key,
-                "$group_set": {"industry": "technology", "plan": "enterprise"},
-            },
-            process_person_profile=False,
-        )
-
-        activity_response = self.client.get(
-            f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
-        )
-
-        self.assertEqual(activity_response.status_code, 200)
-        self.assertIn("results", activity_response.json())
-        self.assertEqual(len(activity_response.json()["results"]), 2)
-        self.assertEqual(activity_response.json()["results"][0]["activity"], "upsert_properties")
-        self.assertEqual(activity_response.json()["results"][0]["scope"], "Group")
-        self.assertEqual(activity_response.json()["results"][0]["item_id"], str(group.pk))
-        self.assertEqual(activity_response.json()["results"][0]["detail"]["changes"][0]["type"], "Group")
-        self.assertEqual(activity_response.json()["results"][0]["detail"]["changes"][0]["action"], "created")
-        self.assertEqual(activity_response.json()["results"][0]["detail"]["changes"][0]["before"], None)
-        self.assertEqual(activity_response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
-        self.assertEqual(activity_response.json()["results"][1]["detail"]["changes"][0]["type"], "Group")
-        self.assertEqual(activity_response.json()["results"][1]["detail"]["changes"][0]["action"], "created")
-        self.assertEqual(activity_response.json()["results"][1]["detail"]["changes"][0]["before"], None)
-        self.assertEqual(activity_response.json()["results"][1]["detail"]["changes"][0]["after"], "enterprise")
-
-    @freeze_time("2021-05-02")
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    @flaky(max_runs=3, min_passes=1)
-    def test_upsert_properties_update_success(self, mock_capture):
-        group_type_mapping = create_group_type_mapping_without_created_at(
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type_index=0,
-            group_type="organization",
-        )
-        group = create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org:5",
-            properties={"industry": "finance", "name": "Mr. Krabs", "plan": "startup"},
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/groups/upsert_properties?group_key=org:5&group_type_index=0",
-            {"industry": "technology", "plan": "enterprise"},
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {
-                "created_at": "2021-05-02T00:00:00Z",
-                "group_key": "org:5",
-                "group_properties": {"industry": "technology", "name": "Mr. Krabs", "plan": "enterprise"},
-                "group_type_index": 0,
-            },
-        )
-
-        query_response: HogQLQueryResponse = execute_hogql_query(
-            parse_select(
-                """
-                select properties
-                from groups
-                where index = {index}
-                  and key = {key}
-                """,
-                placeholders={
-                    "index": ast.Constant(value=group.group_type_index),
-                    "key": ast.Constant(value=group.group_key),
-                },
-            ),
-            self.team,
-        )
-        # Check properties regardless of JSON key order
-        self.assertEqual(len(query_response.results), 1)
-        self.assertEqual(len(query_response.results[0]), 1)
-        self.assertEqual(
-            orjson.loads(query_response.results[0][0]),
-            {"name": "Mr. Krabs", "industry": "technology", "plan": "enterprise"},
-        )
-
-        mock_capture.assert_called_once_with(
-            token=self.team.api_token,
-            event_name="$groupidentify",
-            event_source="ee_ch_views_groups",
-            distinct_id=str(self.team.uuid),
-            timestamp=mock.ANY,
-            properties={
-                "$group_type": group_type_mapping.group_type,
-                "$group_key": group.group_key,
-                "$group_set": {"industry": "technology", "plan": "enterprise"},
-            },
-            process_person_profile=False,
-        )
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("results", response.json())
-        self.assertEqual(len(response.json()["results"]), 2)
-        self.assertEqual(response.json()["results"][0]["activity"], "upsert_properties")
-        self.assertEqual(response.json()["results"][0]["scope"], "Group")
-        self.assertEqual(response.json()["results"][0]["item_id"], str(group.pk))
-        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["type"], "Group")
-        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
-        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
-        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
-        self.assertEqual(response.json()["results"][1]["detail"]["changes"][0]["type"], "Group")
-        self.assertEqual(response.json()["results"][1]["detail"]["changes"][0]["action"], "changed")
-        self.assertEqual(response.json()["results"][1]["detail"]["changes"][0]["before"], "startup")
-        self.assertEqual(response.json()["results"][1]["detail"]["changes"][0]["after"], "enterprise")
-
-    @freeze_time("2021-05-02")
     @patch("ee.clickhouse.views.groups.capture_internal")
     def test_get_group_activities_success(self, mock_capture):
         # Mock the response to return a 200 OK
         mock_capture.return_value = mock.MagicMock(status_code=200)
 
-        create_group_type_mapping_without_created_at(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
@@ -1011,7 +829,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         group = create_group(
             team_id=self.team.pk,
-            group_type_index=0,
+            group_type_index=group_type_mapping.group_type_index,
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -1043,7 +861,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         # Mock the response to return a 200 OK
         mock_capture.return_value = mock.MagicMock(status_code=200)
 
-        create_group_type_mapping_without_created_at(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
@@ -1051,7 +869,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         create_group(
             team_id=self.team.pk,
-            group_type_index=0,
+            group_type_index=group_type_mapping.group_type_index,
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -1672,6 +1490,19 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
 
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(list_response.json()), 0)
+
+    def test_create_detail_dashboard(self):
+        GroupTypeMapping.objects.create(
+            team=self.team, project=self.project, group_type="organization", group_type_index=0
+        )
+
+        response = self.client.put(self.url + "/create_detail_dashboard", {"group_type_index": 0})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["group_type"], "organization")
+        self.assertEqual(data["group_type_index"], 0)
+        self.assertIsNotNone(data["detail_dashboard"])
 
 
 class GroupUsageMetricViewSetTestCase(APIBaseTest):

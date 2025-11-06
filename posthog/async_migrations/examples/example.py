@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
@@ -11,7 +13,6 @@ from posthog.models.person.sql import (
     PERSONS_DISTINCT_ID_TABLE_MV_SQL,
     PERSONS_DISTINCT_ID_TABLE_SQL,
 )
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 from posthog.version_requirement import ServiceVersionRequirement
 
 ONE_DAY = 60 * 60 * 24
@@ -41,16 +42,16 @@ class Migration(AsyncMigrationDefinition):
         AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=PERSONS_DISTINCT_ID_TABLE_SQL().replace(PERSONS_DISTINCT_ID_TABLE, TEMPORARY_TABLE_NAME, 1),
-            rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
+            rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
         ),
         AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"DROP TABLE person_distinct_id_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
-            rollback=PERSONS_DISTINCT_ID_TABLE_MV_SQL,
+            sql=f"DROP TABLE person_distinct_id_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
+            rollback=PERSONS_DISTINCT_ID_TABLE_MV_SQL(),
         ),
         AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"DROP TABLE kafka_person_distinct_id ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
+            sql=f"DROP TABLE kafka_person_distinct_id ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
             rollback=KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL(),
         ),
         AsyncMigrationOperationSQL(
@@ -72,26 +73,26 @@ class Migration(AsyncMigrationDefinition):
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
                 RENAME TABLE
-                    {CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {CLICKHOUSE_DATABASE}.person_distinct_id_async_migration_backup,
-                    {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME} to {CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE}
-                ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+                    {settings.CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {settings.CLICKHOUSE_DATABASE}.person_distinct_id_async_migration_backup,
+                    {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME} to {settings.CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE}
+                ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
             """,
             rollback=f"""
                 RENAME TABLE
-                    {CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME}
-                    {CLICKHOUSE_DATABASE}.person_distinct_id_async_migration_backup to {CLICKHOUSE_DATABASE}.person_distinct_id,
-                ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+                    {settings.CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME},
+                    {settings.CLICKHOUSE_DATABASE}.person_distinct_id_async_migration_backup to {settings.CLICKHOUSE_DATABASE}.person_distinct_id,
+                ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
             """,
         ),
         AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL(),
-            rollback=f"DROP TABLE IF EXISTS kafka_person_distinct_id ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
+            rollback=f"DROP TABLE IF EXISTS kafka_person_distinct_id ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
         ),
         AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=PERSONS_DISTINCT_ID_TABLE_MV_SQL,
-            rollback=f"DROP TABLE IF EXISTS person_distinct_id_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
+            sql=PERSONS_DISTINCT_ID_TABLE_MV_SQL(),
+            rollback=f"DROP TABLE IF EXISTS person_distinct_id_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
         ),
         AsyncMigrationOperation(fn=example_fn, rollback_fn=example_rollback_fn),
     ]

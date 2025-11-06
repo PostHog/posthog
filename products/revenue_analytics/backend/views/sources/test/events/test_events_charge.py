@@ -7,68 +7,47 @@ from products.revenue_analytics.backend.views.sources.test.events.base import Ev
 class TestChargeEventsBuilder(EventsSourceBaseTest):
     def setUp(self):
         super().setUp()
-        self.setup_revenue_analytics_events()
+        self.events = self.setup_revenue_analytics_events()
 
     def test_build_charge_queries_with_currency_aware_decimal(self):
         """Test building charge queries for events with currency-aware decimal handling."""
-        handle = SourceHandle(type="events", team=self.team)
+        handle = SourceHandle(type="events", team=self.team, event=self.events[0])
 
-        queries = list(build(handle))
-
-        # Should build one query per configured event
-        self.assertEqual(len(queries), 2)
+        query = build(handle)
 
         # Test first query (purchase event with currency-aware decimal)
-        purchase_query = queries[0]
-        self.assertBuiltQueryStructure(purchase_query, "purchase", "revenue_analytics.events.purchase")
+        self.assertBuiltQueryStructure(query, "purchase", "revenue_analytics.events.purchase")
 
         # Print and snapshot the generated HogQL AST query
-        query_sql = purchase_query.query.to_hogql()
+        query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_charge_queries_without_currency_aware_decimal(self):
         """Test building charge queries for events without currency-aware decimal handling."""
-        handle = SourceHandle(type="events", team=self.team)
+        handle = SourceHandle(type="events", team=self.team, event=self.events[1])
 
-        queries = list(build(handle))
+        query = build(handle)
 
         # Test second query (subscription_charge event without currency-aware decimal)
-        subscription_query = queries[1]
-        self.assertBuiltQueryStructure(
-            subscription_query, "subscription_charge", "revenue_analytics.events.subscription_charge"
-        )
+        self.assertBuiltQueryStructure(query, "subscription_charge", "revenue_analytics.events.subscription_charge")
 
         # Print and snapshot the generated HogQL AST query
-        query_sql = subscription_query.query.to_hogql()
+        query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
-
-    def test_build_with_no_events_configured(self):
-        """Test that build returns empty list when no events are configured."""
-        # Clear revenue analytics events
-        self.clear_events()
-
-        handle = SourceHandle(type="events", team=self.team)
-        queries = list(build(handle))
-
-        self.assertEqual(len(queries), 0)
 
     def test_query_structure_contains_required_fields(self):
         """Test that the generated query contains all required fields."""
-        handle = SourceHandle(type="events", team=self.team)
+        handle = SourceHandle(type="events", team=self.team, event=self.events[0])
 
-        queries = list(build(handle))
-        purchase_query = queries[0]
-
-        self.assertQueryContainsFields(purchase_query.query, CHARGE_SCHEMA)
+        query = build(handle)
+        self.assertQueryContainsFields(query.query, CHARGE_SCHEMA)
 
     def test_currency_aware_decimal_logic(self):
         """Test that currency-aware decimal logic is correctly applied."""
-        handle = SourceHandle(type="events", team=self.team)
-
-        queries = list(build(handle))
 
         # Purchase event has currencyAwareDecimal=True
-        purchase_query = queries[0]
+        handle = SourceHandle(type="events", team=self.team, event=self.events[0])
+        purchase_query = build(handle)
         purchase_sql = purchase_query.query.to_hogql()
 
         # Should use is_zero_decimal_in_stripe check
@@ -78,7 +57,8 @@ class TestChargeEventsBuilder(EventsSourceBaseTest):
         self.assertQueryMatchesSnapshot(purchase_sql, replace_all_numbers=True)
 
         # Subscription charge event has currencyAwareDecimal=False
-        subscription_query = queries[1]
+        handle = SourceHandle(type="events", team=self.team, event=self.events[1])
+        subscription_query = build(handle)
         subscription_sql = subscription_query.query.to_hogql()
 
         # Should use constant True for enable_currency_aware_divider
@@ -90,11 +70,8 @@ class TestChargeEventsBuilder(EventsSourceBaseTest):
         # Set a specific base currency for the team
         self.set_team_base_currency("EUR")
 
-        handle = SourceHandle(type="events", team=self.team)
-        queries = list(build(handle))
-
-        purchase_query = queries[0]
-        query_sql = purchase_query.query.to_hogql()
+        handle = SourceHandle(type="events", team=self.team, event=self.events[0])
+        query = build(handle)
 
         # Verify EUR is used as the base currency
-        self.assertIn("'EUR' AS currency", query_sql)
+        self.assertIn("'EUR' AS currency", query.query.to_hogql())

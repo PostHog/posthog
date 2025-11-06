@@ -145,6 +145,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 json: () => Promise.resolve({ success: true }),
                 text: () => Promise.resolve(JSON.stringify({ success: true })),
                 headers: { 'Content-Type': 'application/json' },
+                dump: () => Promise.resolve(),
             })
 
             expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
@@ -204,6 +205,17 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             const metricsMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
 
             expect(metricsMessages).toMatchObject([
+                {
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
+                        app_source: 'hog_function',
+                        app_source_id: fnFetchNoFilters.id.toString(),
+                        count: 1,
+                        metric_kind: 'other',
+                        metric_name: 'triggered',
+                        team_id: 2,
+                    },
+                },
                 {
                     topic: 'clickhouse_app_metrics2_test',
                     value: {
@@ -270,6 +282,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                     headers: {},
                     json: () => Promise.resolve({ error: 'Server error' }),
                     text: () => Promise.resolve(JSON.stringify({ error: 'Server error' })),
+                    dump: () => Promise.resolve(),
                 })
             })
 

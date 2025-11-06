@@ -43,6 +43,11 @@ def reload_hog_flows_on_workers(team_id: int, hog_flow_ids: list[str]):
     publish_message("reload-hog-flows", {"teamId": team_id, "hogFlowIds": hog_flow_ids})
 
 
+def reload_evaluations_on_workers(team_id: int, evaluation_ids: list[str]):
+    logger.info(f"Reloading evaluations {evaluation_ids} on workers")
+    publish_message("reload-evaluations", {"teamId": team_id, "evaluationIds": evaluation_ids})
+
+
 def reload_all_hog_functions_on_workers():
     logger.info(f"Reloading all hog functions on workers")
     publish_message("reload-all-hog-functions", {})
@@ -83,6 +88,18 @@ def patch_hog_function_status(team_id: int, hog_function_id: UUIDT, state: int) 
         CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status",
         json={"state": state},
     )
+
+
+def generate_messaging_preferences_token(team_id: int, identifier: str) -> str:
+    payload = {"team_id": team_id, "identifier": identifier}
+    response = requests.post(CDP_API_URL + "/api/messaging/generate_preferences_token", json=payload)
+    if response.status_code == 200:
+        return response.json().get("token")
+    return ""
+
+
+def validate_messaging_preferences_token(token: str) -> requests.Response:
+    return requests.get(CDP_API_URL + f"/api/messaging/validate_preferences_token/{token}")
 
 
 def get_hog_function_templates() -> requests.Response:

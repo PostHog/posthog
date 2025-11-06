@@ -1,4 +1,5 @@
 import uuid
+import itertools
 from abc import ABC
 from functools import cached_property
 from typing import Any, Optional, Union, cast
@@ -101,6 +102,35 @@ class FunnelBase(ABC):
                 for entity in self.context.query.series[exclusion.funnelFromStep : exclusion.funnelToStep + 1]:
                     if is_equal(entity, exclusion) or is_superset(entity, exclusion):
                         raise ValidationError("Exclusion steps cannot contain an event that's part of funnel steps.")
+
+        has_optional_steps = any(getattr(node, "optionalInFunnel", False) for node in self.context.query.series)
+
+        if has_optional_steps:
+            # validate that optional steps are only allowed in Ordered Steps funnels
+            allows_optional_steps = (
+                self.context.funnelsFilter.funnelVizType in (FunnelVizType.STEPS, None)
+                and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
+            )
+            if not allows_optional_steps:
+                raise ValidationError(
+                    'Optional funnel steps are only supported in funnels with step order Sequential or Strict and the graph type "Conversion Steps".'
+                )
+
+            # validate that the first step is not optional
+            if self.context.query.series and getattr(self.context.query.series[0], "optionalInFunnel", False):
+                raise ValidationError("The first step of a funnel cannot be optional.")
+
+            # Validate that an optional step never follows a required step that is exactly the same right after it
+            # In that case, the optional step will show up as never converting.
+            # Not trying to be overly clever here - putting filters in different order or using SQL queries that are slightly different could
+            # get around this, but want to stop the naive case from spawning support issues.
+            for i, j in itertools.pairwise(self.context.query.series):
+                if (
+                    (is_equal(i, j) or is_superset(j, i))
+                    and getattr(i, "optionalInFunnel", True)
+                    and not getattr(j, "optionalInFunnel", False)
+                ):
+                    raise ValidationError("An optional step cannot be the same as the following required step.")
 
     def get_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
@@ -272,7 +302,6 @@ class FunnelBase(ABC):
         total_people = 0
 
         breakdown_value = results[-1]
-        # cache_invalidation_key = generate_short_id()
 
         for index, step in enumerate(reversed(self.context.query.series)):
             step_index = max_steps - 1 - index
@@ -294,11 +323,6 @@ class FunnelBase(ABC):
             else:
                 serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
-            # # Construct converted and dropped people URLs
-            # funnel_step = step.index + 1
-            # converted_people_filter = self._filter.shallow_clone({"funnel_step": funnel_step})
-            # dropped_people_filter = self._filter.shallow_clone({"funnel_step": -funnel_step})
-
             if with_breakdown:
                 # breakdown will return a display ready value
                 # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
@@ -312,28 +336,6 @@ class FunnelBase(ABC):
                         "breakdown_value": breakdown_value,
                     }
                 )
-                # important to not try and modify this value any how - as these
-                # are keys for fetching persons
-
-                # # Add in the breakdown to people urls as well
-                # converted_people_filter = converted_people_filter.shallow_clone(
-                #     {"funnel_step_breakdown": breakdown_value}
-                # )
-                # dropped_people_filter = dropped_people_filter.shallow_clone({"funnel_step_breakdown": breakdown_value})
-
-            # serialized_result.update(
-            #     {
-            #         "converted_people_url": f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(converted_people_filter.to_params())}&cache_invalidation_key={cache_invalidation_key}",
-            #         "dropped_people_url": (
-            #             f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(dropped_people_filter.to_params())}&cache_invalidation_key={cache_invalidation_key}"
-            #             # NOTE: If we are looking at the first step, there is no drop off,
-            #             # everyone converted, otherwise they would not have been
-            #             # included in the funnel.
-            #             if step.index > 0
-            #             else None
-            #         ),
-            #     }
-            # )
 
             steps.append(serialized_result)
 
@@ -630,6 +632,10 @@ class FunnelBase(ABC):
             self.context.limit_context
         )
 
+    def _order_by(self) -> list[ast.OrderExpr]:
+        max_steps = self.context.max_steps
+        return [ast.OrderExpr(expr=ast.Field(chain=[f"step_{i}"]), order="DESC") for i in range(max_steps, 0, -1)]
+
     # Wrap funnel query in another query to determine the top X breakdowns, and bucket all others into "Other" bucket
     def _breakdown_other_subquery(self) -> ast.SelectQuery:
         max_steps = self.context.max_steps
@@ -671,6 +677,7 @@ class FunnelBase(ABC):
             ],
             select_from=ast.JoinExpr(table=select_query),
             group_by=[ast.Field(chain=["final_prop"])],
+            order_by=self._order_by(),
             limit=ast.Constant(value=self.get_breakdown_limit() + 1),
         )
 
@@ -789,22 +796,19 @@ class FunnelBase(ABC):
         assert actorsQuery is not None
 
         funnelStep = actorsQuery.funnelStep
-        funnelCustomSteps = actorsQuery.funnelCustomSteps
         funnelStepBreakdown = actorsQuery.funnelStepBreakdown
+
+        if funnelStep is None:
+            raise ValueError("Missing funnelStep in actors query")
 
         conditions: list[ast.Expr] = []
 
-        if funnelCustomSteps:
-            conditions.append(parse_expr(f"steps IN {funnelCustomSteps}"))
-        elif funnelStep is not None:
-            if funnelStep >= 0:
-                step_nums = list(range(funnelStep, max_steps + 1))
-                conditions.append(parse_expr(f"steps IN {step_nums}"))
-            else:
-                step_num = abs(funnelStep) - 1
-                conditions.append(parse_expr(f"steps = {step_num}"))
+        if funnelStep >= 0:
+            step_nums = list(range(funnelStep, max_steps + 1))
+            conditions.append(parse_expr(f"steps IN {step_nums}"))
         else:
-            raise ValueError("Missing both funnelStep and funnelCustomSteps")
+            step_num = abs(funnelStep) - 1
+            conditions.append(parse_expr(f"steps = {step_num}"))
 
         if funnelStepBreakdown is not None:
             if isinstance(funnelStepBreakdown, int) and breakdownType != "cohort":
@@ -866,11 +870,11 @@ class FunnelBase(ABC):
         statement = None
         for i in range(max_steps - 1, -1, -1):
             if i == max_steps - 1:
-                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,step_{i}_matching_event)"
+                statement = f"if(isNull(latest_{i}),step_{i - 1}_matching_event,step_{i}_matching_event)"
             elif i == 0:
                 statement = f"if(isNull(latest_0),(null,null,null,null),{statement})"
             else:
-                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,{statement})"
+                statement = f"if(isNull(latest_{i}),step_{i - 1}_matching_event,{statement})"
         return [parse_expr(f"{statement} as final_matching_event")] if statement else []
 
     def _get_matching_events(self, max_steps: int) -> list[ast.Expr]:
@@ -1006,7 +1010,7 @@ class FunnelBase(ABC):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i-1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) as step_{i}_conversion_time"
+                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i - 1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) as step_{i}_conversion_time"
                 ),
             )
 

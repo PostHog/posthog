@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { ReactNode, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Root, createRoot } from 'react-dom/client'
 
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
@@ -10,7 +10,7 @@ import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
 import { LemonDialogFormPropsType, lemonDialogLogic } from './lemonDialogLogic'
 
 export type LemonFormDialogProps = LemonDialogFormPropsType &
-    Omit<LemonDialogProps, 'primaryButton' | 'secondaryButton' | 'tertiaryButton'> & {
+    Omit<LemonDialogProps, 'primaryButton' | 'secondaryButton' | 'content'> & {
         initialValues: Record<string, any>
         onSubmit: (values: Record<string, any>) => void | Promise<void>
         shouldAwaitSubmit?: boolean
@@ -25,7 +25,7 @@ export type LemonDialogProps = Pick<
     secondaryButton?: LemonButtonProps | null
     tertiaryButton?: LemonButtonProps | null
     initialFormValues?: Record<string, any>
-    content?: ReactNode
+    content?: ((closeDialog: () => void) => ReactNode) | ReactNode
     onClose?: () => void
     onAfterClose?: () => void
     closeOnNavigate?: boolean
@@ -33,24 +33,46 @@ export type LemonDialogProps = Pick<
     isLoadingCallback?: (isLoading: boolean) => void
 }
 
-export function LemonDialog({
-    onAfterClose,
-    onClose,
-    primaryButton,
-    tertiaryButton,
-    secondaryButton,
-    content,
-    initialFormValues,
-    closeOnNavigate = true,
-    shouldAwaitSubmit = false,
-    footer,
-    isLoadingCallback,
-    ...props
-}: LemonDialogProps): JSX.Element {
+type LemonDialogRef = {
+    closeDialog: () => void
+}
+
+type LemonDialogMethods = {
+    open: (props: LemonDialogProps) => void
+    openForm: (props: LemonFormDialogProps) => void
+}
+
+const LemonDialogComponent = forwardRef<LemonDialogRef, LemonDialogProps>(function LemonDialog(
+    {
+        onAfterClose,
+        onClose,
+        primaryButton,
+        tertiaryButton,
+        secondaryButton,
+        content,
+        initialFormValues,
+        closeOnNavigate = true,
+        shouldAwaitSubmit = false,
+        footer,
+        isLoadingCallback,
+        ...props
+    }: LemonDialogProps,
+    ref
+): JSX.Element {
     const { currentLocation } = useValues(router)
     const lastLocation = useRef(currentLocation.pathname)
     const [isOpen, setIsOpen] = useState(true)
     const [isLoading, setIsLoading] = useState(false)
+
+    useImperativeHandle(
+        ref,
+        () => ({
+            closeDialog: () => {
+                setIsOpen(false)
+            },
+        }),
+        []
+    )
 
     primaryButton =
         primaryButton ||
@@ -58,6 +80,7 @@ export function LemonDialog({
             ? null
             : {
                   children: 'Okay',
+                  disabledReason: shouldAwaitSubmit && isLoading ? 'Please wait...' : undefined,
               })
     if (primaryButton) {
         primaryButton.type = primaryButton.type || 'primary'
@@ -67,10 +90,13 @@ export function LemonDialog({
         if (!button) {
             return null
         }
+
+        const { preventClosing, ...buttonProps } = button
+
         return (
             <LemonButton
                 type="secondary"
-                {...button}
+                {...buttonProps}
                 loading={button === primaryButton && shouldAwaitSubmit ? isLoading : undefined}
                 // eslint-disable-next-line @typescript-eslint/no-misused-promises
                 onClick={async (e) => {
@@ -87,7 +113,10 @@ export function LemonDialog({
                     } else {
                         button.onClick?.(e)
                     }
-                    setIsOpen(false)
+
+                    if (!preventClosing) {
+                        setIsOpen(false)
+                    }
                 }}
             />
         )
@@ -99,6 +128,13 @@ export function LemonDialog({
         }
         lastLocation.current = currentLocation.pathname
     }, [currentLocation]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    const handleClose = (): void => {
+        setIsOpen(false)
+    }
+
+    // Resolve content, supporting both function and static content
+    const resolvedContent = typeof content === 'function' ? content(handleClose) : content
 
     return (
         <LemonModal
@@ -118,10 +154,10 @@ export function LemonDialog({
                 ) : null
             }
         >
-            {content}
+            {resolvedContent}
         </LemonModal>
     )
-}
+})
 
 export const LemonFormDialog = ({
     initialValues = {},
@@ -161,17 +197,30 @@ export const LemonFormDialog = ({
         setFormValues(initialValues)
     }, [setFormValues, initialValues])
 
+    const ref = useRef<LemonDialogRef>(null)
+
     return (
         <Form
             logic={lemonDialogLogic}
             formKey="form"
-            onKeyDown={(e: React.KeyboardEvent<HTMLFormElement>): void => {
-                if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
-                    void onSubmit(form)
-                }
-            }}
+            onKeyDown={
+                props.shouldAwaitSubmit
+                    ? async (e: React.KeyboardEvent<HTMLFormElement>): Promise<void> => {
+                          if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
+                              await onSubmit(form)
+                              ref?.current?.closeDialog()
+                          }
+                      }
+                    : (e: React.KeyboardEvent<HTMLFormElement>): void => {
+                          if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
+                              void onSubmit(form)
+                              ref?.current?.closeDialog()
+                          }
+                      }
+            }
         >
             <LemonDialog
+                ref={ref}
                 {...props}
                 content={resolvedContent}
                 primaryButton={primaryButton}
@@ -198,6 +247,8 @@ function createAndInsertRoot(): { root: Root; onDestroy: () => void } {
     document.body.appendChild(div)
     return { root, onDestroy: destroy }
 }
+
+export const LemonDialog = LemonDialogComponent as typeof LemonDialogComponent & LemonDialogMethods
 
 LemonDialog.open = (props: LemonDialogProps) => {
     const { root, onDestroy } = createAndInsertRoot()

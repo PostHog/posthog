@@ -238,6 +238,17 @@ export function InfiniteSelectResults({
                             >
                                 {showEmptyState && <TaxonomicFilterEmptyState groupType={groupType} />}
                                 {!showEmptyState && listComponent}
+                                {!showEmptyState &&
+                                    (() => {
+                                        const currentGroup = taxonomicGroups.find((g) => g.type === groupType)
+                                        return (
+                                            currentGroup?.footerMessage && (
+                                                <div className="p-2 border-t border-border">
+                                                    {currentGroup.footerMessage}
+                                                </div>
+                                            )
+                                        )
+                                    })()}
                             </BindLogic>
                         </div>
                     )

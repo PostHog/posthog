@@ -1,0 +1,143 @@
+{
+    "id": 101,
+    "name": "experiment-multiple-metrics-reordered",
+    "description": null,
+    "start_date": "2025-06-03T14:48:37.594000Z",
+    "end_date": null,
+    "feature_flag_key": "experiment-multiple-metrics-reordered",
+    "feature_flag": {
+        "id": 142,
+        "team_id": 1,
+        "name": "Feature Flag for Experiment experiment-multiple-metrics-reordered",
+        "key": "experiment-multiple-metrics-reordered",
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+            "multivariate": {
+                "variants": [
+                    {
+                        "key": "control",
+                        "rollout_percentage": 34
+                    },
+                    {
+                        "key": "test-1",
+                        "rollout_percentage": 33
+                    },
+                    {
+                        "key": "test-2",
+                        "rollout_percentage": 33
+                    }
+                ]
+            },
+            "holdout_groups": null,
+            "aggregation_group_type_index": null
+        },
+        "deleted": false,
+        "active": true,
+        "ensure_experience_continuity": false,
+        "has_encrypted_payloads": false,
+        "version": 1
+    },
+    "holdout": null,
+    "holdout_id": null,
+    "exposure_cohort": null,
+    "parameters": {
+        "feature_flag_variants": [
+            {
+                "key": "control",
+                "rollout_percentage": 34
+            },
+            {
+                "key": "test-1",
+                "rollout_percentage": 33
+            },
+            {
+                "key": "test-2",
+                "rollout_percentage": 33
+            }
+        ],
+        "recommended_sample_size": 0,
+        "recommended_running_time": 0,
+        "minimum_detectable_effect": 30
+    },
+    "secondary_metrics": [],
+    "saved_metrics": [],
+    "saved_metrics_ids": null,
+    "filters": {},
+    "archived": false,
+    "deleted": false,
+    "created_by": {
+        "id": 1,
+        "uuid": "0196a5e4-1c5d-0000-8b8c-31ae10f6d7d7",
+        "distinct_id": "TM2Vy3T9MqY0HHAxgKBj95zZEaZ45MYSpuSxu6MaVNj",
+        "first_name": "Juraj",
+        "last_name": "",
+        "email": "juraj@posthog.com",
+        "is_email_verified": false,
+        "hedgehog_config": null,
+        "role_at_organization": "engineering"
+    },
+    "created_at": "2025-06-03T14:48:11.882465Z",
+    "updated_at": "2025-06-03T14:48:50.754962Z",
+    "type": "product",
+    "exposure_criteria": {
+        "filterTestAccounts": true
+    },
+    "metrics": [
+        {
+            "name": "This should be 2nd",
+            "kind": "ExperimentMetric",
+            "source": {
+                "kind": "EventsNode",
+                "math": "total",
+                "event": "$pageview"
+            },
+            "metric_type": "mean",
+            "uuid": "09a40e22-8190-49f0-9f9c-8f70458b58da"
+        },
+        {
+            "name": "This should be 3rd",
+            "kind": "ExperimentMetric",
+            "series": [
+                {
+                    "kind": "EventsNode",
+                    "event": "signup completed"
+                }
+            ],
+            "metric_type": "funnel",
+            "uuid": "f10233ac-56d9-42d7-b686-78502dd909c9"
+        },
+        {
+            "name": "This should be 1st",
+            "goal": "increase",
+            "kind": "ExperimentMetric",
+            "uuid": "d70371c9-c078-4234-a4b3-aaa19316d602",
+            "numerator": {
+                "kind": "EventsNode",
+                "math": "dau",
+                "name": "$pageview",
+                "event": "$pageview"
+            },
+            "denominator": {
+                "kind": "EventsNode",
+                "math": "total",
+                "name": "$pageview",
+                "event": "$pageview"
+            },
+            "metric_type": "ratio"
+        }
+    ],
+    "metrics_secondary": [],
+    "primary_metrics_ordered_uuids": [
+        "d70371c9-c078-4234-a4b3-aaa19316d602",
+        "09a40e22-8190-49f0-9f9c-8f70458b58da",
+        "f10233ac-56d9-42d7-b686-78502dd909c9"
+    ],
+    "secondary_metrics_ordered_uuids": null,
+    "conclusion": null,
+    "conclusion_comment": null
+}

@@ -62,6 +62,7 @@ export const groupsSceneLogic = kea<groupsSceneLogicType>([
                         key: Scene.Groups,
                         name: showGroupsIntroductionPage ? 'Groups' : capitalizeFirstLetter(groupTypeNamePlural),
                         path: urls.groups(groupTypeIndex),
+                        iconType: 'group',
                     },
                 ]
             },

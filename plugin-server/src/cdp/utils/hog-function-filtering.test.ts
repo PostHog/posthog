@@ -97,11 +97,11 @@ describe('hog-function-filtering', () => {
                   },
                   "properties": {},
                   "timestamp": "2025-01-01T00:00:00.000Z",
+                  "uuid": "event_uuid",
                 }
             `)
         })
     })
-
     describe('convertClickhouseRawEventToFilterGlobals', () => {
         it('should convert RawClickHouseEvent to HogFunctionFilterGlobals with basic event data', () => {
             const rawEvent: RawClickHouseEvent = {

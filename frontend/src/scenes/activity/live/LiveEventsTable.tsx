@@ -1,23 +1,22 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconLive, IconPauseFilled, IconPlayFilled } from '@posthog/icons'
+import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
+import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import { ActivityTab, LiveEvent } from '~/types'
@@ -78,12 +77,17 @@ const columns: LemonTableColumns<LiveEvent> = [
 
 export function LiveEventsTable(): JSX.Element {
     const { events, stats, streamPaused, filters } = useValues(liveEventsTableLogic)
-    const { pauseStream, resumeStream, setFilters } = useActions(liveEventsTableLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+    const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsTableLogic)
 
     return (
         <SceneContent data-attr="manage-events-table">
-            <PageHeader tabbedPage />
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.Activity].name}
+                description={sceneConfigurations[Scene.Activity].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Activity].iconType || 'default_icon_type',
+                }}
+            />
             <LemonTabs
                 activeKey={ActivityTab.LiveEvents}
                 tabs={[
@@ -98,19 +102,9 @@ export function LiveEventsTable(): JSX.Element {
                         link: urls.activity(ActivityTab.LiveEvents),
                     },
                 ]}
-                sceneInset={newSceneLayout}
+                sceneInset
             />
-            <SceneTitleSection
-                name="Live events"
-                description="Real-time events from your app or website."
-                resourceType={{
-                    type: 'live events',
-                    typePlural: 'live events',
-                    forceIcon: <IconLive />,
-                }}
-            />
-            <SceneDivider />
-            <div className="mb-4 flex w-full justify-between items-center">
+            <div className="flex w-full justify-between items-center">
                 <div className="flex justify-center">
                     <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">
                         <div className="flex justify-center items-center bg-surface-primary px-3 py-2 rounded border border-primary text-xs font-medium text-secondary gap-x-2.5">
@@ -136,6 +130,13 @@ export function LiveEventsTable(): JSX.Element {
                 </div>
 
                 <div className="flex gap-2">
+                    <LemonButton
+                        icon={<IconRefresh className="w-4 h-4" />}
+                        type="secondary"
+                        onClick={clearEvents}
+                        size="small"
+                        tooltip="Clear events"
+                    />
                     <EventName
                         value={filters.eventType}
                         onChange={(value) => setFilters({ ...filters, eventType: value })}

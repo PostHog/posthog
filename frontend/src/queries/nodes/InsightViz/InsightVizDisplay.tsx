@@ -3,9 +3,7 @@ import { useActions, useValues } from 'kea'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { cn } from 'lib/utils/css-classes'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -32,10 +30,10 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode } from '~/queries/schema/schema-general'
+import { InsightVizNode, QuerySchema } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
-import { ExporterFormat, FunnelVizType, InsightType } from '~/types'
+import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
@@ -52,6 +50,7 @@ export function InsightVizDisplay({
     embedded,
     inSharedMode,
     editMode,
+    insightProps,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
@@ -63,8 +62,9 @@ export function InsightVizDisplay({
     embedded: boolean
     inSharedMode?: boolean
     editMode?: boolean
+    insightProps: InsightLogicProps<QuerySchema>
 }): JSX.Element | null {
-    const { insightProps, canEditInsight } = useValues(insightLogic)
+    const { canEditInsight } = useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
@@ -85,10 +85,10 @@ export function InsightVizDisplay({
         timedOutQueryId,
         vizSpecificOptions,
         query,
+        display,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -199,12 +199,7 @@ export function InsightVizDisplay({
             !disableTable
         ) {
             return (
-                <SceneSection
-                    title="Detailed results"
-                    hideTitleAndDescription={!newSceneLayout}
-                    className={cn(!newSceneLayout && 'gap-y-0')}
-                >
-                    {!newSceneLayout && <h2 className="font-semibold text-lg my-4 mx-0">Detailed results</h2>}
+                <SceneSection title="Detailed results">
                     <FunnelStepsTable />
                 </SceneSection>
             )
@@ -235,7 +230,8 @@ export function InsightVizDisplay({
                     )}
 
                     <InsightsTable
-                        isLegend
+                        // Do not show ribbons for world map insight table. All ribbons are nuances of blue, and do not bring any UX value
+                        isLegend={display !== ChartDisplayType.WorldMap}
                         editMode={editMode}
                         filterKey={keyForInsightLogicProps('new')(insightProps)}
                         canEditSeriesNameInline={!hasFormula && editMode}

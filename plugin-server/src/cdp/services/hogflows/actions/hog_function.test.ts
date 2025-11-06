@@ -5,7 +5,6 @@ import { DateTime } from 'luxon'
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
-import { compileHog } from '~/cdp/templates/compiler'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
@@ -16,6 +15,7 @@ import { CyclotronJobInvocationHogFlow } from '../../../types'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
+import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { findActionByType } from '../hogflow-utils'
 import { HogFunctionHandler } from './hog_function'
 
@@ -25,6 +25,7 @@ describe('HogFunctionHandler', () => {
     let hogFunctionHandler: HogFunctionHandler
     let mockHogFunctionExecutor: HogExecutorService
     let mockHogFunctionTemplateManager: HogFunctionTemplateManagerService
+    let mockHogFlowFunctionsService: HogFlowFunctionsService
     let mockRecipientPreferencesService: RecipientPreferencesService
 
     let invocation: CyclotronJobInvocationHogFlow
@@ -37,23 +38,22 @@ describe('HogFunctionHandler', () => {
 
         mockHogFunctionExecutor = new HogExecutorService(hub)
         mockHogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
+        mockHogFlowFunctionsService = new HogFlowFunctionsService(
+            hub,
+            mockHogFunctionTemplateManager,
+            mockHogFunctionExecutor
+        )
         mockRecipientPreferencesService = {
             shouldSkipAction: jest.fn().mockResolvedValue(false),
         } as any
-        hogFunctionHandler = new HogFunctionHandler(
-            hub,
-            mockHogFunctionExecutor,
-            mockHogFunctionTemplateManager,
-            mockRecipientPreferencesService
-        )
+        hogFunctionHandler = new HogFunctionHandler(mockHogFlowFunctionsService, mockRecipientPreferencesService)
 
         // Simple hog function that prints the inputs
-        const exampleHog = `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`
 
         const template = await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
             name: 'Test Template',
-            code: exampleHog,
+            code: `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`,
             inputs_schema: [
                 {
                     key: 'name',
@@ -66,7 +66,6 @@ describe('HogFunctionHandler', () => {
                     required: true,
                 },
             ],
-            bytecode: await compileHog(exampleHog),
         })
 
         await insertIntegration(hub.postgres, team.id, {
@@ -131,7 +130,7 @@ describe('HogFunctionHandler', () => {
             queuePriority: 0,
         })
 
-        const handlerResult = await hogFunctionHandler.execute(invocation, action, invocationResult)
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
         expect(mockFetch.mock.calls).toMatchInlineSnapshot(`
             [
@@ -162,7 +161,7 @@ describe('HogFunctionHandler', () => {
             queuePriority: 0,
         })
 
-        await expect(hogFunctionHandler.execute(invocation, action, invocationResult)).rejects.toThrow(
+        await expect(hogFunctionHandler.execute({ invocation, action, result: invocationResult })).rejects.toThrow(
             "Template 'template_123' not found"
         )
     })
@@ -173,7 +172,7 @@ describe('HogFunctionHandler', () => {
             queuePriority: 0,
         })
 
-        await hogFunctionHandler.execute(invocation, action, invocationResult)
+        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
         const callArgs = (mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mock.calls[0]
         expect(callArgs[0]).toBeTruthy()
@@ -188,7 +187,7 @@ describe('HogFunctionHandler', () => {
             queuePriority: 0,
         })
 
-        const handlerResult = await hogFunctionHandler.execute(invocation, action, invocationResult)
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
         const callArgs = (mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mock.calls[0]
         expect(callArgs[0]).toBeTruthy()

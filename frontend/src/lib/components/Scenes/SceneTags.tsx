@@ -1,11 +1,14 @@
+import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { AvailableFeature } from '~/types'
 
 import { ObjectTags } from '../ObjectTags/ObjectTags'
+import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { SceneCanEditProps, SceneDataAttrKeyProps, SceneSaveCancelButtons } from './utils'
 
 type SceneTagsProps = SceneCanEditProps &
@@ -25,6 +28,13 @@ export const SceneTags = ({
     const [localTags, setLocalTags] = useState(tags)
     const [localIsEditing, setLocalIsEditing] = useState(false)
     const [hasChanged, setHasChanged] = useState(false)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
+
+    const onGuardClick = (callback: () => void): void => {
+        guardAvailableFeature(AvailableFeature.TAGGING, () => {
+            callback()
+        })
+    }
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
         e.preventDefault()
@@ -72,7 +82,7 @@ export const SceneTags = ({
             <ButtonPrimitive
                 className="hyphens-auto flex gap-1 items-center"
                 lang="en"
-                onClick={() => onSave && canEdit && setLocalIsEditing(true)}
+                onClick={() => onSave && canEdit && onGuardClick(() => setLocalIsEditing(true))}
                 tooltip={canEdit ? 'Edit tags' : 'Tags are read-only'}
                 autoHeight
                 menuItem

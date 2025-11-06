@@ -8,7 +8,8 @@ from posthog.schema import (
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.generated_configs import MailchimpSourceConfig
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -22,7 +23,8 @@ class MailchimpSource(BaseSource[MailchimpSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.MAILCHIMP,
             label="Mailchimp",
-            caption="",
+            iconPath="/static/services/mailchimp.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/mailchimp",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
         )

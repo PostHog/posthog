@@ -12,6 +12,7 @@ import celery
 import requests.exceptions
 from boto3 import resource
 from botocore.client import Config
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.insight import InsightSerializer
@@ -95,14 +96,14 @@ class TestExports(APIBaseTest):
             "has_content": False,
             "insight": None,
             "export_context": None,
-            # without an expiry being set at creation, the default is 6 months
-            "expires_after": (now() + timedelta(weeks=26))
+            # PNG format gets 180 days (6 months) expiry
+            "expires_after": (now() + timedelta(days=180))
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .isoformat()
             .replace("+00:00", "Z"),
         }
 
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
     @patch("posthog.api.exports.exporter")
     def test_can_create_export_with_ttl(self, mock_exporter_task) -> None:
@@ -117,6 +118,15 @@ class TestExports(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
+
+        # Expiry is determined by format (PNG = 180 days), not the provided value
+        expected_expiry = (
+            (now() + timedelta(days=180))
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+
         assert data == {
             "id": data["id"],
             "created_at": data["created_at"],
@@ -127,10 +137,10 @@ class TestExports(APIBaseTest):
             "has_content": False,
             "insight": None,
             "export_context": None,
-            "expires_after": one_week_from_now.isoformat() + "Z",
+            "expires_after": expected_expiry,
         }
 
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
     @patch("posthog.api.exports.exporter")
     def test_swallow_missing_schema_and_allow_front_end_to_poll(self, mock_exporter_task) -> None:
@@ -153,7 +163,7 @@ class TestExports(APIBaseTest):
             msg=f"was not HTTP 201 😱 - {response.json()}",
         )
         data = response.json()
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
     @patch("posthog.tasks.exports.image_exporter._export_to_png")
     @patch("posthog.api.exports.exporter")
@@ -177,7 +187,8 @@ class TestExports(APIBaseTest):
                 "dashboard": None,
                 "exception": None,
                 "export_context": None,
-                "expires_after": (now() + timedelta(weeks=26))
+                # PNG format gets 180 days (6 months) expiry
+                "expires_after": (now() + timedelta(days=180))
                 .replace(hour=0, minute=0, second=0, microsecond=0)
                 .isoformat()
                 .replace("+00:00", "Z"),
@@ -215,7 +226,7 @@ class TestExports(APIBaseTest):
             ],
         )
 
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
         # look at the page the screenshot will be taken of
         exported_asset = ExportedAsset.objects.get(pk=data["id"])
@@ -229,7 +240,7 @@ class TestExports(APIBaseTest):
 
             # Should warm up the cache
             export_image(exported_asset)
-            mock_export_to_png.assert_called_once_with(exported_asset)
+            mock_export_to_png.assert_called_once_with(exported_asset, max_height_pixels=None)
 
             mock_process_query_dict.assert_called_once()
 
@@ -273,15 +284,15 @@ class TestExports(APIBaseTest):
         mock_exporter_task.export_asset.delay.return_value.get.side_effect = NotImplementedError("not implemented")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": "application/pdf", "insight": self.insight.id},
+            {"export_format": "image/jpeg", "insight": self.insight.id},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
             {
                 "attr": "export_format",
-                "code": "invalid_input",
-                "detail": "Export format application/pdf is not supported.",
+                "code": "invalid_choice",
+                "detail": '"image/jpeg" is not a valid choice.',
                 "type": "validation_error",
             },
         )
@@ -593,6 +604,232 @@ class TestExports(APIBaseTest):
         # Verify that the database wasn't actually modified
         stuck_export.refresh_from_db()
         self.assertIsNone(stuck_export.exception)
+
+    @parameterized.expand(
+        [
+            ("image/png", 2, "png_export"),  # PNG format with 2 expected results
+            ("text/csv", 1, "csv_export"),  # CSV format with 1 expected result
+            ("image/jpeg", 3, None),  # Unsupported format returns all (3)
+            (None, 3, None),  # No filter returns all (3)
+        ]
+    )
+    def test_can_filter_exports_by_format(self, export_format, expected_count, expected_export_var):
+        png_export = ExportedAsset.objects.create(
+            team=self.team, dashboard_id=self.dashboard.id, export_format="image/png", created_by=self.user
+        )
+        csv_export = ExportedAsset.objects.create(
+            team=self.team, insight_id=self.insight.id, export_format="text/csv", created_by=self.user
+        )
+
+        url = f"/api/projects/{self.team.id}/exports"
+        if export_format:
+            url += f"?export_format={export_format}"
+
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+
+        assert len(results) == expected_count
+
+        if expected_export_var == "png_export":
+            # Should return PNG exports only (including the one from setUpTestData)
+            png_export_ids = {png_export.id, self.exported_asset.id}
+            returned_ids = {result["id"] for result in results}
+            assert returned_ids == png_export_ids
+            for result in results:
+                assert result["export_format"] == "image/png"
+        elif expected_export_var == "csv_export":
+            # Should return CSV export only
+            assert results[0]["id"] == csv_export.id
+            assert results[0]["export_format"] == "text/csv"
+
+    @parameterized.expand(
+        [
+            ("image/png", timedelta(days=180)),
+            ("text/csv", timedelta(days=7)),
+            ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", timedelta(days=7)),
+            ("video/mp4", timedelta(days=365)),
+            ("video/webm", timedelta(days=365)),
+            ("image/gif", timedelta(days=365)),
+            ("application/pdf", timedelta(days=180)),
+        ]
+    )
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
+    @patch("posthog.api.exports.exporter")
+    def test_export_expiry_varies_by_format(
+        self, export_format, expected_delta, mock_exporter_task, mock_async_connect, mock_async_to_sync
+    ) -> None:
+        is_video_format = export_format in ("video/mp4", "video/webm", "image/gif")
+
+        if is_video_format:
+            payload = {
+                "export_format": export_format,
+                "export_context": {
+                    "mode": "screenshot",
+                    "session_recording_id": "test_session_123",
+                    "timestamp": 100,
+                    "duration": 5,
+                },
+            }
+        else:
+            payload = {"export_format": export_format, "dashboard": self.dashboard.id}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/exports", payload)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+
+        expected_expiry = (
+            (now() + expected_delta)
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+
+        self.assertEqual(data["expires_after"], expected_expiry)
+
+        if not is_video_format:
+            mock_exporter_task.export_asset.assert_called_once_with(data["id"])
+
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
+    def test_video_export_monthly_limit(self, mock_async_connect, mock_async_to_sync) -> None:
+        """Test that video exports are limited to 10 per calendar month"""
+        # Create 9 video exports this month (we're at the limit - 1)
+        for i in range(9):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/mp4",
+                export_context={"mode": "video", "session_recording_id": f"session_{i}"},
+                created_by=self.user,
+            )
+
+        # The 10th video export should succeed
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "mode": "video",
+                    "session_recording_id": "session_10",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # The 11th video export should fail with limit exceeded error
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "mode": "video",
+                    "session_recording_id": "session_11",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertEqual(error_data["type"], "validation_error")
+        self.assertEqual(error_data["attr"], "export_limit_exceeded")
+        self.assertIn("reached the limit of 10 full video exports this month", error_data["detail"])
+
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
+    def test_video_export_limit_only_applies_to_full_videos(self, mock_async_connect, mock_async_to_sync) -> None:
+        """Test that the limit only applies to full video exports (mode=video), not clips"""
+        # Create 10 video exports this month (at the limit)
+        for i in range(10):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/mp4",
+                export_context={"mode": "video", "session_recording_id": f"session_{i}"},
+                created_by=self.user,
+            )
+
+        # Full video export should fail
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "mode": "video",
+                    "session_recording_id": "session_full",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # But clip export (screenshot mode) should succeed
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "mode": "screenshot",
+                    "session_recording_id": "session_clip",
+                    "timestamp": 100,
+                    "duration": 5,
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Other video formats should also succeed
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/webm",
+                "export_context": {
+                    "mode": "video",
+                    "session_recording_id": "session_webm",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_video_export_limit_resets_monthly(self, mock_async_connect, mock_async_to_sync) -> None:
+        """Test that the video export limit resets at the beginning of each month"""
+
+        # Create 10 video exports in January (at the limit)
+        for i in range(10):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/mp4",
+                export_context={"mode": "video", "session_recording_id": f"session_jan_{i}"},
+                created_by=self.user,
+            )
+
+        # Should fail in January
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "mode": "video",
+                    "session_recording_id": "session_jan_fail",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Move to February 1st
+        with freeze_time("2024-02-01T12:00:00Z"):
+            # Should succeed in February (limit reset)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/exports",
+                {
+                    "export_format": "video/mp4",
+                    "export_context": {
+                        "mode": "video",
+                        "session_recording_id": "session_feb_success",
+                    },
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
 
 class TestExportMixin(APIBaseTest):

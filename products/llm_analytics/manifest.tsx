@@ -2,7 +2,9 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'LLM Analytics',
@@ -11,23 +13,29 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/LLMAnalyticsScene'),
             projectBased: true,
             name: 'LLM analytics',
-            activityScope: 'LLMAnalytics',
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
+            description: 'Analyze and understand your LLM usage and performance.',
+            iconType: 'llm_analytics',
         },
         LLMAnalyticsTrace: {
             import: () => import('./frontend/LLMAnalyticsTraceScene'),
             projectBased: true,
             name: 'LLM analytics trace',
-            activityScope: 'LLMAnalytics',
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/traces',
+        },
+        LLMAnalyticsSession: {
+            import: () => import('./frontend/LLMAnalyticsSessionScene'),
+            projectBased: true,
+            name: 'LLM analytics session',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/llm-analytics/sessions',
         },
         LLMAnalyticsUsers: {
             import: () => import('./frontend/LLMAnalyticsUsers'),
             projectBased: true,
             name: 'LLM analytics users',
-            activityScope: 'LLMAnalytics',
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
         },
@@ -35,7 +43,6 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/LLMAnalyticsPlaygroundScene'),
             projectBased: true,
             name: 'LLM playground',
-            activityScope: 'LLMAnalytics',
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
         },
@@ -43,7 +50,6 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/datasets/LLMAnalyticsDatasetsScene'),
             projectBased: true,
             name: 'LLM analytics datasets',
-            activityScope: 'LLMAnalytics',
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
         },
@@ -51,6 +57,21 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/datasets/LLMAnalyticsDatasetScene'),
             projectBased: true,
             name: 'LLM analytics dataset',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/llm-analytics/installation',
+        },
+        LLMAnalyticsEvaluations: {
+            import: () => import('./frontend/LLMAnalyticsScene'),
+            projectBased: true,
+            name: 'LLM analytics evaluations',
+            activityScope: 'LLMAnalytics',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/llm-analytics/installation',
+        },
+        LLMAnalyticsEvaluation: {
+            import: () => import('./frontend/evaluations/LLMAnalyticsEvaluation'),
+            projectBased: true,
+            name: 'LLM analytics evaluation',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
@@ -63,9 +84,13 @@ export const manifest: ProductManifest = {
         '/llm-analytics/traces': ['LLMAnalytics', 'llmAnalyticsTraces'],
         '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
         '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
+        '/llm-analytics/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
+        '/llm-analytics/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
         '/llm-analytics/playground': ['LLMAnalytics', 'llmAnalyticsPlayground'],
         '/llm-analytics/datasets': ['LLMAnalytics', 'llmAnalyticsDatasets'],
         '/llm-analytics/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
+        '/llm-analytics/evaluations': ['LLMAnalytics', 'llmAnalyticsEvaluations'],
+        '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
     },
     redirects: {
         '/llm-observability': (_params, searchParams, hashParams) =>
@@ -92,6 +117,7 @@ export const manifest: ProductManifest = {
             params?: {
                 event?: string
                 timestamp?: string
+                exception_ts?: string
                 search?: string
             }
         ): string => {
@@ -100,10 +126,23 @@ export const manifest: ProductManifest = {
             return `/llm-analytics/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
+        llmAnalyticsSessions: (): string => '/llm-analytics/sessions',
+        llmAnalyticsSession: (
+            id: string,
+            params?: {
+                timestamp?: string
+            }
+        ): string => {
+            const queryParams = new URLSearchParams(params)
+            const stringifiedParams = queryParams.toString()
+            return `/llm-analytics/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+        },
         llmAnalyticsPlayground: (): string => '/llm-analytics/playground',
         llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',
         llmAnalyticsDataset: (id: string, params?: { item?: string }): string =>
             combineUrl(`/llm-analytics/datasets/${id}`, params).url,
+        llmAnalyticsEvaluations: (): string => '/llm-analytics/evaluations',
+        llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -111,8 +150,10 @@ export const manifest: ProductManifest = {
         {
             path: 'LLM analytics',
             category: 'Analytics',
-            iconType: 'ai',
+            iconType: 'llm_analytics' as FileSystemIconType,
+            iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.llmAnalyticsDashboard(),
+            sceneKey: 'LLMAnalytics',
         },
     ],
 }

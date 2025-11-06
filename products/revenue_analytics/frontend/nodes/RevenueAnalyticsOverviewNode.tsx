@@ -1,11 +1,11 @@
-import { useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { humanFriendlyNumber } from 'lib/utils'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { formatCurrency } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -39,6 +39,7 @@ export function RevenueAnalyticsOverviewNode(props: {
     query: RevenueAnalyticsOverviewQuery
     cachedResults?: AnyResponseType
     context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsOverview.${uniqueNode++}`)
@@ -50,6 +51,8 @@ export function RevenueAnalyticsOverviewNode(props: {
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
+
+    useAttachedLogic(logic, props.attachTo)
 
     const { response, responseLoading } = useValues(logic)
     const queryResponse = response as RevenueAnalyticsOverviewQueryResponse | undefined
@@ -118,6 +121,5 @@ const formatItem = (item: RevenueAnalyticsOverviewItem, currency: CurrencyCode):
         return item.value.toLocaleString()
     }
 
-    const { symbol, isPrefix } = getCurrencySymbol(currency)
-    return `${isPrefix ? symbol : ''}${humanFriendlyNumber(item.value, 2, 2)}${isPrefix ? '' : ' ' + symbol}`
+    return formatCurrency(item.value, currency)
 }

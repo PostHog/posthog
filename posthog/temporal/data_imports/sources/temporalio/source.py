@@ -18,7 +18,8 @@ from posthog.temporal.data_imports.sources.temporalio.temporalio import (
     TemporalIOResource,
     temporalio_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -27,7 +28,9 @@ class TemporalIOSource(BaseSource[TemporalIOSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TEMPORALIO
 
-    def get_schemas(self, config: TemporalIOSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: TemporalIOSourceConfig, team_id: int, with_counts: bool = False
+    ) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -53,7 +56,8 @@ class TemporalIOSource(BaseSource[TemporalIOSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.TEMPORAL_IO,
             label="Temporal.io",
-            caption="",
+            iconPath="/static/services/temporal.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/temporal",
             fields=cast(
                 list[FieldType],
                 [

@@ -2,6 +2,8 @@
 import { DateTime } from 'luxon'
 import { gunzip, gzip } from 'zlib'
 
+import { sanitizeForUTF8 } from '~/utils/strings'
+
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { parseJSON } from '../utils/json-parse'
 import { castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
@@ -12,6 +14,7 @@ import { HogFunctionInvocationGlobals, HogFunctionType, LogEntry, LogEntrySerial
 // For example, transformations use this to only run if in comparison mode
 export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'
 export const MAX_LOG_LENGTH = 10000
+const TRUNCATION_SUFFIX = '... (truncated)'
 
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'email',
@@ -31,7 +34,7 @@ export const getPersonDisplayName = (team: Team, distinctId: string, properties:
     const customIdentifier: string =
         typeof propertyIdentifier !== 'string' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
-    return (customIdentifier || distinctId)?.trim()
+    return (customIdentifier || String(distinctId))?.trim()
 }
 
 // that we can keep to as a contract
@@ -189,15 +192,15 @@ export const fixLogDeduplication = (logs: LogEntry[]): LogEntrySerialized[] => {
     return preparedLogs
 }
 
-export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {
+export function isLegacyPluginHogFunction(hogFunction: Pick<HogFunctionType, 'template_id'>): boolean {
     return hogFunction.template_id?.startsWith('plugin-') ?? false
 }
 
-export function isSegmentPluginHogFunction(hogFunction: HogFunctionType): boolean {
+export function isSegmentPluginHogFunction(hogFunction: Pick<HogFunctionType, 'template_id'>): boolean {
     return hogFunction.template_id?.startsWith('segment-') ?? false
 }
 
-export function isNativeHogFunction(hogFunction: HogFunctionType): boolean {
+export function isNativeHogFunction(hogFunction: Pick<HogFunctionType, 'template_id'>): boolean {
     return hogFunction.template_id?.startsWith('native-') ?? false
 }
 
@@ -209,7 +212,7 @@ export function filterExists<T>(value: T): value is NonNullable<T> {
     return Boolean(value)
 }
 
-export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => {
+export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[], maxLength = MAX_LOG_LENGTH): string => {
     let message = args.map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg)).join(', ')
 
     // Find and replace any sensitive values
@@ -217,8 +220,23 @@ export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): str
         message = message.replaceAll(sensitiveValue, '***REDACTED***')
     })
 
-    if (message.length > MAX_LOG_LENGTH) {
-        message = message.slice(0, MAX_LOG_LENGTH) + '... (truncated)'
+    let truncateAt = maxLength
+
+    // Check if we're in the middle of a surrogate pair
+    if (truncateAt > 0 && truncateAt < message.length + TRUNCATION_SUFFIX.length) {
+        const charAtTruncate = message.charCodeAt(truncateAt)
+        const charBeforeTruncate = message.charCodeAt(truncateAt - 1)
+
+        // If we're about to cut after a high surrogate or before a low surrogate
+        if ((charBeforeTruncate & 0xfc00) === 0xd800 || (charAtTruncate & 0xfc00) === 0xdc00) {
+            // Move back to avoid cutting through the surrogate pair
+            truncateAt--
+            // If we moved back and are still at a high surrogate, move back one more
+            if (truncateAt > 0 && (message.charCodeAt(truncateAt - 1) & 0xfc00) === 0xd800) {
+                truncateAt--
+            }
+        }
+        message = sanitizeForUTF8(message.slice(0, truncateAt) + TRUNCATION_SUFFIX)
     }
 
     return message

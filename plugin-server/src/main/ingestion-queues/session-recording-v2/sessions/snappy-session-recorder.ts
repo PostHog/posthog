@@ -201,7 +201,7 @@ export class SnappySessionRecorder {
             this.droppedUrlsCount++
             logger.warn(
                 '🔗',
-                `Dropping URL (count limit reached) for session ${this.sessionId}, dropped ${this.droppedUrlsCount} URLs`
+                `Dropping URL (count limit reached) for session ${this.sessionId} team ${this.teamId}, dropped ${this.droppedUrlsCount} URLs`
             )
         }
     }

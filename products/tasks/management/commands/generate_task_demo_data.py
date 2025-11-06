@@ -41,7 +41,6 @@ class Command(BaseCommand):
             {
                 "title": "Memory leak in session recording module",
                 "description": "Users reporting browser crashes during long recording sessions, memory usage keeps growing",
-                "status": Task.Status.BACKLOG,
                 "origin_product": Task.OriginProduct.ERROR_TRACKING,
                 "position": 1,
                 "created_at": parse_datetime("2024-01-15T10:30:00Z"),
@@ -50,7 +49,6 @@ class Command(BaseCommand):
             {
                 "title": "Add dark mode toggle to settings",
                 "description": "User requested feature to enable dark mode across the entire application interface",
-                "status": Task.Status.BACKLOG,
                 "origin_product": Task.OriginProduct.USER_CREATED,
                 "position": 2,
                 "created_at": parse_datetime("2024-01-14T09:15:00Z"),
@@ -59,7 +57,6 @@ class Command(BaseCommand):
             {
                 "title": "Add a new form to the homepage to collect user details",
                 "description": "Add a new form to the homepage to collect user details. Email, name, and a checkbox to opt in to marketing emails, the data can just alert, no need to store it.. Make sure it is behind a feature flag.",
-                "status": Task.Status.BACKLOG,
                 "origin_product": Task.OriginProduct.EVAL_CLUSTERS,
                 "position": 0,
                 "created_at": parse_datetime("2024-01-13T14:20:00Z"),
@@ -68,7 +65,6 @@ class Command(BaseCommand):
             {
                 "title": "User cannot access dashboard after password reset",
                 "description": "Multiple support tickets about users being locked out after password reset flow",
-                "status": Task.Status.DONE,
                 "origin_product": Task.OriginProduct.SUPPORT_QUEUE,
                 "position": 0,
                 "created_at": parse_datetime("2024-01-12T16:00:00Z"),
@@ -77,7 +73,6 @@ class Command(BaseCommand):
             {
                 "title": "Fix JavaScript error in event tracking",
                 "description": "TypeError: Cannot read property of undefined in tracking script causing events to fail",
-                "status": Task.Status.DONE,
                 "origin_product": Task.OriginProduct.ERROR_TRACKING,
                 "position": 0,
                 "created_at": parse_datetime("2024-01-10T11:00:00Z"),
@@ -86,7 +81,6 @@ class Command(BaseCommand):
             {
                 "title": "Custom dashboard widget for conversion metrics",
                 "description": "User-requested feature to create custom widgets showing conversion funnel data",
-                "status": Task.Status.BACKLOG,
                 "origin_product": Task.OriginProduct.USER_CREATED,
                 "position": 3,
                 "created_at": parse_datetime("2024-01-09T10:15:00Z"),
@@ -95,7 +89,6 @@ class Command(BaseCommand):
             {
                 "title": "Background color of the dashboard is not correct",
                 "description": "The background color of the dashboard is not correct, it should be red",
-                "status": Task.Status.BACKLOG,
                 "origin_product": Task.OriginProduct.USER_CREATED,
                 "position": 4,
                 "created_at": parse_datetime("2024-01-08T15:30:00Z"),
@@ -113,4 +106,5 @@ class Command(BaseCommand):
         )
 
         for task in created_tasks:
-            self.stdout.write(f"  - {task.title} ({task.get_status_display()})")
+            status = task.current_stage.key if task.current_stage else "backlog"
+            self.stdout.write(f"  - {task.title} ({status})")

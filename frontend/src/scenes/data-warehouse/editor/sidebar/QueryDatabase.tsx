@@ -3,24 +3,24 @@ import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { lemonToast } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { cn } from 'lib/utils/css-classes'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { PipelineStage } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
-import { multitabEditorLogic } from '../multitabEditorLogic'
+import { OutputTab } from '../outputPaneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export const QueryDatabase = (): JSX.Element => {
@@ -40,12 +40,13 @@ export const QueryDatabase = (): JSX.Element => {
         setExpandedSearchFolders,
         selectSourceTable,
         toggleEditJoinModal,
-        loadDatabase,
-        loadJoins,
         setEditingDraft,
         renameDraft,
+        openUnsavedQuery,
+        deleteUnsavedQuery,
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+    const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
 
     const { deleteDraft } = useActions(draftsLogic)
 
@@ -85,6 +86,10 @@ export const QueryDatabase = (): JSX.Element => {
                 if (item && item.record?.type === 'column') {
                     void copyToClipboard(item.record.columnName, item.record.columnName)
                 }
+
+                if (item && item.record?.type === 'unsaved-query') {
+                    openUnsavedQuery(item.record)
+                }
             }}
             renderItem={(item) => {
                 // Check if item has search matches for highlighting
@@ -94,14 +99,25 @@ export const QueryDatabase = (): JSX.Element => {
                 return (
                     <span className="truncate">
                         {hasMatches && searchTerm ? (
-                            <SearchHighlightMultiple
-                                string={item.name}
-                                substring={searchTerm}
-                                className="font-mono text-xs"
-                            />
+                            <SearchHighlightMultiple string={item.name} substring={searchTerm} className="text-xs" />
                         ) : (
-                            <div className="flex flex-row justify-between gap-1">
-                                <span className="truncate font-mono text-xs">{item.name}</span>
+                            <div className="flex flex-row gap-1 justify-between">
+                                <span
+                                    className={cn(
+                                        [
+                                            'managed-views',
+                                            'views',
+                                            'sources',
+                                            'drafts',
+                                            'unsaved-folder',
+                                            'endpoints',
+                                        ].includes(item.record?.type) && 'font-bold',
+                                        item.record?.type === 'column' && 'font-mono text-xs',
+                                        'truncate'
+                                    )}
+                                >
+                                    {item.name}
+                                </span>
                                 {renderTableCount(item.record?.row_count)}
                             </div>
                         )}
@@ -146,13 +162,7 @@ export const QueryDatabase = (): JSX.Element => {
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    if (router.values.location.pathname.endsWith(urls.sqlEditor())) {
-                                        multitabEditorLogic({
-                                            key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                        }).actions.createTab(`SELECT * FROM ${item.name}`)
-                                    } else {
-                                        router.actions.push(urls.sqlEditor(`SELECT * FROM ${item.name}`))
-                                    }
+                                    sceneLogic.actions.newTab(urls.sqlEditor(`SELECT * FROM ${item.name}`))
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
@@ -188,6 +198,7 @@ export const QueryDatabase = (): JSX.Element => {
 
                     // Check if this is a saved query (has last_run_at) vs managed view
                     const isSavedQuery = item.record?.isSavedQuery || false
+                    const isManagedViewsetQuery = item.record?.view.managed_viewset_kind !== null
 
                     return (
                         <DropdownMenuGroup>
@@ -197,16 +208,29 @@ export const QueryDatabase = (): JSX.Element => {
                                         asChild
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            if (router.values.location.pathname.endsWith(urls.sqlEditor())) {
-                                                multitabEditorLogic({
-                                                    key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                                }).actions.editView(item.record?.view.query.query, item.record?.view)
-                                            } else {
-                                                router.actions.push(urls.sqlEditor(undefined, item.record?.view.id))
-                                            }
+                                            sceneLogic.actions.newTab(urls.sqlEditor(undefined, item.record?.view.id))
                                         }}
                                     >
-                                        <ButtonPrimitive menuItem>Edit view definition</ButtonPrimitive>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            tooltipInteractive
+                                            tooltipPlacement="right"
+                                            disabled={isManagedViewsetQuery}
+                                            tooltip={
+                                                isManagedViewsetQuery ? (
+                                                    <>
+                                                        Managed viewset views cannot be edited directly. You can
+                                                        enable/disable these views in the{' '}
+                                                        <Link to={urls.dataWarehouseManagedViewsets()}>
+                                                            Managed Viewsets
+                                                        </Link>{' '}
+                                                        section.
+                                                    </>
+                                                ) : undefined
+                                            }
+                                        >
+                                            Edit view definition
+                                        </ButtonPrimitive>
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                         asChild
@@ -225,7 +249,26 @@ export const QueryDatabase = (): JSX.Element => {
                                             deleteDataWarehouseSavedQuery(viewId)
                                         }}
                                     >
-                                        <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            tooltipInteractive
+                                            tooltipPlacement="right"
+                                            disabled={isManagedViewsetQuery}
+                                            tooltip={
+                                                isManagedViewsetQuery ? (
+                                                    <>
+                                                        Managed viewset views cannot be individually deleted. You can
+                                                        choose to delete all views in the managed viewset from the{' '}
+                                                        <Link to={urls.dataWarehouseManagedViewsets()}>
+                                                            Managed Viewsets
+                                                        </Link>{' '}
+                                                        page.
+                                                    </>
+                                                ) : undefined
+                                            }
+                                        >
+                                            Delete
+                                        </ButtonPrimitive>
                                     </DropdownMenuItem>
                                 </>
                             )}
@@ -271,19 +314,8 @@ export const QueryDatabase = (): JSX.Element => {
                                         if (item.record?.columnName) {
                                             const join =
                                                 joinsByFieldName[`${item.record.table}.${item.record.columnName}`]
-                                            void deleteWithUndo({
-                                                endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
-                                                object: {
-                                                    id: join.id,
-                                                    name: `${join.field_name} on ${join.source_table_name}`,
-                                                },
-                                                callback: () => {
-                                                    loadDatabase()
-                                                    loadJoins()
-                                                },
-                                            }).catch((e) => {
-                                                lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
-                                            })
+
+                                            deleteJoin(join)
                                         }
                                     }}
                                 >
@@ -294,7 +326,70 @@ export const QueryDatabase = (): JSX.Element => {
                     }
                 }
 
-                if (item.record?.type === 'sources') {
+                if (item.record?.type === 'unsaved-query') {
+                    return (
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (item.record) {
+                                        openUnsavedQuery(item.record)
+                                    }
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Open</ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (item.record) {
+                                        deleteUnsavedQuery(item.record)
+                                    }
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Discard</ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
+                }
+
+                // Show menu for endpoints
+                if (item.record?.type === 'endpoint') {
+                    return (
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    sceneLogic.actions.newTab(urls.endpoint(item.name))
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>View endpoint</ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    sceneLogic.actions.newTab(
+                                        urls.sqlEditor(
+                                            item.record?.endpoint?.query.query,
+                                            undefined,
+                                            undefined,
+                                            undefined,
+                                            OutputTab.Endpoint
+                                        )
+                                    )
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Edit endpoint query</ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
+                }
+
+                if (['sources', 'endpoints'].includes(item.record?.type)) {
                     // used to override default icon behavior
                     return null
                 }
@@ -310,9 +405,28 @@ export const QueryDatabase = (): JSX.Element => {
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
+                                router.actions.push(urls.dataWarehouseSourceNew())
                             }}
                             data-attr="sql-editor-add-source"
+                        >
+                            <IconPlusSmall className="text-tertiary" />
+                        </ButtonPrimitive>
+                    )
+                }
+
+                if (item.record?.type === 'endpoints') {
+                    return (
+                        <ButtonPrimitive
+                            iconOnly
+                            isSideActionRight
+                            className="z-2"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                sceneLogic.actions.newTab(
+                                    urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.Endpoint)
+                                )
+                            }}
+                            data-attr="sql-editor-add-endpoint"
                         >
                             <IconPlusSmall className="text-tertiary" />
                         </ButtonPrimitive>

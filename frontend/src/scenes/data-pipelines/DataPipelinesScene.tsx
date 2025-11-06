@@ -1,12 +1,19 @@
 import { actions, kea, listeners, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
@@ -51,13 +58,22 @@ export const dataPipelinesSceneLogic = kea<dataPipelinesSceneLogicType>([
                     {
                         key: Scene.DataPipelines,
                         name: 'Data pipelines',
+                        path: urls.dataPipelines(),
+                        iconType: 'data_pipeline',
                     },
                     {
                         key: [Scene.DataPipelines, kind],
                         name: capitalizeFirstLetter(kind.replaceAll('_', ' ')),
+                        iconType: 'data_pipeline',
                     },
                 ]
             },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({
+                activity_scope: ActivityScope.HOG_FUNCTION,
+            }),
         ],
     }),
     listeners({
@@ -68,7 +84,7 @@ export const dataPipelinesSceneLogic = kea<dataPipelinesSceneLogicType>([
     urlToAction(({ actions, values }) => {
         return {
             // All possible routes for this scene need to be listed here
-            [urls.dataPipelines(':kind')]: ({ kind }) => {
+            [urls.dataPipelines(':kind' as any)]: ({ kind }) => {
                 const possibleTab: DataPipelinesSceneTab = (kind as DataPipelinesSceneTab) ?? 'overview'
 
                 const tab = DATA_PIPELINES_SCENE_TABS.includes(possibleTab) ? possibleTab : 'overview'
@@ -88,10 +104,9 @@ export const scene: SceneExport = {
     }),
 }
 
-export function DataPipelinesScene(): JSX.Element {
+function DataPipelineTabs({ action }: { action: JSX.Element }): JSX.Element {
     const { currentTab } = useValues(dataPipelinesSceneLogic)
     const { setCurrentTab } = useActions(dataPipelinesSceneLogic)
-
     const tabs: LemonTab<DataPipelinesSceneTab>[] = [
         {
             label: 'Overview',
@@ -101,22 +116,24 @@ export function DataPipelinesScene(): JSX.Element {
         {
             label: 'Sources',
             key: 'sources',
-            content: <DataPipelinesSources />,
+            content: <DataPipelinesSources action={action} />,
         },
         {
             label: 'Transformations',
             key: 'transformations',
-            content: <DataPipelinesHogFunctions kind="transformation" />,
+            content: <DataPipelinesHogFunctions kind="transformation" action={action} />,
         },
         {
             label: 'Destinations',
             key: 'destinations',
-            content: <DataPipelinesHogFunctions kind="destination" additionalKinds={['site_destination']} />,
+            content: (
+                <DataPipelinesHogFunctions kind="destination" additionalKinds={['site_destination']} action={action} />
+            ),
         },
         {
             label: 'Apps',
             key: 'site_apps',
-            content: <DataPipelinesHogFunctions kind="site_app" />,
+            content: <DataPipelinesHogFunctions kind="site_app" action={action} />,
         },
         {
             label: 'History',
@@ -125,5 +142,81 @@ export function DataPipelinesScene(): JSX.Element {
         },
     ]
 
-    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+}
+
+export function DataPipelinesScene(): JSX.Element {
+    const { currentTab } = useValues(dataPipelinesSceneLogic)
+
+    const menuItems: LemonMenuItems = [
+        {
+            label: 'Source',
+            to: urls.dataPipelinesNew('source'),
+            'data-attr': 'data-warehouse-data-pipelines-overview-new-source',
+        },
+        { label: 'Transformation', to: urls.dataPipelinesNew('transformation') },
+        { label: 'Destination', to: urls.dataPipelinesNew('destination') },
+    ]
+
+    const SceneAction = (): JSX.Element => {
+        if (currentTab === 'overview') {
+            return (
+                <LemonMenu items={menuItems}>
+                    <LemonButton data-attr="new-pipeline-button" icon={<IconPlusSmall />} size="small" type="primary">
+                        New
+                    </LemonButton>
+                </LemonMenu>
+            )
+        }
+        if (currentTab === 'sources') {
+            return (
+                <LemonButton to={urls.dataPipelinesNew('source')} type="primary" icon={<IconPlusSmall />} size="small">
+                    New source
+                </LemonButton>
+            )
+        }
+        if (currentTab === 'transformations') {
+            return (
+                <LemonButton
+                    to={urls.dataPipelinesNew('transformation')}
+                    type="primary"
+                    icon={<IconPlusSmall />}
+                    size="small"
+                >
+                    New transformation
+                </LemonButton>
+            )
+        }
+        if (currentTab === 'destinations') {
+            return (
+                <LemonButton
+                    to={urls.dataPipelinesNew('destination')}
+                    type="primary"
+                    icon={<IconPlusSmall />}
+                    size="small"
+                >
+                    New destination
+                </LemonButton>
+            )
+        }
+        return (
+            <LemonButton to={urls.dataPipelinesNew('site_app')} type="primary" icon={<IconPlusSmall />} size="small">
+                New app
+            </LemonButton>
+        )
+    }
+
+    return (
+        <SceneContent>
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.DataPipelines].name}
+                description={sceneConfigurations[Scene.DataPipelines].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.DataPipelines].iconType || 'default_icon_type',
+                }}
+                actions={<SceneAction />}
+            />
+            <DataPipelineTabs action={<SceneAction />} />
+        </SceneContent>
+    )
 }

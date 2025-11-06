@@ -1,5 +1,3 @@
-from posthog.schema import NodeKind
-
 from posthog.schema_migrations.base import SchemaMigration
 
 KIND_TO_FILTER_KEY = {
@@ -11,7 +9,7 @@ KIND_TO_FILTER_KEY = {
 class Migration(SchemaMigration):
     """Convert 'hiddenLegendIndexes' to a new 'hidden' field of 'resultCustomizations'."""
 
-    targets = {NodeKind.TRENDS_QUERY: 1, NodeKind.STICKINESS_QUERY: 1}
+    targets = {"TrendsQuery": 1, "StickinessQuery": 1}
 
     def transform(self, query: dict) -> dict:
         filter_key = KIND_TO_FILTER_KEY.get(str(query.get("kind")))

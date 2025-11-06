@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
@@ -12,13 +13,15 @@ import { JSSnippet, JSSnippetV2 } from 'lib/components/JSSnippet'
 import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { TimezoneConfig } from './TimezoneConfig'
 import { WeekStartConfig } from './WeekStartConfig'
@@ -111,10 +114,46 @@ export function Bookmarklet(): JSX.Element {
     )
 }
 
+function DebugInfoPanel(): JSX.Element | null {
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
+    const { preflight, preflightLoading } = useValues(preflightLogic)
+
+    const region = preflight?.region
+    const anyLoading = preflightLoading || currentOrganizationLoading || currentTeamLoading
+    const hasRequiredInfo = region && currentOrganization && currentTeam
+
+    if (!hasRequiredInfo && !anyLoading) {
+        return null
+    }
+
+    if (inStorybookTestRunner() || inStorybook()) {
+        // this data changes e.g. when session id changes, so it flaps in visual regression tests
+        // so...
+        return null
+    }
+
+    return (
+        <div className="flex-1 max-w-full">
+            <h3 id="debug-info" className="min-w-[25rem]">
+                Debug information
+            </h3>
+            <p>Include this snippet when creating an issue (feature request or bug report) on GitHub.</p>
+            {anyLoading ? (
+                <LemonSkeleton repeat={2} active={true} />
+            ) : (
+                <CodeSnippet compact thing="debug info">
+                    {getPublicSupportSnippet(region, currentOrganization, currentTeam, false)}
+                </CodeSnippet>
+            )}
+        </div>
+    )
+}
+
 export function TeamVariables(): JSX.Element {
     const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -182,17 +221,7 @@ export function TeamVariables(): JSX.Element {
                     <CodeSnippet thing={`${displayNoun} region`}>{`${region} Cloud`}</CodeSnippet>
                 </div>
             ) : null}
-            {region && currentOrganization && currentTeam ? (
-                <div className="flex-1 max-w-full">
-                    <h3 id="debug-info" className="min-w-[25rem]">
-                        Debug information
-                    </h3>
-                    <p>Include this snippet when creating an issue (feature request or bug report) on GitHub.</p>
-                    <CodeSnippet compact thing="debug info">
-                        {getPublicSupportSnippet(region, currentOrganization, currentTeam, false)}
-                    </CodeSnippet>
-                </div>
-            ) : null}
+            <DebugInfoPanel />
         </div>
     )
 }
@@ -215,6 +244,12 @@ export function TeamTimezone(): JSX.Element {
 }
 
 export function TeamAuthorizedURLs(): JSX.Element {
+    // In Storybook, allow editing by default since we don't have full app context
+    const canEdit =
+        inStorybook() || inStorybookTestRunner()
+            ? true
+            : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
+
     return (
         <>
             <p>
@@ -236,7 +271,12 @@ export function TeamAuthorizedURLs(): JSX.Element {
                 <b>Wildcards are not allowed</b> (example: <code>https://*.example.com</code>). The URL needs to be
                 something concrete that can be launched.
             </p>
-            <AuthorizedUrlList type={AuthorizedUrlListType.WEB_ANALYTICS} allowWildCards={false} />
+            <AuthorizedUrlList
+                type={AuthorizedUrlListType.WEB_ANALYTICS}
+                allowWildCards={false}
+                allowAdd={canEdit}
+                allowDelete={canEdit}
+            />
         </>
     )
 }

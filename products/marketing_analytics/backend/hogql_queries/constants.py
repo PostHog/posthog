@@ -28,6 +28,7 @@ DEFAULT_DISTINCT_ID_FIELD = "distinct_id"
 
 # CTE names
 CAMPAIGN_COST_CTE_NAME = "campaign_costs"
+UNIFIED_CONVERSION_GOALS_CTE_ALIAS = "ucg"
 
 # Prefixes for table names
 CONVERSION_GOAL_PREFIX_ABBREVIATION = "cg_"
@@ -37,9 +38,10 @@ CONVERSION_GOAL_PREFIX = "conversion_"
 TOTAL_COST_FIELD = "total_cost"
 TOTAL_CLICKS_FIELD = "total_clicks"
 TOTAL_IMPRESSIONS_FIELD = "total_impressions"
+TOTAL_REPORTED_CONVERSION_FIELD = "total_reported_conversions"
 
 # Fallback query when no valid adapters are found
-FALLBACK_EMPTY_QUERY = f"SELECT 'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, 'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.COST} WHERE 1=0"
+FALLBACK_EMPTY_QUERY = f"SELECT 'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, 'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.COST}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION} WHERE 1=0"
 
 # AST Expression mappings for MarketingAnalyticsBaseColumns
 BASE_COLUMN_MAPPING = {
@@ -119,6 +121,16 @@ BASE_COLUMN_MAPPING = {
             ],
         ),
     ),
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSION,
+        expr=ast.Call(
+            name="round",
+            args=[
+                ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_REPORTED_CONVERSION_FIELD]),
+                ast.Constant(value=DECIMAL_PRECISION),
+            ],
+        ),
+    ),
 }
 
 BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
@@ -135,7 +147,7 @@ MARKETING_ANALYTICS_SCHEMA = {
 }
 
 # Valid native marketing sources
-VALID_NATIVE_MARKETING_SOURCES = ["GoogleAds"]
+VALID_NATIVE_MARKETING_SOURCES = ["GoogleAds", "LinkedinAds", "RedditAds", "MetaAds", "TikTokAds"]
 
 # Valid non-native marketing sources (managed external sources like BigQuery)
 VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
@@ -146,6 +158,10 @@ VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", 
 # Required tables for each native source
 NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
     "GoogleAds": ["campaign", "campaign_stats"],
+    "LinkedinAds": ["campaigns", "campaign_stats"],
+    "RedditAds": ["campaigns", "campaign_report"],
+    "MetaAds": ["campaigns", "campaign_stats"],
+    "TikTokAds": ["campaigns", "campaign_report"],
 }
 
 # Table pattern matching for native sources. TODO: find a better way to get the table names from the source.
@@ -154,6 +170,26 @@ TABLE_PATTERNS = {
         "campaign_table_keywords": ["campaign"],
         "campaign_table_exclusions": ["stats"],
         "stats_table_keywords": ["campaign_stats"],
+    },
+    "LinkedinAds": {
+        "campaign_table_keywords": ["campaigns"],
+        "campaign_table_exclusions": ["stats"],
+        "stats_table_keywords": ["campaign_stats"],
+    },
+    "RedditAds": {
+        "campaign_table_keywords": ["campaigns"],
+        "campaign_table_exclusions": ["report"],
+        "stats_table_keywords": ["campaign_report"],
+    },
+    "MetaAds": {
+        "campaign_table_keywords": ["campaigns"],
+        "campaign_table_exclusions": ["stats"],
+        "stats_table_keywords": ["campaign_stats"],
+    },
+    "TikTokAds": {
+        "campaign_table_keywords": ["campaigns"],
+        "campaign_table_exclusions": ["report"],
+        "stats_table_keywords": ["campaign_report"],
     },
 }
 
@@ -166,6 +202,7 @@ COLUMN_KIND_MAPPING = {
     MarketingAnalyticsBaseColumns.IMPRESSIONS: "unit",
     MarketingAnalyticsBaseColumns.CPC: "currency",
     MarketingAnalyticsBaseColumns.CTR: "percentage",
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: "unit",
 }
 
 # isIncreaseBad mapping for MarketingAnalyticsBaseColumns
@@ -177,6 +214,7 @@ IS_INCREASE_BAD_MAPPING = {
     MarketingAnalyticsBaseColumns.IMPRESSIONS: False,  # More impressions is good
     MarketingAnalyticsBaseColumns.CPC: True,  # Higher CPC is bad
     MarketingAnalyticsBaseColumns.CTR: False,  # Higher CTR is good
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: False,  # More reported conversions is good
 }
 
 

@@ -3,14 +3,13 @@ from uuid import uuid4
 
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables import Runnable, RunnableConfig
-from langgraph.config import get_stream_writer
 
 from posthog.schema import NotebookUpdateMessage, ProsemirrorJSONContent
 
-from posthog.models.notebook.notebook import Notebook
+from products.notebooks.backend.models import Notebook
 
 from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
+from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.notebook.notebook_serializer import NotebookContext, NotebookSerializer
 from ee.hogai.utils.helpers import extract_content_from_ai_message
@@ -54,13 +53,15 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
         self,
         chain: Runnable,
         config: RunnableConfig,
-        node_name: DeepResearchNodeName,
         stream_parameters: Optional[dict] = None,
         context: Optional[NotebookContext] = None,
-    ) -> NotebookUpdateMessage:
+    ) -> Notebook:
+        if self.notebook is None:
+            self.notebook = await self._create_notebook()
+
         notebook_update_message = None
-        writer = get_stream_writer()
         chunk = AIMessageChunk(content="")
+
         async for new_chunk in chain.astream(
             stream_parameters or {},
             config,
@@ -70,16 +71,16 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
 
             chunk = merge_message_chunk(chunk, new_chunk)
             notebook_update_message = await self._llm_chunk_to_notebook_update_message(chunk, context)
-            custom_message = self._message_to_langgraph_update(notebook_update_message, node_name)
-            writer(custom_message)
+            self.dispatcher.message(notebook_update_message)
 
         if not notebook_update_message:
             raise ValueError("No notebook update message found.")
 
-        # We set the id to mark this as the last completed chunk
+        # Mark completion and emit a final update.
         notebook_update_message.id = str(uuid4())
+        self.dispatcher.message(notebook_update_message)
 
-        return notebook_update_message
+        return self.notebook
 
     def _get_notebook_serializer(self, context: Optional[NotebookContext] = None) -> NotebookSerializer:
         """Get or create a reusable notebook serializer to avoid repeated query conversions during streaming."""
@@ -113,3 +114,6 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
             notebook_id=str(self.notebook.short_id),
             content=ProsemirrorJSONContent.model_validate(self.notebook.content),
         )
+
+    def _generate_notebook_update_message(self, notebook: Notebook) -> NotebookUpdateMessage:
+        return NotebookUpdateMessage(notebook_id=notebook.short_id, content=notebook.content)

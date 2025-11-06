@@ -16,19 +16,16 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
-from posthog.hogql_queries.experiments.exposure_query_logic import (
-    build_common_exposure_conditions,
-    get_entity_key,
-    get_exposure_event_and_property,
-    get_multiple_variant_handling_from_experiment,
-    get_variant_selection_expr,
+from posthog.hogql_queries.experiments.experiment_query_builder import (
+    ExperimentQueryBuilder,
+    get_exposure_config_params_for_builder,
 )
+from posthog.hogql_queries.experiments.exposure_query_logic import get_entity_key
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -45,14 +42,12 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
 
-        self.feature_flag_key = self.query.feature_flag.get("key")
-        if not self.feature_flag_key:
+        feature_flag_key = self.query.feature_flag.get("key")
+        if not isinstance(feature_flag_key, str) or not feature_flag_key:
             raise ValidationError("feature_flag key is required")
+        self.feature_flag_key: str = feature_flag_key
         self.group_type_index = self.query.feature_flag.get("filters", {}).get("aggregation_group_type_index")
         self.exposure_criteria = self.query.exposure_criteria
-
-        # Determine how to handle entities exposed to multiple variants
-        self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.exposure_criteria)
 
         multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
         self.variants = [variant.get("key") for variant in multivariate_data.get("variants", [])]
@@ -94,58 +89,23 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:
-        # Get the exposure event and feature flag variant property
-        if not self.feature_flag_key:
-            raise ValidationError("feature_flag key is required")
-        event, feature_flag_variant_property = get_exposure_event_and_property(
-            self.feature_flag_key, self.exposure_criteria
-        )
+        (
+            exposure_config,
+            multiple_variant_handling,
+            filter_test_accounts,
+        ) = get_exposure_config_params_for_builder(self.exposure_criteria)
 
-        # Build common exposure conditions using shared logic
-        exposure_conditions = build_common_exposure_conditions(
-            event=event,
-            feature_flag_variant_property=feature_flag_variant_property,
+        builder = ExperimentQueryBuilder(
+            team=self.team,
+            feature_flag_key=self.feature_flag_key,
+            exposure_config=exposure_config,
+            filter_test_accounts=filter_test_accounts,
+            multiple_variant_handling=multiple_variant_handling,
             variants=self.variants,
             date_range_query=self.date_range_query,
-            team=self.team,
-            exposure_criteria=self.exposure_criteria,
-            feature_flag_key=self.feature_flag_key,
+            entity_key=get_entity_key(self.group_type_index),
         )
-
-        # Get the appropriate entity key
-        entity = get_entity_key(self.group_type_index)
-
-        exposure_query = ast.SelectQuery(
-            select=[
-                ast.Field(chain=["subq", "day"]),
-                ast.Field(chain=["subq", "variant"]),
-                parse_expr("count(entity_id) as exposed_count"),
-            ],
-            select_from=ast.JoinExpr(
-                table=ast.SelectQuery(
-                    select=[
-                        ast.Alias(alias="entity_id", expr=ast.Field(chain=[entity])),
-                        ast.Alias(
-                            alias="variant",
-                            expr=get_variant_selection_expr(
-                                feature_flag_variant_property, self.multiple_variant_handling
-                            ),
-                        ),
-                        parse_expr("toDate(toString(min(timestamp))) as day"),
-                    ],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    where=ast.And(exprs=exposure_conditions),
-                    group_by=[
-                        ast.Field(chain=["entity_id"]),
-                    ],
-                ),
-                alias="subq",
-            ),
-            group_by=[ast.Field(chain=["subq", "day"]), ast.Field(chain=["subq", "variant"])],
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["subq", "day"]), order="ASC")],
-        )
-
-        return exposure_query
+        return builder.get_exposure_timeseries_query()
 
     def _calculate(self) -> ExperimentExposureQueryResponse:
         try:
@@ -155,6 +115,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 experiment_id=self.query.experiment_id,
                 experiment_name=self.query.experiment_name,
                 experiment_feature_flag_key=self.feature_flag_key,
+                product=Product.EXPERIMENTS,
             )
 
             # Set limit to avoid being cut-off by the default 100 rows limit
@@ -167,7 +128,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 team=self.team,
                 timings=self.timings,
                 modifiers=create_default_modifiers_for_team(self.team),
-                settings=HogQLGlobalSettings(max_execution_time=180),
+                settings=HogQLGlobalSettings(max_execution_time=600, allow_experimental_analyzer=True),
             )
 
             response.results = self._fill_date_gaps(response.results)

@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Literal, Optional, Union, cast
 from uuid import uuid4
 
@@ -21,6 +22,7 @@ from posthog.schema import (
     AssistantMessage,
     AssistantMessageMetadata,
     CachedEventTaxonomyQueryResponse,
+    ContextMessage,
     EventTaxonomyItem,
     EventTaxonomyQuery,
     HumanMessage,
@@ -32,15 +34,18 @@ from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQu
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.utils import human_list
 
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
+from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models.assistant import CoreMemory
 
-from ..base import AssistantNode
 from .parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
 from .prompts import (
     ENQUIRY_INITIAL_MESSAGE,
@@ -49,11 +54,11 @@ from .prompts import (
     INITIALIZE_CORE_MEMORY_WITH_DOMAINS_USER_PROMPT,
     MEMORY_COLLECTOR_PROMPT,
     MEMORY_COLLECTOR_WITH_VISUALIZATION_PROMPT,
+    MEMORY_INITIALIZED_CONTEXT_PROMPT,
     MEMORY_ONBOARDING_ENQUIRY_PROMPT,
     ONBOARDING_COMPRESSION_PROMPT,
     SCRAPING_CONFIRMATION_MESSAGE,
     SCRAPING_INITIAL_MESSAGE,
-    SCRAPING_MEMORY_SAVED_MESSAGE,
     SCRAPING_REJECTION_MESSAGE,
     SCRAPING_SUCCESS_KEY_PHRASE,
     SCRAPING_TERMINATION_MESSAGE,
@@ -125,6 +130,10 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
 
 
 class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShouldRunMixin):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_ONBOARDING
+
     def run(self, state: AssistantState, config: RunnableConfig) -> Optional[PartialAssistantState]:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         core_memory.change_status_to_pending()
@@ -172,6 +181,10 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
     Scrapes the product description from the given origin or app bundle IDs.
     """
 
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_INITIALIZER
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         if core_memory.initial_text:
@@ -193,7 +206,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         else:
             prompt += ChatPromptTemplate.from_messages(
                 [("human", INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT)], template_format="mustache"
-            ).partial(bundle_ids=",".join(retrieved_prop.sample_values))
+            ).partial(bundle_ids=", ".join(retrieved_prop.sample_values))
 
         chain = prompt | self._model() | StrOutputParser()
         answer = chain.invoke({}, config=config)
@@ -222,13 +235,17 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
             },
             user=self._user,
             team=self._team,
-        ).bind_tools([{"type": "web_search_preview"}])  # We should use web_search once LangChain supports it
+        ).bind_tools([{"type": "web_search"}])
 
 
 class MemoryInitializerInterruptNode(AssistantNode):
     """
     Prompts the user to confirm or reject the scraped memory.
     """
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         raise NodeInterrupt(
@@ -251,6 +268,10 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
     """
     Prompts the user to give more information about the product, feature, business, etc.
     """
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         human_message = find_last_message_of_type(state.messages, HumanMessage)
@@ -283,7 +304,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
                 question = self._format_question(response)
                 core_memory.append_question_to_initial_text(question)
                 return PartialAssistantState(onboarding_question=question)
-        return PartialAssistantState(onboarding_question=None)
+        return PartialAssistantState(onboarding_question=None, answers_left=None)
 
     @property
     def _model(self):
@@ -309,7 +330,11 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
 
 
 class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY_INTERRUPT
+
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_assistant_message = find_last_message_of_type(state.messages, AssistantMessage)
         if not state.onboarding_question:
             raise ValueError("No onboarding question found.")
@@ -319,6 +344,10 @@ class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
 
 
 class MemoryOnboardingFinalizeNode(AssistantNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_ONBOARDING_FINALIZE
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         # Compress the question/answer memory before saving it
@@ -332,8 +361,15 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
         compressed_memory = cast(str, chain.invoke({"memory_content": core_memory.initial_text}, config=config))
         compressed_memory = compressed_memory.replace("\n", " ").strip()
         core_memory.set_core_memory(compressed_memory)
+
+        context_message = ContextMessage(
+            content=format_prompt_string(MEMORY_INITIALIZED_CONTEXT_PROMPT, core_memory=core_memory.initial_text),
+            id=str(uuid4()),
+        )
         return PartialAssistantState(
-            messages=[AssistantMessage(content=SCRAPING_MEMORY_SAVED_MESSAGE, id=str(uuid4()))]
+            messages=[context_message],
+            start_id=context_message.id,
+            root_conversation_start_id=context_message.id,
         )
 
     @property
@@ -375,16 +411,23 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
     The Memory Collector manages the core memory of the agent. Core memory is a text containing facts about a user's company and product. It helps the agent save and remember facts that could be useful for insight generation or other agentic functions requiring deeper context about the product.
     """
 
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_COLLECTOR
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         if self.should_run_onboarding_at_start(state) != "continue":
+            return None
+
+        # Check if an interrupt had an unhandled tool, so it should go to tools first.
+        node_messages = state.memory_collection_messages or []
+        if not self._check_tool_messages_are_valid(node_messages):
             return None
 
         # Check if the last message is a /remember command
         remember_command_result = self._handle_remember_command(state)
         if remember_command_result:
             return PartialAssistantState(memory_collection_messages=[remember_command_result])
-
-        node_messages = state.memory_collection_messages or []
 
         prompt = ChatPromptTemplate.from_messages(
             [("system", MEMORY_COLLECTOR_PROMPT)], template_format="mustache"
@@ -464,8 +507,21 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
         else:
             return LangchainAIMessage(content="There's nothing to remember!", id=str(uuid4()))
 
+    def _check_tool_messages_are_valid(self, messages: Sequence[BaseMessage]) -> bool:
+        """Validates that all AIMessages have associated ToolCall messages."""
+        mapping = {message.tool_call_id: message for message in messages if isinstance(message, LangchainToolMessage)}
+        tool_ids: set[str] = set()
+        for message in messages:
+            if isinstance(message, LangchainAIMessage):
+                tool_ids.update(tool["id"] for tool in message.tool_calls if tool["id"] is not None)
+        return set(mapping.keys()) == tool_ids
+
 
 class MemoryCollectorToolsNode(AssistantNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_COLLECTOR_TOOLS
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         node_messages = state.memory_collection_messages
         if not node_messages:

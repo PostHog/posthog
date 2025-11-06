@@ -18,6 +18,7 @@ from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
+from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -34,7 +35,6 @@ from posthog.tasks.tasks import (
     clickhouse_send_license_usage,
     count_items_in_playlists,
     delete_expired_exported_assets,
-    ee_persist_finished_recordings,
     ee_persist_finished_recordings_v2,
     find_flags_with_enriched_analytics,
     ingestion_lag,
@@ -44,20 +44,30 @@ from posthog.tasks.tasks import (
     process_scheduled_changes,
     redis_celery_queue_depth,
     redis_heartbeat,
+    refresh_activity_log_fields_cache,
     replay_count_metrics,
     schedule_all_subscriptions,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
     sync_all_organization_available_product_features,
+    sync_feature_flag_last_called,
     update_event_partitions,
     update_survey_adaptive_sampling,
     update_survey_iteration,
     verify_persons_data_in_sync,
 )
-from posthog.utils import get_crontab
+from posthog.tasks.team_access_cache_tasks import warm_all_team_access_caches_task
+from posthog.utils import get_crontab, get_instance_region
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
+
+# Organizations with delayed data ingestion that need delayed usage report re-runs
+# This is a temporary solution until we switch event usage queries from timestamp to created_at
+DELAYED_ORGS_EU: list[str] = [
+    "01975ab3-7ec5-0000-9751-a89cbc971419",
+]
+DELAYED_ORGS_US: list[str] = []
 
 
 def add_periodic_task_with_expiry(
@@ -96,6 +106,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="schedule warming for largest teams",
     )
 
+    # Team access cache warming - every 10 minutes
+    add_periodic_task_with_expiry(
+        sender,
+        600,  # Every 10 minutes (no TTL, just fill missing entries)
+        warm_all_team_access_caches_task.s(),
+        name="warm team access caches",
+    )
+
     # Update events table partitions twice a week
     sender.add_periodic_task(
         crontab(day_of_week="mon,fri", hour="0", minute="0"),
@@ -108,6 +126,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         send_org_usage_reports.s(),
         name="send instance usage report",
     )
+
+    # Send usage reports for specific orgs with delayed data ingestion
+    delayed_orgs = DELAYED_ORGS_EU if get_instance_region() == "EU" else DELAYED_ORGS_US
+    if delayed_orgs:
+        sender.add_periodic_task(
+            crontab(hour="10", minute="00"),
+            send_org_usage_reports.s(organization_ids=delayed_orgs),
+            name="send delayed org usage reports",
+        )
 
     # Send all periodic digest reports
     sender.add_periodic_task(
@@ -133,6 +160,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/30"),
         calculate_decide_usage.s(),
         name="calculate decide usage",
+    )
+
+    # Sync feature flag last_called_at timestamps from ClickHouse every 30 minutes
+    sender.add_periodic_task(
+        crontab(minute="*/30"),
+        sync_feature_flag_last_called.s(),
+        name="sync feature flag last_called_at timestamps",
+        expires=1800,  # 30 minutes - prevents stale tasks from running
     )
 
     # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
@@ -238,6 +273,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
+        crontab(hour="*/12", minute="0"),
+        refresh_activity_log_fields_cache.s(),
+        name="refresh activity log fields cache for large orgs",
+    )
+
+    sender.add_periodic_task(
         crontab(hour="*/12"),
         update_survey_iteration.s(),
         name="update survey iteration based on date",
@@ -296,11 +337,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
         sender.add_periodic_task(
             crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
-            ee_persist_finished_recordings.s(),
-            name="persist finished recordings",
-        )
-        sender.add_periodic_task(
-            crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
             ee_persist_finished_recordings_v2.s(),
             name="persist finished recordings v2",
         )
@@ -343,4 +379,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="0", minute=str(randrange(0, 40))),
+        sync_all_surveys_cache.s(),
+        name="sync all surveys cache",
     )

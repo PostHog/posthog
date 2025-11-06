@@ -24,6 +24,7 @@ use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
 use capture::v0_request::ProcessedEvent;
+use chrono::{DateTime, Utc};
 
 #[derive(Default, Clone)]
 struct MemorySink {
@@ -50,12 +51,12 @@ impl MemorySink {
 }
 
 struct FixedTimeSource {
-    time: String,
+    time: DateTime<Utc>,
 }
 
 impl TimeSource for FixedTimeSource {
-    fn current_time(&self) -> String {
-        self.time.clone()
+    fn current_time(&self) -> DateTime<Utc> {
+        self.time
     }
 }
 
@@ -72,7 +73,9 @@ async fn setup_router_with_limits(
     let liveness = HealthRegistry::new("quota_limit_tests");
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
-        time: "2025-07-31T12:00:00Z".to_string(),
+        time: DateTime::parse_from_rfc3339("2025-07-31T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc),
     };
 
     // bootstrap for the CaptureQuotaLimiter. Defines which
@@ -133,9 +136,9 @@ async fn setup_router_with_limits(
         1024 * 1024, // event_size_limit
         false,       // enable_historical_rerouting
         1,           // historical_rerouting_threshold_days
-        None,        // historical_tokens_keys
         false,       // is_mirror_deploy
         0.0,         // verbose_sample_percent
+        26_214_400,  // ai_max_sum_of_parts_bytes (25MB)
     );
 
     (app, sink)
@@ -1144,12 +1147,14 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
     let liveness = HealthRegistry::new("billing_limit_tests");
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
-        time: "2025-07-31T12:00:00Z".to_string(),
+        time: DateTime::parse_from_rfc3339("2025-07-31T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc),
     };
 
     // Configure set_nx_ex to return true (key was set successfully, first time seeing this submission)
     let mut redis_client = MockRedisClient::new();
-    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "surveys");
+    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "survey_responses");
     redis_client = redis_client.zrangebyscore_ret(&survey_key, vec![token.to_string()]);
     let submission_key = format!("survey-submission:{token}:submission_first");
     redis_client = redis_client.set_nx_ex_ret(&submission_key, Ok(true));
@@ -1174,9 +1179,9 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         1024 * 1024,
         false,
         1,
-        None,
         false,
         0.0,
+        26_214_400,
     );
 
     let client = TestClient::new(app);
@@ -1215,11 +1220,13 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
     let liveness = HealthRegistry::new("billing_limit_tests");
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
-        time: "2025-07-31T12:00:00Z".to_string(),
+        time: DateTime::parse_from_rfc3339("2025-07-31T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc),
     };
 
     // Configure MockRedisClient for survey quota limited scenario
-    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "surveys");
+    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "survey_responses");
     let mut redis_client =
         MockRedisClient::new().zrangebyscore_ret(&survey_key, vec![token.to_string()]);
 
@@ -1247,9 +1254,9 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         1024 * 1024,
         false,
         1,
-        None,
         false,
         0.0,
+        26_214_400,
     );
 
     let client = TestClient::new(app);
@@ -1288,11 +1295,13 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
     let liveness = HealthRegistry::new("billing_limit_tests");
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
-        time: "2025-07-31T12:00:00Z".to_string(),
+        time: DateTime::parse_from_rfc3339("2025-07-31T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc),
     };
 
     // Configure MockRedisClient for survey quota limited scenario
-    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "surveys");
+    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "survey_responses");
     let mut redis_client =
         MockRedisClient::new().zrangebyscore_ret(&survey_key, vec![token.to_string()]);
 
@@ -1324,9 +1333,9 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         1024 * 1024,
         false,
         1,
-        None,
         false,
         0.0,
+        26_214_400,
     );
 
     let client = TestClient::new(app);
@@ -1704,7 +1713,9 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
     let liveness = HealthRegistry::new("ai_limit_tests");
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
-        time: "2025-07-31T12:00:00Z".to_string(),
+        time: DateTime::parse_from_rfc3339("2025-07-31T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc),
     };
 
     // Configure MockRedisClient for AI quota limited scenario
@@ -1738,9 +1749,9 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         1024 * 1024,
         false,
         1,
-        None,
         false,
         0.0,
+        26_214_400,
     );
 
     let client = TestClient::new(app);

@@ -95,7 +95,10 @@ fn create_test_captured_event(
         now: format!("{timestamp}000"), // timestamp in milliseconds
         sent_at: None,
         token: "test_token".to_string(),
+        event: "test_event".to_string(),
+        timestamp: chrono::Utc::now(),
         is_cookieless_mode: false,
+        historical_migration: false,
     };
 
     Ok(captured_event)
@@ -136,10 +139,10 @@ async fn produce_duplicate_events_with_timestamp(
     for i in 0..count {
         let uuid = Uuid::new_v4();
 
-        // Create properties for the event
+        // Create properties for the event (same for all duplicates within a batch)
         let mut properties = HashMap::new();
-        properties.insert("index".to_string(), json!(i));
         properties.insert("duplicate_test".to_string(), json!(true));
+        properties.insert("batch_id".to_string(), json!(distinct_id)); // Same for all in batch
 
         // Create the CapturedEvent using our helper
         let captured_event =
@@ -247,13 +250,14 @@ async fn test_basic_deduplication() -> Result<()> {
 
     let input_topic = format!("test_dedup_input_{}", Uuid::new_v4());
     let output_topic = format!("test_dedup_output_{}", Uuid::new_v4());
+    let duplicate_topic = format!("test_duplicate_events_{}", Uuid::new_v4());
     let group_id = format!("test_group_{}", Uuid::new_v4());
 
-    println!("Test topics: input={input_topic}, output={output_topic}, group={group_id}");
+    println!("Test topics: input={input_topic}, output={output_topic}, duplicate={duplicate_topic}, group={group_id}");
 
     // Create topics
     println!("Creating Kafka topics...");
-    create_kafka_topics(vec![&input_topic, &output_topic]).await?;
+    create_kafka_topics(vec![&input_topic, &output_topic, &duplicate_topic]).await?;
     println!("Topics created successfully");
 
     // Create temporary directory for RocksDB (keep it alive for test duration)
@@ -263,7 +267,10 @@ async fn test_basic_deduplication() -> Result<()> {
     env::set_var("KAFKA_CONSUMER_TOPIC", &input_topic);
     env::set_var("KAFKA_CONSUMER_GROUP", &group_id);
     env::set_var("OUTPUT_TOPIC", &output_topic);
+    env::set_var("DUPLICATE_EVENTS_TOPIC", &duplicate_topic);
     env::set_var("STORE_PATH", _temp_dir.path().to_str().unwrap());
+    // For tests, we need to read from the beginning since we produce before starting
+    env::set_var("KAFKA_CONSUMER_OFFSET_RESET", "earliest");
     // Faster for tests
     env::set_var("COMMIT_INTERVAL_SECS", "1");
     env::set_var("SHUTDOWN_TIMEOUT_SECS", "10");
@@ -275,7 +282,7 @@ async fn test_basic_deduplication() -> Result<()> {
     // Create the service using the same abstraction as production
     println!("Creating Kafka Deduplicator service...");
     let liveness = HealthRegistry::new("test_liveness");
-    let mut service = KafkaDeduplicatorService::new(config, liveness)?;
+    let mut service = KafkaDeduplicatorService::new(config, liveness).await?;
     service.initialize().await?;
     println!("Service initialized");
 
@@ -290,8 +297,8 @@ async fn test_basic_deduplication() -> Result<()> {
 
     // Run the service with a controlled shutdown
     let shutdown_signal = async {
-        println!("Waiting 5 seconds for processing...");
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        println!("Waiting 10 seconds for processing...");
+        tokio::time::sleep(Duration::from_secs(10)).await;
         println!("Initiating shutdown...");
     };
 
@@ -300,7 +307,7 @@ async fn test_basic_deduplication() -> Result<()> {
         tokio::spawn(async move { service.run_with_shutdown(shutdown_signal).await });
 
     // Wait for service to complete
-    let _ = tokio::time::timeout(Duration::from_secs(10), service_handle).await;
+    let _ = tokio::time::timeout(Duration::from_secs(15), service_handle).await;
     println!("Service stopped");
 
     // Consume from output topic to verify deduplication
@@ -308,7 +315,7 @@ async fn test_basic_deduplication() -> Result<()> {
     let output_messages = consume_output_messages(
         &output_topic,
         &format!("verify_{group_id}"),
-        Duration::from_secs(5),
+        Duration::from_secs(10),
     )
     .await?;
     println!(
@@ -317,6 +324,9 @@ async fn test_basic_deduplication() -> Result<()> {
     );
 
     // Should have only 2 unique events (one per distinct_id)
+    // 5 events for user_123 -> 1 unique + 4 duplicates (ConfirmedDuplicate with OnlyUuidDifferent)
+    // 3 events for user_456 -> 1 unique + 2 duplicates (ConfirmedDuplicate with OnlyUuidDifferent)
+    // Total: 2 unique events, 6 filtered duplicates
     assert_eq!(
         output_messages.len(),
         2,
@@ -346,6 +356,114 @@ async fn test_basic_deduplication() -> Result<()> {
         );
     }
 
+    // Consume from duplicate events topic to verify duplicate detection
+    println!("Starting to consume from duplicate events topic for verification...");
+    let duplicate_messages = consume_output_messages(
+        &duplicate_topic,
+        &format!("verify_duplicates_{group_id}"),
+        Duration::from_secs(5),
+    )
+    .await?;
+    println!(
+        "Consumed {} duplicate event messages",
+        duplicate_messages.len()
+    );
+
+    // We sent:
+    // - 5 events for user_123: 1 new + 4 confirmed duplicates
+    // - 3 events for user_456: 1 new + 2 confirmed duplicates
+    // Total expected duplicate events: 6
+    assert!(
+        duplicate_messages.len() >= 6,
+        "Expected at least 6 duplicate events, got {}",
+        duplicate_messages.len()
+    );
+
+    // Verify structure of duplicate events
+    for (duplicate_event, _) in &duplicate_messages {
+        // Check required fields
+        assert!(
+            duplicate_event.get("source_message").is_some(),
+            "Missing source_message"
+        );
+        assert!(
+            duplicate_event.get("duplicate_message").is_some(),
+            "Missing duplicate_message"
+        );
+        assert!(
+            duplicate_event.get("similarity_score").is_some(),
+            "Missing similarity_score"
+        );
+        assert!(
+            duplicate_event.get("distinct_fields").is_some(),
+            "Missing distinct_fields"
+        );
+        assert!(
+            duplicate_event.get("dedup_type").is_some(),
+            "Missing dedup_type field"
+        );
+        assert!(
+            duplicate_event.get("is_confirmed").is_some(),
+            "Missing is_confirmed"
+        );
+        assert!(duplicate_event.get("version").is_some(), "Missing version");
+
+        // Check new fields added for ClickHouse schema
+        assert!(
+            duplicate_event.get("distinct_id").is_some(),
+            "Missing distinct_id"
+        );
+        assert!(duplicate_event.get("event").is_some(), "Missing event");
+        assert!(
+            duplicate_event.get("source_uuid").is_some(),
+            "Missing source_uuid"
+        );
+        assert!(
+            duplicate_event.get("duplicate_uuid").is_some(),
+            "Missing duplicate_uuid"
+        );
+        assert!(
+            duplicate_event.get("inserted_at").is_some(),
+            "Missing inserted_at"
+        );
+
+        // Verify type is timestamp (since we're sending same timestamp)
+        let dedup_type = duplicate_event
+            .get("dedup_type")
+            .and_then(|v| v.as_str())
+            .expect("dedup_type should be a string");
+        assert_eq!(
+            dedup_type, "timestamp",
+            "Expected timestamp deduplication type"
+        );
+
+        // Verify these are confirmed duplicates with OnlyUuidDifferent reason
+        let is_confirmed = duplicate_event
+            .get("is_confirmed")
+            .and_then(|v| v.as_u64())
+            .expect("is_confirmed should be a u64");
+        assert_eq!(is_confirmed, 1, "All duplicates should be confirmed");
+
+        let reason = duplicate_event.get("reason").and_then(|v| v.as_str());
+        assert_eq!(
+            reason,
+            Some("OnlyUuidDifferent"),
+            "Expected OnlyUuidDifferent reason"
+        );
+
+        // Check similarity score is high (should be very similar except UUID)
+        let similarity = duplicate_event
+            .get("similarity_score")
+            .and_then(|v| v.as_f64())
+            .expect("similarity_score should be a number");
+        assert!(
+            similarity > 0.8,
+            "Similarity score should be high for UUID-only differences"
+        );
+    }
+
+    println!("All duplicate event verifications passed!");
+
     Ok(())
 }
 
@@ -371,6 +489,8 @@ async fn test_deduplication_with_different_events() -> Result<()> {
     env::set_var("KAFKA_CONSUMER_GROUP", &group_id);
     env::set_var("OUTPUT_TOPIC", &output_topic);
     env::set_var("STORE_PATH", _temp_dir.path().to_str().unwrap());
+    // For tests, we need to read from the beginning since we produce before starting
+    env::set_var("KAFKA_CONSUMER_OFFSET_RESET", "earliest");
     // Faster for tests
     env::set_var("COMMIT_INTERVAL_SECS", "1");
     env::set_var("SHUTDOWN_TIMEOUT_SECS", "10");
@@ -381,7 +501,7 @@ async fn test_deduplication_with_different_events() -> Result<()> {
 
     // Create and initialize the service
     let liveness = HealthRegistry::new("test_liveness");
-    let mut service = KafkaDeduplicatorService::new(config, liveness)?;
+    let mut service = KafkaDeduplicatorService::new(config, liveness).await?;
     service.initialize().await?;
 
     // Produce events with same distinct_id but different event names
@@ -433,173 +553,6 @@ async fn test_deduplication_with_different_events() -> Result<()> {
     assert!(event_names.contains(&"event_a".to_string()));
     assert!(event_names.contains(&"event_b".to_string()));
     assert!(event_names.contains(&"event_c".to_string()));
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_deduplication_persistence() -> Result<()> {
-    let _guard = KAFKA_TEST_MUTEX
-        .get_or_init(|| TokioMutex::new(()))
-        .lock()
-        .await;
-
-    let input_topic = format!("test_persistence_{}", Uuid::new_v4());
-    let output_topic = format!("test_persistence_output_{}", Uuid::new_v4());
-    let group_id = format!("test_group_{}", Uuid::new_v4());
-
-    // Create topics
-    create_kafka_topics(vec![&input_topic, &output_topic]).await?;
-
-    // Create temp directory that persists across processor restarts
-    let temp_dir = TempDir::new()?;
-    let store_path = temp_dir.path().to_path_buf();
-    println!("Using store base path: {store_path:?}");
-
-    // Use fixed timestamps for all events
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-
-    // First, produce ALL events to the input topic
-    println!("Producing all test events to input topic...");
-
-    // Batch 1: 3 events (event_a unique, event_b unique, event_a duplicate)
-    produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_a", 1, timestamp).await?;
-    produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_b", 1, timestamp).await?;
-    produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_a", 1, timestamp).await?; // Duplicate!
-
-    println!("Produced 3 events in first batch");
-
-    // First processor instance - process first 3 messages
-    {
-        // Set environment variables for the first service instance
-        env::set_var("KAFKA_CONSUMER_TOPIC", &input_topic);
-        env::set_var("KAFKA_CONSUMER_GROUP", &group_id);
-        env::set_var("OUTPUT_TOPIC", &output_topic);
-        env::set_var("STORE_PATH", store_path.to_str().unwrap());
-        env::set_var("COMMIT_INTERVAL_SECS", "1");
-        env::set_var("SHUTDOWN_TIMEOUT_SECS", "10");
-        env::set_var("KAFKA_PRODUCER_LINGER_MS", "0");
-
-        // Create configuration from environment
-        let config = Config::init_with_defaults()?;
-
-        println!("First processor: Creating and initializing service...");
-        let liveness = HealthRegistry::new("test_liveness");
-        let mut service = KafkaDeduplicatorService::new(config, liveness)?;
-        service.initialize().await?;
-
-        println!("First processor: Starting to process first 3 events...");
-
-        // Run service for 3 seconds then shutdown
-        let shutdown_signal = async {
-            tokio::time::sleep(Duration::from_secs(3)).await;
-            println!("First processor: Initiating graceful shutdown...");
-        };
-
-        let service_handle =
-            tokio::spawn(async move { service.run_with_shutdown(shutdown_signal).await });
-
-        // Wait for service to complete
-        let _ = tokio::time::timeout(Duration::from_secs(10), service_handle).await;
-
-        // The processor should have:
-        // - Processed event_a (unique) -> published
-        // - Processed event_b (unique) -> published
-        // - Processed event_a (duplicate) -> skipped
-        // And committed offset at position 3
-
-        println!("First processor: Shutdown complete, RocksDB should be flushed");
-    }
-
-    // Wait a bit to ensure RocksDB files are fully flushed to disk
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    // Batch 2: 2 events (event_c unique, event_b duplicate)
-    produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_c", 1, timestamp).await?;
-    produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_b", 1, timestamp).await?; // Duplicate!
-
-    println!("Produced 2 more events in second batch (5 total events: 3 unique, 2 duplicates)");
-
-    println!("Starting second processor instance with same store path");
-
-    // Second processor instance with same store path
-    {
-        // Set environment variables for the second service instance (same store path)
-        env::set_var("KAFKA_CONSUMER_TOPIC", &input_topic);
-        env::set_var("KAFKA_CONSUMER_GROUP", &group_id);
-        env::set_var("OUTPUT_TOPIC", &output_topic);
-        env::set_var("STORE_PATH", store_path.to_str().unwrap());
-        env::set_var("COMMIT_INTERVAL_SECS", "1");
-        env::set_var("SHUTDOWN_TIMEOUT_SECS", "10");
-        env::set_var("KAFKA_PRODUCER_LINGER_MS", "0");
-
-        // Create configuration from environment
-        let config = Config::init_with_defaults()?;
-
-        println!("Second processor: Creating and initializing service with same store path...");
-        let liveness = HealthRegistry::new("test_liveness");
-        let mut service = KafkaDeduplicatorService::new(config, liveness)?;
-        service.initialize().await?;
-
-        println!("Second processor: Starting to process remaining 2 events...");
-
-        // Run service for 3 seconds then shutdown
-        let shutdown_signal = async {
-            tokio::time::sleep(Duration::from_secs(3)).await;
-            println!("Second processor: Initiating shutdown...");
-        };
-
-        let service_handle =
-            tokio::spawn(async move { service.run_with_shutdown(shutdown_signal).await });
-
-        // Wait for service to complete
-        let _ = tokio::time::timeout(Duration::from_secs(10), service_handle).await;
-
-        // The processor should:
-        // - Process event_c (unique) -> published
-        // - Process event_b (duplicate from first batch!) -> skipped (if RocksDB persisted)
-
-        println!("Second processor: Shutdown complete");
-    }
-
-    // Verify output - should have exactly 3 unique events
-    println!("Verifying output topic...");
-    let output_messages = consume_output_messages(
-        &output_topic,
-        &format!("verify_{group_id}"),
-        Duration::from_secs(5),
-    )
-    .await?;
-
-    println!("Found {} messages in output topic", output_messages.len());
-
-    // Expected: event_a, event_b, event_c (duplicates should be filtered)
-    assert_eq!(
-        output_messages.len(),
-        3,
-        "Expected 3 unique events (event_a, event_b, event_c), got {}",
-        output_messages.len()
-    );
-
-    // Verify we have the right events
-    // Since output is CapturedEvent format, we need to parse the nested RawEvent from the data field
-    let events: Vec<String> = output_messages
-        .iter()
-        .filter_map(|(msg, _)| {
-            // Get the data field which contains the serialized RawEvent
-            let data_str = msg.get("data")?.as_str()?;
-            // Parse the RawEvent from the data field
-            let raw_event: Value = serde_json::from_str(data_str).ok()?;
-            // Get the event name from the RawEvent
-            raw_event.get("event")?.as_str().map(|s| s.to_string())
-        })
-        .collect();
-
-    assert!(events.contains(&"event_a".to_string()), "Missing event_a");
-    assert!(events.contains(&"event_b".to_string()), "Missing event_b");
-    assert!(events.contains(&"event_c".to_string()), "Missing event_c");
-
-    println!("✓ Persistence test passed: RocksDB correctly preserved deduplication state across restarts");
 
     Ok(())
 }

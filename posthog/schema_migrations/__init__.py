@@ -4,17 +4,20 @@ import importlib
 
 import structlog
 
-from posthog.schema import NodeKind
-
 from posthog.schema_migrations.base import SchemaMigration
 
 logger = structlog.get_logger(__name__)
 
-LATEST_VERSIONS: dict[NodeKind, int] = {}
-MIGRATIONS: dict[NodeKind, dict[int, SchemaMigration]] = {}
+LATEST_VERSIONS: dict[str, int] = {}
+MIGRATIONS: dict[str, dict[int, SchemaMigration]] = {}
+_migrations_discovered = False
 
 
 def _discover_migrations():
+    global _migrations_discovered
+    if _migrations_discovered:
+        return
+
     migration_dir = os.path.dirname(__file__)
     migration_files = [f for f in os.listdir(migration_dir) if re.match(r"^\d{4}[a-zA-Z_]*\.py$", f)]
 
@@ -32,6 +35,5 @@ def _discover_migrations():
             new_version = max(old_version, version + 1)
             LATEST_VERSIONS[kind] = new_version
 
-
-_discover_migrations()
-logger.info("migrations_discovered", latest_versions={str(k): v for k, v in LATEST_VERSIONS.items()})
+    _migrations_discovered = True
+    logger.info("migrations_discovered", latest_versions={str(k): v for k, v in LATEST_VERSIONS.items()})

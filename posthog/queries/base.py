@@ -397,9 +397,16 @@ def property_to_Q(
         effective_operator = "gt" if property.operator == "is_date_after" else "lt"
         effective_value = value
 
+        # First try relative date parsing
         relative_date = relative_date_parse_for_feature_flag_matching(str(value))
         if relative_date:
             effective_value = relative_date.isoformat()
+        else:
+            # Parse the date string and convert to ISO format for consistent comparison
+            # This ensures we're comparing dates in the same format (ISO 8601)
+            parsed_date = determine_parsed_date_for_property_matching(value)
+            if parsed_date:
+                effective_value = parsed_date.isoformat()
 
         return Q(**{f"{column}__{property.key}__{effective_operator}": effective_value})
 

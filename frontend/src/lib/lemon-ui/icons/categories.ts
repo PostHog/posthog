@@ -74,6 +74,7 @@ export const OBJECTS = {
         'IconRuler',
         'IconSignal',
         'IconTextWidthFixed',
+        'IconBrain',
     ],
     People: [
         'IconPeople',
@@ -101,7 +102,7 @@ export const OBJECTS = {
 }
 
 export const TECHNOLOGY = {
-    Messaging: [
+    Workflows: [
         'IconSend',
         'IconHeadset',
         'IconMessage',
@@ -146,10 +147,14 @@ export const TECHNOLOGY = {
         'IconFolderPlus',
         'IconFolderMove',
         'IconRetentionHeatmap',
+        'IconCommit',
+        'IconGitBranch',
+        'IconGitRepository',
     ],
     UI: [
         'IconPassword',
         'IconToggle',
+        'IconToggleOff',
         'IconLoading',
         'IconSpinner',
         'IconBrightness',
@@ -160,6 +165,10 @@ export const TECHNOLOGY = {
         'IconToolbarFilled',
         'IconCheckbox',
         'IconList',
+        'IconListTree',
+        'IconListTreeChild',
+        'IconListTreeConnected',
+        'IconListTreeFilled',
         'IconColumns',
         'IconBottomPanel',
         'IconSidePanel',
@@ -315,7 +324,8 @@ export const TEAMS_AND_COMPANIES = {
     'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTesting', 'IconSplitTesting', 'IconBalance'],
     Pipeline: ['IconWebhooks', 'IconDecisionTree'],
     'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
-    Logos: ['IconLogomark', 'IconGithub', 'IconLinear'],
+    Logos: ['IconLogomark', 'IconGithub', 'IconGitLab', 'IconLinear', 'IconRedux'],
     ErrorTracking: ['IconIssue'],
     LLMAnalytics: ['IconLlmAnalytics', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement'],
+    PostHogAI: ['IconBrain'],
 }

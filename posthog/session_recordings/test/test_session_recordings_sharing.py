@@ -64,7 +64,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         assert "access_token" in response.json()
         return response.json()["access_token"]
 
-    @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects", return_value=2)
+    @patch("posthog.session_recordings.session_recording_v2_service.copy_to_lts", return_value="some-lts-path")
     @freeze_time("2023-01-01T12:00:00Z")
     def test_enable_sharing_creates_access_token(self, _mock_copy_objects: MagicMock) -> None:
         token = self._enable_sharing(self.session_id)
@@ -91,7 +91,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
             ),
         ]
     )
-    @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects", return_value=2)
+    @patch("posthog.session_recordings.session_recording_v2_service.copy_to_lts", return_value="some-lts-path")
     @freeze_time("2023-01-01T12:00:00Z")
     def test_sharing_token_forbidden_access_scenarios(
         self, _name: str, url_builder, _mock_copy_objects: MagicMock
@@ -106,7 +106,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         response = self.client.get(url)
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects", return_value=2)
+    @patch("posthog.session_recordings.session_recording_v2_service.copy_to_lts", return_value="some-lts-path")
     @freeze_time("2023-01-01T12:00:00Z")
     def test_sharing_token_allows_authorized_access(self, _mock_copy_objects: MagicMock) -> None:
         token = self._enable_sharing(self.session_id)
@@ -125,7 +125,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
             "end_time": "2022-12-31T12:00:00Z",
         }
 
-    @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects", return_value=2)
+    @patch("posthog.session_recordings.session_recording_v2_service.copy_to_lts", return_value="some-lts-path")
     @freeze_time("2023-01-01T12:00:00Z")
     def test_sharing_token_allows_snapshot_access(self, _mock_copy_objects: MagicMock) -> None:
         token = self._enable_sharing(self.session_id)
