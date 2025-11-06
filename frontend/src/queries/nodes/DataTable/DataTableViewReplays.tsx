@@ -5,7 +5,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { PropertyFilterType, PropertyOperator, ReplayTabs } from '~/types'
+import {
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingUniversalFilters,
+    ReplayTabs,
+} from '~/types'
 
 import { dataTableLogic } from './dataTableLogic'
 
@@ -17,13 +23,13 @@ export function DataTableViewReplays(): JSX.Element | null {
         return null
     }
 
-    const filters = {
+    const filters: Partial<RecordingUniversalFilters> = {
         duration: [],
         filter_group: {
-            type: 'AND' as const,
+            type: FilterLogicalOperator.And,
             values: [
                 {
-                    type: 'AND' as const,
+                    type: FilterLogicalOperator.And,
                     values: [
                         {
                             type: PropertyFilterType.Cohort,
