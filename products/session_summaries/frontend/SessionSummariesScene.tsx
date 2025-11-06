@@ -508,13 +508,15 @@ function SessionExampleCard({ event }: { event: SessionEvent }): JSX.Element {
     return (
         <div className="flex flex-col gap-2 rounded border p-3 bg-bg-light">
             <div className="flex items-center justify-between gap-2">
-                <h3 className="mb-0">{target_event.description}</h3>
+                <h4 className="mb-0">{target_event.description}</h4>
                 <Link to="#" className="text-sm font-medium whitespace-nowrap">
                     View details
                 </Link>
             </div>
-            <p className="text-xs text-muted mb-1">Session {target_event.session_id}</p>
-            <p className="text-sm font-normal text-muted-alt mb-0">{segment_outcome}</p>
+            <p className="text-xs text-muted mb-1">{target_event.session_id}</p>
+            <p className="text-xs font-normal text-muted-alt mb-0">
+                <b>Outcome:</b> {segment_outcome}
+            </p>
         </div>
     )
 }
