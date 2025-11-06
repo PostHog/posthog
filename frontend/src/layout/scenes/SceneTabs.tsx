@@ -111,7 +111,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 >
                     <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
                         <div
-                            className="scene-tab-row grid min-w-0 pl-2 gap-1 items-center h-[36px]"
+                            className="scene-tab-row grid min-w-0 pl-4 gap-1 items-center h-[36px]"
                             style={{ gridTemplateColumns }}
                         >
                             {tabs.map((tab, index) => {
