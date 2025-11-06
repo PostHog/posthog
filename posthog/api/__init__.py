@@ -15,6 +15,7 @@ import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
 import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
+import products.synthetic_monitoring.backend.api as synthetic_monitor
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 from products.data_warehouse.backend.api import (
@@ -100,7 +101,6 @@ from . import (
     search,
     sharing,
     survey,
-    synthetic_monitor,
     tagged_item,
     team,
     uploaded_media,

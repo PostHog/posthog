@@ -6,9 +6,10 @@ from rest_framework import filters, serializers, viewsets
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import SyntheticMonitor
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+
+from products.synthetic_monitoring.backend.models import SyntheticMonitor
 
 
 class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):

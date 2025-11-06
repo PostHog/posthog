@@ -1,6 +1,12 @@
-import { SyntheticMonitoringRegion } from 'types'
+export enum SyntheticMonitoringRegion {
+    US_EAST_1 = 'us-east-1', // US East (N. Virginia)
+    US_WEST_2 = 'us-west-2', // US West (Oregon)
+    EU_WEST_1 = 'eu-west-1', // EU West (Ireland)
+    EU_CENTRAL_1 = 'eu-central-1', // EU Central (Frankfurt)
+    AP_SOUTHEAST_1 = 'ap-southeast-1', // Asia Pacific (Singapore)
+    AP_NORTHEAST_1 = 'ap-northeast-1', // Asia Pacific (Tokyo)
+}
 
-// Monitor state is computed from ClickHouse events, not stored in Postgres
 export enum MonitorState {
     Healthy = 'healthy',
     Failing = 'failing',
@@ -20,10 +26,6 @@ export interface SyntheticMonitor {
     expected_status_code: number
     timeout_seconds: number
     enabled: boolean
-    // Computed from ClickHouse events (not stored in Postgres):
-    // state: MonitorState
-    // last_checked_at: string | null
-    // consecutive_failures: number
     created_by: {
         id: string
         uuid: string

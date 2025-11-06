@@ -89,6 +89,7 @@
         "@posthog/products-replay": "workspace:*",
         "@posthog/products-revenue-analytics": "workspace:*",
         "@posthog/products-surveys": "workspace:*",
+        "@posthog/products-synthetic-monitoring": "workspace:*",
         "@posthog/products-tasks": "workspace:*",
         "@posthog/products-user-interviews": "workspace:*",
         "@posthog/products-web-analytics": "workspace:*",

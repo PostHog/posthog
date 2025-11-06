@@ -2,13 +2,13 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers, select
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-import { SyntheticMonitoringRegion } from 'types'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import type { syntheticMonitorLogicType } from './syntheticMonitorLogicType'
+import { SyntheticMonitoringRegion } from './types'
 import { SyntheticMonitor } from './types'
 
 export interface SyntheticMonitorLogicProps {
@@ -16,7 +16,7 @@ export interface SyntheticMonitorLogicProps {
 }
 
 export const syntheticMonitorLogic = kea<syntheticMonitorLogicType>([
-    path(['scenes', 'synthetic-monitoring', 'syntheticMonitorLogic']),
+    path(['products', 'synthetic_monitoring', 'frontend', 'syntheticMonitorLogic']),
     props({} as SyntheticMonitorLogicProps),
     key((props) => props.id || 'new'),
     actions({
@@ -85,7 +85,7 @@ export const syntheticMonitorLogic = kea<syntheticMonitorLogicType>([
     })),
     reducers({
         isNew: [
-            (_, props) => !props.id || props.id === 'new',
+            (_, props: SyntheticMonitorLogicProps) => !props.id || props.id === 'new',
             {
                 loadMonitorSuccess: (_, { monitor }) => !monitor,
             },

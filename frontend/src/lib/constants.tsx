@@ -324,6 +324,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_AI_SUMMARY: 'experiment-ai-summary', // owner: @jurajmajerik #team-experiments
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
     SHOPIFY_DWH: 'shopify-dwh', // owner: @andrew #team-data-stack
+    SYNTHETIC_MONITORING: 'synthetic-monitoring', // owner: @rafaaudibert and @lricoy #team-web-analytics
     DWH_FREE_SYNCS: 'dwh-free-syncs', // owner: @Gilbert09  #team-data-stack
     COPY_WEB_ANALYTICS_DATA: 'copy-web-analytics-data', // owner: @lricoy  #team-web-analytics
     EXPERIMENTS_CREATE_FORM: 'experiments-create-form', // owner: @rodrigoi #team-experiments
@@ -355,6 +356,7 @@ export const PRODUCT_VISUAL_ORDER = {
     links: 320,
     logs: 330,
     userInterviews: 340,
+    syntheticMonitoring: 350,
 }
 
 export const INSIGHT_VISUAL_ORDER = {

@@ -49,8 +49,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.HeatmapRecording]: () => import('./heatmaps/scenes/heatmap/HeatmapRecordingScene'),
     [Scene.Heatmap]: () => import('./heatmaps/scenes/heatmap/HeatmapScene'),
     [Scene.HogFunction]: () => import('./hog-functions/HogFunctionScene'),
-    [Scene.SyntheticMonitoring]: () => import('./synthetic-monitoring/SyntheticMonitoring'),
-    [Scene.SyntheticMonitor]: () => import('./synthetic-monitoring/SyntheticMonitor'),
     [Scene.Insight]: () => import('./insights/InsightScene'),
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),

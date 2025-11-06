@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import SyntheticMonitor
+from products.synthetic_monitoring.backend.models import SyntheticMonitor
 
 
 class TestSyntheticMonitorAPI(APIBaseTest):
@@ -334,7 +334,7 @@ class TestSyntheticMonitorAPI(APIBaseTest):
         monitor.refresh_from_db()
         assert monitor.enabled is True
 
-    @patch("posthog.api.synthetic_monitor.report_user_action")
+    @patch("products.synthetic_monitoring.backend.api.report_user_action")
     def test_delete_monitor(self, mock_report):
         """Test deleting a monitor"""
         monitor = SyntheticMonitor.objects.create(
@@ -468,7 +468,7 @@ class TestSyntheticMonitorAPI(APIBaseTest):
         assert data["timeout_seconds"] == 30
         assert data["enabled"] is True
 
-    @patch("posthog.api.synthetic_monitor.report_user_action")
+    @patch("products.synthetic_monitoring.backend.api.report_user_action")
     def test_create_monitor_reports_user_action(self, mock_report):
         """Test that creating a monitor reports user action"""
         response = self.client.post(
@@ -489,7 +489,7 @@ class TestSyntheticMonitorAPI(APIBaseTest):
         assert "monitor_id" in call_args[0][2]
         assert call_args[0][2]["frequency_minutes"] == 5
 
-    @patch("posthog.api.synthetic_monitor.report_user_action")
+    @patch("products.synthetic_monitoring.backend.api.report_user_action")
     def test_update_monitor_reports_user_action(self, mock_report):
         """Test that updating a monitor reports user action"""
         monitor = SyntheticMonitor.objects.create(

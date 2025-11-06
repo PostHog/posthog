@@ -2551,6 +2551,7 @@ export type FileSystemIconType =
     | 'marketing_settings'
     | 'managed_viewsets'
     | 'endpoints'
+    | 'synthetic_monitoring'
     | 'sql_editor'
     | 'web_analytics'
     | 'error_tracking'

@@ -12,7 +12,7 @@ import type { syntheticMonitoringLogicType } from './syntheticMonitoringLogicTyp
 import { SyntheticMonitor, SyntheticMonitoringTab } from './types'
 
 export const syntheticMonitoringLogic = kea<syntheticMonitoringLogicType>([
-    path(['scenes', 'synthetic-monitoring', 'syntheticMonitoringLogic']),
+    path(['products', 'synthetic_monitoring', 'frontend', 'syntheticMonitoringLogic']),
     connect({
         values: [userLogic, ['user']],
         actions: [sceneLogic, ['newTab']],

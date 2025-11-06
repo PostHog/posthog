@@ -47,7 +47,7 @@ class SyntheticMonitor(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         DELETE = "DELETE"
         HEAD = "HEAD"
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400)
 
     # Check configuration
@@ -79,6 +79,8 @@ class SyntheticMonitor(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     enabled = models.BooleanField(default=True)
 
     class Meta:
+        db_table = '"posthog_syntheticmonitor"'
+        managed = True
         indexes = [
             models.Index(fields=["team", "enabled"]),
         ]

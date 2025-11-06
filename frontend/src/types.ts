@@ -76,15 +76,6 @@ import { QueryContext } from '~/queries/types'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
-export enum SyntheticMonitoringRegion {
-    US_EAST_1 = 'us-east-1', // US East (N. Virginia)
-    US_WEST_2 = 'us-west-2', // US West (Oregon)
-    EU_WEST_1 = 'eu-west-1', // EU West (Ireland)
-    EU_CENTRAL_1 = 'eu-central-1', // EU Central (Frankfurt)
-    AP_SOUTHEAST_1 = 'ap-southeast-1', // Asia Pacific (Singapore)
-    AP_NORTHEAST_1 = 'ap-northeast-1', // Asia Pacific (Tokyo)
-}
-
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
 type integer = number

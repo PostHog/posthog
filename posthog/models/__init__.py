@@ -74,7 +74,6 @@ from .schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupPropert
 from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
-from .synthetic_monitor import SyntheticMonitor
 from .tag import Tag
 from .tagged_item import TaggedItem
 from .team import Team, TeamRevenueAnalyticsConfig, TeamMarketingAnalyticsConfig

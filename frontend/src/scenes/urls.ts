@@ -172,6 +172,4 @@ export const urls = {
     legacyPlugin: (id: string): string => `/pipeline/plugins/${id}`,
     hogFunction: (id: string, tab?: HogFunctionSceneTab): string => `/functions/${id}${tab ? `?tab=${tab}` : ''}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
-    syntheticMonitoring: (): string => '/synthetic-monitoring',
-    syntheticMonitor: (id: string | 'new'): string => `/synthetic-monitoring/${id}`,
 }

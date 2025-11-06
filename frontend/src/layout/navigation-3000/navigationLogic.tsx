@@ -21,6 +21,7 @@ import {
     IconPiggyBank,
     IconPlug,
     IconPlusSmall,
+    IconPulse,
     IconRewindPlay,
     IconRocket,
     IconServer,
@@ -615,6 +616,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Workflows',
                                   icon: <IconDecisionTree />,
                                   to: urls.workflows(),
+                                  tag: 'alpha' as const,
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.SYNTHETIC_MONITORING]
+                            ? {
+                                  identifier: Scene.SyntheticMonitoring,
+                                  label: 'Synthetic monitoring',
+                                  icon: <IconPulse />,
+                                  to: urls.syntheticMonitoring(),
                                   tag: 'alpha' as const,
                               }
                             : null,

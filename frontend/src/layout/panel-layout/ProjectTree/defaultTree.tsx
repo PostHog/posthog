@@ -29,6 +29,7 @@ import {
     IconPieChart,
     IconPiggyBank,
     IconPlug,
+    IconPulse,
     IconRetention,
     IconRewindPlay,
     IconRocket,
@@ -91,6 +92,13 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     endpoints: {
         icon: <IconCode2 />,
         iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
+    },
+    synthetic_monitoring: {
+        icon: <IconPulse />,
+        iconColor: [
+            'var(--color-product-synthetic-monitoring-light)',
+            'var(--color-product-synthetic-monitoring-dark)',
+        ],
     },
     sql_editor: {
         icon: <IconServer />,
