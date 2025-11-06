@@ -20,8 +20,8 @@ from dags.backups import (
     Backup,
     BackupConfig,
     BackupStatus,
-    check_latest_backup_status,
     get_latest_backups,
+    get_latest_successful_backup,
     non_sharded_backup,
     prepare_run_config,
     sharded_backup,
@@ -73,7 +73,7 @@ def test_get_latest_backup(table: str):
     assert result[2].table == expected_table
 
 
-def test_check_latest_backup_status_returns_latest_backup():
+def test_get_latest_successful_backup_returns_latest_backup():
     config = BackupConfig(database="posthog", table="test", incremental=True)
     backup1 = Backup(database="posthog", date="2024-02-01T07:54:04Z", table="test")
     backup1.is_done = MagicMock(return_value=True)
@@ -96,7 +96,7 @@ def test_check_latest_backup_status_returns_latest_backup():
     cluster = MagicMock()
     cluster.map_hosts_by_role.side_effect = mock_map_hosts
 
-    result = check_latest_backup_status(
+    result = get_latest_successful_backup(
         context=dagster.build_op_context(),
         config=config,
         latest_backups=[backup1, backup2],
@@ -106,7 +106,7 @@ def test_check_latest_backup_status_returns_latest_backup():
     assert result == backup2
 
 
-def test_check_latest_backup_status_fails():
+def test_get_latest_successful_backup_fails():
     config = BackupConfig(database="posthog", table="test", incremental=True)
     backup1 = Backup(database="posthog", date="2024-02-01T07:54:04Z", table="test")
     backup1.status = MagicMock(
@@ -123,7 +123,7 @@ def test_check_latest_backup_status_fails():
     cluster.map_hosts_by_role.side_effect = mock_map_hosts
 
     with pytest.raises(dagster.Failure):
-        check_latest_backup_status(
+        get_latest_successful_backup(
             context=dagster.build_op_context(),
             config=config,
             latest_backups=[backup1],

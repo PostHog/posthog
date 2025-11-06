@@ -331,7 +331,7 @@ def get_latest_backups(
 
 
 @dagster.op
-def check_latest_backup_status(
+def get_latest_successful_backup(
     context: dagster.OpExecutionContext,
     config: BackupConfig,
     latest_backups: list[Backup],
@@ -484,7 +484,7 @@ def sharded_backup():
 
     def run_backup_for_shard(shard: int):
         latest_backups = get_latest_backups(check_running_backup_for_table(), shard=shard)
-        checked_backup = check_latest_backup_status(latest_backups=latest_backups)
+        checked_backup = get_latest_successful_backup(latest_backups=latest_backups)
         new_backup = run_backup(latest_backup=checked_backup, shard=shard)
         wait_for_backup(backup=new_backup)
 
@@ -513,7 +513,7 @@ def non_sharded_backup():
     When we find it in one of the nodes, we keep waiting on it only in that node. This is handy when we retry the job and a backup is in progress in any node, as we'll always wait for it to finish.
     """
     latest_backups = get_latest_backups(check_running_backup_for_table())
-    new_backup = run_backup(check_latest_backup_status(latest_backups=latest_backups))
+    new_backup = run_backup(get_latest_successful_backup(latest_backups=latest_backups))
     wait_for_backup(new_backup)
 
 
@@ -521,7 +521,7 @@ def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
     return dagster.RunConfig(
         {
             op.name: {"config": config.model_dump(mode="json")}
-            for op in [get_latest_backups, run_backup, check_latest_backup_status, wait_for_backup]
+            for op in [get_latest_backups, run_backup, get_latest_successful_backup, wait_for_backup]
         }
     )
 
