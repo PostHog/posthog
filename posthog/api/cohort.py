@@ -141,6 +141,9 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
         # Check if it's a cohort filter referencing another cohort
         if filter_data.get("type") == "cohort":
             cohort_id = filter_data.get("value")
+            if cohort_id is None:
+                # If cohort_id is missing, don't generate bytecode
+                return None, None, None
             try:
                 referenced_cohort = Cohort.objects.get(team__project_id=team.project_id, id=cohort_id)
                 # Check if the referenced cohort is realtime

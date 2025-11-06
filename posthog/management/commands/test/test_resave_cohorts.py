@@ -103,7 +103,7 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
             ),
         ]
 
-        # Ensure initial state has no cohort_type (and no inline bytecode yet)
+        # Ensure initial state has no cohort_type (and no bytecode yet)
         for c in cohorts:
             assert c.cohort_type is None
             assert not _has_condition_hash(c.filters)
@@ -150,9 +150,9 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
         assert person_filter_2["bytecode"] is not None
         assert person_filter_2["conditionHash"] is not None
 
-        # cohort filter is realtime-capable
-        assert updated[cohorts[3].id].cohort_type == "realtime"
-        assert _has_condition_hash(updated[cohorts[3].id].filters)
+        # cohort filter cannot be realtime if it references a non-realtime cohort
+        assert updated[cohorts[3].id].cohort_type is None
+        # The ref cohort has no filters, so it's not realtime, which blocks cohort_filter1 from being realtime
 
         # simple behavioral realtime
         assert updated[cohorts[4].id].cohort_type == "realtime"
