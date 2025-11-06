@@ -49,6 +49,7 @@ from products.llm_analytics.backend.api import (
     DatasetViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
+    LLMAnalyticsTextReprViewSet,
     LLMProxyViewSet,
 )
 from products.notebooks.backend.api.notebook import NotebookViewSet
@@ -951,5 +952,12 @@ environments_router.register(
     r"evaluation_runs",
     EvaluationRunViewSet,
     "environment_evaluation_runs",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/text_repr",
+    LLMAnalyticsTextReprViewSet,
+    "environment_llm_analytics_text_repr",
     ["team_id"],
 )
