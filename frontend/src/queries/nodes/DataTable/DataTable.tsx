@@ -62,6 +62,7 @@ import {
     NodeKind,
     PersonsNode,
     SessionAttributionExplorerQuery,
+    SessionsQuery,
     TracesQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -611,7 +612,14 @@ export function DataTable({
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
             <DateRange
                 key="date-range"
-                query={query.source as HogQLQuery | EventsQuery | SessionAttributionExplorerQuery | TracesQuery}
+                query={
+                    query.source as
+                        | HogQLQuery
+                        | EventsQuery
+                        | SessionAttributionExplorerQuery
+                        | SessionsQuery
+                        | TracesQuery
+                }
                 setQuery={setQuerySource}
             />
         ) : null,
