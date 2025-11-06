@@ -323,27 +323,45 @@ jobs:
                   # Attempt 1: Always verify (fast path when snapshots match)
                   echo "Attempt 1: Running @storybook/test-runner (verify)"
                   set -o pipefail
-                  pnpm --filter=@posthog/storybook test:visual:ci:verify --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} 2>&1 | tee /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}.log
+                  pnpm --filter=@posthog/storybook test:visual:ci:verify --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} 2>&1 | tee /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt1.log
                   EXIT_CODE=$?
                   set +o pipefail
 
                   if [ $EXIT_CODE -ne 0 ]; then
-                    # Check if we should retry with snapshot update
-                    if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -qi "snapshot.*failed" /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}.log 2>/dev/null; then
-                      echo "Snapshot failure detected - retrying with update mode"
-                      # Attempt 2: Update snapshots
-                      echo "Attempt 2: Running @storybook/test-runner (update)"
+                    # Check if we should retry
+                    if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -qi "snapshot.*failed" /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt1.log 2>/dev/null; then
+                      echo "Snapshot failure detected on attempt 1 - verifying it's not flaky"
+                      # Attempt 2: Verify again to confirm failure is consistent, not flaky
+                      echo "Attempt 2: Running @storybook/test-runner (verify again to confirm)"
                       set -o pipefail
-                      pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} 2>&1 | tee /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt2.log
+                      pnpm --filter=@posthog/storybook test:visual:ci:verify --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} 2>&1 | tee /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt2.log
                       EXIT_CODE=$?
                       set +o pipefail
 
                       if [ $EXIT_CODE -ne 0 ]; then
-                        echo "Test runner failed after 2 attempts"
-                        exit 1
+                        # Still failing - check if it's snapshot-related
+                        if grep -qi "snapshot.*failed" /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt2.log 2>/dev/null; then
+                          echo "Snapshot failure confirmed on attempt 2 - updating snapshots"
+                          # Attempt 3: Update snapshots
+                          echo "Attempt 3: Running @storybook/test-runner (update)"
+                          set -o pipefail
+                          pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} 2>&1 | tee /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt3.log
+                          EXIT_CODE=$?
+                          set +o pipefail
+
+                          if [ $EXIT_CODE -ne 0 ]; then
+                            echo "Test runner failed after 3 attempts"
+                            exit 1
+                          fi
+                        else
+                          echo "Non-snapshot failure on attempt 2 - not retrying further"
+                          exit 1
+                        fi
+                      else
+                        echo "Attempt 2 passed - failure on attempt 1 was flaky"
                       fi
                     else
-                      echo "Non-snapshot failure - not retrying"
+                      echo "Non-snapshot failure on attempt 1 - not retrying"
                       exit 1
                     fi
                   fi
