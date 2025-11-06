@@ -76,8 +76,8 @@ def run_sql_with_exceptions(
         if is_alter_on_replicated_table is None:
             errors.append("is_alter_on_replicated_table parameter must be explicitly specified for ALTER TABLE queries")
     if errors:
-        msg = "\t- ".join(errors)
-        raise ValueError(f"problems:\n\t - {msg}")
+        msg = "\n\t- ".join(errors)
+        raise ValueError(f"problems:\n\t- {msg}")
 
     def run_migration():
         cluster = get_migrations_cluster()
