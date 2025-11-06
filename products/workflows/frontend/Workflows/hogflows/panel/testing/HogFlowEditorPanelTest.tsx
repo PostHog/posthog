@@ -72,7 +72,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
 
                 <p>Step through each action in your workflow and see how it behaves.</p>
 
-                <LemonButton type="primary" onClick={() => setSelectedNodeId(TRIGGER_NODE_ID)} icon={<IconPlay />}>
+                <LemonButton type="primary" onClick={() => setSelectedNodeId(TRIGGER_NODE_ID)}>
                     Start testing
                 </LemonButton>
             </div>

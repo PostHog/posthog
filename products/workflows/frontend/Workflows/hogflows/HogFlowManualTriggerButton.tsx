@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconButton, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, Popover } from '@posthog/lemon-ui'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -18,75 +18,72 @@ const VariableInputsPopover = ({
     const { workflow } = useValues(workflowLogic)
     const { triggerManualWorkflow } = useActions(workflowLogic)
     const [inputs, setInputs] = useState<Record<string, string>>({})
-    const [useDefaults, setUseDefaults] = useState(true)
 
     const getVariableValues = (): Record<string, string> => {
         if (!workflow?.variables) {
             return {}
         }
-        if (useDefaults) {
-            return Object.fromEntries(workflow.variables.map((v: any) => [v.key, v.default ?? '']))
-        }
-        return Object.fromEntries(workflow.variables.map((v: any) => [v.key, inputs[v.key] ?? v.default ?? '']))
+        return Object.fromEntries(
+            workflow.variables.map((v: any) => {
+                const inputValue = inputs[v.key]
+                // Use input value if provided and not empty, otherwise use default
+                return [v.key, inputValue !== undefined && inputValue !== '' ? inputValue : (v.default ?? '')]
+            })
+        )
     }
 
-    const noVariablesMessage = <div className="text-muted">No variables to configure.</div>
-
-    const defaultVariableOption = (
-        <div className="flex items-center gap-2">
-            <LemonCheckbox
-                label="Use default values"
-                checked={useDefaults}
-                onChange={() => setUseDefaults((v) => !v)}
-            />
-        </div>
-    )
-
-    const variableInputs = useDefaults ? (
-        <>
-            {workflow.variables?.map((variable: CyclotronJobInputSchemaType) => (
-                <div key={variable.key} className="flex flex-col gap-1">
-                    <label className="font-semibold">{variable.label || variable.key}</label>
-                    <span className="text-xs text-muted">
-                        {variable.default ? `Default: ${String(variable.default)}` : 'No default'}
-                    </span>
+    if (!workflow?.variables || workflow.variables.length === 0) {
+        return (
+            <div className="flex flex-col gap-3 p-3 min-w-80">
+                <div className="pb-2 border-b">
+                    <h3 className="text-sm font-semibold">Configure variables</h3>
                 </div>
-            ))}
-        </>
-    ) : (
-        <>
-            {workflow.variables?.map((variable: CyclotronJobInputSchemaType) => (
-                <div key={variable.key} className="flex flex-col gap-1">
-                    <LemonField.Pure className="font-semibold" label={variable.label}>
-                        <LemonInput
-                            type="text"
-                            value={inputs[variable.key] ?? variable.default ?? ''}
-                            placeholder={variable.default ? `Default: ${variable.default}` : ''}
-                            onChange={(value) => setInputs((prev) => ({ ...prev, [variable.key]: value }))}
-                            disabled={useDefaults}
-                        />
-                        {variable.default !== undefined && (
-                            <span className="text-xs text-muted">
-                                {variable.default ? `Default: ${String(variable.default)}` : 'No default'}
-                            </span>
-                        )}
-                    </LemonField.Pure>
+                <div className="text-muted text-sm">No variables to configure.</div>
+                <div className="flex justify-end border-t pt-3">
+                    <LemonButton
+                        type="primary"
+                        status="alt"
+                        onClick={() => {
+                            triggerManualWorkflow({})
+                            setPopoverVisible(false)
+                        }}
+                        data-attr="run-workflow-btn"
+                    >
+                        Run workflow
+                    </LemonButton>
                 </div>
-            ))}
-        </>
-    )
+            </div>
+        )
+    }
 
     return (
-        <div className="flex flex-col items-start gap-2 p-2 min-w-64">
-            {!workflow?.variables || workflow.variables.length === 0 ? (
-                noVariablesMessage
-            ) : (
-                <>
-                    {defaultVariableOption}
-                    {variableInputs}
-                </>
-            )}
-            <div className="pt-2 flex justify-end">
+        <div className="flex flex-col gap-4 p-3 min-w-80 max-w-96">
+            <div className="pb-2 border-b">
+                <h3 className="text-sm font-semibold">Configure variables</h3>
+                <p className="text-xs text-muted mt-0.5">Set variable values or leave empty to use defaults</p>
+            </div>
+            <div className="flex flex-col gap-3">
+                {workflow.variables.map((variable: CyclotronJobInputSchemaType) => {
+                    const inputValue = inputs[variable.key]
+                    const displayValue = inputValue ?? ''
+                    const hasDefault = variable.default !== undefined && variable.default !== ''
+
+                    return (
+                        <LemonField.Pure key={variable.key} label={variable.label || variable.key}>
+                            <LemonInput
+                                type="text"
+                                value={displayValue}
+                                placeholder={hasDefault ? `Default: ${String(variable.default)}` : 'Enter value'}
+                                onChange={(value) => {
+                                    setInputs((prev) => ({ ...prev, [variable.key]: value }))
+                                }}
+                            />
+                        </LemonField.Pure>
+                    )
+                })}
+            </div>
+
+            <div className="flex justify-end border-t pt-3">
                 <LemonButton
                     type="primary"
                     status="alt"
@@ -95,7 +92,6 @@ const VariableInputsPopover = ({
                         setPopoverVisible(false)
                     }}
                     data-attr="run-workflow-btn"
-                    sideIcon={<IconPlayFilled />}
                 >
                     Run workflow
                 </LemonButton>
@@ -118,9 +114,13 @@ export const HogFlowManualTriggerButton = (): JSX.Element => {
                       ? 'Save changes first'
                       : undefined
             }
-            icon={<IconButton />}
+            sideIcon={
+                <IconChevronDown
+                    className={`transition-transform ${manualTriggerPopoverVisible ? 'rotate-180' : ''}`}
+                />
+            }
             tooltip="Triggers workflow immediately"
-            onClick={() => setManualTriggerPopoverVisible(true)}
+            onClick={() => setManualTriggerPopoverVisible(!manualTriggerPopoverVisible)}
         >
             Trigger
         </LemonButton>
