@@ -51,6 +51,7 @@ import { createExtractHeatmapDataStep } from './event-processing/extract-heatmap
 import { createHandleClientIngestionWarningStep } from './event-processing/handle-client-ingestion-warning-step'
 import { createNormalizeEventStep } from './event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from './event-processing/normalize-process-person-flag-step'
+import { createPrefetchHogFunctionsStep } from './event-processing/prefetch-hog-functions-step'
 import { createSkipEmitEventStep } from './event-processing/skip-emit-event-step'
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
@@ -338,84 +339,89 @@ export class IngestionConsumer {
                         .messageAware((b) =>
                             b
                                 .teamAware((team) =>
-                                    // We process the events for the distinct id sequentially to provide ordering guarantees.
-                                    team.sequentially((seq) =>
-                                        seq.retry(
-                                            (retry) =>
-                                                retry.branching<'client_ingestion_warning' | 'heatmap' | 'event', void>(
-                                                    (input) => {
-                                                        switch (input.event.event) {
-                                                            case '$$client_ingestion_warning':
-                                                                return 'client_ingestion_warning'
-                                                            case '$$heatmap':
-                                                                return 'heatmap'
-                                                            default:
-                                                                return 'event'
+                                    team
+                                        .pipeBatch(createPrefetchHogFunctionsStep(this.hub, this.hogTransformer))
+                                        // We process the events for the distinct id sequentially to provide ordering guarantees.
+                                        .sequentially((seq) =>
+                                            seq.retry(
+                                                (retry) =>
+                                                    retry.branching<
+                                                        'client_ingestion_warning' | 'heatmap' | 'event',
+                                                        void
+                                                    >(
+                                                        (input) => {
+                                                            switch (input.event.event) {
+                                                                case '$$client_ingestion_warning':
+                                                                    return 'client_ingestion_warning'
+                                                                case '$$heatmap':
+                                                                    return 'heatmap'
+                                                                default:
+                                                                    return 'event'
+                                                            }
+                                                        },
+                                                        (branches) => {
+                                                            branches
+                                                                .branch('client_ingestion_warning', (br) =>
+                                                                    br.pipe(createHandleClientIngestionWarningStep())
+                                                                )
+                                                                .branch('heatmap', (br) =>
+                                                                    br
+                                                                        .pipe(createDisablePersonProcessingStep())
+                                                                        .pipe(createNormalizeEventStep(this.hub))
+                                                                        .pipe(
+                                                                            createEventPipelineRunnerHeatmapStep(
+                                                                                this.hub,
+                                                                                this.hogTransformer
+                                                                            )
+                                                                        )
+                                                                        .pipe(
+                                                                            createExtractHeatmapDataStep({
+                                                                                kafkaProducer: this.kafkaProducer!,
+                                                                                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC:
+                                                                                    this.hub
+                                                                                        .CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                                                                            })
+                                                                        )
+                                                                        .pipe(createSkipEmitEventStep())
+                                                                )
+                                                                .branch('event', (br) =>
+                                                                    br
+                                                                        .pipe(createNormalizeProcessPersonFlagStep())
+                                                                        .pipe(
+                                                                            createEventPipelineRunnerV1Step(
+                                                                                this.hub,
+                                                                                this.hogTransformer
+                                                                            )
+                                                                        )
+                                                                        // TRICKY: Older client versions may still send $heatmap_data as properties on regular events.
+                                                                        // This step extracts and processes that data even though up-to-date clients send dedicated $$heatmap events.
+                                                                        // TODO: Verify if we still receive $heatmap_data on regular events and consider removing this step if not.
+                                                                        .pipe(
+                                                                            createExtractHeatmapDataStep({
+                                                                                kafkaProducer: this.kafkaProducer!,
+                                                                                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC:
+                                                                                    this.hub
+                                                                                        .CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                                                                            })
+                                                                        )
+                                                                        .pipe(createCreateEventStep())
+                                                                        .pipe(
+                                                                            createEmitEventStep({
+                                                                                kafkaProducer: this.kafkaProducer!,
+                                                                                clickhouseJsonEventsTopic:
+                                                                                    this.hub
+                                                                                        .CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                                                                            })
+                                                                        )
+                                                                )
                                                         }
-                                                    },
-                                                    (branches) => {
-                                                        branches
-                                                            .branch('client_ingestion_warning', (br) =>
-                                                                br.pipe(createHandleClientIngestionWarningStep())
-                                                            )
-                                                            .branch('heatmap', (br) =>
-                                                                br
-                                                                    .pipe(createDisablePersonProcessingStep())
-                                                                    .pipe(createNormalizeEventStep(this.hub))
-                                                                    .pipe(
-                                                                        createEventPipelineRunnerHeatmapStep(
-                                                                            this.hub,
-                                                                            this.hogTransformer
-                                                                        )
-                                                                    )
-                                                                    .pipe(
-                                                                        createExtractHeatmapDataStep({
-                                                                            kafkaProducer: this.kafkaProducer!,
-                                                                            CLICKHOUSE_HEATMAPS_KAFKA_TOPIC:
-                                                                                this.hub
-                                                                                    .CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                                                                        })
-                                                                    )
-                                                                    .pipe(createSkipEmitEventStep())
-                                                            )
-                                                            .branch('event', (br) =>
-                                                                br
-                                                                    .pipe(createNormalizeProcessPersonFlagStep())
-                                                                    .pipe(
-                                                                        createEventPipelineRunnerV1Step(
-                                                                            this.hub,
-                                                                            this.hogTransformer
-                                                                        )
-                                                                    )
-                                                                    // TRICKY: Older client versions may still send $heatmap_data as properties on regular events.
-                                                                    // This step extracts and processes that data even though up-to-date clients send dedicated $$heatmap events.
-                                                                    // TODO: Verify if we still receive $heatmap_data on regular events and consider removing this step if not.
-                                                                    .pipe(
-                                                                        createExtractHeatmapDataStep({
-                                                                            kafkaProducer: this.kafkaProducer!,
-                                                                            CLICKHOUSE_HEATMAPS_KAFKA_TOPIC:
-                                                                                this.hub
-                                                                                    .CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                                                                        })
-                                                                    )
-                                                                    .pipe(createCreateEventStep())
-                                                                    .pipe(
-                                                                        createEmitEventStep({
-                                                                            kafkaProducer: this.kafkaProducer!,
-                                                                            clickhouseJsonEventsTopic:
-                                                                                this.hub
-                                                                                    .CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                                                                        })
-                                                                    )
-                                                            )
-                                                    }
-                                                ),
-                                            {
-                                                tries: 3,
-                                                sleepMs: 100,
-                                            }
+                                                    ),
+                                                {
+                                                    tries: 3,
+                                                    sleepMs: 100,
+                                                }
+                                            )
                                         )
-                                    )
                                 )
                                 .handleIngestionWarnings(this.kafkaProducer!)
                         )
@@ -497,13 +503,6 @@ export class IngestionConsumer {
         }
 
         const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
-
-        // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
-        const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
-        if (shouldRunHogWatcher) {
-            const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents.map((x) => x.eventWithTeam))
-            await this.fetchAndCacheHogFunctionStates(eventsPerDistinctId)
-        }
 
         const personsStoreForBatch = this.personStore.forBatch()
         const groupStoreForBatch = this.groupStore.forBatch()
@@ -671,43 +670,6 @@ export class IngestionConsumer {
 
         return eventsForDistinctId
     } */
-
-    /**
-     * Fetches and caches hog function states for all teams in the batch
-     */
-    private async fetchAndCacheHogFunctionStates(parsedMessages: IncomingEventsByDistinctId): Promise<void> {
-        await this.runInstrumented('fetchAndCacheHogFunctionStates', async () => {
-            // Clear cached hog function states before fetching new ones
-            this.hogTransformer.clearHogFunctionStates()
-
-            const tokensToFetch = new Set<string>()
-            Object.values(parsedMessages).forEach((eventsForDistinctId) => tokensToFetch.add(eventsForDistinctId.token))
-
-            if (tokensToFetch.size === 0) {
-                return // No teams to process
-            }
-
-            const teams = await this.hub.teamManager.getTeamsByTokens(Array.from(tokensToFetch))
-
-            const teamIdsArray = Object.values(teams)
-                .map((x) => x?.id)
-                .filter(Boolean) as number[]
-
-            // Get hog function IDs for transformations
-            const teamHogFunctionIds = await this.hogTransformer['hogFunctionManager'].getHogFunctionIdsForTeams(
-                teamIdsArray,
-                ['transformation']
-            )
-
-            // Flatten all hog function IDs into a single array
-            const allHogFunctionIds = Object.values(teamHogFunctionIds).flat()
-
-            if (allHogFunctionIds.length > 0) {
-                // Cache the hog function states
-                await this.hogTransformer.fetchAndCacheHogFunctionStates(allHogFunctionIds)
-            }
-        })
-    }
 
     /**
      * TEMPORARILY COMMENTED OUT: No longer needed with sharded pipeline

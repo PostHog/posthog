@@ -768,6 +768,7 @@ describe('IngestionConsumer', () => {
             const ingester = await createIngestionConsumer(hub)
             await ingester.handleKafkaBatch(messages)
 
+            console.log(jest.mocked(logger.error).mock.calls)
             expect(jest.mocked(logger.error)).toHaveBeenCalledWith('🔥', 'Error processing message', expect.any(Object))
 
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
