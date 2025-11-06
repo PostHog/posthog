@@ -147,7 +147,7 @@ async def report_ingestion_limits_activity(inputs: ReportIngestionLimitsInput) -
             try:
                 kafka_topic = inputs.workflow_inputs.kafka_topic
                 kafka_messages = format_kafka_messages(inputs.report)
-                send_to_kafka(topic=kafka_topic, messages=kafka_messages)
+                await send_to_kafka(topic=kafka_topic, messages=kafka_messages)
                 logger.info(
                     "Sent ingestion limits report to Kafka",
                     topic=kafka_topic,

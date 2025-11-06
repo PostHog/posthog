@@ -1,6 +1,7 @@
 """Slack and Kafka reporting utilities for ingestion limits."""
 
 import json
+import asyncio
 
 from django.conf import settings
 
@@ -8,7 +9,6 @@ import aiohttp
 from slack_sdk.web.async_client import AsyncWebClient
 
 from posthog.kafka_client.client import KafkaProducer
-from posthog.kafka_client.topics import KAFKA_INGESTION_WARNINGS
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.ingestion_limits.types import IngestionLimitsReport
@@ -149,7 +149,7 @@ async def send_to_slack(channel: str, message: dict, slack_token: str | None = N
         await client.chat_postMessage(channel=channel, **message)
 
 
-def send_to_kafka(topic: str | None, messages: list[dict]) -> None:
+async def send_to_kafka(topic: str | None, messages: list[dict]) -> None:
     """Send ingestion warning messages to Kafka topic.
 
     Args:
@@ -163,7 +163,6 @@ def send_to_kafka(topic: str | None, messages: list[dict]) -> None:
         logger.warning("No messages to send to Kafka")
         return
 
-    kafka_topic = topic or KAFKA_INGESTION_WARNINGS
     producer = KafkaProducer()
 
     # Send each message individually to match plugin-server behavior
@@ -171,6 +170,10 @@ def send_to_kafka(topic: str | None, messages: list[dict]) -> None:
     for message in messages:
         try:
             logger.info("Submitting ingestion warning to Kafka", message=message)
-            producer.produce(topic=kafka_topic, data=message)
+            await asyncio.to_thread(
+                producer.produce,
+                topic=topic,
+                data=message,
+            )
         except Exception as e:
             logger.exception(f"Failed to submit ingestion warning to Kafka", error=str(e), message=message)

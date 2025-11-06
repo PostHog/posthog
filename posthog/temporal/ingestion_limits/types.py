@@ -4,6 +4,8 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from posthog.kafka_client.topics import KAFKA_INGESTION_WARNINGS
+
 
 class ReportDestination(str, Enum):
     SLACK = "slack"
@@ -20,7 +22,7 @@ class HighVolumeDistinctId(BaseModel):
 class IngestionLimitsWorkflowInput(BaseModel):
     report_destination: ReportDestination = ReportDestination.KAFKA
     slack_channel: Optional[str] = "#alerts-ingestion"
-    kafka_topic: Optional[str] = None
+    kafka_topic: Optional[str] = KAFKA_INGESTION_WARNINGS
     time_window_minutes: int = 10
     event_threshold: int = 10000
 
