@@ -12,6 +12,61 @@ const nameOrLinkToWorkflow = (id?: string | null, name?: string | null): string 
     return id ? <Link to={urls.workflow(id, 'workflow')}>{displayName}</Link> : displayName
 }
 
+type ArrayChangeItem = { id?: string; key?: string; name?: string; label?: string }
+
+function processArrayChanges<T extends ArrayChangeItem>(
+    itemsBefore: T[],
+    itemsAfter: T[],
+    getId: (item: T) => string,
+    getName: (item: T) => string,
+    itemType: 'action' | 'variable'
+): JSX.Element[] {
+    const beforeMap = new Map(itemsBefore.map((item) => [getId(item), item]))
+    const afterMap = new Map(itemsAfter.map((item) => [getId(item), item]))
+    const changes: JSX.Element[] = []
+
+    // Find added items
+    for (const item of itemsAfter) {
+        const id = getId(item)
+        if (id && !beforeMap.has(id)) {
+            changes.push(
+                <>
+                    added {itemType} {getName(item)}
+                </>
+            )
+        }
+    }
+
+    // Find removed items
+    for (const item of itemsBefore) {
+        const id = getId(item)
+        if (id && !afterMap.has(id)) {
+            changes.push(
+                <>
+                    deleted {itemType} {getName(item)}
+                </>
+            )
+        }
+    }
+
+    // Find modified items (same id but different content)
+    for (const item of itemsAfter) {
+        const id = getId(item)
+        if (id) {
+            const beforeItem = beforeMap.get(id)
+            if (beforeItem && JSON.stringify(beforeItem) !== JSON.stringify(item)) {
+                changes.push(
+                    <>
+                        updated {itemType} {getName(item)}
+                    </>
+                )
+            }
+        }
+    }
+
+    return changes
+}
+
 export function workflowActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'HogFlow') {
         console.error('Workflow describer received a non-HogFlow activity')
@@ -43,135 +98,61 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
     }
 
     if (logItem.activity == 'updated') {
-        const changes: { inline: string | JSX.Element; inlist: string | JSX.Element }[] = []
+        const changes: JSX.Element[] = []
         for (const change of logItem.detail.changes ?? []) {
             switch (change.field) {
                 case 'name': {
-                    changes.push({
-                        inline: (
-                            <>
-                                renamed from <strong>{change.before}</strong> to <strong>{change.after}</strong>
-                            </>
-                        ),
-                        inlist: (
-                            <>
-                                renamed from <strong>{change.before}</strong> to <strong>{change.after}</strong>
-                            </>
-                        ),
-                    })
+                    changes.push(
+                        <>
+                            renamed from <strong>{change.before}</strong> to <strong>{change.after}</strong>
+                        </>
+                    )
                     break
                 }
                 case 'description': {
-                    changes.push({
-                        inline: 'updated description',
-                        inlist: 'updated description',
-                    })
+                    changes.push(<>updated description</>)
                     break
                 }
                 case 'status': {
                     const statusChange = change.after === 'active' ? 'enabled' : 'disabled'
-                    changes.push({
-                        inline: statusChange,
-                        inlist: `${statusChange} the ${objectNoun}`,
-                    })
+                    changes.push(<>{`${statusChange} the ${objectNoun}`}</>)
                     break
                 }
                 case 'actions': {
                     const actionsBefore = (change.before as any[]) || []
                     const actionsAfter = (change.after as any[]) || []
-
-                    // Create maps by id for easier comparison
-                    const beforeMap = new Map(actionsBefore.map((a: any) => [a.id, a]))
-                    const afterMap = new Map(actionsAfter.map((a: any) => [a.id, a]))
-
-                    // Find added actions
-                    for (const action of actionsAfter) {
-                        if (!beforeMap.has(action.id)) {
-                            changes.push({
-                                inline: <>added action {action.name || action.id}</>,
-                                inlist: <>added action {action.name || action.id}</>,
-                            })
-                        }
-                    }
-
-                    // Find removed actions
-                    for (const action of actionsBefore) {
-                        if (!afterMap.has(action.id)) {
-                            changes.push({
-                                inline: <>deleted action {action.name || action.id}</>,
-                                inlist: <>deleted action {action.name || action.id}</>,
-                            })
-                        }
-                    }
-
-                    // Find modified actions (same id but different content)
-                    for (const action of actionsAfter) {
-                        const beforeAction = beforeMap.get(action.id)
-                        if (beforeAction && JSON.stringify(beforeAction) !== JSON.stringify(action)) {
-                            changes.push({
-                                inline: <>updated action {action.name || action.id}</>,
-                                inlist: <>updated action {action.name || action.id}</>,
-                            })
-                        }
-                    }
+                    changes.push(
+                        ...processArrayChanges(
+                            actionsBefore,
+                            actionsAfter,
+                            (a) => a.id || '',
+                            (a) => a.name || a.id || 'unnamed',
+                            'action'
+                        )
+                    )
                     break
                 }
                 case 'variables': {
                     const variablesBefore = (change.before as any[]) || []
                     const variablesAfter = (change.after as any[]) || []
-
-                    // Create maps by key for easier comparison
-                    const beforeMap = new Map(variablesBefore.map((v: any) => [v.key, v]))
-                    const afterMap = new Map(variablesAfter.map((v: any) => [v.key, v]))
-
-                    // Find added variables
-                    for (const variable of variablesAfter) {
-                        if (!beforeMap.has(variable.key)) {
-                            const varName = variable.key || variable.label || 'unnamed'
-                            changes.push({
-                                inline: <>added variable {varName}</>,
-                                inlist: <>added variable {varName}</>,
-                            })
-                        }
-                    }
-
-                    // Find removed variables
-                    for (const variable of variablesBefore) {
-                        if (!afterMap.has(variable.key)) {
-                            const varName = variable.key || variable.label || 'unnamed'
-                            changes.push({
-                                inline: <>deleted variable {varName}</>,
-                                inlist: <>deleted variable {varName}</>,
-                            })
-                        }
-                    }
-
-                    // Find modified variables (same key but different content)
-                    for (const variable of variablesAfter) {
-                        const beforeVariable = beforeMap.get(variable.key)
-                        if (beforeVariable && JSON.stringify(beforeVariable) !== JSON.stringify(variable)) {
-                            const varName = variable.key || variable.label || 'unnamed'
-                            changes.push({
-                                inline: <>updated variable {varName}</>,
-                                inlist: <>updated variable {varName}</>,
-                            })
-                        }
-                    }
+                    changes.push(
+                        ...processArrayChanges(
+                            variablesBefore,
+                            variablesAfter,
+                            (v) => v.key || '',
+                            (v) => v.key || v.label || 'unnamed',
+                            'variable'
+                        )
+                    )
                     break
                 }
                 case 'trigger':
                 case 'edges': {
-                    changes.push({
-                        inline: `updated ${change.field}`,
-                        inlist: `updated ${change.field}`,
-                    })
+                    changes.push(<>updated {change.field}</>)
                     break
                 }
                 default:
-                    changes.push({
-                        inline: `updated ${change.field}`,
-                        inlist: `updated ${change.field}`,
-                    })
+                    changes.push(<>updated {change.field}</>)
             }
         }
         const name = userNameForLogItem(logItem)
@@ -183,7 +164,7 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
                     <strong className="ph-no-capture">{name}</strong> updated the {objectNoun}: {workflowName}
                     <ul className="ml-5 list-disc">
                         {changes.map((c, i) => (
-                            <li key={i}>{c.inlist}</li>
+                            <li key={i}>{c}</li>
                         ))}
                     </ul>
                 </div>
