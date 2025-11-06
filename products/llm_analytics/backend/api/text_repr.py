@@ -12,6 +12,11 @@ Endpoint:
 - POST /api/llm_analytics/text_repr/ - Stringify single event
 """
 
+import json
+import hashlib
+
+from django.core.cache import cache
+
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, extend_schema
@@ -119,6 +124,16 @@ class LLMAnalyticsTextReprViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     def get_throttles(self):
         """Apply rate limiting to prevent abuse of text formatting endpoint."""
         return [LLMAnalyticsTextReprBurstThrottle(), LLMAnalyticsTextReprSustainedThrottle()]
+
+    def _get_cache_key(self, event_type: str, entity_id: str, options: dict) -> str:
+        """Generate cache key for text repr results.
+
+        Since options can vary widely, we hash them to create a stable key.
+        """
+        # Sort options dict for consistent hashing
+        options_str = json.dumps(options, sort_keys=True)
+        options_hash = hashlib.md5(options_str.encode()).hexdigest()[:8]
+        return f"llm_text_repr:{self.team_id}:{event_type}:{entity_id}:{options_hash}"
 
     @extend_schema(
         request=TextReprRequestSerializer,
@@ -253,7 +268,27 @@ The response includes the formatted text and metadata about the rendering.
             elif "properties" not in data:
                 raise ValidationError(f"{event_type} events require 'properties' object in data field")
 
-            # Call Python formatters directly
+            # Extract entity ID for cache key generation
+            if event_type == "$ai_trace":
+                entity_id = data.get("trace", {}).get("properties", {}).get("$ai_trace_id") or data.get(
+                    "trace", {}
+                ).get("id", "unknown")
+            else:
+                entity_id = data.get("id", "unknown")
+
+            # Check cache
+            cache_key = self._get_cache_key(event_type, entity_id, options)
+            cached_result = cache.get(cache_key)
+            if cached_result is not None:
+                logger.info(
+                    "Returning cached text representation",
+                    event_type=event_type,
+                    entity_id=entity_id,
+                    team_id=self.team_id,
+                )
+                return Response(cached_result, status=status.HTTP_200_OK)
+
+            # Cache miss - generate text representation
             if event_type == "$ai_trace":
                 # For traces, expect data to have trace and hierarchy
                 text = format_trace_text_repr(
@@ -293,6 +328,16 @@ The response includes the formatted text and metadata about the rendering.
                     "truncated": truncated_by_max_length,
                 },
             }
+
+            # Cache the result for 1 hour (3600 seconds)
+            cache.set(cache_key, result, timeout=3600)
+            logger.info(
+                "Generated and cached text representation",
+                event_type=event_type,
+                entity_id=entity_id,
+                team_id=self.team_id,
+                char_count=len(text),
+            )
 
             return Response(result, status=status.HTTP_200_OK)
 
