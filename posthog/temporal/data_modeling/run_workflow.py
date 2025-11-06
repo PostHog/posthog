@@ -16,13 +16,12 @@ import pyarrow as pa
 import deltalake
 import asyncstdlib
 import pyarrow.compute as pc
-import temporalio.common
-import temporalio.activity
-import temporalio.workflow
-import temporalio.exceptions
 from deltalake import DeltaTable
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
+from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, CancelledError
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -141,7 +140,7 @@ Results = collections.namedtuple("Results", ("completed", "failed", "ancestor_fa
 NullablePattern = re.compile(r"Nullable\((.*)\)")
 
 
-@temporalio.activity.defn
+@activity.defn
 async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     """A Temporal activity to run a data modeling DAG.
 
@@ -1032,7 +1031,7 @@ class InvalidSelector(Exception):
         super().__init__(f"invalid selector: '{invalid_input}'")
 
 
-@temporalio.activity.defn
+@activity.defn
 async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
     """Construct a DAG from provided selector inputs."""
     bind_contextvars(team_id=inputs.team_id)
@@ -1168,7 +1167,7 @@ class CreateJobModelInputs:
     select: list[Selector]
 
 
-@temporalio.activity.defn
+@activity.defn
 async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
@@ -1176,8 +1175,8 @@ async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
     await logger.adebug(f"Creating DataModelingJob for {[selector.label for selector in inputs.select]}")
 
     team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
-    workflow_id = temporalio.activity.info().workflow_id
-    workflow_run_id = temporalio.activity.info().workflow_run_id
+    workflow_id = activity.info().workflow_id
+    workflow_run_id = activity.info().workflow_run_id
 
     if len(inputs.select) != 0:
         label = inputs.select[0].label
@@ -1194,7 +1193,7 @@ class CleanupRunningJobsActivityInputs:
     team_id: int
 
 
-@temporalio.activity.defn
+@activity.defn
 async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs) -> None:
     """Mark all existing RUNNING DataModelingJobs as FAILED when starting a new run.
     Since only one job can run at a time per team, any existing RUNNING jobs
@@ -1217,7 +1216,7 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
         await logger.adebug("No orphaned jobs found")
 
 
-@temporalio.activity.defn
+@activity.defn
 async def start_run_activity(inputs: StartRunActivityInputs) -> None:
     """Activity that starts a run by updating statuses of associated models."""
     bind_contextvars(team_id=inputs.team_id)
@@ -1253,7 +1252,7 @@ class FinishRunActivityInputs:
         }
 
 
-@temporalio.activity.defn
+@activity.defn
 async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
     """Activity that finishes a run by updating statuses of associated models."""
     bind_contextvars(team_id=inputs.team_id)
@@ -1319,7 +1318,7 @@ class FailJobsActivityInputs:
     team_id: int
 
 
-@temporalio.activity.defn
+@activity.defn
 async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
     """Activity to cancel data modeling jobs."""
     bind_contextvars(team_id=inputs.team_id)
@@ -1333,7 +1332,7 @@ async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
     )
 
 
-@temporalio.activity.defn
+@activity.defn
 async def fail_jobs_activity(inputs: FailJobsActivityInputs) -> None:
     """Activity to fail data modeling jobs."""
     bind_contextvars(team_id=inputs.team_id)
@@ -1363,7 +1362,7 @@ class RunWorkflowInputs:
         }
 
 
-@temporalio.workflow.defn(name="data-modeling-run")
+@workflow.defn(name="data-modeling-run")
 class RunWorkflow(PostHogWorkflow):
     """A Temporal Workflow to run PostHog data models.
 
@@ -1377,31 +1376,31 @@ class RunWorkflow(PostHogWorkflow):
         loaded = json.loads(inputs[0])
         return RunWorkflowInputs(**loaded)
 
-    @temporalio.workflow.run
+    @workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
-        await temporalio.workflow.execute_activity(
+        await workflow.execute_activity(
             cleanup_running_jobs_activity,
             CleanupRunningJobsActivityInputs(team_id=inputs.team_id),
             start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        job_id = await temporalio.workflow.execute_activity(
+        job_id = await workflow.execute_activity(
             create_job_model_activity,
             CreateJobModelInputs(team_id=inputs.team_id, select=inputs.select),
             start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(
+            retry_policy=RetryPolicy(
                 maximum_attempts=1,
             ),
         )
 
         build_dag_inputs = BuildDagActivityInputs(team_id=inputs.team_id, select=inputs.select)
-        dag = await temporalio.workflow.execute_activity(
+        dag = await workflow.execute_activity(
             build_dag_activity,
             build_dag_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             heartbeat_timeout=dt.timedelta(minutes=1),
-            retry_policy=temporalio.common.RetryPolicy(
+            retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=1,
@@ -1411,11 +1410,11 @@ class RunWorkflow(PostHogWorkflow):
         run_at = dt.datetime.now(dt.UTC).isoformat()
 
         start_run_activity_inputs = StartRunActivityInputs(dag=dag, run_at=run_at, team_id=inputs.team_id)
-        await temporalio.workflow.execute_activity(
+        await workflow.execute_activity(
             start_run_activity,
             start_run_activity_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(
+            retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=1,
@@ -1425,57 +1424,58 @@ class RunWorkflow(PostHogWorkflow):
         # Run the DAG
         run_model_activity_inputs = RunDagActivityInputs(team_id=inputs.team_id, dag=dag, job_id=job_id)
         try:
-            results = await temporalio.workflow.execute_activity(
+            results = await workflow.execute_activity(
                 run_dag_activity,
                 run_model_activity_inputs,
                 start_to_close_timeout=dt.timedelta(hours=1),
                 # 10 minutes is the clickhouse max execution time, so we set something higher here
                 # so clickhouse will error first on execptionally large or slow queries
                 heartbeat_timeout=dt.timedelta(minutes=15),
-                retry_policy=temporalio.common.RetryPolicy(
+                # workers shutting down should be retryable and is the number one cause of failures here.
+                retry_policy=RetryPolicy(
                     maximum_attempts=3,
                 ),
-                cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
+                cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
             )
-        except temporalio.exceptions.ActivityError as e:
-            if isinstance(e.cause, temporalio.exceptions.CancelledError):
-                workflow_id = temporalio.workflow.info().workflow_id
-                workflow_run_id = temporalio.workflow.info().run_id
+        except ActivityError as e:
+            if isinstance(e.cause, CancelledError):
+                workflow_id = workflow.info().workflow_id
+                workflow_run_id = workflow.info().run_id
                 try:
-                    await temporalio.workflow.execute_activity(
+                    await workflow.execute_activity(
                         cancel_jobs_activity,
                         CancelJobsActivityInputs(
                             workflow_id=workflow_id, workflow_run_id=workflow_run_id, team_id=inputs.team_id
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=5),
-                        retry_policy=temporalio.common.RetryPolicy(
+                        retry_policy=RetryPolicy(
                             maximum_attempts=3,
                         ),
                     )
                 except Exception as cancel_err:
                     capture_exception(cancel_err)
-                    temporalio.workflow.logger.error(f"Failed to cancel jobs: {str(cancel_err)}")
+                    workflow.logger.error(f"Failed to cancel jobs: {str(cancel_err)}")
                     raise
                 raise
 
             capture_exception(e)
-            temporalio.workflow.logger.error(f"Activity failed during model run: {str(e)}")
+            workflow.logger.error(f"Activity failed during model run: {str(e)}")
 
-            await temporalio.workflow.execute_activity(
+            await workflow.execute_activity(
                 fail_jobs_activity,
                 FailJobsActivityInputs(job_id=job_id, error=str(e), team_id=inputs.team_id),
                 start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=temporalio.common.RetryPolicy(
+                retry_policy=RetryPolicy(
                     maximum_attempts=3,
                 ),
             )
             raise
         except Exception as e:
-            await temporalio.workflow.execute_activity(
+            await workflow.execute_activity(
                 fail_jobs_activity,
                 FailJobsActivityInputs(job_id=job_id, error=str(e), team_id=inputs.team_id),
                 start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=temporalio.common.RetryPolicy(
+                retry_policy=RetryPolicy(
                     maximum_attempts=3,
                 ),
             )
@@ -1495,11 +1495,11 @@ class RunWorkflow(PostHogWorkflow):
             run_at=run_at,
             team_id=inputs.team_id,
         )
-        await temporalio.workflow.execute_activity(
+        await workflow.execute_activity(
             finish_run_activity,
             finish_run_activity_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(
+            retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=1,
