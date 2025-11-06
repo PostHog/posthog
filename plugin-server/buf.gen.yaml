@@ -6,8 +6,8 @@ plugins:
     # TypeScript message generation
     - local: protoc-gen-es
       opt: target=ts,import_extension=none
-      out: src/gen
+      out: src/proto
     # ConnectRPC client generation
     - local: protoc-gen-connect-es
       opt: target=ts,import_extension=none
-      out: src/gen
+      out: src/proto

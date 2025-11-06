@@ -8,8 +8,8 @@
 import { PromiseClient, createPromiseClient } from '@connectrpc/connect'
 import { createGrpcTransport } from '@connectrpc/connect-node'
 
-import { KafkaProducer } from '../gen/kafka_producer_connect'
-import { ProduceRequest } from '../gen/kafka_producer_pb'
+import { KafkaProducer } from '../proto/kafka_producer_connect'
+import { ProduceRequest } from '../proto/kafka_producer_pb'
 
 export interface GrpcKafkaProducerConfig {
     /** gRPC sidecar URL (e.g., "http://localhost:50051") */
