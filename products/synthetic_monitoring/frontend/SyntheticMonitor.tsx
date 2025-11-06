@@ -27,8 +27,8 @@ const READABLE_SYNTHETIC_MONITORING_REGIONS: Record<SyntheticMonitoringRegion, s
     [SyntheticMonitoringRegion.US_WEST_2]: 'US West (Oregon)',
     [SyntheticMonitoringRegion.EU_WEST_1]: 'EU West (Ireland)',
     [SyntheticMonitoringRegion.EU_CENTRAL_1]: 'EU Central (Frankfurt)',
-    [SyntheticMonitoringRegion.AP_SOUTHEAST_1]: 'Asia Pacific (Singapore)',
-    [SyntheticMonitoringRegion.AP_NORTHEAST_1]: 'Asia Pacific (Tokyo)',
+    [SyntheticMonitoringRegion.AP_NORTHEAST_1]: 'Asia Pacific (Seoul)',
+    [SyntheticMonitoringRegion.SA_EAST_1]: 'South America (Sao Paulo)',
 }
 
 export function SyntheticMonitor(): JSX.Element {

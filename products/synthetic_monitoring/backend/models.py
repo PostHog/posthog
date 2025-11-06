@@ -10,8 +10,8 @@ VALID_REGIONS = {
     "us-west-2",  # US West (Oregon)
     "eu-west-1",  # EU West (Ireland)
     "eu-central-1",  # EU Central (Frankfurt)
-    "ap-southeast-1",  # Asia Pacific (Singapore)
-    "ap-northeast-1",  # Asia Pacific (Tokyo)
+    "ap-northeast-2",  # Asia Pacific (Seoul)
+    "sa-east-1",  # South America (São Paulo)
 }
 
 
@@ -47,6 +47,13 @@ class SyntheticMonitor(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         DELETE = "DELETE"
         HEAD = "HEAD"
 
+    class State(models.TextChoices):
+        """Monitor state"""
+
+        OK = "ok"
+        FAILING = "failing"
+        PENDING = "pending"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400)
 
@@ -77,6 +84,23 @@ class SyntheticMonitor(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     )
     timeout_seconds = models.IntegerField(default=30)
     enabled = models.BooleanField(default=True)
+
+    # Alerting configuration
+    alert_enabled = models.BooleanField(default=False)
+    alert_threshold_failures = models.IntegerField(default=3)
+    slack_integration = models.ForeignKey(
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="synthetic_monitors"
+    )
+
+    # State tracking
+    state = models.CharField(max_length=20, choices=State.choices, default=State.PENDING)
+    last_checked_at = models.DateTimeField(null=True, blank=True)
+    next_check_at = models.DateTimeField(null=True, blank=True)
+    consecutive_failures = models.IntegerField(default=0)
+    last_alerted_at = models.DateTimeField(null=True, blank=True)
+
+    # Metadata
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:
         db_table = '"posthog_syntheticmonitor"'

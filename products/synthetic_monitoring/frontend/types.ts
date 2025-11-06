@@ -3,8 +3,8 @@ export enum SyntheticMonitoringRegion {
     US_WEST_2 = 'us-west-2', // US West (Oregon)
     EU_WEST_1 = 'eu-west-1', // EU West (Ireland)
     EU_CENTRAL_1 = 'eu-central-1', // EU Central (Frankfurt)
-    AP_SOUTHEAST_1 = 'ap-southeast-1', // Asia Pacific (Singapore)
-    AP_NORTHEAST_1 = 'ap-northeast-1', // Asia Pacific (Tokyo)
+    AP_NORTHEAST_1 = 'ap-northeast-2', // Asia Pacific (Seoul)
+    SA_EAST_1 = 'sa-east-1', // South America (São Paulo)
 }
 
 export enum MonitorState {
