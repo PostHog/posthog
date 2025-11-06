@@ -112,6 +112,7 @@ export enum Scene {
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
+    SessionSummaries = 'SessionSummaries',
     Settings = 'Settings',
     Signup = 'Signup',
     Site = 'Site',
