@@ -20,6 +20,15 @@ logger = structlog.get_logger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
+class ValidatedRequest(Request):
+    """
+    Request with validated_data attribute.
+    This is set by the @validated_request decorator when request_serializer is provided.
+    """
+
+    validated_data: dict[str, Any]
+
+
 # Generic Pydantic model mixin for validating the response data
 class PydanticModelMixin:
     def get_model(self, data: dict, model: type[T]) -> T:
@@ -54,7 +63,8 @@ def validated_request(
             },
             summary="Do something"
         )
-        def my_action(self, request, **kwargs):
+        def my_action(self, request: ValidatedRequest, **kwargs):
+            # When request_serializer is provided, request.validated_data is available
             request_data = request.validated_data.get("next_stage_id")
 
             if not request_data:
@@ -63,6 +73,9 @@ def validated_request(
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             return Response(SuccessResponseSerializer(request_data, context=self.get_serializer_context()).data)
+
+    Note: Use ValidatedRequest type hint when you need to access request.validated_data.
+    The decorator will set validated_data on the request when request_serializer is provided.
     """
 
     def decorator(view_func: Callable) -> Callable:
@@ -89,7 +102,9 @@ def validated_request(
                         validation_errors=serializer.errors,
                     )
 
-                setattr(request, "validated_data", serializer.validated_data)
+                # Cast to ValidatedRequest and set validated_data attribute
+                validated_request = cast(ValidatedRequest, request)
+                validated_request.validated_data = serializer.validated_data
 
             result = view_func(self, request, *args, **kwargs)
 
