@@ -11132,6 +11132,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "function": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -11163,6 +11166,9 @@
                 },
                 "revenue": {
                     "type": "number"
+                },
+                "source": {
+                    "type": "string"
                 },
                 "status": {
                     "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
