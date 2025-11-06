@@ -39,7 +39,6 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
     const { setName, updateHeatmap, onIframeLoad, setScreenshotLoaded, exportHeatmap, setContainerWidth } =
         useActions(logic)
 
-    // Measure available container width to clamp oversized viewports and show scale
     const measureRef = useRef<HTMLDivElement | null>(null)
     useEffect(() => {
         if (!measureRef.current || typeof ResizeObserver === 'undefined') {
@@ -55,15 +54,12 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         return () => ro.disconnect()
     }, [])
 
-    // Ensure re-measure when viewport width selection changes
     useEffect(() => {
         if (measureRef.current) {
             const w = measureRef.current.getBoundingClientRect().width
             setContainerWidth(typeof w === 'number' ? w : null)
         }
     }, [widthOverride])
-
-    // Derived widths and scale are provided by heatmapLogic selectors
 
     if (loading) {
         return (
