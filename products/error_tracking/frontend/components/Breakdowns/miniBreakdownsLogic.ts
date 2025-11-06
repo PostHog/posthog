@@ -6,7 +6,10 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { BREAKDOWN_OTHER_DISPLAY } from 'scenes/insights/utils'
 
-import { ErrorTrackingBreakdownsQueryResponse } from '~/queries/schema/schema-general'
+import {
+    CachedErrorTrackingBreakdownsQueryResponse,
+    ErrorTrackingBreakdownsQueryResponse,
+} from '~/queries/schema/schema-general'
 
 import { errorTrackingBreakdownsQuery } from '../../queries'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
@@ -45,12 +48,14 @@ export const miniBreakdownsLogic = kea<miniBreakdownsLogicType>([
                         }),
                         { refresh: 'blocking' }
                     )
+
                     posthog.capture(BreakdownsEvents.MiniBreakdownsLoaded, {
                         issueId: props.issueId,
                         dateRange: values.dateRange,
                         filterTestAccounts: values.filterTestAccounts,
                         breakdownProperties: BREAKDOWN_PRESETS.map((preset) => preset.property),
                         duration: Date.now() - startTime,
+                        cached: (result as CachedErrorTrackingBreakdownsQueryResponse).is_cached,
                     })
 
                     return result
