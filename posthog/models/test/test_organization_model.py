@@ -78,6 +78,29 @@ class TestOrganization(BaseTest):
             new_org, _, _ = Organization.objects.bootstrap(self.user)
             assert new_org.plugins_access_level == Organization.PluginsAccessLevel.ROOT
 
+    def test_default_anonymize_ips_based_on_deployment(self):
+        # EU deployment should default to True
+        with self.settings(CLOUD_DEPLOYMENT="EU"):
+            eu_org, _, _ = Organization.objects.bootstrap(self.user, name="EU Org")
+            self.assertTrue(eu_org.default_anonymize_ips)
+
+        # US deployment should default to False
+        with self.settings(CLOUD_DEPLOYMENT="US"):
+            us_org, _, _ = Organization.objects.bootstrap(self.user, name="US Org")
+            self.assertFalse(us_org.default_anonymize_ips)
+
+        # No deployment setting should default to False
+        with self.settings(CLOUD_DEPLOYMENT=None):
+            no_deployment_org, _, _ = Organization.objects.bootstrap(self.user, name="No Deployment Org")
+            self.assertFalse(no_deployment_org.default_anonymize_ips)
+
+        # Explicit value should override deployment setting
+        with self.settings(CLOUD_DEPLOYMENT="EU"):
+            explicit_org, _, _ = Organization.objects.bootstrap(
+                self.user, name="Explicit Org", default_anonymize_ips=False
+            )
+            self.assertFalse(explicit_org.default_anonymize_ips)
+
     def test_update_available_product_features_ignored_if_usage_info_exists(self):
         with self.is_cloud(False):
             new_org, _, _ = Organization.objects.bootstrap(self.user)
