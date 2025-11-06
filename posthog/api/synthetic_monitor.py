@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 
 from rest_framework import filters, serializers, viewsets
@@ -17,9 +18,6 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
     Synthetic monitors track HTTP endpoint uptime and latency from multiple AWS regions.
     All check results are stored as `synthetic_http_check` events in ClickHouse.
     Monitor state (last checked, consecutive failures, etc.) is computed from ClickHouse events on-demand.
-
-    Alerts are configured via HogFlows (workflows) that trigger on `synthetic_http_check` events.
-    Use the "Create alert workflow" button in the UI to set up alert workflows.
     """
 
     created_by = UserBasicSerializer(read_only=True)
@@ -32,16 +30,14 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
     )
     frequency_minutes = serializers.IntegerField(
         help_text="How often to check the endpoint (1, 5, 15, 30, or 60 minutes)",
-        choices=[(1, "1 minute"), (5, "5 minutes"), (15, "15 minutes"), (30, "30 minutes"), (60, "60 minutes")],
     )
     regions = serializers.JSONField(
         help_text="List of AWS regions to run checks from (e.g., ['us-east-1', 'eu-west-1']). Valid regions: us-east-1, us-west-2, eu-west-1, eu-central-1, ap-southeast-1, ap-northeast-1",
-        allow_empty=True,
     )
-    method = serializers.CharField(
-        help_text="HTTP method to use for the check (GET, POST, PUT, PATCH, DELETE, or HEAD)",
-        default="GET",
-        max_length=10,
+    method = serializers.ChoiceField(
+        help_text="HTTP method to use for the check",
+        choices=SyntheticMonitor.Method.choices,
+        default=SyntheticMonitor.Method.GET,
     )
     headers = serializers.JSONField(
         help_text="Custom HTTP headers as JSON object (e.g., {'Authorization': 'Bearer token'})",
@@ -55,10 +51,8 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
         allow_blank=True,
     )
     expected_status_code = serializers.IntegerField(
-        help_text="Expected HTTP status code (default: 200). Check fails if response status doesn't match.",
+        help_text="Expected HTTP status code (default: 200). Check fails if response status doesn't match. Must be between 100-599.",
         default=200,
-        min_value=100,
-        max_value=599,
     )
     timeout_seconds = serializers.IntegerField(
         help_text="Request timeout in seconds (default: 30, max: 300)",
@@ -96,53 +90,34 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
             "updated_at",
         ]
 
-    def validate_url(self, value: str) -> str:
-        if not value.startswith("http://") and not value.startswith("https://"):
-            raise serializers.ValidationError("URL must start with http:// or https://")
-        return value
-
-    def validate_method(self, value: str) -> str:
-        allowed_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]
-        if value.upper() not in allowed_methods:
-            raise serializers.ValidationError(f"Method must be one of {', '.join(allowed_methods)}")
-        return value.upper()
-
-    def validate_regions(self, value: list) -> list:
-        if not isinstance(value, list):
-            raise serializers.ValidationError("Regions must be a list")
-        if len(value) == 0:
-            return value
-        if not all(isinstance(region, str) for region in value):
-            raise serializers.ValidationError("All regions must be strings")
-        valid_regions = {region.value for region in SyntheticMonitor.Region}
-        invalid_regions = [r for r in value if r not in valid_regions]
-        if invalid_regions:
-            raise serializers.ValidationError(
-                f"Invalid regions: {', '.join(invalid_regions)}. "
-                f"Valid regions are: {', '.join(sorted(valid_regions))}"
-            )
-        return value
-
     def create(self, validated_data: dict) -> SyntheticMonitor:
-        request = self.context["request"]
-        validated_data["team_id"] = self.context["team_id"]
-        validated_data["created_by"] = request.user
+        try:
+            request = self.context["request"]
+            validated_data["team_id"] = self.context["team_id"]
+            validated_data["created_by"] = request.user
 
-        monitor = SyntheticMonitor(**validated_data)
+            monitor = SyntheticMonitor(**validated_data)
 
-        with transaction.atomic():
-            monitor.save()
+            with transaction.atomic():
+                monitor.full_clean()  # Run model validators
+                monitor.save()
 
-        report_user_action(
-            request.user,
-            "synthetic monitor created",
-            {
-                "monitor_id": str(monitor.id),
-                "frequency_minutes": monitor.frequency_minutes,
-            },
-        )
+            report_user_action(
+                request.user,
+                "synthetic monitor created",
+                {
+                    "monitor_id": str(monitor.id),
+                    "frequency_minutes": monitor.frequency_minutes,
+                },
+            )
 
-        return monitor
+            return monitor
+        except DjangoValidationError as e:
+            # Convert Django ValidationError to DRF ValidationError
+            if hasattr(e, "message_dict"):
+                raise serializers.ValidationError(e.message_dict)
+            else:
+                raise serializers.ValidationError({"non_field_errors": e.messages})
 
     def update(self, instance: SyntheticMonitor, validated_data: dict) -> SyntheticMonitor:
         request = self.context["request"]
@@ -155,7 +130,15 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
 
         # No state changes needed - state is computed from ClickHouse events
 
-        instance.save()
+        try:
+            instance.full_clean()  # Run model validators
+            instance.save()
+        except DjangoValidationError as e:
+            # Convert Django ValidationError to DRF ValidationError
+            if hasattr(e, "message_dict"):
+                raise serializers.ValidationError(e.message_dict)
+            else:
+                raise serializers.ValidationError({"non_field_errors": e.messages})
 
         action = (
             "synthetic monitor resumed"
