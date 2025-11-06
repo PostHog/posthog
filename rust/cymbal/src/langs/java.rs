@@ -106,8 +106,7 @@ impl RawJavaFrame {
             res.exception_type = self
                 .exception_type
                 .as_ref()
-                .map(|t| mapper.remap_class(t))
-                .flatten()
+                .and_then(|t| mapper.remap_class(t))
                 .map(|s| s.to_string());
         }
 

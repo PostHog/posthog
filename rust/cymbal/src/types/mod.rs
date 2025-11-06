@@ -464,8 +464,7 @@ impl Stacktrace {
         };
         frames
             .iter_mut()
-            .filter(|f| f.exception_type.is_some())
-            .next()
+            .find(|f| f.exception_type.is_some())
             .and_then(|f| f.exception_type.take())
     }
 }

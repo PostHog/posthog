@@ -28,10 +28,9 @@ pub async fn do_stack_processing(
             exception.exception_id = Some(Uuid::now_v7().to_string());
 
             // Lexical lifetimes goes crazy, I was fully sure this would be impossible
-            exception
-                .stack
-                .as_mut()
-                .map(|r| r.push_exception_type(exception.exception_type.clone()));
+            if let Some(r) = exception.stack.as_mut() {
+                r.push_exception_type(exception.exception_type.clone())
+            }
 
             let frames = match exception.stack.take() {
                 Some(Stacktrace::Raw { frames }) => {
@@ -117,8 +116,7 @@ pub async fn do_stack_processing(
             if let Some(t) = exception
                 .stack
                 .as_mut()
-                .map(|s| s.pop_exception_type())
-                .flatten()
+                .and_then(|s| s.pop_exception_type())
             {
                 exception.exception_type = t;
             }
