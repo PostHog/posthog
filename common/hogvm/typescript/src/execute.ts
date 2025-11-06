@@ -457,10 +457,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                     if (cohortIds == null || cohortId == null) {
                         pushStack(false)
                     } else if (Array.isArray(cohortIds)) {
-                        // Convert cohort_id to number if it's numeric string
-                        const id =
-                            typeof cohortId === 'string' && /^\d+$/.test(cohortId) ? parseInt(cohortId) : cohortId
-                        pushStack(cohortIds.includes(id))
+                        pushStack(cohortIds.includes(cohortId))
                     } else {
                         pushStack(false)
                     }
@@ -474,10 +471,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                     if (cohortIds == null || cohortId == null) {
                         pushStack(true)
                     } else if (Array.isArray(cohortIds)) {
-                        // Convert cohort_id to number if it's numeric string
-                        const id =
-                            typeof cohortId === 'string' && /^\d+$/.test(cohortId) ? parseInt(cohortId) : cohortId
-                        pushStack(!cohortIds.includes(id))
+                        pushStack(!cohortIds.includes(cohortId))
                     } else {
                         pushStack(true)
                     }

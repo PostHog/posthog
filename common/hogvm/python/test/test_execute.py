@@ -1116,17 +1116,4 @@ class TestBytecodeExecute:
         except Exception as e:
             assert "Global variable not found: cohort_ids" in str(e)
 
-        # Test with string cohort ID that should be converted to int
-        bytecode = [
-            _H,
-            VERSION,
-            op.STRING,
-            "123",  # String cohort ID
-            op.STRING,
-            "cohort_ids",
-            op.GET_GLOBAL,
-            1,
-            op.IN_COHORT,
-        ]
-        result = execute_bytecode(bytecode, {"cohort_ids": [45, 123, 789]})
-        assert result.result is True
+        # String cohort ID case removed: cohort IDs are always integers now

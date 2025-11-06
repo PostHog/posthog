@@ -2670,19 +2670,6 @@ describe('hogvm execute', () => {
         result = exec(bytecode, { globals: {} })
         expect(result.error?.message).toContain('Global variable not found: cohort_ids')
 
-        // Test with string cohort ID that should be converted to int
-        bytecode = [
-            '_H',
-            1,
-            op.STRING,
-            '123', // String cohort ID
-            op.STRING,
-            'cohort_ids',
-            op.GET_GLOBAL,
-            1,
-            op.IN_COHORT,
-        ]
-        result = exec(bytecode, { globals: { cohort_ids: [45, 123, 789] } })
-        expect(result.result).toBe(true)
+        // String cohort ID case removed: cohort IDs are always integers now
     })
 })

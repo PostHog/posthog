@@ -281,9 +281,6 @@ def execute_bytecode(
                 if cohort_ids is None or cohort_id is None:
                     push_stack(False)
                 elif isinstance(cohort_ids, list):
-                    # Convert cohort_id to int if it's numeric string
-                    if isinstance(cohort_id, str) and cohort_id.isdigit():
-                        cohort_id = int(cohort_id)
                     push_stack(cohort_id in cohort_ids)
                 else:
                     push_stack(False)
@@ -295,9 +292,6 @@ def execute_bytecode(
                 if cohort_ids is None or cohort_id is None:
                     push_stack(True)
                 elif isinstance(cohort_ids, list):
-                    # Convert cohort_id to int if it's numeric string
-                    if isinstance(cohort_id, str) and cohort_id.isdigit():
-                        cohort_id = int(cohort_id)
                     push_stack(cohort_id not in cohort_ids)
                 else:
                     push_stack(True)
