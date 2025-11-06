@@ -1,12 +1,4 @@
-"""Test module covering the workflow used for batch exporting to BigQuery.
-
-The tests are parametrized with `use_internal_stage` to cover both usage of
-`insert_into_bigquery_activity` or `insert_into_bigquery_activity_from_stage` as the
-main activities of the workflow.
-
-NOTE: Once all batch exports have been moved to use the internal stage, the
-`use_internal_stage` parameter can be dropped with only the `True` case remaining.
-"""
+"""Test module covering the workflow used for batch exporting to BigQuery."""
 
 import uuid
 import asyncio
@@ -16,7 +8,6 @@ import pytest
 import unittest.mock
 
 from django.conf import settings
-from django.test import override_settings
 
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -36,7 +27,6 @@ from products.batch_exports.backend.temporal.batch_exports import finish_batch_e
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
     BigQueryInsertInputs,
-    insert_into_bigquery_activity,
     insert_into_bigquery_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
@@ -52,8 +42,6 @@ pytestmark = [
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    # While we migrate to the new workflow, we need to test both new and old activities
-    pytest.mark.parametrize("use_internal_stage", [False, True]),
 ]
 
 
@@ -112,7 +100,6 @@ async def test_bigquery_export_workflow(
     generate_test_data,
     data_interval_start,
     data_interval_end,
-    use_internal_stage,
 ):
     """Test BigQuery Export Workflow end-to-end.
 
@@ -147,59 +134,55 @@ async def test_bigquery_export_workflow(
         **bigquery_batch_export.destination.config,
     )
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_BIGQUERY_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[BigQueryBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_bigquery_activity_from_stage,
+                insert_into_internal_stage_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                BigQueryBatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[BigQueryBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_bigquery_activity,
-                    insert_into_bigquery_activity_from_stage,
-                    insert_into_internal_stage_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                await activity_environment.client.execute_workflow(
-                    BigQueryBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=60),
-                )
-
-            runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
-            assert len(runs) == 1
-
-            events_to_export_created, persons_to_export_created = generate_test_data
-            run = runs[0]
-            assert run.status == "Completed"
-            assert (
-                run.records_completed == len(events_to_export_created)
-                or run.records_completed == len(persons_to_export_created)
-                or run.records_completed
-                == len([event for event in events_to_export_created if event["properties"] is not None])
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(seconds=60),
             )
 
-            await assert_clickhouse_records_in_bigquery(
-                bigquery_client=bigquery_client,
-                clickhouse_client=clickhouse_client,
-                table_id=table_id,
-                dataset_id=bigquery_batch_export.destination.config["dataset_id"],
-                team_id=ateam.pk,
-                date_ranges=[(data_interval_start, data_interval_end)],
-                exclude_events=exclude_events,
-                include_events=None,
-                batch_export_model=model,
-                use_json_type=use_json_type,
-                min_ingested_timestamp=TEST_TIME,
-                sort_key=sort_key,
-            )
+        runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
+        assert len(runs) == 1
+
+        events_to_export_created, persons_to_export_created = generate_test_data
+        run = runs[0]
+        assert run.status == "Completed"
+        assert (
+            run.records_completed == len(events_to_export_created)
+            or run.records_completed == len(persons_to_export_created)
+            or run.records_completed
+            == len([event for event in events_to_export_created if event["properties"] is not None])
+        )
+
+        await assert_clickhouse_records_in_bigquery(
+            bigquery_client=bigquery_client,
+            clickhouse_client=clickhouse_client,
+            table_id=table_id,
+            dataset_id=bigquery_batch_export.destination.config["dataset_id"],
+            team_id=ateam.pk,
+            date_ranges=[(data_interval_start, data_interval_end)],
+            exclude_events=exclude_events,
+            include_events=None,
+            batch_export_model=model,
+            use_json_type=use_json_type,
+            min_ingested_timestamp=TEST_TIME,
+            sort_key=sort_key,
+        )
 
 
 @pytest.mark.parametrize("interval", ["hour"])
@@ -216,7 +199,6 @@ async def test_bigquery_export_workflow_without_events(
     model: BatchExportModel | BatchExportSchema | None,
     data_interval_start,
     data_interval_end,
-    use_internal_stage,
 ):
     """Test the BigQuery Export Workflow without any events to export.
 
@@ -243,38 +225,34 @@ async def test_bigquery_export_workflow_without_events(
         **bigquery_batch_export.destination.config,
     )
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_BIGQUERY_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[BigQueryBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_bigquery_activity_from_stage,
+                insert_into_internal_stage_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                BigQueryBatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[BigQueryBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_bigquery_activity,
-                    insert_into_bigquery_activity_from_stage,
-                    insert_into_internal_stage_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                await activity_environment.client.execute_workflow(
-                    BigQueryBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
-                )
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(seconds=10),
+            )
 
-            runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
-            assert len(runs) == 1
+        runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
+        assert len(runs) == 1
 
-            run = runs[0]
-            assert run.status == "Completed"
-            assert run.records_completed == 0
+        run = runs[0]
+        assert run.status == "Completed"
+        assert run.records_completed == 0
 
 
 @pytest.mark.parametrize(
@@ -299,7 +277,6 @@ async def test_bigquery_export_workflow_backfill_earliest_persons(
     model,
     table_id,
     use_json_type,
-    use_internal_stage,
 ):
     """Test a `BigQueryBatchExportWorkflow` backfilling the persons model.
 
@@ -328,31 +305,27 @@ async def test_bigquery_export_workflow_backfill_earliest_persons(
         data_interval_end - person["_timestamp"].replace(tzinfo=dt.UTC) > dt.timedelta(hours=12) for person in persons
     )
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_BIGQUERY_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[BigQueryBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_bigquery_activity_from_stage,
+                insert_into_internal_stage_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                BigQueryBatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[BigQueryBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_bigquery_activity,
-                    insert_into_bigquery_activity_from_stage,
-                    insert_into_internal_stage_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                await activity_environment.client.execute_workflow(
-                    BigQueryBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(minutes=10),
-                )
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(minutes=10),
+            )
 
     runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
     assert len(runs) == 1
@@ -395,42 +368,38 @@ async def test_bigquery_export_workflow_handles_unexpected_insert_activity_error
         **bigquery_batch_export.destination.config,
     )
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_BIGQUERY_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[BigQueryBatchExportWorkflow],
-                activities=[
-                    mocked_start_batch_export_run,
-                    insert_into_bigquery_activity,
-                    insert_into_bigquery_activity_from_stage,
-                    insert_into_internal_stage_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[BigQueryBatchExportWorkflow],
+            activities=[
+                mocked_start_batch_export_run,
+                insert_into_bigquery_activity_from_stage,
+                insert_into_internal_stage_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with (
+                unittest.mock.patch(
+                    "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.Producer.start",
+                    side_effect=RuntimeError("A useful error message"),
+                ),
+                unittest.mock.patch(
+                    "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.ProducerFromInternalStage.start",
+                    side_effect=RuntimeError("A useful error message"),
+                ),
             ):
-                with (
-                    unittest.mock.patch(
-                        "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.Producer.start",
-                        side_effect=RuntimeError("A useful error message"),
-                    ),
-                    unittest.mock.patch(
-                        "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.ProducerFromInternalStage.start",
-                        side_effect=RuntimeError("A useful error message"),
-                    ),
-                ):
-                    with pytest.raises(WorkflowFailureError):
-                        await activity_environment.client.execute_workflow(
-                            BigQueryBatchExportWorkflow.run,
-                            inputs,
-                            id=workflow_id,
-                            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                            retry_policy=RetryPolicy(maximum_attempts=1),
-                            execution_timeout=dt.timedelta(seconds=20),
-                        )
+                with pytest.raises(WorkflowFailureError):
+                    await activity_environment.client.execute_workflow(
+                        BigQueryBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                        execution_timeout=dt.timedelta(seconds=20),
+                    )
 
     runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
     assert len(runs) == 1
@@ -441,7 +410,7 @@ async def test_bigquery_export_workflow_handles_unexpected_insert_activity_error
 
 
 async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_errors(
-    ateam, bigquery_batch_export, interval, use_internal_stage
+    ateam, bigquery_batch_export, interval
 ):
     """Test that BigQuery Export Workflow can gracefully handle non-retryable errors when inserting BigQuery data.
 
@@ -464,40 +433,36 @@ async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_er
     class RefreshError(Exception):
         pass
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_BIGQUERY_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[BigQueryBatchExportWorkflow],
-                activities=[
-                    mocked_start_batch_export_run,
-                    insert_into_bigquery_activity,
-                    insert_into_bigquery_activity_from_stage,
-                    insert_into_internal_stage_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[BigQueryBatchExportWorkflow],
+            activities=[
+                mocked_start_batch_export_run,
+                insert_into_bigquery_activity_from_stage,
+                insert_into_internal_stage_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with (
+                unittest.mock.patch(
+                    "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.Producer.start",
+                    side_effect=RefreshError("A useful error message"),
+                ),
+                unittest.mock.patch(
+                    "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.ProducerFromInternalStage.start",
+                    side_effect=RefreshError("A useful error message"),
+                ),
             ):
-                with (
-                    unittest.mock.patch(
-                        "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.Producer.start",
-                        side_effect=RefreshError("A useful error message"),
-                    ),
-                    unittest.mock.patch(
-                        "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.ProducerFromInternalStage.start",
-                        side_effect=RefreshError("A useful error message"),
-                    ),
-                ):
-                    await activity_environment.client.execute_workflow(
-                        BigQueryBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
+                await activity_environment.client.execute_workflow(
+                    BigQueryBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
 
     runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
     assert len(runs) == 1
@@ -509,7 +474,9 @@ async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_er
 
 
 async def test_bigquery_export_workflow_handles_cancellation(
-    ateam, bigquery_batch_export, interval, use_internal_stage
+    ateam,
+    bigquery_batch_export,
+    interval,
 ):
     """Test that BigQuery Export Workflow can gracefully handle cancellations when inserting BigQuery data."""
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
@@ -523,43 +490,38 @@ async def test_bigquery_export_workflow_handles_cancellation(
         **bigquery_batch_export.destination.config,
     )
 
-    @activity.defn(
-        name="insert_into_bigquery_activity_from_stage" if use_internal_stage else "insert_into_bigquery_activity"
-    )
+    @activity.defn(name="insert_into_bigquery_activity_from_stage")
     async def never_finish_activity(_: BigQueryInsertInputs) -> str:
         while True:
             activity.heartbeat()
             await asyncio.sleep(1)
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_BIGQUERY_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[BigQueryBatchExportWorkflow],
+            activities=[
+                mocked_start_batch_export_run,
+                never_finish_activity,
+                insert_into_internal_stage_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await activity_environment.client.start_workflow(
+                BigQueryBatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[BigQueryBatchExportWorkflow],
-                activities=[
-                    mocked_start_batch_export_run,
-                    never_finish_activity,
-                    insert_into_internal_stage_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                handle = await activity_environment.client.start_workflow(
-                    BigQueryBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
 
-                await asyncio.sleep(5)
-                await handle.cancel()
+            await asyncio.sleep(5)
+            await handle.cancel()
 
-                with pytest.raises(WorkflowFailureError):
-                    await handle.result()
+            with pytest.raises(WorkflowFailureError):
+                await handle.result()
 
     runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
     assert len(runs) == 1

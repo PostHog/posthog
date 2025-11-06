@@ -47,7 +47,6 @@ BATCH_EXPORT_ACTIVITY_TYPES = {
     "insert_into_s3_activity_from_stage",
     "insert_into_snowflake_activity_from_stage",
     "copy_into_snowflake_activity_from_stage",
-    "insert_into_bigquery_activity",
     "insert_into_redshift_activity",
     "insert_into_postgres_activity",
     "insert_into_postgres_activity_from_stage",
