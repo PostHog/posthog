@@ -1,5 +1,7 @@
 """Tests for line numbering feature."""
 
+from typing import Any
+
 from ..event_formatter import format_generation_text_repr
 from ..message_formatter import add_line_numbers
 from ..trace_formatter import format_trace_text_repr
@@ -89,7 +91,7 @@ class TestLineNumbersInTrace:
             "id": "trace-1",
             "properties": {"$ai_span_name": "My Trace"},
         }
-        hierarchy = []
+        hierarchy: list[dict[str, Any]] = []
         result = format_trace_text_repr(trace, hierarchy, {"include_line_numbers": True})
         lines = result.split("\n")
 
@@ -106,7 +108,7 @@ class TestLineNumbersInTrace:
             "id": "trace-1",
             "properties": {"$ai_span_name": "My Trace"},
         }
-        hierarchy = []
+        hierarchy: list[dict[str, Any]] = []
         result = format_trace_text_repr(trace, hierarchy, {"include_line_numbers": False})
         # Should not have L1: prefix on first line
         assert not result.startswith("L1:")

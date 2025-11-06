@@ -37,6 +37,10 @@ def _format_tools_list(tools_list: list[dict[str, Any]]) -> str:
     lines: list[str] = []
 
     for tool in tools_list:
+        # Skip non-dict entries
+        if not isinstance(tool, dict):
+            continue
+
         # Handle Google/Gemini format: {functionDeclarations: [{name, description, parameters}]}
         tools_to_process: list[dict[str, Any]] = []
         if "functionDeclarations" in tool and isinstance(tool["functionDeclarations"], list):
@@ -45,6 +49,9 @@ def _format_tools_list(tools_list: list[dict[str, Any]]) -> str:
             tools_to_process = [tool]
 
         for t in tools_to_process:
+            # Skip non-dict entries in tools_to_process
+            if not isinstance(t, dict):
+                continue
             name: str
             desc: str
             schema: dict[str, Any] | None = None
@@ -136,7 +143,7 @@ def format_tools(ai_tools: Any, options: "FormatterOptions | None" = None) -> li
 
     options = options or {}
     include_markers = options.get("include_markers", True)
-    collapse_threshold = options.get("tools_collapse_threshold", DEFAULT_TOOLS_COLLAPSE_THRESHOLD)
+    collapse_threshold: int = options.get("tools_collapse_threshold", DEFAULT_TOOLS_COLLAPSE_THRESHOLD)  # type: ignore[assignment]
 
     lines.append("")
 

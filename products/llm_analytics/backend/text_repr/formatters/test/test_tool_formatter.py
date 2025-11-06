@@ -314,7 +314,7 @@ class TestEdgeCases:
     def test_custom_collapse_threshold(self):
         """Should respect custom collapse threshold."""
         tools = [{"name": f"tool{i}", "description": f"Tool {i}."} for i in range(3)]
-        lines = format_tools(tools, {"include_markers": True, "tools_collapse_threshold": 2})
+        lines = format_tools(tools, {"include_markers": True, "tools_collapse_threshold": 2})  # type: ignore[arg-type]
         result = "\n".join(lines)
         # Should be collapsed with threshold=2 (3 > 2)
         assert "<<<TOOLS_EXPANDABLE|" in result

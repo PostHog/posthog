@@ -5,6 +5,8 @@ Tests cover request validation, response format, error handling, and integration
 with formatters for different event types.
 """
 
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 
 from rest_framework import status
@@ -128,7 +130,7 @@ class TestTextReprAPI(APIBaseTest):
 
     def test_missing_event_type(self):
         """Should return 400 for missing event_type."""
-        request_data = {"data": {}}
+        request_data: dict[str, Any] = {"data": {}}
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
@@ -461,7 +463,7 @@ class TestEdgeCases(APIBaseTest):
 
         # Test content over 3MB - should truncate at max_length level
         over_limit = "a" * 3500000  # 3.5MB
-        request_data["data"]["properties"]["$ai_input"] = over_limit
+        request_data["data"]["properties"]["$ai_input"] = over_limit  # type: ignore[index]
         request_data["options"] = {"truncated": False}  # Disable internal truncation to test max_length
 
         response = self.client.post(

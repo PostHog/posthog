@@ -4,6 +4,8 @@ Tests for trace_formatter.py - trace hierarchy tree rendering logic.
 Tests cover tree structure rendering, expandable nodes, ASCII art, and options handling.
 """
 
+from typing import Any
+
 from ..message_formatter import truncate_content
 from ..trace_formatter import (
     _format_cost,
@@ -380,7 +382,7 @@ class TestFormatTraceTextRepr:
                 "$ai_latency": 2.5,
             }
         }
-        hierarchy = []
+        hierarchy: list[dict[str, Any]] = []
         result = format_trace_text_repr(trace, hierarchy)
         assert "MY-TRACE" in result
         assert "=" * 80 in result
@@ -414,7 +416,7 @@ class TestFormatTraceTextRepr:
             "total_cost": 0.05,
             "total_tokens": 1500,
         }
-        hierarchy = []
+        hierarchy: list[dict[str, Any]] = []
         result = format_trace_text_repr(trace, hierarchy)
         assert "TRACE" in result
         assert "=" * 80 in result
@@ -427,7 +429,7 @@ class TestFormatTraceTextRepr:
                 "$ai_error": "Something went wrong",
             }
         }
-        hierarchy = []
+        hierarchy: list[dict[str, Any]] = []
         result = format_trace_text_repr(trace, hierarchy)
         assert "TRACE ERROR:" in result
         assert "Something went wrong" in result
@@ -440,7 +442,7 @@ class TestFormatTraceTextRepr:
                 "$ai_input_state": {"query": "test query"},
             }
         }
-        hierarchy = []
+        hierarchy: list[dict[str, Any]] = []
         result = format_trace_text_repr(trace, hierarchy)
         assert "TRACE INPUT" in result
         assert "query" in result
@@ -453,7 +455,7 @@ class TestFormatTraceTextRepr:
                 "$ai_output_state": {"result": "success"},
             }
         }
-        hierarchy = []
+        hierarchy: list[dict[str, Any]] = []
         result = format_trace_text_repr(trace, hierarchy)
         assert "TRACE OUTPUT" in result
         assert "result" in result
@@ -483,7 +485,7 @@ class TestFormatTraceTextRepr:
                 "$ai_session_id": "session123",
             }
         }
-        hierarchy = []
+        hierarchy: list[dict[str, Any]] = []
         result = format_trace_text_repr(trace, hierarchy)
         assert "TEST" in result
         assert "=" * 80 in result
@@ -494,7 +496,7 @@ class TestFormatTraceTextRepr:
             "properties": {"$ai_span_name": "test"},
             "trace_id": "trace456",
         }
-        hierarchy = []
+        hierarchy: list[dict[str, Any]] = []
         result = format_trace_text_repr(trace, hierarchy)
         assert "TEST" in result
         assert "=" * 80 in result
@@ -506,7 +508,7 @@ class TestFormatTraceTextRepr:
             "totalCost": 0.05,
             "totalTokens": 1500,
         }
-        hierarchy = []
+        hierarchy: list[dict[str, Any]] = []
         result = format_trace_text_repr(trace, hierarchy)
         assert "TRACE" in result
         assert "=" * 80 in result
@@ -538,7 +540,7 @@ class TestEdgeCases:
 
     def test_missing_properties(self):
         """Should handle missing properties field."""
-        trace = {}
+        trace: dict[str, Any] = {}
         result = format_trace_text_repr(trace, [])
         assert isinstance(result, str)
 

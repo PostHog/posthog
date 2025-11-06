@@ -290,7 +290,7 @@ class TestFormatToolCalls:
             {"function": {"name": "func1", "arguments": '{"arg": "val"}'}},
             {"function": {"name": "func2", "arguments": ""}},  # Empty string, not "{}"
         ]
-        lines = format_tool_calls(tool_calls)
+        lines = format_tool_calls(tool_calls)  # type: ignore[arg-type]
         result = "\n".join(lines)
         assert "Tool calls: 2" in result
         assert "func1(" in result
@@ -302,7 +302,7 @@ class TestFormatToolCalls:
             {"name": "func1", "args": {"arg": "val"}},
             {"name": "func2", "args": None},
         ]
-        lines = format_tool_calls(tool_calls)
+        lines = format_tool_calls(tool_calls)  # type: ignore[arg-type]
         result = "\n".join(lines)
         assert "Tool calls: 2" in result
         assert "func1(" in result
