@@ -371,9 +371,9 @@ class TestFileSystemDeletion(APIBaseTest):
 
         assert undo_response.status_code == status.HTTP_200_OK
         flag.refresh_from_db()
-        assert flag.deleted is False
-        assert flag.active is True
         assert FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).exists()
+        assert flag.active is True
+        assert flag.deleted is False  # type: ignore
 
     def test_undo_delete_restores_original_path(self) -> None:
         flag = FeatureFlag(team=self.team, key="undo-path-flag", created_by=self.user)
