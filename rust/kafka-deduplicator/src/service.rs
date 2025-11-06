@@ -171,6 +171,13 @@ impl KafkaDeduplicatorService {
             kafka_message_timeout_ms: self.config.kafka_message_timeout_ms,
             kafka_compression_codec: self.config.kafka_compression_codec.clone(),
             kafka_tls: self.config.kafka_tls,
+            kafka_topic_metadata_refresh_interval_ms: Some(30000),
+            kafka_enable_idempotence: None,
+            kafka_max_in_flight: None,
+            kafka_metadata_max_age_ms: None,
+            kafka_producer_batch_size: None,
+            kafka_retry_backoff_ms: None,
+            kafka_socket_timeout_ms: None,
         };
 
         // Create main producer for output topic if configured
