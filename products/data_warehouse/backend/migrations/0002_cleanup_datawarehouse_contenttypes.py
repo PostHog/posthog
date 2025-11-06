@@ -115,7 +115,7 @@ def cleanup_broken_contenttypes(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("data_warehouse", "0001_migrate_data_warehouse_models"),
-        ("posthog", "0903_organization_default_anonymize_ips"),  # Updated to include default_anonymize_ips field
+        ("posthog", "0897_migrate_data_warehouse_models"),
     ]
 
     operations = [

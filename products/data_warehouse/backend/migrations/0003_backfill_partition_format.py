@@ -61,6 +61,7 @@ def backwards(apps, _):
 class Migration(migrations.Migration):
     dependencies = [
         ("data_warehouse", "0002_cleanup_datawarehouse_contenttypes"),
+        ("posthog", "0903_organization_default_anonymize_ips"),
     ]
 
     operations = [migrations.RunPython(forwards, backwards)]
