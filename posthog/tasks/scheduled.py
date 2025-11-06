@@ -58,6 +58,7 @@ from posthog.tasks.tasks import (
     verify_persons_data_in_sync,
 )
 from posthog.tasks.team_access_cache_tasks import warm_all_team_access_caches_task
+from posthog.tasks.team_metadata import sync_all_team_metadata_cache
 from posthog.utils import get_crontab, get_instance_region
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
@@ -112,6 +113,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         600,  # Every 10 minutes (no TTL, just fill missing entries)
         warm_all_team_access_caches_task.s(),
         name="warm team access caches",
+    )
+
+    # Team metadata cache sync - hourly
+    sender.add_periodic_task(
+        crontab(hour="*", minute="0"),
+        sync_all_team_metadata_cache.s(),
+        name="sync all team metadata caches",
     )
 
     # Update events table partitions twice a week
