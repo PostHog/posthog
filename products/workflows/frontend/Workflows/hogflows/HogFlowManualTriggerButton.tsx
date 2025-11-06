@@ -1,14 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconButton, IconPlayFilled } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, Popover } from '@posthog/lemon-ui'
 
+import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
 import { workflowLogic } from '../workflowLogic'
+import { WorkflowSceneLogicProps } from '../workflowSceneLogic'
+import { hogFlowManualTriggerLogic } from './hogFlowManualTriggerLogic'
 
 const VariableInputsPopover = ({
     setPopoverVisible,
@@ -17,28 +19,24 @@ const VariableInputsPopover = ({
 }): JSX.Element => {
     const { workflow } = useValues(workflowLogic)
     const { triggerManualWorkflow } = useActions(workflowLogic)
-    const [inputs, setInputs] = useState<Record<string, string>>({})
-    const [useDefaults, setUseDefaults] = useState(true)
-
-    const getVariableValues = (): Record<string, string> => {
-        if (!workflow?.variables) {
-            return {}
-        }
-        if (useDefaults) {
-            return Object.fromEntries(workflow.variables.map((v: any) => [v.key, v.default ?? '']))
-        }
-        return Object.fromEntries(workflow.variables.map((v: any) => [v.key, inputs[v.key] ?? v.default ?? '']))
-    }
+    const {
+        inputs,
+        useDefaults,
+        scheduleEnabled,
+        scheduledDateTime,
+        variableValues,
+        scheduleDisabledReason,
+        timezone,
+    } = useValues(hogFlowManualTriggerLogic({ id: workflow?.id || 'new' }))
+    const { setInput, toggleUseDefaults, toggleScheduleEnabled, setScheduledDateTime } = useActions(
+        hogFlowManualTriggerLogic({ id: workflow?.id || 'new' })
+    )
 
     const noVariablesMessage = <div className="text-muted">No variables to configure.</div>
 
     const defaultVariableOption = (
         <div className="flex items-center gap-2">
-            <LemonCheckbox
-                label="Use default values"
-                checked={useDefaults}
-                onChange={() => setUseDefaults((v) => !v)}
-            />
+            <LemonCheckbox label="Use default values" checked={useDefaults} onChange={() => toggleUseDefaults()} />
         </div>
     )
 
@@ -62,7 +60,7 @@ const VariableInputsPopover = ({
                             type="text"
                             value={inputs[variable.key] ?? variable.default ?? ''}
                             placeholder={variable.default ? `Default: ${variable.default}` : ''}
-                            onChange={(value) => setInputs((prev) => ({ ...prev, [variable.key]: value }))}
+                            onChange={(value) => setInput(variable.key, value)}
                             disabled={useDefaults}
                         />
                         {variable.default !== undefined && (
@@ -76,6 +74,31 @@ const VariableInputsPopover = ({
         </>
     )
 
+    const scheduleSection = (
+        <div className="flex flex-col gap-2 border-t pt-2">
+            <LemonCheckbox
+                label="Schedule for later"
+                checked={scheduleEnabled}
+                onChange={() => toggleScheduleEnabled()}
+            />
+            {scheduleEnabled && (
+                <div className="flex flex-col gap-2">
+                    <div className="text-xs text-muted">Project timezone: {timezone}</div>
+                    <LemonCalendarSelectInput
+                        value={scheduledDateTime}
+                        onChange={(date) => {
+                            // Interpret the selected wall-clock time in the team's timezone
+                            setScheduledDateTime(date)
+                        }}
+                        granularity="minute"
+                        selectionPeriod="upcoming"
+                        showTimeToggle={false}
+                    />
+                </div>
+            )}
+        </div>
+    )
+
     return (
         <div className="flex flex-col items-start gap-2 p-2 min-w-64">
             {!workflow?.variables || workflow.variables.length === 0 ? (
@@ -86,27 +109,32 @@ const VariableInputsPopover = ({
                     {variableInputs}
                 </>
             )}
-            <div className="pt-2 flex justify-end">
+            {scheduleSection}
+            <div className="pt-2 flex justify-end w-full">
                 <LemonButton
                     type="primary"
                     status="alt"
                     onClick={() => {
-                        triggerManualWorkflow(getVariableValues())
+                        const scheduledAt =
+                            scheduleEnabled && scheduledDateTime ? scheduledDateTime.toISOString() : undefined
+                        ;(triggerManualWorkflow as any)(variableValues, scheduledAt)
                         setPopoverVisible(false)
                     }}
                     data-attr="run-workflow-btn"
                     sideIcon={<IconPlayFilled />}
+                    disabledReason={scheduleDisabledReason}
                 >
-                    Run workflow
+                    {scheduleEnabled ? 'Schedule workflow' : 'Run workflow'}
                 </LemonButton>
             </div>
         </div>
     )
 }
 
-export const HogFlowManualTriggerButton = (): JSX.Element => {
-    const { workflow, workflowChanged } = useValues(workflowLogic)
-    const [manualTriggerPopoverVisible, setManualTriggerPopoverVisible] = useState(false)
+export const HogFlowManualTriggerButton = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
+    const logic = hogFlowManualTriggerLogic(props)
+    const { manualTriggerPopoverVisible, workflow, workflowChanged } = useValues(logic)
+    const { togglePopoverVisible } = useActions(logic)
 
     const triggerButton = (
         <LemonButton
@@ -120,7 +148,7 @@ export const HogFlowManualTriggerButton = (): JSX.Element => {
             }
             icon={<IconButton />}
             tooltip="Triggers workflow immediately"
-            onClick={() => setManualTriggerPopoverVisible(true)}
+            onClick={() => togglePopoverVisible()}
         >
             Trigger
         </LemonButton>
@@ -130,8 +158,8 @@ export const HogFlowManualTriggerButton = (): JSX.Element => {
         <Popover
             visible={manualTriggerPopoverVisible}
             placement="bottom-start"
-            onClickOutside={() => setManualTriggerPopoverVisible(false)}
-            overlay={<VariableInputsPopover setPopoverVisible={setManualTriggerPopoverVisible} />}
+            onClickOutside={() => togglePopoverVisible()}
+            overlay={<VariableInputsPopover setPopoverVisible={togglePopoverVisible} />}
         >
             {triggerButton}
         </Popover>

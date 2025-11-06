@@ -123,7 +123,10 @@ export const workflowLogic = kea<workflowLogicType>([
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
-        triggerManualWorkflow: (variables: Record<string, string>) => ({ variables }),
+        triggerManualWorkflow: (variables: Record<string, string>, scheduledAt?: string) => ({
+            variables,
+            scheduledAt,
+        }),
         discardChanges: true,
     }),
     loaders(({ props, values }) => ({
@@ -392,7 +395,7 @@ export const workflowLogic = kea<workflowLogicType>([
 
             actions.setWorkflowValues({ edges: [...newEdges, ...edges] })
         },
-        triggerManualWorkflow: async ({ variables }) => {
+        triggerManualWorkflow: async ({ variables, scheduledAt }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
                 lemonToast.error('You need to save the workflow before triggering it manually.')
                 return
@@ -403,15 +406,24 @@ export const workflowLogic = kea<workflowLogicType>([
             lemonToast.info('Triggering workflow...')
 
             try {
+                const body: Record<string, any> = {
+                    user_id: String(values.user?.id),
+                }
+
+                if (variables) {
+                    body.$variables = variables
+                }
+
+                if (scheduledAt) {
+                    body.$scheduled_at = scheduledAt
+                }
+
                 await fetch(webhookUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        user_id: String(values.user?.id),
-                        $variables: variables,
-                    }),
+                    body: JSON.stringify(body),
                     credentials: 'omit',
                 })
             } catch (e) {
