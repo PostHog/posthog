@@ -202,10 +202,7 @@ pub async fn fetch_and_filter(
         flags_after_tag_filter.len()
     );
 
-    Ok((
-        FeatureFlagList::new(flags_after_tag_filter),
-        flag_result.had_deserialization_errors,
-    ))
+    Ok((FeatureFlagList::new(flags_after_tag_filter), false))
 }
 
 /// Filters flags to only include survey flags if requested

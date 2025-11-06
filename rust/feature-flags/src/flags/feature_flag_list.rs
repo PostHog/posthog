@@ -1,3 +1,5 @@
+use crate::metrics::consts::FLAG_FILTER_DESERIALIZATION_ERROR_COUNTER;
+use metrics::counter;
 use std::sync::Arc;
 use tracing;
 
@@ -15,13 +17,6 @@ use common_types::ProjectId;
 /// Default TTL for feature flags cache: 5 days (432,000 seconds)
 /// This matches the TTL used by the Python cache layer
 pub const DEFAULT_FLAGS_CACHE_TTL_SECONDS: u64 = 432_000;
-
-/// Result of loading flags from the database, including deserialization error tracking
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct FlagsWithMetadata {
-    pub flags: Vec<FeatureFlag>,
-    pub had_deserialization_errors: bool,
-}
 
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
@@ -55,7 +50,7 @@ impl FeatureFlagList {
     ///
     /// This is the primary method for fetching feature flags. It:
     /// 1. Checks Redis cache first
-    /// 2. On cache miss, loads from PostgreSQL
+    /// 2. On cache miss, loads from PostgreSQL using `from_pg`
     /// 3. Automatically updates the cache when loading from DB (unless Redis is unavailable)
     ///
     /// # Arguments
@@ -64,59 +59,34 @@ impl FeatureFlagList {
     /// * `project_id` - Project ID to fetch flags for
     ///
     /// # Returns
-    /// * `Ok(CacheResult<FlagsWithMetadata>)` - Cache result containing flags and metadata
+    /// * `Ok(CacheResult<Vec<FeatureFlag>>)` - Cache result containing flags
     /// * `Err(FlagError)` - Error from database or cache
     pub async fn get_with_cache(
         cache: &ReadThroughCache,
         pg_client: PostgresReader,
         project_id: ProjectId,
-    ) -> Result<CacheResult<FlagsWithMetadata>, FlagError> {
+    ) -> Result<CacheResult<Vec<FeatureFlag>>, FlagError> {
         let pg_client = pg_client.clone();
-        let mut cache_result = cache
-            .get_or_load(&project_id, |&project_id| async move {
-                Self::load_from_pg(pg_client, project_id).await
+        let cache_result = cache
+            .get_or_load(&project_id, move |&project_id| {
+                let pg_client = pg_client.clone();
+                async move {
+                    // Load from PostgreSQL - always returns Some, even for empty results
+                    // This ensures empty flag lists are cached to prevent repeated DB queries
+                    let flags = Self::from_pg(pg_client, project_id).await?;
+                    Ok::<Option<Vec<FeatureFlag>>, FlagError>(Some(flags))
+                }
             })
             .await?;
 
-        // Our loader (load_from_pg) always returns Some(metadata), never None.
-        // Even empty flag lists are wrapped in Some. However, we use unwrap_or
-        // defensively to gracefully handle any future loader contract violations.
-        if cache_result.value.is_none() {
-            cache_result.value = Some(FlagsWithMetadata {
-                flags: vec![],
-                had_deserialization_errors: false,
-            });
-        }
-
         Ok(cache_result)
-    }
-
-    /// Load feature flags from PostgreSQL
-    ///
-    /// This is the loader function used by the cache. It returns:
-    /// - `Ok(Some(metadata))` when loading succeeds (including empty list for projects with no flags)
-    /// - `Ok(None)` is never returned (we always return Some, even for empty results)
-    /// - `Err(FlagError)` when there's a database error
-    ///
-    /// Note: We always return `Some` (even for empty flag lists) because an empty list
-    /// is a valid state that should be cached. This prevents repeated DB queries for
-    /// projects that have no flags.
-    async fn load_from_pg(
-        pg_client: PostgresReader,
-        project_id: ProjectId,
-    ) -> Result<Option<FlagsWithMetadata>, FlagError> {
-        let (flag_list, had_deserialization_errors) = Self::from_pg(pg_client, project_id).await?;
-        Ok(Some(FlagsWithMetadata {
-            flags: flag_list.flags,
-            had_deserialization_errors,
-        }))
     }
 
     /// Returns feature flags from postgres given a project_id
     pub async fn from_pg(
         client: PostgresReader,
         project_id: ProjectId,
-    ) -> Result<(FeatureFlagList, bool), FlagError> {
+    ) -> Result<Vec<FeatureFlag>, FlagError> {
         let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "fetch_flags")
             .await
             .map_err(|e| {
@@ -171,8 +141,7 @@ impl FeatureFlagList {
                 FlagError::Internal(format!("Database query error: {e}"))
             })?;
 
-        let mut had_deserialization_errors = false;
-        let flags_list: Vec<FeatureFlag> = flags_row
+        let flags: Vec<FeatureFlag> = flags_row
             .into_iter()
             .filter_map(|row| {
                 match serde_json::from_value(row.filters) {
@@ -190,6 +159,8 @@ impl FeatureFlagList {
                         evaluation_tags: row.evaluation_tags,
                     }),
                     Err(e) => {
+                        // This is highly unlikely to happen, but if it does, we skip the flag.
+                        // I'll create some sort of alert for this.
                         tracing::warn!(
                             "Failed to deserialize filters for flag {} in project {} (team {}): {}",
                             row.key,
@@ -197,7 +168,12 @@ impl FeatureFlagList {
                             row.team_id,
                             e
                         );
-                        had_deserialization_errors = true;
+                        counter!(
+                            FLAG_FILTER_DESERIALIZATION_ERROR_COUNTER,
+                            "team_id" => row.team_id.to_string(),
+                            "flag_key" => row.key.clone(),
+                        )
+                        .increment(1);
                         None // Skip this flag, continue with others
                     }
                 }
@@ -206,14 +182,11 @@ impl FeatureFlagList {
 
         tracing::debug!(
             "Successfully fetched {} flags from database for project {}",
-            flags_list.len(),
+            flags.len(),
             project_id
         );
 
-        Ok((
-            FeatureFlagList { flags: flags_list },
-            had_deserialization_errors,
-        ))
+        Ok(flags)
     }
 }
 
@@ -287,13 +260,13 @@ mod tests {
             .await
             .expect("Failed to insert flag");
 
-        let (flags_from_pg, _) =
+        let flags_from_pg =
             FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
                 .await
                 .expect("Failed to fetch flags from pg");
 
-        assert_eq!(flags_from_pg.flags.len(), 1);
-        let flag = flags_from_pg.flags.first().expect("Flags should be in pg");
+        assert_eq!(flags_from_pg.len(), 1);
+        let flag = flags_from_pg.first().expect("Flags should be in pg");
         assert_eq!(flag.key, "flag1");
         assert_eq!(flag.team_id, team.id);
         assert_eq!(flag.filters.groups.len(), 1);
@@ -304,10 +277,9 @@ mod tests {
     async fn test_fetch_empty_team_from_pg() {
         let context = TestContext::new(None).await;
 
-        let (FeatureFlagList { flags }, _) =
-            FeatureFlagList::from_pg(context.non_persons_reader.clone(), 1234)
-                .await
-                .expect("Failed to fetch flags from pg");
+        let flags = FeatureFlagList::from_pg(context.non_persons_reader.clone(), 1234)
+            .await
+            .expect("Failed to fetch flags from pg");
 
         assert_eq!(flags.len(), 0);
     }
@@ -317,7 +289,7 @@ mod tests {
         let context = TestContext::new(None).await;
 
         match FeatureFlagList::from_pg(context.non_persons_reader.clone(), -1).await {
-            Ok((flags, _)) => assert_eq!(flags.flags.len(), 0),
+            Ok(flags) => assert_eq!(flags.len(), 0),
             Err(err) => panic!("Expected empty result, got error: {err:?}"),
         }
     }
@@ -385,13 +357,13 @@ mod tests {
             .await
             .expect("Failed to insert flags");
 
-        let (flags_from_pg, _) =
+        let flags_from_pg =
             FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
                 .await
                 .expect("Failed to fetch flags from pg");
 
-        assert_eq!(flags_from_pg.flags.len(), 2);
-        for flag in &flags_from_pg.flags {
+        assert_eq!(flags_from_pg.len(), 2);
+        for flag in &flags_from_pg {
             assert_eq!(flag.team_id, team.id);
         }
     }
@@ -419,13 +391,13 @@ mod tests {
             .await
             .expect("Failed to insert evaluation tags");
 
-        let (flags_from_pg, _) =
+        let flags_from_pg =
             FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
                 .await
                 .expect("Failed to fetch flags from pg");
 
-        assert_eq!(flags_from_pg.flags.len(), 1);
-        let flag = flags_from_pg.flags.first().expect("Should have one flag");
+        assert_eq!(flags_from_pg.len(), 1);
+        let flag = flags_from_pg.first().expect("Should have one flag");
         assert_eq!(flag.key, "flag1");
         assert_eq!(flag.team_id, team.id);
 
@@ -441,13 +413,14 @@ mod tests {
     }
 
     #[test]
-    fn test_serialization_format_compatibility() {
-        // This test verifies that Vec<FeatureFlag> and FlagsWithMetadata
-        // have incompatible JSON formats, proving the cache format issue exists.
+    fn test_cache_format_backward_compatibility() {
+        // This test verifies that the cache format (Vec<FeatureFlag>) remains stable.
+        // We cache Vec<FeatureFlag> directly, and any format change would invalidate
+        // all existing cache entries, causing a thundering herd of database queries.
         use crate::flags::flag_models::{FeatureFlag, FlagFilters};
 
-        // Old format: Just a Vec<FeatureFlag>
-        let old_format_flags = vec![FeatureFlag {
+        // Create test flags in the format we cache
+        let cached_flags = vec![FeatureFlag {
             id: 1,
             team_id: 123,
             name: Some("Test Flag".to_string()),
@@ -461,29 +434,26 @@ mod tests {
             evaluation_tags: None,
         }];
 
-        let old_json = serde_json::to_string(&old_format_flags)
-            .expect("Failed to serialize old format");
+        // Serialize as we do in production cache
+        let cached_json =
+            serde_json::to_string(&cached_flags).expect("Failed to serialize flags for cache");
 
-        println!("Old format JSON: {}", old_json);
+        // Verify we can deserialize it back (cache read path)
+        let result = serde_json::from_str::<Vec<FeatureFlag>>(&cached_json);
 
-        // Try to deserialize old format as FlagsWithMetadata
-        let result = serde_json::from_str::<FlagsWithMetadata>(&old_json);
-
-        // For backward compatibility, this MUST succeed
-        // If it fails, we have a cache format incompatibility that will cause thundering herd
         assert!(
             result.is_ok(),
-            "FAILED: Cannot deserialize old cache format (Vec<FeatureFlag>) as FlagsWithMetadata. \
-             This will cause cache misses for all existing cache entries, leading to thundering herd. \
-             Old JSON: {}\nError: {:?}",
-            old_json,
+            "FAILED: Cannot deserialize cached flags. This indicates a cache format change \
+             that will invalidate all existing cache entries, causing thundering herd. \
+             Cached JSON: {}\nError: {:?}",
+            cached_json,
             result.unwrap_err()
         );
 
         // Verify the deserialized data is correct
-        let metadata = result.unwrap();
-        assert_eq!(metadata.flags.len(), 1);
-        assert_eq!(metadata.flags[0].key, "test_flag");
-        assert_eq!(metadata.flags[0].id, 1);
+        let deserialized_flags = result.unwrap();
+        assert_eq!(deserialized_flags.len(), 1);
+        assert_eq!(deserialized_flags[0].key, "test_flag");
+        assert_eq!(deserialized_flags[0].id, 1);
     }
 }

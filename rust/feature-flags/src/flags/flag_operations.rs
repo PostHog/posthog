@@ -489,12 +489,12 @@ mod tests {
         assert_eq!(redis_flag.get_variants().len(), 3);
 
         // Fetch and verify from Postgres
-        let (pg_flags, _) =
+        let pg_flags =
             FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
                 .await
                 .expect("Failed to fetch flags from Postgres");
-        assert_eq!(pg_flags.flags.len(), 1);
-        let pg_flag = &pg_flags.flags[0];
+        assert_eq!(pg_flags.len(), 1);
+        let pg_flag = &pg_flags[0];
         assert_eq!(pg_flag.key, "multivariate_flag");
         assert_eq!(pg_flag.get_variants().len(), 3);
     }
@@ -590,12 +590,12 @@ mod tests {
         assert_eq!(redis_flag.key, "multivariate_flag_with_payloads");
 
         // Fetch and verify from Postgres
-        let (pg_flags, _) =
+        let pg_flags =
             FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
                 .await
                 .expect("Failed to fetch flags from Postgres");
-        assert_eq!(pg_flags.flags.len(), 1);
-        let pg_flag = &pg_flags.flags[0];
+        assert_eq!(pg_flags.len(), 1);
+        let pg_flag = &pg_flags[0];
         assert_eq!(pg_flag.key, "multivariate_flag_with_payloads");
 
         // Verify flag contents for both Redis and Postgres
@@ -725,12 +725,12 @@ mod tests {
         assert_eq!(redis_flag.filters.super_groups.as_ref().unwrap().len(), 1);
 
         // Fetch and verify from Postgres
-        let (pg_flags, _) =
+        let pg_flags =
             FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
                 .await
                 .expect("Failed to fetch flags from Postgres");
-        assert_eq!(pg_flags.flags.len(), 1);
-        let pg_flag = &pg_flags.flags[0];
+        assert_eq!(pg_flags.len(), 1);
+        let pg_flag = &pg_flags[0];
         assert_eq!(pg_flag.key, "flag_with_super_groups");
         assert!(pg_flag.filters.super_groups.is_some());
         assert_eq!(pg_flag.filters.super_groups.as_ref().unwrap().len(), 1);
@@ -828,12 +828,12 @@ mod tests {
         assert_eq!(redis_properties[2].prop_type, PropertyType::Cohort);
 
         // Fetch and verify from Postgres
-        let (pg_flags, _) =
+        let pg_flags =
             FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
                 .await
                 .expect("Failed to fetch flags from Postgres");
-        assert_eq!(pg_flags.flags.len(), 1);
-        let pg_flag = &pg_flags.flags[0];
+        assert_eq!(pg_flags.len(), 1);
+        let pg_flag = &pg_flags[0];
         assert_eq!(pg_flag.key, "flag_with_different_properties");
         let pg_properties = &pg_flag.filters.groups[0].properties.as_ref().unwrap();
         assert_eq!(pg_properties.len(), 3);
@@ -935,13 +935,13 @@ mod tests {
             .any(|f| f.key == "inactive_flag" && !f.active));
 
         // Fetch and verify from Postgres
-        let (pg_flags, _) =
+        let pg_flags =
             FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
                 .await
                 .expect("Failed to fetch flags from Postgres");
-        assert_eq!(pg_flags.flags.len(), 0);
-        assert!(!pg_flags.flags.iter().any(|f| f.deleted)); // no deleted flags
-        assert!(!pg_flags.flags.iter().any(|f| f.active)); // no inactive flags
+        assert_eq!(pg_flags.len(), 0);
+        assert!(!pg_flags.iter().any(|f| f.deleted)); // no deleted flags
+        assert!(!pg_flags.iter().any(|f| f.active)); // no inactive flags
     }
 
     #[tokio::test]
@@ -1031,7 +1031,7 @@ mod tests {
                 let redis_flags = get_flags_from_redis(redis_client, project_id)
                     .await
                     .unwrap();
-                let (pg_flags, _) = FeatureFlagList::from_pg(reader, project_id).await.unwrap();
+                let pg_flags = FeatureFlagList::from_pg(reader, project_id).await.unwrap();
                 (redis_flags, pg_flags)
             });
 
@@ -1041,9 +1041,9 @@ mod tests {
         for handle in handles {
             let (redis_flags, pg_flags) = handle.await.unwrap();
             assert_eq!(redis_flags.flags.len(), 1);
-            assert_eq!(pg_flags.flags.len(), 1);
+            assert_eq!(pg_flags.len(), 1);
             assert_eq!(redis_flags.flags[0].key, "concurrent_flag");
-            assert_eq!(pg_flags.flags[0].key, "concurrent_flag");
+            assert_eq!(pg_flags[0].key, "concurrent_flag");
         }
     }
 
@@ -1111,7 +1111,7 @@ mod tests {
         let redis_duration = start.elapsed();
 
         let start = Instant::now();
-        let (pg_flags, _) = FeatureFlagList::from_pg(context.non_persons_reader, team.project_id())
+        let pg_flags = FeatureFlagList::from_pg(context.non_persons_reader, team.project_id())
             .await
             .expect("Failed to fetch flags from Postgres");
         let pg_duration = start.elapsed();
@@ -1120,7 +1120,7 @@ mod tests {
         tracing::info!("Postgres fetch time: {:?}", pg_duration);
 
         assert_eq!(redis_flags.flags.len(), num_flags);
-        assert_eq!(pg_flags.flags.len(), num_flags);
+        assert_eq!(pg_flags.len(), num_flags);
 
         assert!(redis_duration < std::time::Duration::from_millis(100));
         assert!(pg_duration < std::time::Duration::from_millis(1000));
@@ -1201,26 +1201,26 @@ mod tests {
         let redis_flags = get_flags_from_redis(redis_client, team.project_id())
             .await
             .expect("Failed to fetch flags from Redis");
-        let (pg_flags, _) =
+        let pg_flags =
             FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
                 .await
                 .expect("Failed to fetch flags from Postgres");
         assert_eq!(redis_flags.flags.len(), 3);
-        assert_eq!(pg_flags.flags.len(), 3);
+        assert_eq!(pg_flags.len(), 3);
 
         // Verify empty properties flag
         assert!(redis_flags.flags.iter().any(|f| f.key == "empty_properties"
             && f.filters.groups[0].properties.as_ref().unwrap().is_empty()));
-        assert!(pg_flags.flags.iter().any(|f| f.key == "empty_properties"
+        assert!(pg_flags.iter().any(|f| f.key == "empty_properties"
             && f.filters.groups[0].properties.as_ref().unwrap().is_empty()));
 
         // Verify very long key flag
         assert!(redis_flags.flags.iter().any(|f| f.key.len() == 400));
-        assert!(pg_flags.flags.iter().any(|f| f.key.len() == 400));
+        assert!(pg_flags.iter().any(|f| f.key.len() == 400));
 
         // Verify unicode flag
         assert!(redis_flags.flags.iter().any(|f| f.key == "unicode_flag_🚀"));
-        assert!(pg_flags.flags.iter().any(|f| f.key == "unicode_flag_🚀"));
+        assert!(pg_flags.iter().any(|f| f.key == "unicode_flag_🚀"));
     }
 
     #[tokio::test]
@@ -1289,23 +1289,23 @@ mod tests {
         let mut redis_flags = get_flags_from_redis(redis_client, team.project_id())
             .await
             .expect("Failed to fetch flags from Redis");
-        let (mut pg_flags, _) =
+        let mut pg_flags =
             FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
                 .await
                 .expect("Failed to fetch flags from Postgres");
 
         // Sort flags by key to ensure consistent order
         redis_flags.flags.sort_by(|a, b| a.key.cmp(&b.key));
-        pg_flags.flags.sort_by(|a, b| a.key.cmp(&b.key));
+        pg_flags.sort_by(|a, b| a.key.cmp(&b.key));
 
         // Compare results
         assert_eq!(
             redis_flags.flags.len(),
-            pg_flags.flags.len(),
+            pg_flags.len(),
             "Number of flags mismatch"
         );
 
-        for (redis_flag, pg_flag) in redis_flags.flags.iter().zip(pg_flags.flags.iter()) {
+        for (redis_flag, pg_flag) in redis_flags.flags.iter().zip(pg_flags.iter()) {
             assert_eq!(redis_flag.key, pg_flag.key, "Flag key mismatch");
             assert_eq!(
                 redis_flag.name, pg_flag.name,
@@ -1409,13 +1409,13 @@ mod tests {
         let redis_flags = get_flags_from_redis(redis_client, team.project_id())
             .await
             .expect("Failed to fetch flags from Redis");
-        let (pg_flags, _) =
+        let pg_flags =
             FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
                 .await
                 .expect("Failed to fetch flags from Postgres");
 
         // Verify rollout percentages
-        for flags in &[redis_flags, pg_flags] {
+        for flags in &[redis_flags, FeatureFlagList { flags: pg_flags }] {
             assert!(flags
                 .flags
                 .iter()

@@ -15,12 +15,11 @@ use common_redis::Client as RedisClient;
 use common_types::ProjectId;
 use std::sync::Arc;
 
-/// Result of fetching feature flags, including cache hit status and deserialization errors status
+/// Result of fetching feature flags, including cache hit status
 #[derive(Debug, Clone)]
 pub struct FlagResult {
     pub flag_list: FeatureFlagList,
     pub was_cache_hit: bool,
-    pub had_deserialization_errors: bool,
 }
 
 /// Service layer for handling feature flag operations
@@ -145,9 +144,8 @@ impl FlagService {
         team_result
     }
 
-    /// Fetches the flags from the cache or the database. Returns a tuple containing
-    /// the flags and a boolean indicating whether there were deserialization errors.
-    /// Also tracks cache hits and misses for a given project_id.
+    /// Fetches the flags from the cache or the database.
+    /// Tracks cache hits and misses for a given project_id.
     ///
     /// Uses the ReadThroughCache pattern for automatic cache management.
     pub async fn get_flags_from_cache_or_pg(
@@ -180,17 +178,14 @@ impl FlagService {
             );
         }
 
-        // Extract metadata from cache result
-        let metadata = cache_result
+        // Extract flags from cache result
+        let flags = cache_result
             .value
             .expect("cache result always contains a value after get_with_cache");
 
         Ok(FlagResult {
-            flag_list: FeatureFlagList {
-                flags: metadata.flags,
-            },
+            flag_list: FeatureFlagList { flags },
             was_cache_hit,
-            had_deserialization_errors: metadata.had_deserialization_errors,
         })
     }
 }
