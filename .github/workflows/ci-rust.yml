@@ -65,6 +65,12 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
+            - name: Install protobuf compiler
+              if: needs.changes.outputs.rust == 'true'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y protobuf-compiler
+
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'
               run: |
