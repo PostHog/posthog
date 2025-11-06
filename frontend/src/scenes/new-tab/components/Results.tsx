@@ -32,7 +32,7 @@ import { NoResultsFound } from './NoResultsFound'
 export const getCategoryDisplayName = (category: string): string => {
     const displayNames: Record<string, string> = {
         'create-new': 'Create new',
-        folders: 'Folders',
+        'project-folders': 'Folders',
         apps: 'Apps',
         'data-management': 'Data management',
         recents: 'Recents',
@@ -346,7 +346,7 @@ function Category({
                                     </ButtonGroupPrimitive>
                                 )
                             })}
-                            {category === 'folders' && isLoading ? (
+                            {category === 'project-folders' && isLoading ? (
                                 <ListBox.Item
                                     key="folders-loading"
                                     virtualFocusIgnore

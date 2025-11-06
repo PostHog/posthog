@@ -1,4 +1,4 @@
-import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import React, { ReactNode, forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
 import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
 
@@ -36,6 +36,7 @@ interface SearchInputProps<T = string> {
     onClearAll?: () => void
     enableCommands?: boolean
     onEmptyBackspace?: () => void
+    prefixElements?: ReactNode
 }
 
 export interface SearchInputHandle {
@@ -56,6 +57,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
         onClearAll,
         enableCommands = true,
         onEmptyBackspace,
+        prefixElements,
     }: SearchInputProps<T>,
     ref: React.Ref<SearchInputHandle>
 ) {
@@ -304,7 +306,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         variant: 'default',
                         size: 'lg',
                     }),
-                    'flex gap-1 focus-within:border-secondary items-center h-8 rounded-lg'
+                    'flex gap-1 focus-within:border-secondary items-center h-8 rounded-lg min-w-0'
                 )}
             >
                 {enableCommands ? (
@@ -386,6 +388,10 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                             </DropdownMenuGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
+                ) : null}
+
+                {prefixElements ? (
+                    <div className="flex min-w-0 shrink items-center gap-1 overflow-hidden">{prefixElements}</div>
                 ) : null}
 
                 {/* Selected inline tags */}

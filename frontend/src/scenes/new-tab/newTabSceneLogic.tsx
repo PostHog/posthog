@@ -379,6 +379,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             [] as FileSystemEntry[],
             {
                 loadProjectFolderSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    if (!values.newTabFoldersEnabled) {
+                        return []
+                    }
                     const trimmed = searchTerm.trim()
 
                     if (trimmed === '') {
@@ -753,6 +756,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 )
             },
         ],
+        newTabFoldersEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: any): boolean => Boolean(featureFlags['new-tab-folders']),
+        ],
         isSearching: [
             (s) => [
                 s.recentsLoading,
@@ -804,6 +811,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.propertyDefinitionSearchPending,
                 s.groupSearchResultsLoading,
                 s.groupSearchPending,
+                s.newTabFoldersEnabled,
             ],
             (
                 recentsLoading: boolean,
@@ -815,10 +823,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 propertyDefinitionSearchResultsLoading: boolean,
                 propertyDefinitionSearchPending: boolean,
                 groupSearchResultsLoading: boolean,
-                groupSearchPending: boolean
+                groupSearchPending: boolean,
+                newTabFoldersEnabled: boolean
             ): Record<NEW_TAB_CATEGORY_ITEMS, boolean> => ({
                 all: false,
-                'project-folders': projectFolderSearchResultsLoading,
+                'project-folders': newTabFoldersEnabled ? projectFolderSearchResultsLoading : false,
                 'create-new': false,
                 apps: false,
                 'data-management': false,
@@ -852,16 +861,20 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         projectFolderSearchItems: [
-            (s) => [s.projectFolderSearchResults],
-            (projectFolderSearchResults): NewTabTreeDataItem[] =>
-                projectFolderSearchResults.map((folder) => {
+            (s) => [s.projectFolderSearchResults, s.newTabFoldersEnabled],
+            (projectFolderSearchResults, newTabFoldersEnabled): NewTabTreeDataItem[] => {
+                if (!newTabFoldersEnabled) {
+                    return []
+                }
+
+                return projectFolderSearchResults.map((folder) => {
                     const path = folder.path ?? ''
                     const segments = splitPath(path)
-                    const displayName = segments.length > 0 ? segments[segments.length - 1] : 'Project root'
+                    const displayName = segments.length > 0 ? segments[segments.length - 1] : 'project://'
                     const href = buildProjectPathUrl(path)
                     return {
                         id: `project-folder-${folder.id ?? (path || 'root')}`,
-                        name: path || 'Project root',
+                        name: path || 'project://',
                         displayName,
                         category: 'project-folders',
                         href,
@@ -873,16 +886,21 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                             href,
                         },
                     }
-                }),
+                })
+            },
         ],
         projectFolderItems: [
-            (s) => [s.projectFolderSearchItems, s.search],
-            (projectFolderSearchItems, search): NewTabTreeDataItem[] => {
+            (s) => [s.projectFolderSearchItems, s.search, s.newTabFoldersEnabled],
+            (projectFolderSearchItems, search, newTabFoldersEnabled): NewTabTreeDataItem[] => {
+                if (!newTabFoldersEnabled) {
+                    return []
+                }
+
                 const rootHref = buildProjectPathUrl('')
                 const items: NewTabTreeDataItem[] = [
                     {
                         id: 'project-folder-root',
-                        name: 'Project root',
+                        name: 'project://',
                         category: 'project-folders',
                         href: rootHref,
                         icon: iconForType('folder' as FileSystemIconType),
@@ -901,11 +919,21 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 return items
             },
         ],
-        projectFolderPath: [(s) => [s.projectPath], (projectPath): string => normalizeProjectPath(projectPath)],
-        isFileBrowserMode: [(s) => [s.projectPath], (projectPath): boolean => projectPath !== null],
+        projectFolderPath: [
+            (s) => [s.projectPath, s.newTabFoldersEnabled],
+            (projectPath, newTabFoldersEnabled): string =>
+                newTabFoldersEnabled ? normalizeProjectPath(projectPath) : '',
+        ],
+        isFileBrowserMode: [
+            (s) => [s.projectPath, s.newTabFoldersEnabled],
+            (projectPath, newTabFoldersEnabled): boolean => newTabFoldersEnabled && projectPath !== null,
+        ],
         fileBrowserParentPath: [
-            (s) => [s.projectFolderPath],
-            (projectFolderPath): string | null => {
+            (s) => [s.projectFolderPath, s.newTabFoldersEnabled],
+            (projectFolderPath, newTabFoldersEnabled): string | null => {
+                if (!newTabFoldersEnabled) {
+                    return null
+                }
                 const segments = splitPath(projectFolderPath)
                 if (segments.length === 0) {
                     return ''
@@ -914,8 +942,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         fileBrowserBreadcrumbs: [
-            (s) => [s.projectFolderPath],
-            (projectFolderPath) => {
+            (s) => [s.projectFolderPath, s.newTabFoldersEnabled],
+            (projectFolderPath, newTabFoldersEnabled) => {
+                if (!newTabFoldersEnabled) {
+                    return []
+                }
                 const segments = splitPath(projectFolderPath)
                 return segments.map((segment, index) => ({
                     label: segment,
@@ -924,8 +955,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         currentFolderEntries: [
-            (s) => [s.projectFolderPath, s.folders],
-            (projectFolderPath, folders): FileSystemEntry[] => {
+            (s) => [s.projectFolderPath, s.folders, s.newTabFoldersEnabled],
+            (projectFolderPath, folders, newTabFoldersEnabled): FileSystemEntry[] => {
+                if (!newTabFoldersEnabled) {
+                    return []
+                }
                 const entries = folders[projectFolderPath] || []
                 return [...entries].sort(sortFilesAndFolders)
             },
@@ -937,14 +971,20 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.projectTreeSearchResults,
                 s.projectTreeSearchTerm,
                 s.projectFolderPath,
+                s.newTabFoldersEnabled,
             ],
             (
                 entries: FileSystemEntry[],
                 search: string,
                 projectTreeSearchResults,
                 projectTreeSearchTerm,
-                projectFolderPath
+                projectFolderPath,
+                newTabFoldersEnabled
             ): FileSystemEntry[] => {
+                if (!newTabFoldersEnabled) {
+                    return []
+                }
+
                 const trimmed = search.trim()
                 if (!trimmed) {
                     return entries
@@ -1002,9 +1042,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         fileBrowserListItems: [
-            (s) => [s.fileBrowserFilteredEntries],
-            (entries: FileSystemEntry[]): NewTabTreeDataItem[] =>
-                entries.map((entry) => {
+            (s) => [s.fileBrowserFilteredEntries, s.newTabFoldersEnabled],
+            (entries: FileSystemEntry[], newTabFoldersEnabled): NewTabTreeDataItem[] => {
+                if (!newTabFoldersEnabled) {
+                    return []
+                }
+
+                return entries.map((entry) => {
                     const href = entry.type === 'folder' ? buildProjectPathUrl(entry.path) : entry.href || '#'
                     return {
                         id: `browser-${entry.id ?? entry.path}`,
@@ -1020,15 +1064,25 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         record: entry,
                         lastViewedAt: null,
                     }
-                }),
+                })
+            },
         ],
         fileBrowserFirstFolderMatch: [
-            (s) => [s.fileBrowserFilteredEntries],
-            (entries): FileSystemEntry | null => entries.find((entry) => entry.type === 'folder') ?? null,
+            (s) => [s.fileBrowserFilteredEntries, s.newTabFoldersEnabled],
+            (entries, newTabFoldersEnabled): FileSystemEntry | null => {
+                if (!newTabFoldersEnabled) {
+                    return null
+                }
+
+                return entries.find((entry) => entry.type === 'folder') ?? null
+            },
         ],
         fileBrowserHasMore: [
-            (s) => [s.projectFolderPath, s.folderStates, s.search, s.projectTreeSearchResults],
-            (projectFolderPath, folderStates, search, projectTreeSearchResults): boolean => {
+            (s) => [s.projectFolderPath, s.folderStates, s.search, s.projectTreeSearchResults, s.newTabFoldersEnabled],
+            (projectFolderPath, folderStates, search, projectTreeSearchResults, newTabFoldersEnabled): boolean => {
+                if (!newTabFoldersEnabled) {
+                    return false
+                }
                 if (search.trim()) {
                     return projectTreeSearchResults.hasMore
                 }
@@ -1036,8 +1090,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         fileBrowserIsLoading: [
-            (s) => [s.projectFolderPath, s.folderStates, s.search, s.projectTreeSearchResultsLoading],
-            (projectFolderPath, folderStates, search, projectTreeSearchResultsLoading): boolean => {
+            (s) => [
+                s.projectFolderPath,
+                s.folderStates,
+                s.search,
+                s.projectTreeSearchResultsLoading,
+                s.newTabFoldersEnabled,
+            ],
+            (
+                projectFolderPath,
+                folderStates,
+                search,
+                projectTreeSearchResultsLoading,
+                newTabFoldersEnabled
+            ): boolean => {
+                if (!newTabFoldersEnabled) {
+                    return false
+                }
                 if (search.trim()) {
                     return projectTreeSearchResultsLoading
                 }
@@ -1495,6 +1564,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.propertyDefinitionSearchItems,
                 s.aiSearchItems,
                 s.getSectionItemLimit,
+                s.newTabFoldersEnabled,
             ],
             (
                 itemsGrid: NewTabTreeDataItem[],
@@ -1506,7 +1576,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 eventDefinitionSearchItems: NewTabTreeDataItem[],
                 propertyDefinitionSearchItems: NewTabTreeDataItem[],
                 aiSearchItems: NewTabTreeDataItem[],
-                getSectionItemLimit: (section: string) => number
+                getSectionItemLimit: (section: string) => number,
+                newTabFoldersEnabled: boolean
             ): Record<string, NewTabTreeDataItem[]> => {
                 // Filter all items by search term
                 const searchLower = search.toLowerCase().trim()
@@ -1554,7 +1625,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const grouped: Record<string, NewTabTreeDataItem[]> = {}
 
                 // Add persons section if filter is enabled
-                if (showAll || newTabSceneDataInclude.includes('project-folders')) {
+                const shouldShowFolders =
+                    newTabFoldersEnabled && (showAll || newTabSceneDataInclude.includes('project-folders'))
+
+                if (shouldShowFolders) {
                     const limit = getSectionItemLimit('project-folders')
                     grouped['project-folders'] = filteredProjectFolderItems.slice(0, limit)
                 }
@@ -1628,6 +1702,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.eventDefinitionSearchItems,
                 s.propertyDefinitionSearchItems,
                 s.aiSearchItems,
+                s.newTabFoldersEnabled,
             ],
             (
                 itemsGrid: NewTabTreeDataItem[],
@@ -1638,7 +1713,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 groupSearchItems: NewTabTreeDataItem[],
                 eventDefinitionSearchItems: NewTabTreeDataItem[],
                 propertyDefinitionSearchItems: NewTabTreeDataItem[],
-                aiSearchItems: NewTabTreeDataItem[]
+                aiSearchItems: NewTabTreeDataItem[],
+                newTabFoldersEnabled: boolean
             ): Record<string, number> => {
                 // Filter all items by search term
                 const searchLower = search.toLowerCase().trim()
@@ -1675,7 +1751,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const fullCounts: Record<string, number> = {}
 
                 // Add persons section if filter is enabled
-                if (showAll || newTabSceneDataInclude.includes('project-folders')) {
+                if (newTabFoldersEnabled && (showAll || newTabSceneDataInclude.includes('project-folders'))) {
                     fullCounts['project-folders'] = filteredProjectFolderItems.length
                 }
                 if (showAll || newTabSceneDataInclude.includes('persons')) {
@@ -1732,19 +1808,27 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.categoryLoadingStates,
                 s.search,
                 s.firstNoResultsSearchPrefixes,
+                s.newTabFoldersEnabled,
             ],
             (
                 newTabSceneDataGroupedItems: Record<string, NewTabTreeDataItem[]>,
                 newTabSceneDataInclude: NEW_TAB_COMMANDS[],
                 categoryLoadingStates: Record<NEW_TAB_CATEGORY_ITEMS, boolean>,
                 search: string,
-                firstNoResultsSearchPrefixes: Record<NewTabSearchDataset, string | null>
+                firstNoResultsSearchPrefixes: Record<NewTabSearchDataset, string | null>,
+                newTabFoldersEnabled: boolean
             ): CategoryWithItems[] => {
                 const orderedSections: string[] = []
                 const showAll = newTabSceneDataInclude.includes('all')
 
                 // Add sections in a useful order
-                const mainSections = ['project-folders', 'recents', 'create-new', 'apps', 'data-management']
+                const mainSections = [
+                    ...(newTabFoldersEnabled ? (['project-folders'] as const) : []),
+                    'recents',
+                    'create-new',
+                    'apps',
+                    'data-management',
+                ]
                 mainSections.forEach((section) => {
                     if (showAll || newTabSceneDataInclude.includes(section as NEW_TAB_COMMANDS)) {
                         orderedSections.push(section)
@@ -1783,7 +1867,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         const items = newTabSceneDataGroupedItems[section] || []
                         const isLoading = categoryLoadingStates[key] || false
                         const shouldHideForPrefix =
-                            (key === 'project-folders' && hasPrefixNoResults('projectFolders')) ||
+                            (key === 'project-folders' && newTabFoldersEnabled
+                                ? hasPrefixNoResults('projectFolders')
+                                : false) ||
                             (key === 'recents' && hasPrefixNoResults('recents')) ||
                             (key === 'persons' && hasPrefixNoResults('persons')) ||
                             (key === 'eventDefinitions' && hasPrefixNoResults('eventDefinitions')) ||
@@ -1878,6 +1964,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
         },
         loadMoreFileBrowser: () => {
+            if (!values.newTabFoldersEnabled) {
+                return
+            }
             const folder = values.projectFolderPath
             const searchTerm = values.search.trim()
             if (searchTerm) {
@@ -1903,11 +1992,25 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             const searchTerm = values.search.trim()
 
             // Expand 'all' to include all data types
+            const defaultItems: NEW_TAB_COMMANDS[] = [
+                'persons',
+                'groups',
+                'eventDefinitions',
+                'propertyDefinitions',
+                'askAI',
+            ]
+            if (values.newTabFoldersEnabled) {
+                defaultItems.unshift('project-folders')
+            }
+
             const itemsToProcess = values.newTabSceneDataInclude.includes('all')
-                ? ['project-folders', 'persons', 'groups', 'eventDefinitions', 'propertyDefinitions', 'askAI']
+                ? defaultItems
                 : values.newTabSceneDataInclude
 
             itemsToProcess.forEach((item) => {
+                if (item === 'project-folders' && !values.newTabFoldersEnabled) {
+                    return
+                }
                 if (searchTerm !== '') {
                     if (item === 'project-folders') {
                         actions.debouncedProjectFolderSearch(searchTerm)
@@ -1991,6 +2094,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             actions.triggerSearchForIncludedItems()
         },
         debouncedProjectFolderSearch: async ({ searchTerm }, breakpoint) => {
+            if (!values.newTabFoldersEnabled) {
+                actions.loadProjectFolderSearchResultsSuccess([])
+                return
+            }
             const trimmed = searchTerm.trim()
             const noResultsPrefix = values.firstNoResultsSearchPrefixes.projectFolders
 

@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { NEW_TAB_COMMANDS, NEW_TAB_COMMANDS_ITEMS, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -76,6 +76,32 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         setProjectPath(projectUri)
         setSearch('')
     }
+
+    const breadcrumbTabs = isFileBrowserMode ? (
+        <ButtonGroupPrimitive variant="outline" size="sm" className="ml-1 min-w-0 shrink overflow-hidden">
+            <ButtonPrimitive
+                variant="outline"
+                size="sm"
+                // active={!projectFolderPath}
+                onClick={() => navigateToFolder('')}
+                className="truncate max-w-[10rem]"
+            >
+                project://
+            </ButtonPrimitive>
+            {fileBrowserBreadcrumbs.map((crumb) => (
+                <ButtonPrimitive
+                    key={crumb.path || crumb.label}
+                    variant="outline"
+                    size="sm"
+                    // active={index === fileBrowserBreadcrumbs.length - 1}
+                    onClick={() => navigateToFolder(crumb.path)}
+                    className="truncate max-w-[10rem]"
+                >
+                    {crumb.label}
+                </ButtonPrimitive>
+            ))}
+        </ButtonGroupPrimitive>
+    ) : null
 
     const handleSearchChange = (value: string): void => {
         if (isFileBrowserMode && value.endsWith('/') && value.length > 1) {
@@ -194,30 +220,8 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     })
                                     refreshDataAfterToggle()
                                 }}
+                                prefixElements={breadcrumbTabs}
                             />
-                            {isFileBrowserMode ? (
-                                <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
-                                    <button
-                                        type="button"
-                                        className="text-primary hover:underline"
-                                        onClick={() => navigateToFolder('')}
-                                    >
-                                        project://
-                                    </button>
-                                    {fileBrowserBreadcrumbs.map((crumb) => (
-                                        <span className="flex items-center gap-1" key={crumb.path || crumb.label}>
-                                            <span className="text-muted">/</span>
-                                            <button
-                                                type="button"
-                                                className="text-primary hover:underline"
-                                                onClick={() => navigateToFolder(crumb.path)}
-                                            >
-                                                {crumb.label}
-                                            </button>
-                                        </span>
-                                    ))}
-                                </div>
-                            ) : null}
                         </div>
                     </div>
                     <div className="border-b">

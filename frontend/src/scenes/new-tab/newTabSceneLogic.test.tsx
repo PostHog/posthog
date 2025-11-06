@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { featureFlagLogic } from '~/lib/logic/featureFlagLogic'
 import { initKeaTests } from '~/test/init'
 
 import { newTabSceneLogic } from './newTabSceneLogic'
@@ -22,6 +23,8 @@ describe('newTabSceneLogic - recents search', () => {
     beforeEach(async () => {
         initKeaTests()
         sceneLogic.mount()
+
+        featureFlagLogic.actions.setFeatureFlags([], { 'new-tab-folders': true } as any)
 
         listMock = jest.spyOn(api.fileSystem, 'list').mockImplementation(async () => ({ ...defaultResponse }))
 
