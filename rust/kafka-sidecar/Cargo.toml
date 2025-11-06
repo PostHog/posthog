@@ -36,7 +36,7 @@ uuid = { workspace = true }
 futures = { workspace = true }
 
 [build-dependencies]
-tonic-build = "0.12.3"
+tonic-build = { version = "0.12.3", features = ["prost"] }
 anyhow = { workspace = true }
 
 [lints]
