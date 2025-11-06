@@ -748,7 +748,11 @@ export const getOverrideWarningPropsForButton = (
     filtersOverride: DashboardFilter | null | undefined,
     variablesOverride: Record<string, HogQLVariable> | null | undefined
 ): Pick<LemonButtonProps, 'icon' | 'tooltip'> => {
-    const filterOverridesExist = isObject(filtersOverride) && !isEmptyObject(filtersOverride)
+    const filterOverridesExist =
+        isObject(filtersOverride) &&
+        Object.values(filtersOverride).some(
+            (value) => value !== null && (!Array.isArray(value) || value.length > 0)
+        )
     const variableOverridesExist = isObject(variablesOverride) && !isEmptyObject(variablesOverride)
 
     const overrideType =
