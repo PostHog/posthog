@@ -1,4 +1,4 @@
-use crate::metrics::consts::FLAG_FILTER_DESERIALIZATION_ERROR_COUNTER;
+use crate::metrics::consts::{FLAG_FILTER_DESERIALIZATION_ERROR_COUNTER, TOMBSTONE_COUNTER};
 use metrics::counter;
 use std::sync::Arc;
 use tracing;
@@ -173,6 +173,16 @@ impl FeatureFlagList {
                             "flag_key" => row.key.clone(),
                         )
                         .increment(1);
+                        
+                        // Also track as a tombstone - invalid data in postgres should never happen
+                        counter!(
+                            TOMBSTONE_COUNTER,
+                            "failure_type" => "flag_filter_deserialization_error",
+                            "team_id" => row.team_id.to_string(),
+                            "flag_key" => row.key.clone(),
+                        )
+                        .increment(1);
+                        
                         None // Skip this flag, continue with others
                     }
                 }

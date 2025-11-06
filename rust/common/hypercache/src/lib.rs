@@ -140,7 +140,7 @@ pub enum HyperCacheError {
 pub enum CacheSource {
     Redis,
     S3,
-    DatabaseFallback,
+    Fallback,
 }
 
 #[derive(Debug, Clone)]
@@ -345,6 +345,17 @@ impl HyperCacheReader {
             1,
         );
 
+        // Also increment the tombstone counter for hypercache misses - this should never happen
+        inc(
+            "posthog_tombstone_total",
+            &[
+                ("failure_type".to_string(), "hypercache_miss".to_string()),
+                ("namespace".to_string(), self.config.namespace.clone()),
+                ("value".to_string(), self.config.value.clone()),
+            ],
+            1,
+        );
+
         Err(HyperCacheError::CacheMiss)
     }
 
@@ -353,11 +364,11 @@ impl HyperCacheReader {
         Ok(data)
     }
 
-    /// Get a value from cache with database fallback support
+    /// Get a value from cache with fallback support
     ///
     /// This method tries to get data from cache (Redis first, then S3), and if both
     /// cache tiers miss, calls the provided fallback function to retrieve the data
-    /// from an alternative source (typically a database).
+    /// from an alternative source (e.g., database, API, computation, etc.).
     ///
     /// Unlike a read-through cache pattern, this method does NOT write the fallback
     /// result back to the cache. This is intentional to handle catastrophic cache
@@ -369,7 +380,7 @@ impl HyperCacheReader {
     /// * `fallback` - Function to call if both cache tiers miss
     ///
     /// # Returns
-    /// * `Ok((Value, CacheSource))` - The value and its source (Redis, S3, or DatabaseFallback)
+    /// * `Ok((Value, CacheSource))` - The value and its source (Redis, S3, or Fallback)
     /// * `Err(E)` - Error from the fallback function, or HyperCacheError if fallback returns None
     pub async fn get_with_source_or_fallback<F, Fut, E>(
         &self,
@@ -402,7 +413,7 @@ impl HyperCacheReader {
                             ],
                             1,
                         );
-                        Ok((value, CacheSource::DatabaseFallback))
+                        Ok((value, CacheSource::Fallback))
                     }
                     None => {
                         // Fallback also returned no data
@@ -415,6 +426,18 @@ impl HyperCacheReader {
                             ],
                             1,
                         );
+                        
+                        // Tombstone metric - cache and database both miss is really unusual
+                        inc(
+                            "posthog_tombstone_total",
+                            &[
+                                ("failure_type".to_string(), "hypercache_fallback_miss".to_string()),
+                                ("namespace".to_string(), self.config.namespace.clone()),
+                                ("value".to_string(), self.config.value.clone()),
+                            ],
+                            1,
+                        );
+                        
                         Err(HyperCacheError::CacheMiss.into())
                     }
                 }
@@ -1124,7 +1147,7 @@ mod tests {
 
         assert!(result.is_ok());
         let (data, source) = result.unwrap();
-        assert_eq!(source, CacheSource::DatabaseFallback);
+        assert_eq!(source, CacheSource::Fallback);
         assert_eq!(data, fallback_data);
     }
 
@@ -1243,7 +1266,7 @@ mod tests {
 
         assert!(result.is_ok());
         let (data, source) = result.unwrap();
-        assert_eq!(source, CacheSource::DatabaseFallback);
+        assert_eq!(source, CacheSource::Fallback);
         assert_eq!(data, fallback_data);
 
         // If we got here without panicking, it means no cache write was attempted
