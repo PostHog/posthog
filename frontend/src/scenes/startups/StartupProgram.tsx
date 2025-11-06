@@ -91,7 +91,7 @@ export function StartupProgram(): JSX.Element {
                         It looks like your organization {wasPreviouslyOnStartupPlan ? 'was' : 'is'} already part of our{' '}
                         {programName}. If you have any questions, please contact our support team.
                     </p>
-                    <LemonButton type="primary" to={urls.projectHomepage()} className="mt-2">
+                    <LemonButton type="primary" to={urls.projectRoot()} className="mt-2">
                         Return to PostHog
                     </LemonButton>
                 </LemonBanner>
@@ -111,7 +111,7 @@ export function StartupProgram(): JSX.Element {
                             ? `your PostHog human ${accountOwner.name.split(' ')[0]} at ${accountOwner.email}`
                             : 'our support team'}
                     </p>
-                    <LemonButton type="primary" to={urls.projectHomepage()} className="mt-2">
+                    <LemonButton type="primary" to={urls.projectRoot()} className="mt-2">
                         Return to PostHog
                     </LemonButton>
                 </LemonBanner>
@@ -128,7 +128,7 @@ export function StartupProgram(): JSX.Element {
                         You need to be an organization admin or owner to apply for the startup program. Please contact
                         your organization admin for assistance.
                     </p>
-                    <LemonButton type="primary" to={urls.projectHomepage()} className="mt-2">
+                    <LemonButton type="primary" to={urls.projectRoot()} className="mt-2">
                         Return to PostHog
                     </LemonButton>
                 </LemonBanner>
@@ -332,7 +332,7 @@ export function StartupProgram(): JSX.Element {
                                     Thank you for your application! We'll review it and get back to you as soon as
                                     possible. In the meantime, you can continue using PostHog.
                                 </p>
-                                <LemonButton type="primary" to={urls.projectHomepage()}>
+                                <LemonButton type="primary" to={urls.projectRoot()}>
                                     Return to PostHog
                                 </LemonButton>
                             </div>

@@ -27,6 +27,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -238,6 +239,7 @@ export function InsightMeta({
                                         : urls.insightEdit(short_id)
                                 }
                                 fullWidth
+                                {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}
                             >
                                 Edit
                             </LemonButton>
