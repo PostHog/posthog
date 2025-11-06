@@ -1,21 +1,15 @@
-import uuid
 from datetime import timedelta
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import mock
 
-from django.conf import settings
-
 import pytest_asyncio
-import temporalio.common
-import temporalio.worker
 from asgiref.sync import sync_to_async
 from rest_framework import status
 
 from posthog.schema import DataWarehouseSyncInterval
 
-from posthog.models.team import Team
 from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 
@@ -320,7 +314,7 @@ class TestEndpointMaterializationTemporal:
         schedule = get_saved_query_schedule(saved_query)
 
         # Verify schedule configuration
-        from temporalio.client import ScheduleActionStartWorkflow
+        from temporalio.client import ScheduleActionStartWorkflow, ScheduleOverlapPolicy
 
         assert isinstance(schedule.action, ScheduleActionStartWorkflow)
         assert schedule.action.id == str(saved_query.id)
@@ -332,7 +326,7 @@ class TestEndpointMaterializationTemporal:
         assert intervals[0].every == timedelta(hours=12)
 
         # Verify schedule policy
-        assert schedule.policy.overlap == temporalio.client.ScheduleOverlapPolicy.SKIP
+        assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
 
     async def test_sync_frequency_affects_schedule_interval(self, materialized_endpoint):
         """Test that different sync_frequency values create schedules with correct intervals."""
