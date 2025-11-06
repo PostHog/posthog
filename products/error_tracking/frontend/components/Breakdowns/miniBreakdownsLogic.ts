@@ -55,7 +55,7 @@ export const miniBreakdownsLogic = kea<miniBreakdownsLogicType>([
                         filterTestAccounts: values.filterTestAccounts,
                         breakdownProperties: BREAKDOWN_PRESETS.map((preset) => preset.property),
                         duration: Date.now() - startTime,
-                        cached: (result as CachedErrorTrackingBreakdownsQueryResponse).is_cached,
+                        cached: (result as CachedErrorTrackingBreakdownsQueryResponse).is_cached ?? false,
                     })
 
                     return result
