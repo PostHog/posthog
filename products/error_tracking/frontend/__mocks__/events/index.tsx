@@ -38,7 +38,7 @@ export function ExceptionLogicWrapper({
     loading?: boolean
     children: JSX.Element
 }): JSX.Element {
-    const exceptionCardProps = { issueId: 'random-issue-id' }
+    const exceptionCardProps = { issueId: eventName }
 
     const properties = getEventProperties(eventName)
     const { setLoading } = useActions(exceptionCardLogic(exceptionCardProps))
