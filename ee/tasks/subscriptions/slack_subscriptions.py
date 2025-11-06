@@ -197,45 +197,29 @@ async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs)
     for attempt in range(max_retries):
         try:
             return await client.chat_postMessage(**kwargs)
-        except TimeoutError:
-            if attempt < max_retries - 1:
-                wait_time = 2**attempt
-                logger.warning(
-                    "_send_slack_message_with_retry.timeout_retrying",
-                    attempt=attempt + 1,
-                    max_retries=max_retries,
-                    wait_time=wait_time,
-                    channel=kwargs.get("channel"),
-                    is_thread=bool(kwargs.get("thread_ts")),
-                    exc_info=True,
-                )
-                await asyncio.sleep(wait_time)
-                continue
+        except (TimeoutError, SlackApiError) as e:
+            if isinstance(e, SlackApiError):
+                slack_error = e.response.get("error", "")
+                if slack_error != "invalid_blocks":
+                    raise
+                log_event = "_send_slack_message_with_retry.invalid_blocks_retrying"
             else:
-                # Final attempt failed, re-raise
-                raise
-        except SlackApiError as e:
-            slack_error = e.response.get("error", "")
+                log_event = "_send_slack_message_with_retry.timeout_retrying"
 
-            # Only retry invalid_blocks errors (transient image download issues)
-            if slack_error == "invalid_blocks" and attempt < max_retries - 1:
-                wait_time = 2**attempt
-                logger.warning(
-                    "_send_slack_message_with_retry.invalid_blocks_retrying",
-                    attempt=attempt + 1,
-                    max_retries=max_retries,
-                    wait_time=wait_time,
-                    channel=kwargs.get("channel"),
-                    is_thread=bool(kwargs.get("thread_ts")),
-                    slack_error=slack_error,
-                    slack_error_details=e.response.get("errors", []),
-                    exc_info=True,
-                )
-                await asyncio.sleep(wait_time)
-                continue
-            else:
-                # Final attempt failed, re-raise
+            if attempt >= max_retries - 1:
                 raise
+
+            logger.warning(
+                log_event,
+                attempt=attempt + 1,
+                max_retries=max_retries,
+                channel=kwargs.get("channel"),
+                is_thread=bool(kwargs.get("thread_ts")),
+                exc_info=True,
+            )
+
+            wait_time = 2**attempt
+            await asyncio.sleep(wait_time)
 
 
 async def send_slack_message_with_integration_async(
