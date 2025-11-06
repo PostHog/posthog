@@ -463,7 +463,7 @@ class TestEdgeCases(APIBaseTest):
 
         # Test content over 4MB - should truncate at max_length level
         over_limit = "a" * 4500000  # 4.5MB
-        request_data["data"]["id"] = "gen_over_limit"  # Use different ID to avoid cache
+        request_data["data"]["id"] = "gen_over_limit"  # type: ignore[index]  # Use different ID to avoid cache
         request_data["data"]["properties"]["$ai_input"] = over_limit  # type: ignore[index]
         request_data["options"] = {"truncated": False}  # Disable internal truncation to test max_length
 
