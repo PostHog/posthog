@@ -128,7 +128,7 @@ export function SceneTabContextMenu({ tab, children, onConfigurePinnedTabs }: Sc
                             <IconChevronRight /> Close tabs to the right
                         </ButtonPrimitive>
                     </ContextMenuItem>
-                <ContextMenuGroup>
+                </ContextMenuGroup>
             </ContextMenuContent>
         </ContextMenu>
     )
