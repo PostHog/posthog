@@ -4,12 +4,10 @@ import { useEffect, useState } from 'react'
 import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { SceneExport } from 'scenes/sceneTypes'
-import { Scene } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductKey } from '~/types'
@@ -52,7 +50,6 @@ export function RevenueAnalyticsScene(): JSX.Element {
                         type: sceneConfigurations[Scene.RevenueAnalytics].iconType || 'default',
                     }}
                 />
-                <SceneDivider />
 
                 <LemonBanner
                     type="info"

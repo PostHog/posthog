@@ -111,8 +111,20 @@ const errorTrackingQueryResponse: ErrorTrackingQueryResponse = {
     columns: ['occurrences', 'sessions', 'users', 'last_seen', 'first_seen', 'description', 'fingerprint', 'volume'],
     hasMore: false,
     results: [
-        { ...errorTrackingTypeIssue, occurrences: 1000, sessions: 750, users: 500 },
-        { ...errorTrackingGenericIssue, occurrences: 6, sessions: 3, users: 1 },
+        {
+            ...errorTrackingTypeIssue,
+            occurrences: 1000,
+            sessions: 750,
+            users: 500,
+            function: '<anonymous>',
+            source: 'path/file.py',
+        },
+        {
+            ...errorTrackingGenericIssue,
+            occurrences: 6,
+            sessions: 3,
+            users: 1,
+        },
     ].map(({ occurrences, sessions, users, ...props }) => ({
         ...props,
         last_seen: '2024-07-07T00:00:00.000000-00:00',
