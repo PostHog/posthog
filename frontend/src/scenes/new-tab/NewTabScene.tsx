@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -23,6 +23,7 @@ export const scene: SceneExport = {
 export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
     const commandInputRef = useRef<SearchInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
+    const pendingFocusPathRef = useRef<string | null>(null)
     const {
         search,
         newTabSceneDataInclude,
@@ -30,6 +31,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         fileBrowserBreadcrumbs,
         fileBrowserListItems,
         fileBrowserParentPath,
+        projectFolderPath,
         fileBrowserHasMore,
         fileBrowserIsLoading,
         fileBrowserFirstFolderMatch,
@@ -76,9 +78,29 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         }
     }
 
-    const handleFileBrowserFolderOpen = (path: string): void => {
+    const handleFileBrowserFolderOpen = (path: string, options?: { focusPath?: string | null }): void => {
+        pendingFocusPathRef.current = options?.focusPath ?? null
         navigateToFolder(path)
     }
+
+    useEffect(() => {
+        const focusPath = pendingFocusPathRef.current
+        if (!focusPath) {
+            return
+        }
+
+        const match = fileBrowserListItems.find((item) => {
+            const record = item.record as { path?: string } | undefined
+            return record?.path === focusPath
+        })
+
+        if (match) {
+            const didFocus = listboxRef.current?.focusItemByKey(match.id)
+            if (didFocus) {
+                pendingFocusPathRef.current = null
+            }
+        }
+    }, [fileBrowserListItems])
 
     return (
         <>
@@ -99,9 +121,16 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                         <div className="flex flex-col gap-1">
                             {isFileBrowserMode ? (
                                 <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
-                                    <span className="text-muted">project://</span>
-                                    {fileBrowserBreadcrumbs.map((crumb, index) => (
-                                        <span className="flex items-center gap-1" key={crumb.path || `root-${index}`}>
+                                    <button
+                                        type="button"
+                                        className="text-primary hover:underline"
+                                        onClick={() => navigateToFolder('')}
+                                    >
+                                        project://
+                                    </button>
+                                    {fileBrowserBreadcrumbs.map((crumb) => (
+                                        <span className="flex items-center gap-1" key={crumb.path || crumb.label}>
+                                            <span className="text-muted">/</span>
                                             <button
                                                 type="button"
                                                 className="text-primary hover:underline"
@@ -109,9 +138,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                             >
                                                 {crumb.label}
                                             </button>
-                                            {index < fileBrowserBreadcrumbs.length - 1 ? (
-                                                <span className="text-muted">/</span>
-                                            ) : null}
                                         </span>
                                     ))}
                                 </div>
@@ -192,6 +218,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 <ProjectFileBrowser
                                     items={fileBrowserListItems}
                                     parentPath={fileBrowserParentPath}
+                                    currentPath={projectFolderPath}
                                     onOpenFolder={handleFileBrowserFolderOpen}
                                     search={search}
                                     hasMore={fileBrowserHasMore}

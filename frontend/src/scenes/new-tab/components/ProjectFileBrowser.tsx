@@ -23,7 +23,8 @@ import { convertToTreeDataItem } from './Results'
 export interface ProjectFileBrowserProps {
     items: NewTabTreeDataItem[]
     parentPath: string | null
-    onOpenFolder: (path: string) => void
+    currentPath: string
+    onOpenFolder: (path: string, options?: { focusPath?: string | null }) => void
     search: string
     hasMore: boolean
     isLoading: boolean
@@ -34,27 +35,34 @@ function itemNameWithHighlight(item: NewTabTreeDataItem, search: string): ReactN
     if (!search) {
         return item.displayName || item.name
     }
-    return <SearchHighlightMultiple string={item.name} substring={search} />
+    const highlightSource = typeof item.displayName === 'string' ? item.displayName : item.name
+    return <SearchHighlightMultiple string={highlightSource || ''} substring={search} />
 }
 
 export function ProjectFileBrowser({
     items,
     parentPath,
+    currentPath,
     onOpenFolder,
     search,
     hasMore,
     isLoading,
     onLoadMore,
 }: ProjectFileBrowserProps): JSX.Element {
+    const parentNavigationPath = parentPath ?? ''
+    const hasParentButton = true
+
     return (
         <ListBox.Group groupId="project-file-browser" className="flex flex-col gap-1">
-            {parentPath !== null ? (
+            {hasParentButton ? (
                 <ButtonGroupPrimitive className="group w-full border-0">
                     <ListBox.Item asChild row={0} column={0} focusKey="project-browser-parent" index={0}>
                         <ButtonPrimitive
                             size="sm"
                             className="w-full justify-start"
-                            onClick={() => onOpenFolder(parentPath)}
+                            onClick={() =>
+                                onOpenFolder(parentNavigationPath, { focusPath: parentPath ? currentPath : null })
+                            }
                         >
                             <span className="text-sm">..</span>
                         </ButtonPrimitive>
@@ -63,7 +71,7 @@ export function ProjectFileBrowser({
             ) : null}
             {items.map((item, index) => {
                 const isFolder = item.record && (item.record as any).type === 'folder'
-                const listIndex = parentPath !== null ? index + 1 : index
+                const listIndex = hasParentButton ? index + 1 : index
                 return (
                     <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
                         <ContextMenu>
@@ -135,10 +143,10 @@ export function ProjectFileBrowser({
             {hasMore ? (
                 <ListBox.Item
                     asChild
-                    row={items.length + (parentPath !== null ? 1 : 0)}
+                    row={items.length + (hasParentButton ? 1 : 0)}
                     column={0}
                     focusKey="project-browser-load-more"
-                    index={items.length + (parentPath !== null ? 1 : 0)}
+                    index={items.length + (hasParentButton ? 1 : 0)}
                 >
                     <ButtonPrimitive
                         size="sm"

@@ -32,7 +32,10 @@ import {
     getDefaultTreeProducts,
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import {
+    PAGINATION_LIMIT as PROJECT_TREE_PAGINATION_LIMIT,
+    projectTreeDataLogic,
+} from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { joinPath, sortFilesAndFolders, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
@@ -106,6 +109,8 @@ const SINGLE_CATEGORY_SECTION_LIMIT = 15
 const INITIAL_RECENTS_LIMIT = 5
 const PAGINATION_LIMIT = 10
 const GROUP_SEARCH_LIMIT = 5
+const FILE_BROWSER_SEARCH_LIMIT = PROJECT_TREE_PAGINATION_LIMIT
+const DEFAULT_FOLDER_SEARCH_LIMIT = 10
 
 export type NewTabSearchDataset =
     | 'recents'
@@ -357,9 +362,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     await breakpoint(250)
 
                     try {
+                        const searchLimit = values.projectPath ? FILE_BROWSER_SEARCH_LIMIT : DEFAULT_FOLDER_SEARCH_LIMIT
                         const response = await api.fileSystem.list({
                             search: trimmed,
-                            limit: 10,
+                            limit: searchLimit,
                             type: 'folder',
                         })
                         breakpoint()
@@ -865,7 +871,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (projectFolderPath): string | null => {
                 const segments = splitPath(projectFolderPath)
                 if (segments.length === 0) {
-                    return null
+                    return ''
                 }
                 return joinPath(segments.slice(0, -1))
             },
@@ -874,14 +880,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (s) => [s.projectFolderPath],
             (projectFolderPath) => {
                 const segments = splitPath(projectFolderPath)
-                const breadcrumbs = [
-                    { label: 'Project root', path: '' },
-                    ...segments.map((segment, index) => ({
-                        label: segment,
-                        path: joinPath(segments.slice(0, index + 1)),
-                    })),
-                ]
-                return breadcrumbs
+                return segments.map((segment, index) => ({
+                    label: segment,
+                    path: joinPath(segments.slice(0, index + 1)),
+                }))
             },
         ],
         currentFolderEntries: [
@@ -905,10 +907,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 return entries.filter((entry) => {
                     const name = splitPath(entry.path).pop()?.toLowerCase() ?? ''
                     const type = entry.type?.toLowerCase() ?? ''
-                    const fullPath = entry.path.toLowerCase()
-                    return chunks.every(
-                        (chunk) => name.includes(chunk) || type.includes(chunk) || fullPath.includes(chunk)
-                    )
+                    return chunks.every((chunk) => name.includes(chunk) || type.includes(chunk))
                 })
             },
         ],
