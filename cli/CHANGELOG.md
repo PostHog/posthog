@@ -1,5 +1,14 @@
 # posthog-cli
 
+# 0.5.10
+
+- Add terminal checks for login and query command
+
+# 0.5.9
+
+- Improve error handling from api
+- Reduce logs for sourcemap processing
+
 # 0.5.8
 
 - Adding experimental support for proguard mappings

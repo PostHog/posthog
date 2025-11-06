@@ -1986,6 +1986,7 @@ const api = {
                 [
                     ActivityScope.PLUGIN,
                     ActivityScope.HOG_FUNCTION,
+                    ActivityScope.HOG_FLOW,
                     ActivityScope.EXPERIMENT,
                     ActivityScope.TAG,
                     ActivityScope.ENDPOINT,

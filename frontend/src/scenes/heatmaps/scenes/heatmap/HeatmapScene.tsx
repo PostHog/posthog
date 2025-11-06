@@ -56,6 +56,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                             </LemonButton>
                             <LemonButton
                                 onClick={exportHeatmap}
+                                data-attr="export-heatmap"
                                 type="secondary"
                                 icon={<IconDownload />}
                                 size="small"
