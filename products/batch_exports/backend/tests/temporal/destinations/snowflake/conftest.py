@@ -106,7 +106,7 @@ def snowflake_cursor(snowflake_config: dict[str, str]):
         password = snowflake_config["password"]
 
     with snowflake.connector.connect(
-        user=f'"{snowflake_config["user"]}"',
+        user=snowflake_config["user"],
         password=password,
         account=snowflake_config["account"],
         role=f'"{snowflake_config["role"]}"',

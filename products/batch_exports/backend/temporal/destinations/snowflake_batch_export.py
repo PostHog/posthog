@@ -365,13 +365,13 @@ class SnowflakeClient:
 
         try:
             async with CONNECTION_SEMAPHORE:
-                # Snowflake expects identifiers to be wrapped in quotes to preserve case sensitivity and
-                # special characters
                 connection = await asyncio.to_thread(
                     snowflake.connector.connect,
-                    user=f'"{self.user}"',
+                    user=self.user,
                     password=self.password,
                     account=self.account,
+                    # Snowflake expects identifiers to be wrapped in quotes to preserve case sensitivity and
+                    # special characters
                     warehouse=f'"{self.warehouse}"',
                     database=f'"{self.database}"',
                     schema=f'"{self.schema}"',
