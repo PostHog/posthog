@@ -133,6 +133,9 @@ def minimum_access_level(resource: APIScopeObject) -> AccessControlLevel:
 
 
 def highest_access_level(resource: APIScopeObject) -> AccessControlLevel:
+    """Returns the highest allowed access level for a resource."""
+    if resource in ["activity_log"]:
+        return "viewer"
     return ordered_access_levels(resource)[-1]
 
 
