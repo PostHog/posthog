@@ -38,8 +38,8 @@ class TestAlterReplicatedValidation(unittest.TestCase):
         # Check that metadata is attached with defaults
         self.assertEqual(operation._sql, sql)
         self.assertEqual(operation._node_roles, [NodeRole.DATA])  # Default value
-        self.assertEqual(operation._sharded, False)
-        self.assertEqual(operation._is_alter_on_replicated_table, False)
+        self.assertEqual(operation._sharded, None)
+        self.assertEqual(operation._is_alter_on_replicated_table, None)
 
     def test_metadata_with_sharded_table(self):
         """Test that run_sql_with_exceptions attaches metadata for sharded tables."""
