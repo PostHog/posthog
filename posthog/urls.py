@@ -71,7 +71,7 @@ try:
     )
 except ImportError:
     if settings.DEBUG:
-        logger.warn(f"Could not import ee.urls", exc_info=True)
+        logger.warn(f"Could not import products.enterprise.backend.urls", exc_info=True)
     pass
 else:
     extend_api_router()

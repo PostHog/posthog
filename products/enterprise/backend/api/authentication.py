@@ -31,10 +31,9 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
+from products.enterprise.backend import settings
 from products.enterprise.backend.api.vercel.types import VercelClaims, VercelSystemClaims, VercelUser, VercelUserClaims
 from products.enterprise.backend.api.vercel.utils import get_vercel_jwks
-
-from ee import settings
 
 
 @api_view(["GET"])

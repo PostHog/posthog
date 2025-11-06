@@ -161,7 +161,7 @@ def is_sso_authentication_backend(request: HttpRequest):
 
     # Check if we're in EE, if yes, use the EE settings, otherwise use the posthog settings
     try:
-        from ee import settings
+        from products.enterprise.backend import settings
 
         SSO_AUTHENTICATION_BACKENDS = settings.AUTHENTICATION_BACKENDS
     except ImportError:
