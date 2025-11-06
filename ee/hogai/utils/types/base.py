@@ -339,6 +339,10 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The name of the summary to generate, based on the user's query and/or current filters.
     """
+    session_summarization_limit: Optional[int] = Field(default=None)
+    """
+    The maximum number of sessions to summarize.
+    """
     notebook_short_id: Optional[str] = Field(default=None)
     """
     The short ID of the notebook being used.

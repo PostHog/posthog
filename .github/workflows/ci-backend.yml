@@ -97,10 +97,12 @@ jobs:
                         - docker-compose.dev.yml
                         - docker-compose.base.yml
                         - frontend/public/email/*
+                        - docker/clickhouse
                         # These scripts are used in the CI
                         - bin/check_temporal_up
                         - bin/check_kafka_clickhouse_up
                       migrations:
+                        - docker/clickhouse
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure

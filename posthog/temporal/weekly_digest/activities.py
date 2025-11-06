@@ -340,10 +340,16 @@ async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput)
             async for team in query_teams_for_digest()[batch_start:batch_end]:
                 try:
                     async for user in await database_sync_to_async(team.all_users_with_access)():
+                        if team.id == 2:
+                            logger.info(f"Processing PH user {user.id}")
+
                         if should_send_notification(user, NotificationSetting.WEEKLY_PROJECT_DIGEST.value, team.id):
                             key: str = f"{input.digest.key}-user-notify-{user.id}"
                             await r.sadd(key, team.id)
                             await r.expire(key, input.common.redis_ttl)
+                        else:
+                            if team.id == 2:
+                                logger.info(f"PH user {user.id} has disabled notifications")
                         user_count += 1
                     team_count += 1
                 except Exception as e:
@@ -477,6 +483,9 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         org_digest = OrganizationDigest.model_validate_json(raw_digest)
 
                         if org_digest.is_empty():
+                            logger.warning(
+                                "Got empty digest for organization, skipping...", organization_id=organization.id
+                            )
                             empty_org_digest_count += 1
                             continue
 
@@ -498,13 +507,23 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             user_specific_digest: OrganizationDigest = org_digest.filter_for_user(user_notify_teams)
 
                             if user_specific_digest.is_empty():
+                                logger.warning(
+                                    "Got empty digest for user, skipping...",
+                                    organization_id=organization.id,
+                                    user_id=user.id,
+                                )
                                 empty_user_digest_count += 1
                                 continue
 
                             if input.dry_run:
-                                logger.info("DRY RUN - would send digest", digest=user_specific_digest.render_payload())
+                                logger.info(
+                                    "DRY RUN - would send digest",
+                                    digest=user_specific_digest.render_payload(),
+                                    user_email=user.email,
+                                )
                             else:
                                 if user.email == "tue@posthog.com":
+                                    logger.info("Match - sending digest")
                                     partial = True
                                     capture_event(
                                         distinct_id=user.distinct_id,

@@ -1,0 +1,197 @@
+# serializer version: 1
+# name: TestErrorTrackingBreakdownsQueryRunner.test_breakdown_respects_date_range
+  '''
+  SELECT breakdown_property AS breakdown_property,
+         breakdown_value AS breakdown_value,
+         count AS count,
+                  total_count AS total_count
+  FROM
+    (SELECT breakdown_property AS breakdown_property,
+            breakdown_value AS breakdown_value,
+            count AS count,
+                     total_count AS total_count,
+                     row_number() OVER (PARTITION BY breakdown_property
+                                        ORDER BY count DESC) AS row_number
+     FROM
+       (SELECT breakdown_property AS breakdown_property,
+               breakdown_value AS breakdown_value,
+               count() AS count,
+               sum()(count) OVER (PARTITION BY breakdown_property) AS total_count
+        FROM
+          (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
+                  tupleElement(breakdown_tuple, 2) AS breakdown_value
+           FROM
+             (SELECT arrayJoin([tuple('$browser', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
+              FROM events
+              LEFT OUTER JOIN
+                (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
+                        error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+                 FROM error_tracking_issue_fingerprint_overrides
+                 WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+                 GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+                 HAVING ifNull(equals(argMax(error_tracking_issue_fingerprint_overrides.is_deleted, error_tracking_issue_fingerprint_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint)
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2024-01-03 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$exception'), ifNull(equals(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))))
+        GROUP BY breakdown_property,
+                 breakdown_value))
+  WHERE ifNull(lessOrEquals(row_number, 3), 0)
+  ORDER BY breakdown_property ASC,
+           count DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestErrorTrackingBreakdownsQueryRunner.test_breakdown_with_limit
+  '''
+  SELECT breakdown_property AS breakdown_property,
+         breakdown_value AS breakdown_value,
+         count AS count,
+                  total_count AS total_count
+  FROM
+    (SELECT breakdown_property AS breakdown_property,
+            breakdown_value AS breakdown_value,
+            count AS count,
+                     total_count AS total_count,
+                     row_number() OVER (PARTITION BY breakdown_property
+                                        ORDER BY count DESC) AS row_number
+     FROM
+       (SELECT breakdown_property AS breakdown_property,
+               breakdown_value AS breakdown_value,
+               count() AS count,
+               sum()(count) OVER (PARTITION BY breakdown_property) AS total_count
+        FROM
+          (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
+                  tupleElement(breakdown_tuple, 2) AS breakdown_value
+           FROM
+             (SELECT arrayJoin([tuple('$browser', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
+              FROM events
+              LEFT OUTER JOIN
+                (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
+                        error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+                 FROM error_tracking_issue_fingerprint_overrides
+                 WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+                 GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+                 HAVING ifNull(equals(argMax(error_tracking_issue_fingerprint_overrides.is_deleted, error_tracking_issue_fingerprint_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint)
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2024-01-03 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$exception'), ifNull(equals(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))))
+        GROUP BY breakdown_property,
+                 breakdown_value))
+  WHERE ifNull(lessOrEquals(row_number, 3), 0)
+  ORDER BY breakdown_property ASC,
+           count DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestErrorTrackingBreakdownsQueryRunner.test_breakdown_with_null_values
+  '''
+  SELECT breakdown_property AS breakdown_property,
+         breakdown_value AS breakdown_value,
+         count AS count,
+                  total_count AS total_count
+  FROM
+    (SELECT breakdown_property AS breakdown_property,
+            breakdown_value AS breakdown_value,
+            count AS count,
+                     total_count AS total_count,
+                     row_number() OVER (PARTITION BY breakdown_property
+                                        ORDER BY count DESC) AS row_number
+     FROM
+       (SELECT breakdown_property AS breakdown_property,
+               breakdown_value AS breakdown_value,
+               count() AS count,
+               sum()(count) OVER (PARTITION BY breakdown_property) AS total_count
+        FROM
+          (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
+                  tupleElement(breakdown_tuple, 2) AS breakdown_value
+           FROM
+             (SELECT arrayJoin([tuple('$browser', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
+              FROM events
+              LEFT OUTER JOIN
+                (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
+                        error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+                 FROM error_tracking_issue_fingerprint_overrides
+                 WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+                 GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+                 HAVING ifNull(equals(argMax(error_tracking_issue_fingerprint_overrides.is_deleted, error_tracking_issue_fingerprint_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint)
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2024-01-03 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$exception'), ifNull(equals(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))))
+        GROUP BY breakdown_property,
+                 breakdown_value))
+  WHERE ifNull(lessOrEquals(row_number, 3), 0)
+  ORDER BY breakdown_property ASC,
+           count DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestErrorTrackingBreakdownsQueryRunner.test_multiple_breakdown_properties
+  '''
+  SELECT breakdown_property AS breakdown_property,
+         breakdown_value AS breakdown_value,
+         count AS count,
+                  total_count AS total_count
+  FROM
+    (SELECT breakdown_property AS breakdown_property,
+            breakdown_value AS breakdown_value,
+            count AS count,
+                     total_count AS total_count,
+                     row_number() OVER (PARTITION BY breakdown_property
+                                        ORDER BY count DESC) AS row_number
+     FROM
+       (SELECT breakdown_property AS breakdown_property,
+               breakdown_value AS breakdown_value,
+               count() AS count,
+               sum()(count) OVER (PARTITION BY breakdown_property) AS total_count
+        FROM
+          (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
+                  tupleElement(breakdown_tuple, 2) AS breakdown_value
+           FROM
+             (SELECT arrayJoin([tuple('$browser', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$')), tuple('$os', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
+              FROM events
+              LEFT OUTER JOIN
+                (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
+                        error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+                 FROM error_tracking_issue_fingerprint_overrides
+                 WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+                 GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+                 HAVING ifNull(equals(argMax(error_tracking_issue_fingerprint_overrides.is_deleted, error_tracking_issue_fingerprint_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint)
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2024-01-03 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$exception'), ifNull(equals(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))))
+        GROUP BY breakdown_property,
+                 breakdown_value))
+  WHERE ifNull(lessOrEquals(row_number, 3), 0)
+  ORDER BY breakdown_property ASC,
+           count DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
