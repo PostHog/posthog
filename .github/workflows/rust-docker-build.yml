@@ -57,6 +57,9 @@ jobs:
                     - image: kafka-deduplicator
                       dockerfile: ./rust/Dockerfile
                       project: vznmbshh6q
+                    - image: kafka-sidecar
+                      dockerfile: ./rust/Dockerfile
+                      project: t8z3sbdjpn
         runs-on: depot-ubuntu-22.04
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run

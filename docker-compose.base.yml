@@ -266,6 +266,18 @@ services:
             - otel_network
             - default
 
+    kafka-sidecar:
+        image: ghcr.io/posthog/posthog/kafka-sidecar:master
+        build:
+            context: rust/
+            args:
+                BIN: kafka-sidecar
+        restart: on-failure
+        environment:
+            KAFKA_HOSTS: 'kafka:9092'
+            GRPC_PORT: '50051'
+            METRICS_PORT: '9090'
+
     property-defs-rs:
         image: ghcr.io/posthog/posthog/property-defs-rs:master
         build:

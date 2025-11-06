@@ -37,6 +37,7 @@
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
         "build:cyclotron": "pnpm --filter=@posthog/cyclotron package",
+        "generate:proto": "buf generate",
         "update-ai-costs": "ts-node src/ingestion/ai-costs/scripts/update-ai-costs.ts",
         "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts"
     },
@@ -48,7 +49,6 @@
     "license": "MIT",
     "dependencies": {
         "@amplitude/ua-parser-js": "^0.7.33",
-        "@temporalio/client": "^1.12.0",
         "@aws-sdk/client-s3": "^3.709.0",
         "@aws-sdk/lib-storage": "^3.709.0",
         "@babel/core": "^7.22.10",
@@ -56,6 +56,7 @@
         "@babel/preset-env": "^7.22.10",
         "@babel/preset-typescript": "^7.18.6",
         "@babel/standalone": "^7.23.2",
+        "@bufbuild/protobuf": "^1.10.1",
         "@clickhouse/client": "^1.12.0",
         "@google-cloud/pubsub": "4.11.0",
         "@google-cloud/storage": "^5.8.5",
@@ -74,6 +75,7 @@
         "@posthog/plugin-scaffold": "1.4.4",
         "@posthog/siphash": "1.1.1",
         "@segment/action-destinations": "^3.383.0",
+        "@temporalio/client": "^1.12.0",
         "@types/lru-cache": "^5.1.0",
         "@types/node": "^22.13.14",
         "@types/tail": "^2.2.1",
@@ -127,6 +129,11 @@
     "devDependencies": {
         "@babel/cli": "^7.22.5",
         "@babel/types": "^7.20.2",
+        "@bufbuild/buf": "^1.59.0",
+        "@bufbuild/protoc-gen-es": "^1.10.1",
+        "@connectrpc/connect": "^1.7.0",
+        "@connectrpc/connect-node": "^1.7.0",
+        "@connectrpc/protoc-gen-connect-es": "^1.7.0",
         "@segment/actions-core": "^3.151.0",
         "@types/adm-zip": "^0.4.34",
         "@types/babel__core": "^7.1.19",

@@ -257,6 +257,16 @@ services:
         depends_on:
             - kafka
 
+    kafka-sidecar:
+        extends:
+            file: docker-compose.base.yml
+            service: kafka-sidecar
+        ports:
+            - '50051:50051' # gRPC port
+            - '9091:9090' # Metrics port
+        depends_on:
+            - kafka
+
     jaeger:
         extends:
             file: docker-compose.base.yml

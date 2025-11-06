@@ -394,6 +394,13 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     LAZY_LOADER_MAX_SIZE: number
     CAPTURE_INTERNAL_URL: string
 
+    // Kafka producer mode for dual-write testing: 'node' (default), 'sidecar', or 'both'
+    PRODUCE_KAFKA_MODE: 'node' | 'sidecar' | 'both'
+    // gRPC sidecar URL for Kafka production
+    GRPC_SIDECAR_URL: string
+    // Topic suffix for sidecar in 'both' mode (e.g., '_sidecar' produces to 'events_plugin_ingestion_sidecar')
+    GRPC_SIDECAR_TOPIC_SUFFIX: string
+
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number

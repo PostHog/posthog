@@ -22,6 +22,14 @@ pub struct KafkaConfig {
 
     #[envconfig(default = "localhost:9092")]
     pub kafka_hosts: String,
+
+    pub kafka_topic_metadata_refresh_interval_ms: Option<u32>,
+    pub kafka_producer_batch_size: Option<u32>, // Batch size in bytes (e.g., 8388608 for 8 MB)
+    pub kafka_enable_idempotence: Option<bool>, // Enable idempotent producer for exactly-once semantics
+    pub kafka_max_in_flight: Option<u32>,       // Max in-flight requests per connection
+    pub kafka_retry_backoff_ms: Option<u32>,    // Backoff time between retry attempts
+    pub kafka_socket_timeout_ms: Option<u32>,   // Socket operation timeout
+    pub kafka_metadata_max_age_ms: Option<u32>, // Metadata refresh interval
 }
 
 #[derive(Envconfig, Clone)]

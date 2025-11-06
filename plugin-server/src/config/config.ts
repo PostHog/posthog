@@ -159,6 +159,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         CAPTURE_INTERNAL_URL: isProdEnv()
             ? 'http://capture.posthog.svc.cluster.local:3000/capture'
             : 'http://localhost:8010/capture',
+        PRODUCE_KAFKA_MODE: 'node',
+        GRPC_SIDECAR_URL: 'http://localhost:50051',
+        GRPC_SIDECAR_TOPIC_SUFFIX: '',
 
         // posthog
         POSTHOG_API_KEY: '',

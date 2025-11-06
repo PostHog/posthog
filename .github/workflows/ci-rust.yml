@@ -107,6 +107,7 @@ jobs:
                     - hook-janitor
                     - hook-worker
                     - kafka-deduplicator
+                    - kafka-sidecar
                     - limiters
                     - posthog-symbol-data
                     - property-defs-rs
