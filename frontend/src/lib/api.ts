@@ -4628,6 +4628,39 @@ const api = {
         ): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotSaved(id).update({ data })
         },
+
+        async retakerToken(
+            id: number | string,
+            data: { widths?: number[] } = {}
+        ): Promise<{ token: string; expires_in: number; widths: number[] }> {
+            return await new ApiRequest()
+                .heatmapScreenshotSaved(id)
+                .withAction('retaker')
+                .withAction('token')
+                .create({ data })
+        },
+
+        async retakerUpload(id: number | string, params: { width: number; file: File; token: string }): Promise<void> {
+            const url = new ApiRequest()
+                .heatmapScreenshotSaved(id)
+                .withAction('retaker')
+                .withAction('upload')
+                .assembleFullUrl(true)
+
+            const formData = new FormData()
+            formData.append('width', String(params.width))
+            formData.append('image', params.file)
+
+            await handleFetch(url, 'POST', () =>
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${params.token}`,
+                    },
+                    body: formData,
+                })
+            )
+        },
     },
 
     sessionSummaries: {

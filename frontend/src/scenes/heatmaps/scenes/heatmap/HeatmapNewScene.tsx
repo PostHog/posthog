@@ -92,6 +92,12 @@ export function HeatmapNewScene(): JSX.Element {
                             description:
                                 'We will load your website in an iframe. Make sure you allow your website to be loaded in an iframe.',
                         },
+                        {
+                            label: 'Browser capture',
+                            value: 'browser',
+                            description:
+                                'Capture in your browser (best for authenticated pages and sites blocking iframes).',
+                        },
                     ]}
                     value={type}
                     onChange={(value: HeatmapType) => setType(value)}

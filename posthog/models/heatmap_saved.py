@@ -14,6 +14,7 @@ class SavedHeatmap(UUIDTModel):
         SCREENSHOT = "screenshot", "Screenshot"
         IFRAME = "iframe", "Iframe"
         RECORDING = "recording", "Recording"
+        BROWSER = "browser", "Browser"
 
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400, null=True, blank=True)
@@ -71,6 +72,16 @@ class HeatmapSnapshot(UUIDModel):
     # Content storage (similar to ExportedAsset)
     content = models.BinaryField(null=True)
     content_location = models.TextField(null=True, blank=True, max_length=1000)
+
+    class Source(models.TextChoices):
+        SERVER = "server", "Server"
+        BROWSER_BOOKMARKLET = "browser_bookmarklet", "Browser bookmarklet"
+        BROWSER_EXTENSION = "browser_extension", "Browser extension"
+
+    # Where the snapshot was captured from (server or browser-based retaker)
+    source = models.CharField(max_length=32, choices=Source.choices, default=Source.SERVER)
+    # When the page was captured (as opposed to when the row was created)
+    captured_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

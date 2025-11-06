@@ -21,9 +21,29 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
     const logicProps = { id: id }
     const logic = heatmapLogic(logicProps)
 
-    const { name, loading, type, displayUrl, widthOverride, screenshotUrl, generatingScreenshot, screenshotLoaded } =
-        useValues(logic)
-    const { setName, updateHeatmap, onIframeLoad, setScreenshotLoaded, exportHeatmap } = useActions(logic)
+    const {
+        name,
+        loading,
+        type,
+        displayUrl,
+        widthOverride,
+        screenshotUrl,
+        generatingScreenshot,
+        screenshotLoaded,
+        retakerToken,
+        retakerTokenExpiresIn,
+        retakerTokenWidths,
+        uploadingRetaker,
+    } = useValues(logic)
+    const {
+        setName,
+        updateHeatmap,
+        onIframeLoad,
+        setScreenshotLoaded,
+        exportHeatmap,
+        generateRetakerToken,
+        uploadRetakerImage,
+    } = useActions(logic)
 
     if (loading) {
         return (
@@ -131,7 +151,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                 </>
                             ) : null}
                         </div>
-                    ) : (
+                    ) : type === 'iframe' ? (
                         <div className="relative min-h-screen">
                             <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} context="in-app" />
                             <iframe
@@ -148,6 +168,63 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                 // we don't allow things such as camera access though
                                 allow=""
                             />
+                        </div>
+                    ) : (
+                        <div className="p-4 text-sm text-muted border-t rounded-b-lg bg-white">
+                            <div className="font-semibold mb-2">Browser capture (Retaker)</div>
+                            <div className="mb-3">
+                                Use Retaker to capture a full-page image in your browser. Best for authenticated pages
+                                or sites that block iframes.
+                            </div>
+                            <div className="flex gap-2 mb-3">
+                                <LemonButton type="primary" size="small" onClick={generateRetakerToken}>
+                                    Generate token
+                                </LemonButton>
+                            </div>
+                            {retakerToken ? (
+                                <div className="space-y-2">
+                                    <div>
+                                        Token (expires in {retakerTokenExpiresIn ?? 0}s):
+                                        <div className="font-mono text-xs break-all bg-muted rounded p-2 mt-1">
+                                            {retakerToken}
+                                        </div>
+                                    </div>
+                                    <div>Widths: {retakerTokenWidths?.join(', ') || 'n/a'}</div>
+                                    <div className="mt-2">
+                                        <div className="font-semibold mb-1">Manual upload (for testing)</div>
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="file"
+                                                accept="image/jpeg,image/png"
+                                                onChange={(e) => {
+                                                    const f = e.target.files?.[0]
+                                                    if (f) {
+                                                        uploadRetakerImage(f)
+                                                        e.currentTarget.value = ''
+                                                    }
+                                                }}
+                                            />
+                                            {uploadingRetaker ? (
+                                                <LemonButton size="small" type="secondary" loading>
+                                                    Uploading…
+                                                </LemonButton>
+                                            ) : null}
+                                        </div>
+                                        <div className="text-xs text-muted mt-1">
+                                            Uses current width ({widthOverride ?? 1024}px). After upload, the image will
+                                            display above.
+                                        </div>
+                                    </div>
+                                    <div className="mt-3">
+                                        <div className="font-semibold mb-1">Bookmarklet (placeholder)</div>
+                                        <div className="text-xs text-muted">
+                                            A production bookmarklet will scroll-and-stitch the page and upload the
+                                            result here using the token above. For now, use the manual upload or the
+                                            upcoming extension.
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : null}
                         </div>
                     )}
                 </div>

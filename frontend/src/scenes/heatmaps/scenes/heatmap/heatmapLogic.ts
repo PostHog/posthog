@@ -50,6 +50,10 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setHeatmapId: (id: number | null) => ({ id }),
         setScreenshotLoaded: (screenshotLoaded: boolean) => ({ screenshotLoaded }),
         exportHeatmap: true,
+        generateRetakerToken: true,
+        setRetakerToken: (payload: { token: string; expires_in: number; widths: number[] }) => ({ payload }),
+        uploadRetakerImage: (file: File) => ({ file }),
+        setUploadingRetaker: (uploading: boolean) => ({ uploading }),
     }),
     reducers({
         type: ['screenshot' as HeatmapType, { setType: (_, { type }) => type }],
@@ -64,6 +68,15 @@ export const heatmapLogic = kea<heatmapLogicType>([
         screenshotLoading: [false as boolean, { setScreenshotUrl: () => false }],
         heatmapId: [null as number | null, { setHeatmapId: (_, { id }) => id }],
         screenshotLoaded: [false, { setScreenshotLoaded: (_, { screenshotLoaded }) => screenshotLoaded }],
+        retakerToken: [null as string | null, { setRetakerToken: (_, { payload }) => payload.token }],
+        retakerTokenExpiresIn: [null as number | null, { setRetakerToken: (_, { payload }) => payload.expires_in }],
+        retakerTokenWidths: [
+            [] as number[],
+            {
+                setRetakerToken: (_, { payload }) => payload.widths,
+            },
+        ],
+        uploadingRetaker: [false, { setUploadingRetaker: (_, { uploading }) => uploading }],
     }),
     listeners(({ actions, values, props }) => ({
         load: async () => {
@@ -78,7 +91,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.setDisplayUrl(item.url)
                 actions.setDataUrl(item.data_url)
                 actions.setType(item.type)
-                if (item.type === 'screenshot') {
+                if (item.type === 'screenshot' || item.type === 'browser') {
                     const desiredWidth = values.widthOverride ?? 1024
                     if (item.status === 'completed' && item.has_content) {
                         actions.setScreenshotUrl(
@@ -99,7 +112,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         },
         // React to viewport width changes by updating the image URL directly
         setIframeWidth: async ({ width }) => {
-            if (values.type !== 'screenshot' || !values.heatmapId) {
+            if ((values.type !== 'screenshot' && values.type !== 'browser') || !values.heatmapId) {
                 return
             }
             const w = width ?? values.widthOverride ?? 1024
@@ -201,6 +214,40 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 heatmap_filters: values.heatmapFilters,
                 filename: `heatmap-${values.name}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
             })
+        },
+        generateRetakerToken: async () => {
+            const idForRequest = props.id
+            if (!idForRequest || String(idForRequest) === 'new') {
+                return
+            }
+            try {
+                const result = await api.savedHeatmaps.retakerToken(idForRequest, {
+                    widths: [values.widthOverride ?? 1024],
+                })
+                actions.setRetakerToken(result)
+            } catch (e) {
+                console.error(e)
+            }
+        },
+        uploadRetakerImage: async ({ file }) => {
+            if (!values.retakerToken || !values.heatmapId) {
+                return
+            }
+            const width = values.widthOverride ?? 1024
+            actions.setUploadingRetaker(true)
+            try {
+                await api.savedHeatmaps.retakerUpload(values.heatmapId, {
+                    width,
+                    file,
+                    token: values.retakerToken,
+                })
+                actions.setScreenshotUrl(
+                    `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${values.heatmapId}/content/?width=${width}`
+                )
+                actions.loadHeatmap()
+            } finally {
+                actions.setUploadingRetaker(false)
+            }
         },
     })),
     selectors({

@@ -13,6 +13,7 @@ class PosthogJwtAudience(Enum):
     IMPERSONATED_USER = "posthog:impersonted_user"  # This is used by background jobs on behalf of the user e.g. exports
     LIVESTREAM = "posthog:livestream"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
+    HEATMAP_RETAKER_UPLOAD = "posthog:heatmap_retaker_upload"
 
 
 def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudience) -> str:

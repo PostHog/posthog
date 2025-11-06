@@ -1,11 +1,12 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, List, Literal, cast  # noqa: UP035
 
 from django.core.exceptions import FieldError
 from django.db.models import Q
 from django.http import HttpResponse
+from django.utils import timezone
 
-from rest_framework import request, response, serializers, status, viewsets
+from rest_framework import parsers, request, response, serializers, status, viewsets
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse
 
@@ -24,9 +25,10 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import TemporaryTokenAuthentication
 from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS, is_url_allowed
+from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.models.heatmap_saved import SavedHeatmap
+from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -552,3 +554,108 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             was_impersonated=getattr(request, "was_impersonated", False),
         )
         return response.Response(HeatmapScreenshotResponseSerializer(updated).data, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True, url_path="retaker/token")
+    def retaker_token(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self.get_object()
+        widths = request.data.get("widths")
+        if widths is None:
+            widths = obj.target_widths or DEFAULT_TARGET_WIDTHS
+        if not isinstance(widths, list) or any(not isinstance(w, int) for w in widths):
+            return response.Response({"error": "widths must be a list of integers"}, status=status.HTTP_400_BAD_REQUEST)
+        # Basic bounds and dedupe
+        clean_widths: list[int] = []
+        seen: set[int] = set()
+        for w in widths:
+            if 100 <= int(w) <= 3000 and int(w) not in seen:
+                clean_widths.append(int(w))
+                seen.add(int(w))
+        if not clean_widths:
+            return response.Response({"error": "no valid widths provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        payload = {
+            "heatmap_id": str(obj.id),
+            "team_id": self.team.id,
+            "widths": clean_widths,
+        }
+        token = encode_jwt(
+            payload, expiry_delta=timedelta(minutes=10), audience=PosthogJwtAudience.HEATMAP_RETAKER_UPLOAD
+        )
+        return response.Response(
+            {
+                "token": token,
+                "expires_in": 600,
+                "widths": clean_widths,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="retaker/upload",
+        parser_classes=[parsers.MultiPartParser, parsers.FormParser],
+    )
+    def retaker_upload(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self.get_object()
+
+        # Get token from Authorization: Bearer or form field
+        auth_header = request.headers.get("Authorization", "")
+        token = None
+        if auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1]
+        if not token:
+            token = request.data.get("token")
+        if not token:
+            return response.Response({"error": "missing token"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        try:
+            claims = decode_jwt(token, audience=PosthogJwtAudience.HEATMAP_RETAKER_UPLOAD)
+        except Exception:
+            return response.Response({"error": "invalid token"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if str(claims.get("heatmap_id")) != str(obj.id) or int(claims.get("team_id", -1)) != int(self.team.id):
+            return response.Response({"error": "token does not match resource"}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            width = int(request.data.get("width"))
+        except Exception:
+            return response.Response({"error": "invalid or missing width"}, status=status.HTTP_400_BAD_REQUEST)
+
+        allowed_widths = claims.get("widths") or []
+        if allowed_widths and width not in allowed_widths:
+            return response.Response({"error": "width not allowed by token"}, status=status.HTTP_403_FORBIDDEN)
+
+        upload = request.FILES.get("image")
+        if not upload:
+            return response.Response({"error": "missing image file"}, status=status.HTTP_400_BAD_REQUEST)
+
+        content_type = getattr(upload, "content_type", "") or ""
+        if content_type not in ("image/jpeg", "image/jpg", "image/png"):
+            return response.Response({"error": "unsupported content-type"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Limit upload size (e.g. 50MB)
+        max_size = 50 * 1024 * 1024
+        if upload.size and upload.size > max_size:
+            return response.Response({"error": "file too large"}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+
+        source_param = (request.data.get("source") or "browser_bookmarklet").lower()
+        source_map = {
+            "browser_bookmarklet": HeatmapSnapshot.Source.BROWSER_BOOKMARKLET,
+            "browser_extension": HeatmapSnapshot.Source.BROWSER_EXTENSION,
+        }
+        source = source_map.get(source_param, HeatmapSnapshot.Source.BROWSER_BOOKMARKLET)
+
+        image_bytes = upload.read()
+
+        snapshot, _ = HeatmapSnapshot.objects.get_or_create(heatmap=obj, width=width)
+        snapshot.content = image_bytes
+        snapshot.content_location = None
+        snapshot.source = source
+        snapshot.captured_at = timezone.now()
+        snapshot.save()
+
+        # Update SavedHeatmap timestamps for ordering
+        obj.save(update_fields=["updated_at"])
+
+        return response.Response({"success": True}, status=status.HTTP_201_CREATED)
