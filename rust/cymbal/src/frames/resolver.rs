@@ -259,7 +259,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
-            .returning(|_, _| Ok(get_sourcemapcache_bytes()))
+            .returning(|_, _| Ok(Some(get_sourcemapcache_bytes())))
             .times(gets);
 
         client

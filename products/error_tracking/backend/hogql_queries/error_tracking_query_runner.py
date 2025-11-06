@@ -113,6 +113,18 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             order_by=order_by,
         )
 
+    def innermost_frame_attribute(self, materialized_col):
+        return ast.Call(
+            name="argMax",
+            args=[
+                ast.TupleAccess(
+                    tuple=ast.Field(chain=["properties", materialized_col]),
+                    index=-1,
+                ),
+                ast.Field(chain=["timestamp"]),
+            ],
+        )
+
     def select_pairs(self):
         expr_pairs = [
             [ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])), ast.Field(chain=["id"])],
@@ -123,6 +135,14 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             [
                 ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
                 ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["first_seen"])])),
+            ],
+            [
+                ast.Alias(alias="function", expr=self.innermost_frame_attribute("$exception_functions")),
+                ast.Alias(alias="function", expr=ast.Call(name="max", args=[ast.Field(chain=["function"])])),
+            ],
+            [
+                ast.Alias(alias="source", expr=self.innermost_frame_attribute("$exception_sources")),
+                ast.Alias(alias="source", expr=ast.Call(name="max", args=[ast.Field(chain=["source"])])),
             ],
         ]
 

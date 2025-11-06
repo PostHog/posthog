@@ -326,7 +326,6 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         new_source = SourceRegistry.get_source(source_type_enum)
         config = new_source.parse_config(source.job_inputs)
 
-        logger.debug(f"Validating credentials for {source_type_enum}")
         credentials_valid, credentials_error = new_source.validate_credentials(config, self.team_id)
         if not credentials_valid:
             return Response(
@@ -335,7 +334,6 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            logger.debug(f"Retrieving schemas for {source_type_enum}")
             schemas = new_source.get_schemas(config, self.team_id)
         except Exception as e:
             capture_exception(e)

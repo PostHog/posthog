@@ -364,11 +364,12 @@ const getActorName = (logItem: ActivityLogItem): JSX.Element => {
     if (logItem.detail.trigger?.job_type === 'scheduled_change') {
         return (
             <>
-                <strong>{userName}</strong> <span className="text-muted">(via scheduled change)</span>
+                <strong className="ph-no-capture">{userName}</strong>{' '}
+                <span className="text-muted">(via scheduled change)</span>
             </>
         )
     }
-    return <strong>{userName}</strong>
+    return <strong className="ph-no-capture">{userName}</strong>
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

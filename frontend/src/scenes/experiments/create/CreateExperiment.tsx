@@ -113,7 +113,6 @@ export const CreateExperiment = ({ draftExperiment, tabId }: CreateExperimentPro
                     {experimentErrors.name && typeof experimentErrors.name === 'string' && (
                         <LemonFieldError error={experimentErrors.name} />
                     )}
-                    <SceneDivider />
                     <SceneSection title="Hypothesis" description="Describe your experiment in a few sentences.">
                         <LemonTextArea
                             placeholder="The goal of this experiment is ..."
