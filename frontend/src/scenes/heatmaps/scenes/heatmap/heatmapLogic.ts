@@ -50,6 +50,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setHeatmapId: (id: number | null) => ({ id }),
         setScreenshotLoaded: (screenshotLoaded: boolean) => ({ screenshotLoaded }),
         exportHeatmap: true,
+        setContainerWidth: (containerWidth: number | null) => ({ containerWidth }),
     }),
     reducers({
         type: ['screenshot' as HeatmapType, { setType: (_, { type }) => type }],
@@ -64,6 +65,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         screenshotLoading: [false as boolean, { setScreenshotUrl: () => false }],
         heatmapId: [null as number | null, { setHeatmapId: (_, { id }) => id }],
         screenshotLoaded: [false, { setScreenshotLoaded: (_, { screenshotLoaded }) => screenshotLoaded }],
+        containerWidth: [null as number | null, { setContainerWidth: (_, { containerWidth }) => containerWidth }],
     }),
     listeners(({ actions, values, props }) => ({
         load: async () => {
@@ -206,7 +208,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
     selectors({
         isDisplayUrlValid: [
             (s) => [s.displayUrl],
-            (displayUrl) => {
+            (displayUrl: string | null) => {
                 if (!displayUrl) {
                     // an empty dataUrl is valid
                     // since we just won't do anything with it
