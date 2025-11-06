@@ -2,7 +2,7 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from django.conf import settings
@@ -95,6 +95,9 @@ class BackupStatus:
     event_time_microseconds: datetime
     error: Optional[str] = None
 
+    def is_success(self) -> bool:
+        return self.status == "BACKUP_CREATED"
+
 
 @dataclass
 class Backup:
@@ -141,7 +144,8 @@ class Backup:
         backup_settings = {
             "async": "1",
             "max_backup_bandwidth": get_max_backup_bandwidth(),
-            "s3_disable_checksum": "1",  # There is a CH issue that makes bandwith be half than what is configured: https://github.com/ClickHouse/ClickHouse/issues/78213
+            # There is a CH issue that makes bandwith be half than what is configured: https://github.com/ClickHouse/ClickHouse/issues/78213
+            "s3_disable_checksum": "1",
             # According to CH docs, disabling this is safe enough as checksums are already made: https://clickhouse.com/docs/operations/settings/settings#s3_disable_checksum
         }
         if self.base_backup:
@@ -258,6 +262,7 @@ def get_shards(cluster: dagster.ResourceParam[ClickhouseCluster]):
 
 @dagster.op
 def get_latest_backups(
+    context: dagster.OpExecutionContext,
     config: BackupConfig,
     s3: S3Resource,
     shard: Optional[int] = None,
@@ -285,6 +290,7 @@ def get_latest_backups(
         Backup.from_s3_path(backup["Prefix"])
         for backup in sorted(backups["CommonPrefixes"], key=lambda x: x["Prefix"], reverse=True)
     ]
+    context.log.info(f"Found {len(latest_backups)} latest backups: {latest_backups}")
     return latest_backups
 
 
@@ -292,14 +298,15 @@ def get_latest_backups(
 def check_latest_backup_status(
     context: dagster.OpExecutionContext,
     config: BackupConfig,
-    latest_backup: list[Backup],
+    latest_backups: list[Backup],
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> Optional[Backup]:
     """
-    Check if the latest backup is done.
+    Check if the latest backup is done. If not, wait for it to finish.
+    If it failed, go for the next backup.
     """
-    if not latest_backup:
-        context.log.info("No latest backup found. Skipping status check.")
+    if not latest_backups or not config.incremental:
+        context.log.info("No latest backup found or a full backup was requested. Skipping status check.")
         return
 
     def map_hosts(func: Callable[[Client], Any]):
@@ -309,33 +316,29 @@ def check_latest_backup_status(
             )
         return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=config.workload)
 
-    is_done = map_hosts(latest_backup.is_done).result().values()
-    if not all(is_done):
-        context.log.info(f"Latest backup {latest_backup.path} is still in progress, waiting for it to finish")
-        map_hosts(latest_backup.wait).result()
-    else:
-        most_recent_status = get_most_recent_status(map_hosts(latest_backup.status).result().values())
-        if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
-            # Check if the backup is stuck (CREATING_BACKUP with no active process)
-            if most_recent_status.status == "CREATING_BACKUP":
-                # Check how old the backup status is
-                time_since_status = datetime.now(UTC) - most_recent_status.event_time_microseconds.replace(tzinfo=UTC)
-                if time_since_status > timedelta(hours=2):
-                    context.log.warning(
-                        f"Previous backup {latest_backup.path} is stuck in CREATING_BACKUP status for {time_since_status}. "
-                        f"This usually happens when the server was restarted during backup. "
-                        f"Proceeding with new backup as the old one is no longer active."
-                    )
-                    # Don't raise an error - the backup is dead and won't interfere
-                    return None
-            # For other unexpected statuses (like BACKUP_FAILED), still raise an error
-            raise ValueError(
-                f"Latest backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please check the backup logs."
+    context.log.info(f"Find latest successful created backup")
+    for latest_backup in latest_backups:
+        context.log.info(f"Checking status of backup: {latest_backup.path}")
+        is_done = map_hosts(latest_backup.is_done).result().values()
+        if not all(is_done):
+            raise dagster.Failure(
+                description=f"Backup {latest_backup.path} is still in progress, this run shouldn't have been triggered. Review concurrency limits / schedule triggering logic."
             )
         else:
-            context.log.info(f"Latest backup {latest_backup.path} finished successfully")
+            most_recent_status = get_most_recent_status(map_hosts(latest_backup.status).result().values())
+            if most_recent_status and not most_recent_status.is_success():
+                context.log.warning(
+                    f"Backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Checking next backup."
+                )
+            else:
+                context.log.info(
+                    f"Backup {latest_backup.path} finished successfully. Using it as the base backup for the new backup."
+                )
+                return latest_backup
 
-    return latest_backup
+    raise dagster.Failure(
+        f"All {len(latest_backups)} latest backups finished with an unexpected status. Please review them before launching a new one."
+    )
 
 
 @dagster.op
@@ -437,7 +440,7 @@ def sharded_backup():
 
     def run_backup_for_shard(shard: int):
         latest_backups = get_latest_backups(shard=shard)
-        checked_backup = check_latest_backup_status(latest_backup=latest_backups)
+        checked_backup = check_latest_backup_status(latest_backups=latest_backups)
         new_backup = run_backup(latest_backup=checked_backup, shard=shard)
         wait_for_backup(backup=new_backup)
 
@@ -465,8 +468,8 @@ def non_sharded_backup():
     Since we don't want to keep the state about which host was selected to run the backup, we always search backups by their name in every node.
     When we find it in one of the nodes, we keep waiting on it only in that node. This is handy when we retry the job and a backup is in progress in any node, as we'll always wait for it to finish.
     """
-    latest_backup = get_latest_backups()
-    new_backup = run_backup(check_latest_backup_status(latest_backup))
+    latest_backups = get_latest_backups()
+    new_backup = run_backup(check_latest_backup_status(latest_backups=latest_backups))
     wait_for_backup(new_backup)
 
 

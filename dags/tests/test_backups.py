@@ -19,6 +19,8 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from dags.backups import (
     Backup,
     BackupConfig,
+    BackupStatus,
+    check_latest_backup_status,
     get_latest_backups,
     non_sharded_backup,
     prepare_run_config,
@@ -38,7 +40,8 @@ def test_get_latest_backup(table: str):
     }
 
     config = BackupConfig(database="posthog", table=table)
-    result = get_latest_backups(config=config, s3=mock_s3)
+    context = dagster.build_op_context()
+    result = get_latest_backups(context=context, config=config, s3=mock_s3)
 
     assert isinstance(result, list)
     assert result[0].database == "posthog"
@@ -57,6 +60,66 @@ def test_get_latest_backup(table: str):
     assert result[0].table == expected_table
     assert result[1].table == expected_table
     assert result[2].table == expected_table
+
+
+def test_check_latest_backup_status_returns_latest_backup():
+    config = BackupConfig(database="posthog", table="test", incremental=True)
+    backup1 = Backup(database="posthog", date="2024-02-01T07:54:04Z", table="test")
+    backup1.is_done = MagicMock(return_value=True)
+    backup1.status = MagicMock(
+        return_value=BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
+    )
+
+    backup2 = Backup(database="posthog", date="2024-01-01T07:54:04Z", table="test")
+    backup2.is_done = MagicMock(return_value=True)
+    backup2.status = MagicMock(
+        return_value=BackupStatus(hostname="test", status="BACKUP_CREATED", event_time_microseconds=datetime.now())
+    )
+
+    def mock_map_hosts(fn, **kwargs):
+        mock_result = MagicMock()
+        mock_client = MagicMock()
+        mock_result.result.return_value = {"host1": fn(mock_client)}
+        return mock_result
+
+    cluster = MagicMock()
+    cluster.map_hosts_by_role.side_effect = mock_map_hosts
+
+    result = check_latest_backup_status(
+        context=dagster.build_op_context(),
+        config=config,
+        latest_backups=[backup1, backup2],
+        cluster=cluster,
+    )
+
+    assert result == backup2
+
+
+@pytest.mark.parametrize("is_done", [True, False])
+def test_check_latest_backup_status_fails(is_done: bool):
+    config = BackupConfig(database="posthog", table="test", incremental=True)
+    backup1 = Backup(database="posthog", date="2024-02-01T07:54:04Z", table="test")
+    backup1.is_done = MagicMock(return_value=is_done)
+    backup1.status = MagicMock(
+        return_value=BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
+    )
+
+    def mock_map_hosts(fn, **kwargs):
+        mock_result = MagicMock()
+        mock_client = MagicMock()
+        mock_result.result.return_value = {"host1": fn(mock_client)}
+        return mock_result
+
+    cluster = MagicMock()
+    cluster.map_hosts_by_role.side_effect = mock_map_hosts
+
+    with pytest.raises(dagster.Failure):
+        check_latest_backup_status(
+            context=dagster.build_op_context(),
+            config=config,
+            latest_backups=[backup1],
+            cluster=cluster,
+        )
 
 
 def run_backup_test(
