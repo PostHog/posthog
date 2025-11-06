@@ -1,9 +1,6 @@
 from django.db import transaction
 
-from rest_framework import filters, serializers, status, viewsets
-from rest_framework.decorators import action
-from rest_framework.request import Request
-from rest_framework.response import Response
+from rest_framework import filters, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -14,7 +11,65 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 
 class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """
+    Serializer for Synthetic Monitor API endpoints.
+
+    Synthetic monitors track HTTP endpoint uptime and latency from multiple AWS regions.
+    All check results are stored as `synthetic_http_check` events in ClickHouse.
+    Monitor state (last checked, consecutive failures, etc.) is computed from ClickHouse events on-demand.
+
+    Alerts are configured via HogFlows (workflows) that trigger on `synthetic_http_check` events.
+    Use the "Create alert workflow" button in the UI to set up alert workflows.
+    """
+
     created_by = UserBasicSerializer(read_only=True)
+    name = serializers.CharField(
+        help_text="Display name for the monitor (e.g., 'API Health Check')",
+        max_length=400,
+    )
+    url = serializers.URLField(
+        help_text="The HTTP endpoint URL to monitor (must start with http:// or https://)",
+    )
+    frequency_minutes = serializers.IntegerField(
+        help_text="How often to check the endpoint (1, 5, 15, 30, or 60 minutes)",
+        choices=[(1, "1 minute"), (5, "5 minutes"), (15, "15 minutes"), (30, "30 minutes"), (60, "60 minutes")],
+    )
+    regions = serializers.JSONField(
+        help_text="List of AWS regions to run checks from (e.g., ['us-east-1', 'eu-west-1']). Valid regions: us-east-1, us-west-2, eu-west-1, eu-central-1, ap-southeast-1, ap-northeast-1",
+        allow_empty=True,
+    )
+    method = serializers.CharField(
+        help_text="HTTP method to use for the check (GET, POST, PUT, PATCH, DELETE, or HEAD)",
+        default="GET",
+        max_length=10,
+    )
+    headers = serializers.JSONField(
+        help_text="Custom HTTP headers as JSON object (e.g., {'Authorization': 'Bearer token'})",
+        required=False,
+        allow_null=True,
+    )
+    body = serializers.CharField(
+        help_text="Request body for POST/PUT requests (optional)",
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+    )
+    expected_status_code = serializers.IntegerField(
+        help_text="Expected HTTP status code (default: 200). Check fails if response status doesn't match.",
+        default=200,
+        min_value=100,
+        max_value=599,
+    )
+    timeout_seconds = serializers.IntegerField(
+        help_text="Request timeout in seconds (default: 30, max: 300)",
+        default=30,
+        min_value=1,
+        max_value=300,
+    )
+    enabled = serializers.BooleanField(
+        help_text="Whether the monitor is active. Disabled monitors won't be checked.",
+        default=True,
+    )
 
     class Meta:
         model = SyntheticMonitor
@@ -158,25 +213,3 @@ class SyntheticMonitorViewSet(
             },
         )
         instance.delete()
-
-    @action(methods=["POST"], detail=True)
-    def test(self, request: Request, **kwargs) -> Response:
-        """Trigger an immediate test check of the monitor"""
-        monitor = self.get_object()
-
-        report_user_action(
-            request.user,
-            "synthetic monitor test triggered",
-            {
-                "monitor_id": str(monitor.id),
-            },
-        )
-
-        return Response(
-            {
-                "success": True,
-                "message": "Test check triggered (execution handled by external service)",
-                "monitor_id": str(monitor.id),
-            },
-            status=status.HTTP_200_OK,
-        )

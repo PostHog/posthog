@@ -12,8 +12,7 @@ import { SyntheticMonitor } from './types'
 
 export function MonitorsTable(): JSX.Element {
     const { monitors, monitorsLoading } = useValues(syntheticMonitoringLogic)
-    const { deleteMonitor, pauseMonitor, resumeMonitor, testMonitor, createAlertWorkflow } =
-        useActions(syntheticMonitoringLogic)
+    const { deleteMonitor, pauseMonitor, resumeMonitor, createAlertWorkflow } = useActions(syntheticMonitoringLogic)
 
     const columns: LemonTableColumns<SyntheticMonitor> = [
         {
@@ -74,9 +73,6 @@ export function MonitorsTable(): JSX.Element {
                                 onClick={() => router.actions.push(urls.syntheticMonitor(monitor.id))}
                             >
                                 Edit
-                            </LemonButton>
-                            <LemonButton fullWidth onClick={() => testMonitor(monitor.id)}>
-                                Test now
                             </LemonButton>
                             <LemonButton fullWidth onClick={() => createAlertWorkflow(monitor.id)}>
                                 Create alert workflow

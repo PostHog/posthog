@@ -4680,9 +4680,6 @@ const api = {
         async delete(id: string): Promise<void> {
             await new ApiRequest().syntheticMonitor(id).delete()
         },
-        async test(id: string): Promise<any> {
-            return await new ApiRequest().syntheticMonitor(id).withAction('test').create()
-        },
     },
 }
 

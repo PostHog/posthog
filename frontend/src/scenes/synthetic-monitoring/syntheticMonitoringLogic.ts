@@ -23,7 +23,6 @@ export const syntheticMonitoringLogic = kea<syntheticMonitoringLogicType>([
         deleteMonitor: (id: string) => ({ id }),
         pauseMonitor: (id: string) => ({ id }),
         resumeMonitor: (id: string) => ({ id }),
-        testMonitor: (id: string) => ({ id }),
         createAlertWorkflow: (id: string) => ({ id }),
     }),
     lazyLoaders(({ values }) => ({
@@ -65,14 +64,6 @@ export const syntheticMonitoringLogic = kea<syntheticMonitoringLogicType>([
         pausedMonitors: [(s) => [s.monitors], (monitors): SyntheticMonitor[] => monitors.filter((m) => !m.enabled)],
     }),
     listeners(({ actions }) => ({
-        testMonitor: async ({ id }) => {
-            try {
-                await api.syntheticMonitoring.test(id)
-                lemonToast.success('Test check triggered')
-            } catch {
-                lemonToast.error('Failed to trigger test check')
-            }
-        },
         createAlertWorkflow: async ({ id }) => {
             // Navigate to workflows page with monitor ID pre-filled
             actions.newTab(urls.workflowNew() + `?monitorId=${id}`)
