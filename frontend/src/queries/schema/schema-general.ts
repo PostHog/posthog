@@ -1446,7 +1446,7 @@ export type PathsFilter = {
     localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters'] | null
     minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
     maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
-
+    showFullUrls?: boolean
     /** Relevant only within actors query */
     pathStartKey?: string
     /** Relevant only within actors query */

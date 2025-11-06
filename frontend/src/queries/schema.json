@@ -18532,6 +18532,9 @@
                 "pathsHogQLExpression": {
                     "type": "string"
                 },
+                "showFullUrls": {
+                    "type": "boolean"
+                },
                 "startPoint": {
                     "type": "string"
                 },
