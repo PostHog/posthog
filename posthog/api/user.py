@@ -577,10 +577,11 @@ class UserViewSet(
             })
 
         except Exception as e:
+            structlog.get_logger().exception("Error fetching Zendesk tickets", user_id=user.id if 'user' in locals() and user else None)
             return Response({
                 "tickets": [],
                 "count": 0,
-                "error": str(e)
+                "error": "An internal error occurred while fetching tickets."
             })
 
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
