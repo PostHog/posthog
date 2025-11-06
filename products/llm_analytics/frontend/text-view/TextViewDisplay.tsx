@@ -16,6 +16,19 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { textViewLogic } from './textViewLogic'
 
+/**
+ * Decode base64-encoded UTF-8 string properly
+ * Using TextDecoder to handle emoji and special characters correctly
+ */
+function decodeBase64Utf8(base64String: string): string {
+    const binaryString = atob(base64String)
+    const bytes = new Uint8Array(binaryString.length)
+    for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i)
+    }
+    return new TextDecoder('utf-8').decode(bytes)
+}
+
 interface TextSegment {
     type: 'text' | 'truncated' | 'gen_expandable' | 'tools_expandable'
     content: string
@@ -78,7 +91,7 @@ function parseTruncatedSegments(text: string): TextSegment[] {
         if (match.type === 'truncated') {
             // Add truncated segment
             try {
-                const fullContent = decodeURIComponent(atob(match.data.encodedContent))
+                const fullContent = decodeBase64Utf8(match.data.encodedContent)
                 segments.push({
                     type: 'truncated',
                     content: `... (${match.data.charCount} chars truncated)`,
@@ -95,7 +108,7 @@ function parseTruncatedSegments(text: string): TextSegment[] {
         } else if (match.type === 'tools_expandable') {
             // Add tools expandable segment
             try {
-                const fullContent = decodeURIComponent(atob(match.data.encodedContent))
+                const fullContent = decodeBase64Utf8(match.data.encodedContent)
                 segments.push({
                     type: 'tools_expandable',
                     content: match.data.displayText,
@@ -192,7 +205,7 @@ function parseTextSegments(text: string): TextSegment[] {
         if (match.type === 'truncated') {
             // Add truncated segment
             try {
-                const fullContent = decodeURIComponent(atob(match.data.encodedContent))
+                const fullContent = decodeBase64Utf8(match.data.encodedContent)
                 segments.push({
                     type: 'truncated',
                     content: `... (${match.data.charCount} chars truncated)`,
@@ -209,7 +222,7 @@ function parseTextSegments(text: string): TextSegment[] {
         } else if (match.type === 'gen_expandable') {
             // Add gen expandable segment
             try {
-                const fullContent = decodeURIComponent(atob(match.data.encodedContent))
+                const fullContent = decodeBase64Utf8(match.data.encodedContent)
                 segments.push({
                     type: 'gen_expandable',
                     content: match.data.displayText,
@@ -226,7 +239,7 @@ function parseTextSegments(text: string): TextSegment[] {
         } else if (match.type === 'tools_expandable') {
             // Add tools expandable segment
             try {
-                const fullContent = decodeURIComponent(atob(match.data.encodedContent))
+                const fullContent = decodeBase64Utf8(match.data.encodedContent)
                 segments.push({
                     type: 'tools_expandable',
                     content: match.data.displayText,
