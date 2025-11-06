@@ -1,0 +1,13 @@
+# Learn more: https://buf.build/docs/configuration/v2/buf-gen-yaml
+version: v2
+inputs:
+    - directory: ../rust/kafka-sidecar/proto
+plugins:
+    # TypeScript message generation
+    - local: protoc-gen-es
+      opt: target=ts,import_extension=none
+      out: src/gen
+    # ConnectRPC client generation
+    - local: protoc-gen-connect-es
+      opt: target=ts,import_extension=none
+      out: src/gen
