@@ -146,6 +146,28 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
             )
             assert res.status_code == status.HTTP_200_OK, f"Failed for level {level}: {res.json()}"
 
+    def test_activity_log_access_level_cannot_be_above_viewer(self):
+        """Test that activity_log access level cannot be set above maximum 'viewer'"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        for level in ["editor", "manager"]:
+            res = self.client.put(
+                "/api/projects/@current/resource_access_controls",
+                {"resource": "activity_log", "access_level": level},
+            )
+            assert res.status_code == status.HTTP_400_BAD_REQUEST, f"Failed for level {level}: {res.json()}"
+            assert "cannot be set above the maximum 'viewer'" in res.json()["detail"]
+
+    def test_activity_log_available_access_levels_restricted(self):
+        """Test that activity_log returns only ['none', 'viewer'] in available_access_levels"""
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        res = self.client.get("/api/projects/@current/resource_access_controls?resource=activity_log")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["available_access_levels"] == ["none", "viewer"]
+        assert res.json()["minimum_access_level"] == "viewer"
+        assert res.json()["default_access_level"] == "viewer"
+
 
 class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
     def setUp(self):

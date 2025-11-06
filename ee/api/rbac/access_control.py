@@ -79,6 +79,12 @@ class AccessControlSerializer(serializers.ModelSerializer):
                     f"Access level cannot be set below the minimum '{min_level}' for {resource}."
                 )
 
+            max_level = highest_access_level(resource)
+            if levels.index(access_level) > levels.index(max_level):
+                raise serializers.ValidationError(
+                    f"Access level cannot be set above the maximum '{max_level}' for {resource}."
+                )
+
         return access_level
 
     def validate(self, data):

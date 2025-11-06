@@ -112,6 +112,8 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
 def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
     if resource in ["project", "organization"]:
         return list(ACCESS_CONTROL_LEVELS_MEMBER)
+    if resource == "activity_log":
+        return ["none", "viewer"]
 
     return list(ACCESS_CONTROL_LEVELS_RESOURCE)
 
@@ -134,6 +136,8 @@ def minimum_access_level(resource: APIScopeObject) -> AccessControlLevel:
 
 
 def highest_access_level(resource: APIScopeObject) -> AccessControlLevel:
+    if resource == "activity_log":
+        return "viewer"
     return ordered_access_levels(resource)[-1]
 
 
