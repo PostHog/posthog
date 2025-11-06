@@ -96,7 +96,7 @@ AND properties.$lib != 'web'`
                         api.queryHogQL(relatedEventsQuery, tags),
                     ])
 
-                    return [...sessionEvents.results, ...relatedEvents.results].map(
+                    const allEvents = [...sessionEvents.results, ...relatedEvents.results].map(
                         (event: any): RecordingEventType => {
                             const currentUrl = event[5]
                             // We use the pathname to simplify the UI - we build it here instead of fetching it to keep data usage small
@@ -130,6 +130,20 @@ AND properties.$lib != 'web'`
                             }
                         }
                     )
+
+                    const hasFeedbackStarted = allEvents.some((e) => e.event === '$user_feedback_recording_started')
+                    const hasFeedbackStopped = allEvents.some((e) => e.event === '$user_feedback_recording_stopped')
+
+                    if (hasFeedbackStarted || hasFeedbackStopped) {
+                        const eventsFound = []
+                        if (hasFeedbackStarted) {
+                            eventsFound.push('$user_feedback_recording_started')
+                        }
+                        if (hasFeedbackStopped) {
+                            eventsFound.push('$user_feedback_recording_stopped')
+                        }
+                    }
+                    return allEvents
                 },
 
                 loadFullEventData: async ({ event }) => {
