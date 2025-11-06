@@ -551,10 +551,7 @@ impl DeduplicationProcessor {
                     key, output_topic, e
                 );
                 Err(anyhow::anyhow!(
-                    "Failed to publish event with key '{}' to topic '{}': {}",
-                    key,
-                    output_topic,
-                    e
+                    "Failed to publish event with key '{key}' to topic '{output_topic}': {e}"
                 ))
             }
         }
@@ -645,11 +642,7 @@ impl MessageProcessor for DeduplicationProcessor {
                             .nack(format!("Failed to parse RawEvent from data field: {e}"))
                             .await;
                         return Err(anyhow::anyhow!(
-                            "Failed to parse RawEvent from data field at {}:{} offset {}: {}",
-                            topic,
-                            partition,
-                            offset,
-                            e
+                            "Failed to parse RawEvent from data field at {topic}:{partition} offset {offset}: {e}"
                         ));
                     }
                 }
@@ -697,11 +690,7 @@ impl MessageProcessor for DeduplicationProcessor {
                         .nack("Invalid UTF-8 in message key".to_string())
                         .await;
                     return Err(anyhow::anyhow!(
-                        "Invalid UTF-8 in message key at {}:{} offset {}: {}",
-                        topic,
-                        partition,
-                        offset,
-                        e
+                        "Invalid UTF-8 in message key at {topic}:{partition} offset {offset}: {e}"
                     ));
                 }
             },

@@ -269,16 +269,10 @@ impl Config {
                 .parse()
                 .with_context(|| format!("Failed to parse scientific notation: {s}"))?;
             if float_val < 0.0 {
-                return Err(anyhow::anyhow!(
-                    "Storage capacity cannot be negative: {}",
-                    s
-                ));
+                return Err(anyhow::anyhow!("Storage capacity cannot be negative: {s}"));
             }
             if float_val > u64::MAX as f64 {
-                return Err(anyhow::anyhow!(
-                    "Storage capacity exceeds maximum value: {}",
-                    s
-                ));
+                return Err(anyhow::anyhow!("Storage capacity exceeds maximum value: {s}"));
             }
             return Ok(float_val as u64);
         }

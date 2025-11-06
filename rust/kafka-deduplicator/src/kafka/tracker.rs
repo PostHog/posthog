@@ -375,7 +375,7 @@ impl PartitionTrackingInfo {
             }
             // No-op transitions (already in target state)
             (current, target) if current == target => {
-                return Err(anyhow::anyhow!("Already in state {:?}", current));
+                return Err(anyhow::anyhow!("Already in state {current:?}"));
             }
             // Invalid transitions
             _ => {
