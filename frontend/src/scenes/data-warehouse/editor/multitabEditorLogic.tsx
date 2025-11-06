@@ -122,6 +122,7 @@ function getTabHash(values: multitabEditorLogicType['values']): Record<string, a
     return hash
 }
 
+// Misnomer now: this logic is repsonsible for the state of one sql editor tab
 export const multitabEditorLogic = kea<multitabEditorLogicType>([
     path(['data-warehouse', 'editor', 'multitabEditorLogic']),
     props({} as MultitabEditorLogicProps),
