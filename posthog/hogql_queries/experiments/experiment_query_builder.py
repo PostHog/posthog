@@ -1,10 +1,11 @@
 from copy import deepcopy
-from typing import cast
+from typing import Optional, Union, cast
 
 from posthog.schema import (
     ActionsNode,
     ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
@@ -29,19 +30,14 @@ from posthog.hogql_queries.experiments.base_query_utils import (
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Experiment
 from posthog.models.team.team import Team
 
 
 def get_exposure_config_params_for_builder(
-    experiment: Experiment,
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
 ) -> tuple[ExperimentEventExposureConfig | ActionsNode, MultipleVariantHandling, bool]:
-    """A helper function that takes an experiment and returns some of the required parameters for the query builder.
-
-    This is to decouple the relation a bit between experiments and the builder it self. The builder shouldn't need to know this
-    experiment specific stuff.
-    """
-    criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
+    """Returns exposure-related parameters required by the query builder."""
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     if criteria is None:
         exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
@@ -63,13 +59,13 @@ class ExperimentQueryBuilder:
         self,
         team: Team,
         feature_flag_key: str,
-        metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
         exposure_config: ExperimentEventExposureConfig | ActionsNode,
         filter_test_accounts: bool,
         multiple_variant_handling: MultipleVariantHandling,
         variants: list[str],
         date_range_query: QueryDateRange,
         entity_key: str,
+        metric: Optional[ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric] = None,
     ):
         self.team = team
         self.metric = metric
@@ -85,6 +81,7 @@ class ExperimentQueryBuilder:
         """
         Main entry point. Returns complete query built from HogQL with placeholders.
         """
+        assert self.metric is not None, "metric is required for build_query()"
         match self.metric:
             case ExperimentFunnelMetric():
                 return self._build_funnel_query()
@@ -97,11 +94,53 @@ class ExperimentQueryBuilder:
                     f"Only funnel, mean, and ratio metrics are supported. Got {type(self.metric)}"
                 )
 
+    def get_exposure_timeseries_query(self) -> ast.SelectQuery:
+        """
+        Returns a query for exposure timeseries data.
+
+        Generates daily exposure counts per variant, counting each entity
+        only once on their first exposure day.
+
+        Returns:
+            SelectQuery with columns: day, variant, exposed_count
+        """
+        query = parse_select(
+            """
+            WITH first_exposures AS (
+                SELECT
+                    {entity_key} AS entity_id,
+                    {variant_expr} AS variant,
+                    toDate(toString(min(timestamp))) AS day
+                FROM events
+                WHERE {exposure_predicate}
+                GROUP BY entity_id
+            )
+
+            SELECT
+                first_exposures.day AS day,
+                first_exposures.variant AS variant,
+                count(first_exposures.entity_id) AS exposed_count
+            FROM first_exposures
+            WHERE notEmpty(variant)
+            GROUP BY first_exposures.day, first_exposures.variant
+            ORDER BY first_exposures.day ASC
+            """,
+            placeholders={
+                "entity_key": parse_expr(self.entity_key),
+                "variant_expr": self._build_variant_expr_for_mean(),
+                "exposure_predicate": self._build_exposure_predicate(),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
     def _get_conversion_window_seconds(self) -> int:
         """
         Returns the conversion window in seconds for the current metric.
         Returns 0 if no conversion window is configured.
         """
+        assert self.metric is not None, "metric is required for _get_conversion_window_seconds()"
         if self.metric.conversion_window and self.metric.conversion_window_unit:
             return conversion_window_to_seconds(
                 self.metric.conversion_window,
