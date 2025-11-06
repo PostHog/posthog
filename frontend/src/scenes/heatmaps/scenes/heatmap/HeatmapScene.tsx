@@ -32,6 +32,9 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         generatingScreenshot,
         screenshotLoaded,
         containerWidth,
+        desiredNumericWidth,
+        effectiveWidth,
+        scalePercent,
     } = useValues(logic)
     const { setName, updateHeatmap, onIframeLoad, setScreenshotLoaded, exportHeatmap, setContainerWidth } =
         useActions(logic)
@@ -60,12 +63,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         }
     }, [widthOverride])
 
-    const requestedWidth = typeof widthOverride === 'number' ? widthOverride : null
-    const desiredNumericWidth =
-        requestedWidth && containerWidth ? Math.min(requestedWidth, containerWidth) : (requestedWidth ?? null)
-    const effectiveWidth = desiredNumericWidth ?? undefined
-    const scale = requestedWidth && containerWidth ? Math.min(1, containerWidth / requestedWidth) : 1
-    const scalePercent = Math.round(scale * 100)
+    // Derived widths and scale are provided by heatmapLogic selectors
 
     if (loading) {
         return (
@@ -123,9 +121,9 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                     <div className="border mx-auto bg-white rounded-lg" style={{ width: effectiveWidth ?? '100%' }}>
                         <div className="p-2 border-b text-muted-foreground gap-x-2 flex items-center">
                             <IconBrowser /> {displayUrl}
-                            {requestedWidth && containerWidth && requestedWidth > containerWidth ? (
+                            {typeof widthOverride === 'number' && containerWidth && widthOverride > containerWidth ? (
                                 <LemonTag className="ml-auto" type="highlight">
-                                    Scaled to {scalePercent}% ({requestedWidth}px →{' '}
+                                    Scaled to {scalePercent}% ({widthOverride}px →{' '}
                                     {Math.round(effectiveWidth as number)} px)
                                 </LemonTag>
                             ) : null}

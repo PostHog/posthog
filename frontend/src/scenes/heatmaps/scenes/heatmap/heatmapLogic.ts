@@ -227,6 +227,27 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 }
             },
         ],
+        desiredNumericWidth: [
+            (s) => [s.widthOverride, s.containerWidth],
+            (widthOverride: number | null | undefined, containerWidth: number | null) => {
+                const requestedWidth = typeof widthOverride === 'number' ? widthOverride : null
+                return requestedWidth && containerWidth
+                    ? Math.min(requestedWidth, containerWidth)
+                    : (requestedWidth ?? null)
+            },
+        ],
+        effectiveWidth: [
+            (s) => [s.desiredNumericWidth],
+            (desiredNumericWidth: number | null) => desiredNumericWidth ?? undefined,
+        ],
+        scalePercent: [
+            (s) => [s.widthOverride, s.containerWidth],
+            (widthOverride: number | null | undefined, containerWidth: number | null) => {
+                const requestedWidth = typeof widthOverride === 'number' ? widthOverride : null
+                const scale = requestedWidth && containerWidth ? Math.min(1, containerWidth / requestedWidth) : 1
+                return Math.round(scale * 100)
+            },
+        ],
     }),
     subscriptions(({ actions }) => ({
         widthOverride: (widthOverride) => {
