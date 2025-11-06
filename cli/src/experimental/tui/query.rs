@@ -17,12 +17,10 @@ use crate::{
     experimental::query::{
         run_query, HogQLQueryErrorResponse, HogQLQueryResponse, HogQLQueryResult,
     },
-    utils::{auth::Token, homedir::posthog_home_dir},
+    utils::homedir::posthog_home_dir,
 };
 
 pub struct QueryTui {
-    host: String,
-    creds: Token,
     current_result: Option<HogQLQueryResult>,
     lower_panel_state: Option<LowerPanelState>,
     bg_query_handle: Option<JoinHandle<Result<HogQLQueryResult, Error>>>,
@@ -50,12 +48,10 @@ struct PersistedEditorState {
 }
 
 impl QueryTui {
-    pub fn new(creds: Token, host: String, debug: bool) -> Self {
+    pub fn new(debug: bool) -> Self {
         Self {
             current_result: None,
             lower_panel_state: None,
-            creds,
-            host,
             focus: Focus::Editor,
             debug,
             bg_query_handle: None,
@@ -296,9 +292,7 @@ impl QueryTui {
 
     fn spawn_bg_query(&mut self, lines: Vec<String>) {
         let query = lines.join("\n");
-        let query_endpoint = format!("{}/api/environments/{}/query", self.host, self.creds.env_id);
-        let m_token = self.creds.token.clone();
-        let handle = std::thread::spawn(move || run_query(&query_endpoint, &m_token, &query));
+        let handle = std::thread::spawn(move || run_query(&query));
 
         // We drop any previously running thread handle here, but don't kill the thread... this is fine,
         // I think. The alternative is to switch to tokio and get true task cancellation, but :shrug:,
@@ -307,10 +301,10 @@ impl QueryTui {
     }
 }
 
-pub fn start_query_editor(host: &str, token: Token, debug: bool) -> Result<String, Error> {
+pub fn start_query_editor(debug: bool) -> Result<String, Error> {
     let terminal = ratatui::init();
 
-    let mut app = QueryTui::new(token, host.to_string(), debug);
+    let mut app = QueryTui::new(debug);
     let res = app.enter_draw_loop(terminal);
     ratatui::restore();
     res
