@@ -43,7 +43,6 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     drop_events_by_token_distinct_id: None,
     enable_historical_rerouting: false,
     historical_rerouting_threshold_days: 1_i64,
-    historical_tokens_keys: None,
     is_mirror_deploy: false,
     log_level: Level::INFO,
     verbose_sample_percent: 0.0_f32,
@@ -80,6 +79,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_endpoint: None,
     s3_fallback_prefix: String::new(),
     healthcheck_strategy: HealthStrategy::All,
+    ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
 });
 
 static TRACING_INIT: Once = Once::new();

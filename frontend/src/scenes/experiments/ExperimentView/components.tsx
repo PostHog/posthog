@@ -36,7 +36,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
@@ -149,17 +148,15 @@ export function createMaxToolExperimentSurveyConfig(
 }
 
 export function VariantTag({
-    experimentId,
     variantKey,
     fontSize,
     className,
 }: {
-    experimentId: ExperimentIdType
     variantKey: string
     fontSize?: number
     className?: string
 }): JSX.Element {
-    const { experiment, legacyPrimaryMetricsResults, usesNewQueryRunner } = useValues(experimentLogic({ experimentId }))
+    const { experiment, legacyPrimaryMetricsResults, usesNewQueryRunner } = useValues(experimentLogic)
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
@@ -536,7 +533,6 @@ export function PageHeaderCustom(): JSX.Element {
                     </>
                 }
             />
-            <SceneDivider />
 
             {experiment && isExperimentRunning && (
                 <ScenePanel>
@@ -582,7 +578,7 @@ export function PageHeaderCustom(): JSX.Element {
                                 menuItem
                                 onClick={openMax || undefined}
                                 disabledReasons={{
-                                    'Max AI not available': !openMax,
+                                    'PostHog AI not available': !openMax,
                                 }}
                             >
                                 <IconPlusSmall /> Create survey
@@ -817,7 +813,7 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
                                     value: key,
                                     label: (
                                         <div className="deprecated-space-x-2 inline-flex">
-                                            <VariantTag experimentId={experimentId} variantKey={key} />
+                                            <VariantTag variantKey={key} />
                                         </div>
                                     ),
                                 })) || []

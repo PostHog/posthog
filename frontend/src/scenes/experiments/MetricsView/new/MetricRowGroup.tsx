@@ -1,6 +1,6 @@
 import './MetricRowGroup.scss'
 
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -109,6 +109,8 @@ export function MetricRowGroup({
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     const { featureFlags } = useValues(experimentLogic)
+    const { reportExperimentTimeseriesViewed } = useActions(experimentLogic)
+
     const timeseriesEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES] && experiment.stats_config?.timeseries
 
     // Calculate total rows for loading/error states
@@ -194,6 +196,7 @@ export function MetricRowGroup({
             isOpen: true,
             variantResult,
         })
+        reportExperimentTimeseriesViewed(experiment.id, metric)
     }
 
     const handleTimeseriesModalClose = (): void => {
@@ -328,7 +331,7 @@ export function MetricRowGroup({
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    <VariantTag experimentId={experiment.id} variantKey={baselineResult.key} />
+                    <VariantTag variantKey={baselineResult.key} />
                 </td>
 
                 {/* Value */}
@@ -438,7 +441,7 @@ export function MetricRowGroup({
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
-                            <VariantTag experimentId={experiment.id} variantKey={variant.key} />
+                            <VariantTag variantKey={variant.key} />
                         </td>
 
                         {/* Value */}

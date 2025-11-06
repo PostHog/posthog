@@ -110,6 +110,12 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
 export const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [
     {
         type: 'function',
+        name: 'Set variable',
+        description: 'Set a workflow variable.',
+        config: { template_id: 'template-posthog-set-variable', inputs: {} },
+    },
+    {
+        type: 'function',
         name: 'Capture event',
         description: 'Capture an event to PostHog.',
         config: { template_id: 'template-posthog-capture', inputs: {} },
@@ -190,7 +196,10 @@ const customFilterFunction = (template: HogFunctionTemplateType): boolean => {
 }
 
 function HogFunctionTemplatesChooser(): JSX.Element {
-    const logic = hogFunctionTemplateListLogic({ type: 'destination', customFilterFunction })
+    const logic = hogFunctionTemplateListLogic({
+        type: 'destination',
+        customFilterFunction,
+    })
 
     const { loading, filteredTemplates, filters } = useValues(logic)
     const { loadHogFunctionTemplates, setFilters } = useActions(logic)

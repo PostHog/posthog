@@ -1,8 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, memo, useMemo, useState } from 'react'
 
-import { IconCalendar, IconCheck, IconClock, IconHourglass, IconInfo, IconPlus, IconX } from '@posthog/icons'
 import {
+    IconCalendar,
+    IconCheck,
+    IconClock,
+    IconHourglass,
+    IconInfinity,
+    IconInfo,
+    IconPlus,
+    IconX,
+} from '@posthog/icons'
+import {
+    LemonBanner,
     LemonButton,
     LemonDialog,
     LemonDivider,
@@ -22,7 +32,7 @@ import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { IconInfinity, IconSelectEvents } from 'lib/lemon-ui/icons'
+import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { isObject, objectsEqual } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -180,7 +190,7 @@ export function Since(props: {
 
 function LogCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
 
     return (
         <div>
@@ -219,6 +229,7 @@ function LogCaptureSettings(): JSX.Element {
                     disabledReason={
                         !currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined
                     }
+                    loading={currentTeamLoading}
                 />
             </AccessControlAction>
         </div>
@@ -227,7 +238,7 @@ function LogCaptureSettings(): JSX.Element {
 
 function CanvasCaptureSettings(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
 
     return (
         <div>
@@ -277,6 +288,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
                     disabledReason={
                         !currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined
                     }
+                    loading={currentTeamLoading}
                 />
             </AccessControlAction>
         </div>
@@ -305,7 +317,7 @@ function PayloadWarning(): JSX.Element {
 
 export function NetworkCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
 
     return (
         <>
@@ -342,6 +354,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                     disabledReason={
                         !currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined
                     }
+                    loading={currentTeamLoading}
                 />
             </AccessControlAction>
 
@@ -411,6 +424,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                                     ? 'session and network performance capture must be enabled'
                                     : undefined
                             }
+                            loading={currentTeamLoading}
                         />
                     </AccessControlAction>
                     <AccessControlAction
@@ -459,6 +473,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                                     ? 'session and network performance capture must be enabled'
                                     : undefined
                             }
+                            loading={currentTeamLoading}
                         />
                     </AccessControlAction>
                 </div>
@@ -481,11 +496,10 @@ export function ReplayAuthorizedDomains(): JSX.Element {
                 web={{ version: '1.5.0' }}
                 reactNative={false}
             />
-            <p>
-                Use the settings below to restrict the domains where recordings will be captured. If no domains are
-                selected, then there will be no domain restriction.
-            </p>
-            <p>Authorized domains is only available for JavaScript Web.</p>
+            <LemonBanner type="warning">
+                <strong>This setting is now deprecated and cannot be updated.</strong> Instead we recommend deleting the
+                domains below and using URL triggers in your recording conditions to control which domains you record.
+            </LemonBanner>
             <p>
                 Domains and wildcard subdomains are allowed (e.g. <code>https://*.example.com</code>). However,
                 wildcarded top-level domains cannot be used (for security reasons).
@@ -655,7 +669,7 @@ export function ReplayAISettings(): JSX.Element | null {
 
 export function ReplayMaskingSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
 
     const handleMaskingChange = (level: SessionRecordingMaskingLevel): void => {
         updateCurrentTeam({
@@ -693,6 +707,7 @@ export function ReplayMaskingSettings(): JSX.Element {
                         { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
                         { value: 'free-love', label: 'Free love (mask only passwords)' },
                     ]}
+                    loading={currentTeamLoading}
                 />
             </AccessControlAction>
         </div>
@@ -701,7 +716,7 @@ export function ReplayMaskingSettings(): JSX.Element {
 
 export function ReplayDataRetentionSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const retentionFeature = currentOrganization?.available_product_features?.find(
         (feature) => feature.key === 'session_replay_data_retention'
@@ -713,13 +728,15 @@ export function ReplayDataRetentionSettings(): JSX.Element {
         retentionFeature?.limit >= 60
     const currentRetention = currentTeam?.session_recording_retention_period || '30d'
 
-    const renderOptions = (): LemonSegmentedButtonOption<SessionRecordingRetentionPeriod>[] => {
+    const renderOptions = (loading: boolean): LemonSegmentedButtonOption<SessionRecordingRetentionPeriod>[] => {
+        const disabledReason = loading ? 'Loading...' : undefined
         const options = [
             {
                 value: '30d' as SessionRecordingRetentionPeriod,
                 icon: <IconClock />,
                 label: '30 days',
                 'data-attr': 'session-recording-retention-button-30d',
+                disabledReason,
             },
             {
                 value: '90d' as SessionRecordingRetentionPeriod,
@@ -751,15 +768,15 @@ export function ReplayDataRetentionSettings(): JSX.Element {
             retentionFeature?.limit > 1
         ) {
             if (retentionFeature.limit >= 3) {
-                options[1].disabledReason = ''
+                options[1].disabledReason = disabledReason ?? ''
             }
 
             if (retentionFeature.limit >= 12) {
-                options[2].disabledReason = ''
+                options[2].disabledReason = disabledReason ?? ''
             }
 
             if (retentionFeature.limit >= 60) {
-                options[3].disabledReason = ''
+                options[3].disabledReason = disabledReason ?? ''
             }
         }
 
@@ -789,7 +806,7 @@ export function ReplayDataRetentionSettings(): JSX.Element {
                 <LemonSegmentedButton
                     value={currentRetention}
                     onChange={(val) => val && handleRetentionChange(val)}
-                    options={renderOptions()}
+                    options={renderOptions(currentTeamLoading)}
                 />
             </AccessControlAction>
             {!hasMaxRetentionEntitlement && (
@@ -807,7 +824,7 @@ export function ReplayDataRetentionSettings(): JSX.Element {
 
 export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const [showSurvey, setShowSurvey] = useState<boolean>(false)
 
     /**
@@ -847,6 +864,7 @@ export function ReplayGeneral(): JSX.Element {
                         label="Record user sessions"
                         bordered
                         checked={!!currentTeam?.session_recording_opt_in}
+                        loading={currentTeamLoading}
                     />
                 </AccessControlAction>
 

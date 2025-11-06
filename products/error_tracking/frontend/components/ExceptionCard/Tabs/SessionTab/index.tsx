@@ -8,9 +8,10 @@ import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { SessionTimeline, SessionTimelineHandle } from 'lib/components/SessionTimeline/SessionTimeline'
 import { ItemCategory, ItemCollector } from 'lib/components/SessionTimeline/timeline'
-import { customItemLoader, customItemRenderer } from 'lib/components/SessionTimeline/timeline/items/custom'
-import { exceptionLoader, exceptionRenderer } from 'lib/components/SessionTimeline/timeline/items/exceptions'
-import { pageLoader, pageRenderer } from 'lib/components/SessionTimeline/timeline/items/page'
+import { CustomItemLoader, customItemRenderer } from 'lib/components/SessionTimeline/timeline/items/custom'
+import { ExceptionItemLoader, exceptionRenderer } from 'lib/components/SessionTimeline/timeline/items/exceptions'
+import { ConsoleLogItemLoader, consoleLogRenderer } from 'lib/components/SessionTimeline/timeline/items/logs'
+import { PageItemLoader, pageRenderer } from 'lib/components/SessionTimeline/timeline/items/page'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import {
     TabsPrimitive,
@@ -97,13 +98,18 @@ export function SessionTimelineTab(): JSX.Element {
         collector.addCategory(
             ItemCategory.ERROR_TRACKING,
             exceptionRenderer,
-            exceptionLoader(sessionId, timestampDayJs)
+            new ExceptionItemLoader(sessionId, timestampDayJs)
         )
-        collector.addCategory(ItemCategory.PAGE_VIEWS, pageRenderer, pageLoader(sessionId, timestampDayJs))
+        collector.addCategory(ItemCategory.PAGE_VIEWS, pageRenderer, new PageItemLoader(sessionId, timestampDayJs))
         collector.addCategory(
             ItemCategory.CUSTOM_EVENTS,
             customItemRenderer,
-            customItemLoader(sessionId, timestampDayJs)
+            new CustomItemLoader(sessionId, timestampDayJs)
+        )
+        collector.addCategory(
+            ItemCategory.CONSOLE_LOGS,
+            consoleLogRenderer,
+            new ConsoleLogItemLoader(sessionId, timestampDayJs)
         )
         return collector
     }, [sessionId, timestamp])

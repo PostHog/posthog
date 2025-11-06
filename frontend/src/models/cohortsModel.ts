@@ -248,6 +248,7 @@ export const cohortsModel = kea<cohortsModelType>([
                             refreshTreeItem('cohort', String(cohort.id))
                         } else {
                             deleteFromTree('cohort', String(cohort.id))
+                            router.actions.push(urls.cohorts())
                         }
                     }
                 },

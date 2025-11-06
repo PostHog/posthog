@@ -60,7 +60,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
     }, [email, hedgehogProfile, name])
 
     const pictureComponent = (
-        <span className={clsx('ProfilePicture', size, className)} ref={ref}>
+        <span className={clsx('ProfilePicture ph-no-capture', size, className)} ref={ref}>
             {hedgehogProfile ? (
                 <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" />
             ) : (
@@ -85,6 +85,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
                 <img
                     className="absolute top-0 left-0 w-full h-full rounded-full"
                     src={gravatarUrl}
+                    loading="lazy"
                     title={title || `This is the Gravatar for ${combinedNameAndEmail}`}
                     alt=""
                     onError={() => setGravatarLoaded(false)}
@@ -99,7 +100,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
     ) : (
         <div className="profile-package" title={combinedNameAndEmail}>
             {pictureComponent}
-            <span className="profile-name">
+            <span className="ph-no-capture profile-name">
                 {currentUser?.email === email ? 'you' : name || email || 'an unknown user'}
             </span>
         </div>

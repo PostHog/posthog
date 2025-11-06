@@ -52,6 +52,21 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     is_active = models.BooleanField(default=True, help_text="Whether this endpoint is available via the API")
 
+    cache_age_seconds = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Custom cache age in seconds. If not set, uses default caching. Must be between 300 and 86400 seconds.",
+    )
+
+    saved_query = models.ForeignKey(
+        "data_warehouse.DataWarehouseSavedQuery",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="endpoints",
+        help_text="The underlying materialized view that backs this endpoint",
+    )
+
     created_by = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -95,3 +110,31 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         """
         # TODO: Implement parameter validation logic
         pass
+
+    @property
+    def is_materialized(self) -> bool:
+        """Whether this endpoint's query results are materialized to S3."""
+        if self.saved_query is None:
+            return False
+        return bool(self.saved_query.is_materialized)
+
+    @property
+    def materialization_status(self) -> str:
+        """Get status from saved_query."""
+        if not self.saved_query:
+            return "not_materialized"
+        return self.saved_query.status or "Unknown"
+
+    @property
+    def last_materialized_at(self):
+        """Get last run time from saved_query."""
+        if not self.saved_query:
+            return None
+        return self.saved_query.last_run_at
+
+    @property
+    def materialization_error(self) -> str:
+        """Get error from saved_query."""
+        if not self.saved_query:
+            return ""
+        return self.saved_query.latest_error or ""

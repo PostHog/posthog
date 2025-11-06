@@ -41,6 +41,9 @@ PRODUCTS_APPS = [
     "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
     "products.error_tracking.backend.apps.ErrorTrackingConfig",
     "products.notebooks.backend.apps.NotebooksConfig",
+    "products.data_warehouse.backend.apps.DataWarehouseConfig",
+    "products.desktop_recordings.backend.apps.DesktopRecordingsConfig",
+    "products.live_debugger.backend.apps.LiveDebuggerConfig",
 ]
 
 INSTALLED_APPS = [
@@ -401,6 +404,7 @@ PUBLIC_EGRESS_IP_ADDRESSES = get_list(os.getenv("PUBLIC_EGRESS_IP_ADDRESSES", ""
 
 PROXY_PROVISIONER_URL = get_from_env("PROXY_PROVISIONER_URL", "")  # legacy, from before gRPC
 PROXY_PROVISIONER_ADDR = get_from_env("PROXY_PROVISIONER_ADDR", "")
+PROXY_USE_GATEWAY_API = get_from_env("PROXY_USE_GATEWAY_API", False, type_cast=str_to_bool)
 PROXY_TARGET_CNAME = get_from_env("PROXY_TARGET_CNAME", "")
 PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
 
@@ -514,10 +518,14 @@ OAUTH2_PROVIDER = {
         "*": "Full access to all scopes",
         **get_scope_descriptions(),
     },
-    "ALLOWED_REDIRECT_URI_SCHEMES": ["https"],
+    # Allow both http and https schemes to support localhost callbacks
+    # Security validation in OAuthApplication.clean() ensures http is only allowed for loopback addresses (localhost, 127.0.0.0/8) in production
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https"],
     "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60
     * 5,  # client has 5 minutes to complete the OAuth flow before the authorization code expires
     "DEFAULT_SCOPES": ["openid"],
+    "ACCESS_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_access_token",
+    "REFRESH_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_refresh_token",
     "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.OAuthValidator",
     "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,  # 1 hour
     "ROTATE_REFRESH_TOKEN": True,  # Rotate the refresh token whenever a new access token is issued
@@ -540,5 +548,7 @@ OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
 
-if DEBUG:
-    OAUTH2_PROVIDER["ALLOWED_REDIRECT_URI_SCHEMES"] = ["http", "https"]
+SURVEYS_API_USE_HYPERCACHE_TOKENS = get_list(os.getenv("SURVEYS_API_USE_HYPERCACHE_TOKENS", ""))
+SURVEYS_API_USE_REMOTE_CONFIG_COMPARE = get_from_env(
+    "SURVEYS_API_USE_REMOTE_CONFIG_COMPARE", False, type_cast=str_to_bool
+)

@@ -36,6 +36,8 @@ services:
                         path /batch*
                         path /capture
                         path /capture*
+                        path /ai
+                        path /ai/*
                     }
 
                     @flags {
@@ -246,6 +248,14 @@ services:
             service: otel-collector
         depends_on:
             - jaeger
+            - capture-logs
+
+    capture-logs:
+        extends:
+            file: docker-compose.base.yml
+            service: capture-logs
+        depends_on:
+            - kafka
 
     jaeger:
         extends:

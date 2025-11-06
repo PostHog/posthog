@@ -18,7 +18,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     get_s3_staging_folder,
     insert_into_internal_stage_activity,
 )
-from products.batch_exports.backend.tests.temporal.destinations.test_s3_batch_export_workflow import (
+from products.batch_exports.backend.tests.temporal.utils.s3 import (
     assert_files_in_s3,
     create_test_client,
     delete_all_from_s3,

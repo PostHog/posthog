@@ -16,7 +16,9 @@ common-database = { path = "../common/database" }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
 envconfig = { workspace = true }
+governor = { workspace = true }
 limiters = { path = "../common/limiters" }
+metrics = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
@@ -24,11 +26,7 @@ bytes = { workspace = true }
 url = "2.5"
 once_cell = "1.18.0"
 rand = { workspace = true }
-redis = { version = "0.23.3", features = [
-    "tokio-comp",
-    "cluster",
-    "cluster-async",
-] }
+redis = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 json5 = "0.4"

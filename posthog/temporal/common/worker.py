@@ -49,6 +49,7 @@ async def create_worker(
     max_concurrent_workflow_tasks: int | None = None,
     max_concurrent_activities: int | None = None,
     metric_prefix: str | None = None,
+    use_pydantic_converter: bool = False,
 ) -> Worker:
     """Connect to Temporal server and return a Worker.
 
@@ -72,6 +73,7 @@ async def create_worker(
             worker can handle. Defaults to 50.
         metric_prefix: Prefix to apply to metrics emitted by this worker, if
             left unset (`None`) Temporal will default to "temporal_".
+        use_pydantic_converter: Flag to enable Pydantic data converter
     """
 
     runtime = Runtime(
@@ -101,6 +103,7 @@ async def create_worker(
         client_cert,
         client_key,
         runtime=runtime,
+        use_pydantic_converter=use_pydantic_converter,
     )
 
     worker = Worker(

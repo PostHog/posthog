@@ -1116,7 +1116,9 @@ When set, the specified dashboard's filters and date range override will be appl
 
             serialized_data["layouts"] = layouts
 
-        return Response(serialized_data)
+        response = Response(serialized_data)
+
+        return response
 
     @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])

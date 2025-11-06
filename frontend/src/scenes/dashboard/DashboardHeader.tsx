@@ -42,7 +42,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -438,13 +437,14 @@ export function DashboardHeader(): JSX.Element | null {
                                 Exit full screen
                             </LemonButton>
                         ) : (
-                            <div className="flex gap-2">
+                            <>
                                 {dashboard && (
                                     <>
                                         <LemonButton
                                             type="secondary"
                                             data-attr="dashboard-share-button"
                                             onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                                            size="small"
                                         >
                                             Share
                                         </LemonButton>
@@ -463,6 +463,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                 }}
                                                 data-attr="add-text-tile-to-dashboard"
                                                 type="secondary"
+                                                size="small"
                                             >
                                                 Add text card
                                             </LemonButton>
@@ -492,6 +493,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                     onClick={showAddInsightToDashboardModal}
                                                     type="primary"
                                                     data-attr="dashboard-add-graph-header"
+                                                    size="small"
                                                 >
                                                     Add insight
                                                 </LemonButton>
@@ -499,12 +501,11 @@ export function DashboardHeader(): JSX.Element | null {
                                         </MaxTool>
                                     </>
                                 ) : null}
-                            </div>
+                            </>
                         )}
                     </>
                 }
             />
-            <SceneDivider />
         </>
     ) : null
 }
