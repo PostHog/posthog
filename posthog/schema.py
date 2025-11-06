@@ -8869,12 +8869,14 @@ class ErrorTrackingIssue(BaseModel):
     external_issues: Optional[list[ErrorTrackingExternalReference]] = None
     first_event: Optional[FirstEvent] = None
     first_seen: datetime
+    function: Optional[str] = None
     id: str
     last_event: Optional[LastEvent] = None
     last_seen: datetime
     library: Optional[str] = None
     name: Optional[str] = None
     revenue: Optional[float] = None
+    source: Optional[str] = None
     status: Status
 
 
