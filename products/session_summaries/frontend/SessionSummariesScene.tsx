@@ -513,7 +513,11 @@ function SessionExampleCard({ event }: { event: SessionEvent }): JSX.Element {
                     View details
                 </Link>
             </div>
-            <p className="text-xs text-muted mb-1">{target_event.session_id}</p>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted mb-2">
+                <span>{target_event.session_id}</span>
+                <span className="hidden sm:inline">·</span>
+                <span>alex.l@posthog.com</span>
+            </div>
             <p className="text-xs font-normal text-muted-alt mb-0">
                 <b>Outcome:</b> {segment_outcome}
             </p>
@@ -530,7 +534,7 @@ function FilterBar(): JSX.Element {
             <div className="flex-1 min-w-60">
                 <LemonInput
                     type="search"
-                    placeholder="Filter patterns by name or keyword..."
+                    placeholder="Filter patterns by keyword..."
                     value={searchValue}
                     onChange={setSearchValue}
                     prefix={<IconSearch />}
@@ -574,7 +578,7 @@ function PatternCard({ pattern }: { pattern: Pattern }): JSX.Element {
     )
 
     const content = (
-        <div className="p-4 bg-bg-3000">
+        <div className="p-2 bg-bg-3000">
             <p className="mb-3 text-sm font-medium">Examples from sessions:</p>
             <div className="flex flex-col gap-3">
                 {pattern.events.map((event, index) => (
@@ -612,8 +616,7 @@ export function SessionSummariesScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Session summary report"
-                description={`${totalSessions} sessions analyzed`}
+                name="Session Summaries Report - AI feedback sessions (last 3 days) "
                 resourceType={{
                     type: sceneConfigurations[Scene.SessionSummaries]?.iconType || 'default_icon_type',
                 }}
@@ -623,6 +626,15 @@ export function SessionSummariesScene(): JSX.Element {
                     </LemonButton>
                 }
             />
+            <div className="flex flex-wrap items-center gap-3 text-sm text-muted mb-2">
+                <span>{totalSessions} sessions analyzed</span>
+                <span className="hidden sm:inline">·</span>
+                <span>PostHog App + Website</span>
+                <span className="hidden sm:inline">·</span>
+                <div className="flex items-center gap-1.5">
+                    <div className="text-sm font-normal mb-0">11.05.2025 01:00:12</div>
+                </div>
+            </div>
             <div className="space-y-4">
                 <FilterBar />
                 <div className="flex flex-col gap-2">
