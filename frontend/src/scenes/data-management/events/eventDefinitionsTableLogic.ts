@@ -100,6 +100,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         setLocalEventDefinition: (definition: EventDefinition) => ({ definition }),
         setLocalPropertyDefinition: (event: EventDefinition, definition: PropertyDefinition) => ({ event, definition }),
         setEventDefinitionPropertiesLoading: (ids: string[]) => ({ ids }),
+        setApiCache: (cache: Record<string, any>) => ({ cache }),
     }),
     reducers({
         filters: [
@@ -116,6 +117,12 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             [] as string[],
             {
                 setEventDefinitionPropertiesLoading: (_, { ids }) => ids ?? [],
+            },
+        ],
+        apiCache: [
+            {} as Record<string, any>,
+            {
+                setApiCache: (_, { cache }) => cache,
             },
         ],
     }),
@@ -145,40 +152,54 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     const response = await api.get(url)
                     breakpoint()
 
+                    const result = {
+                        ...response,
+                        previous: normalizeEventDefinitionEndpointUrl({
+                            url: response.previous,
+                            eventTypeFilter: values.filters.event_type,
+                        }),
+                        next: normalizeEventDefinitionEndpointUrl({
+                            url: response.next,
+                            eventTypeFilter: values.filters.event_type,
+                        }),
+                        current: url,
+                        page: Math.floor((combineUrl(url).searchParams.offset ?? 0) / EVENT_DEFINITIONS_PER_PAGE) + 1,
+                    }
+
                     cache.apiCache = {
                         ...cache.apiCache,
-                        [url]: {
-                            ...response,
-                            previous: normalizeEventDefinitionEndpointUrl({
-                                url: response.previous,
-                                eventTypeFilter: values.filters.event_type,
-                            }),
-                            next: normalizeEventDefinitionEndpointUrl({
-                                url: response.next,
-                                eventTypeFilter: values.filters.event_type,
-                            }),
-                            current: url,
-                            page:
-                                Math.floor((combineUrl(url).searchParams.offset ?? 0) / EVENT_DEFINITIONS_PER_PAGE) + 1,
-                        },
+                        [url]: result,
                     }
-                    return cache.apiCache[url]
+
+                    // Update the apiCache reducer
+                    actions.setApiCache({
+                        ...values.apiCache,
+                        [url]: result,
+                    })
+
+                    return result
                 },
                 setLocalEventDefinition: ({ definition }) => {
                     if (!values.eventDefinitions.current) {
                         return values.eventDefinitions
                     }
-                    // Update cache as well
+                    const result = {
+                        ...values.eventDefinitions,
+                        results: values.eventDefinitions.results.map((d) => (d.id === definition.id ? definition : d)),
+                    }
+
+                    // Update both caches
                     cache.apiCache = {
                         ...cache.apiCache,
-                        [values.eventDefinitions.current]: {
-                            ...values.eventDefinitions,
-                            results: values.eventDefinitions.results.map((d) =>
-                                d.id === definition.id ? definition : d
-                            ),
-                        },
+                        [values.eventDefinitions.current]: result,
                     }
-                    return cache.apiCache[values.eventDefinitions.current]
+
+                    actions.setApiCache({
+                        ...values.apiCache,
+                        [values.eventDefinitions.current]: result,
+                    })
+
+                    return result
                 },
             },
         ],
@@ -220,33 +241,47 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             ...cache.apiCache,
                             [exampleUrl]: exampleEventProperties,
                         }
+                        // Update reducer cache for example URL
+                        actions.setApiCache({
+                            ...values.apiCache,
+                            [exampleUrl]: exampleEventProperties,
+                        })
                     }
 
                     const currentUrl = `${normalizePropertyDefinitionEndpointUrl(url)}`
+                    const propertyResult = {
+                        count: response.count,
+                        previous: normalizePropertyDefinitionEndpointUrl(response.previous),
+                        next: normalizePropertyDefinitionEndpointUrl(response.next),
+                        current: currentUrl,
+                        page:
+                            Math.floor(
+                                (combineUrl(currentUrl).searchParams.offset ?? 0) / PROPERTY_DEFINITIONS_PER_EVENT
+                            ) + 1,
+                        results: response.results.map((prop: PropertyDefinition) => ({
+                            ...prop,
+                            example: exampleEventProperties?.[prop.name]?.toString(),
+                        })),
+                    }
+
                     cache.apiCache = {
                         ...cache.apiCache,
-                        [currentUrl]: {
-                            count: response.count,
-                            previous: normalizePropertyDefinitionEndpointUrl(response.previous),
-                            next: normalizePropertyDefinitionEndpointUrl(response.next),
-                            current: currentUrl,
-                            page:
-                                Math.floor(
-                                    (combineUrl(currentUrl).searchParams.offset ?? 0) / PROPERTY_DEFINITIONS_PER_EVENT
-                                ) + 1,
-                            results: response.results.map((prop: PropertyDefinition) => ({
-                                ...prop,
-                                example: exampleEventProperties?.[prop.name]?.toString(),
-                            })),
-                        },
+                        [currentUrl]: propertyResult,
                     }
+
+                    // Update reducer cache
+                    actions.setApiCache({
+                        ...values.apiCache,
+                        [exampleUrl]: exampleEventProperties,
+                        [currentUrl]: propertyResult,
+                    })
 
                     actions.setEventDefinitionPropertiesLoading(
                         values.eventDefinitionPropertiesLoading.filter((loadingId) => loadingId != definition.id)
                     )
                     return {
                         ...values.eventPropertiesCacheMap,
-                        [definition.id]: cache.apiCache[currentUrl],
+                        [definition.id]: propertyResult,
                     }
                 },
                 setLocalPropertyDefinition: ({ event, definition }) => {
@@ -255,19 +290,27 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     }
                     // Update cache as well
                     const eventCacheKey = values.eventPropertiesCacheMap[event.id].current as string
+                    const updatedProperties = {
+                        ...values.eventPropertiesCacheMap[event.id],
+                        results: values.eventPropertiesCacheMap[event.id].results.map((p) =>
+                            p.id === definition.id ? definition : p
+                        ),
+                    }
+
                     cache.apiCache = {
                         ...cache.apiCache,
-                        [eventCacheKey]: {
-                            ...values.eventPropertiesCacheMap[event.id],
-                            results: values.eventPropertiesCacheMap[event.id].results.map((p) =>
-                                p.id === definition.id ? definition : p
-                            ),
-                        },
+                        [eventCacheKey]: updatedProperties,
                     }
+
+                    // Update reducer cache
+                    actions.setApiCache({
+                        ...values.apiCache,
+                        [eventCacheKey]: updatedProperties,
+                    })
 
                     return {
                         ...values.eventPropertiesCacheMap,
-                        [event.id]: cache.apiCache[eventCacheKey],
+                        [event.id]: updatedProperties,
                     }
                 },
             },
