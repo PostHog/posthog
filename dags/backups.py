@@ -409,6 +409,15 @@ def run_backup(
             workload=config.workload,
         ).result()
 
+    context.add_output_metadata(
+        {
+            "table": dagster.MetadataValue.text(backup.table),
+            "path": dagster.MetadataValue.text(backup.path),
+            "incremental": dagster.MetadataValue.bool(config.incremental),
+            "date": dagster.MetadataValue.text(backup.date),
+        }
+    )
+
     return backup
 
 
@@ -450,6 +459,15 @@ def wait_for_backup(
                 )
     else:
         context.log.info("No backup to wait for")
+
+    context.add_output_metadata(
+        {
+            "table": dagster.MetadataValue.text(backup.table),
+            "path": dagster.MetadataValue.text(backup.path),
+            "incremental": dagster.MetadataValue.bool(config.incremental),
+            "date": dagster.MetadataValue.text(backup.date),
+        }
+    )
 
 
 @dagster.job(
