@@ -1,15 +1,14 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import type { syntheticMonitoringLogicType } from './syntheticMonitoringLogicType'
-import { SyntheticMonitor, SyntheticMonitoringTab } from './types'
+import { SyntheticMonitor } from './types'
 
 export const syntheticMonitoringLogic = kea<syntheticMonitoringLogicType>([
     path(['products', 'synthetic_monitoring', 'frontend', 'syntheticMonitoringLogic']),
@@ -18,7 +17,6 @@ export const syntheticMonitoringLogic = kea<syntheticMonitoringLogicType>([
         actions: [sceneLogic, ['newTab']],
     }),
     actions({
-        setTab: (tab: SyntheticMonitoringTab) => ({ tab }),
         loadMonitors: true,
         deleteMonitor: (id: string) => ({ id }),
         pauseMonitor: (id: string) => ({ id }),
@@ -51,14 +49,6 @@ export const syntheticMonitoringLogic = kea<syntheticMonitoringLogicType>([
             },
         ],
     })),
-    reducers({
-        tab: [
-            SyntheticMonitoringTab.Monitors as SyntheticMonitoringTab,
-            {
-                setTab: (_, { tab }) => tab,
-            },
-        ],
-    }),
     selectors({
         activeMonitors: [(s) => [s.monitors], (monitors): SyntheticMonitor[] => monitors.filter((m) => m.enabled)],
         pausedMonitors: [(s) => [s.monitors], (monitors): SyntheticMonitor[] => monitors.filter((m) => !m.enabled)],
@@ -67,13 +57,6 @@ export const syntheticMonitoringLogic = kea<syntheticMonitoringLogicType>([
         createAlertWorkflow: async ({ id }) => {
             // Navigate to workflows page with monitor ID pre-filled
             actions.newTab(urls.workflowNew() + `?monitorId=${id}`)
-        },
-    })),
-    tabAwareUrlToAction(({ actions }) => ({
-        [urls.syntheticMonitoring()]: (_, searchParams) => {
-            if (searchParams.tab) {
-                actions.setTab(searchParams.tab as SyntheticMonitoringTab)
-            }
         },
     })),
 ])

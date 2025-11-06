@@ -51,8 +51,3 @@ export interface SyntheticMonitorCheckEvent {
     consecutive_failures: number
     timestamp: string
 }
-
-export enum SyntheticMonitoringTab {
-    Monitors = 'monitors',
-    Settings = 'settings',
-}
