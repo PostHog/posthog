@@ -7,11 +7,11 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/types'
 
@@ -52,10 +52,10 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
             <BindLogic logic={endpointsLogic} props={{ key: 'endpointsLogic', tabId: tabId || '' }}>
                 <SceneContent>
                     <SceneTitleSection
-                        name="Endpoints"
-                        description="Define queries your application will use via the API and monitor their cost and usage."
+                        name={sceneConfigurations[Scene.EndpointsScene].name}
+                        description={sceneConfigurations[Scene.EndpointsScene].description}
                         resourceType={{
-                            type: 'endpoints',
+                            type: sceneConfigurations[Scene.EndpointsScene].iconType || 'default_icon_type',
                         }}
                         actions={
                             <LemonButton
@@ -84,7 +84,6 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                             see here and/or report any issues directly to us!
                         </p>
                     </LemonBanner>
-                    <SceneDivider />
                     <ProductIntroduction
                         productName="endpoints"
                         productKey={ProductKey.ENDPOINTS}

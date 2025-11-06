@@ -4,6 +4,7 @@ import {
     ErrorEventProperties,
     ErrorTrackingException,
     ErrorTrackingRuntime,
+    ErrorTrackingStackFrame,
     ExceptionAttributes,
     FingerprintRecordPart,
 } from './types'
@@ -139,7 +140,8 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
 export function getExceptionList(properties: ErrorEventProperties): ErrorTrackingException[] {
     const { $sentry_exception } = properties
 
-    let exceptionList: ErrorTrackingException[] | undefined = ensureStringExceptionValues(properties.$exception_list)
+    let exceptionList: ErrorTrackingException[] = processExceptionList(properties.$exception_list)
+
     // exception autocapture sets $exception_list for all exceptions.
     // If it's not present, then this is probably a sentry exception. Get this list from the sentry_exception
     if (!exceptionList?.length && $sentry_exception) {
@@ -147,7 +149,32 @@ export function getExceptionList(properties: ErrorEventProperties): ErrorTrackin
             exceptionList = $sentry_exception.values
         }
     }
-    return exceptionList || []
+
+    return exceptionList
+}
+
+function processExceptionList(exceptionList: ErrorTrackingException[] = []): ErrorTrackingException[] {
+    exceptionList = ensureStringExceptionValues(exceptionList)
+    exceptionList = ensureFrameIdFormat(exceptionList)
+    return exceptionList
+}
+
+function ensureFrameIdFormat(exceptionList: ErrorTrackingException[]): ErrorTrackingException[] {
+    exceptionList = exceptionList.map((exception) => {
+        if (!exception.stacktrace || !exception.stacktrace.frames || !Array.isArray(exception.stacktrace.frames)) {
+            return exception
+        }
+        exception.stacktrace.frames = exception.stacktrace.frames.map((frame) => {
+            frame.raw_id = frame.raw_id ? coerceLegacyRawId(frame.raw_id) : frame.raw_id
+            return frame
+        })
+        return exception
+    })
+    return exceptionList
+}
+
+function coerceLegacyRawId(rawId: string): string {
+    return rawId.includes('/') ? rawId : `${rawId}/0`
 }
 
 export function getFingerprintRecords(properties: ErrorEventProperties): FingerprintRecordPart[] {
@@ -175,7 +202,7 @@ export function getRecordingStatus(properties: ErrorEventProperties): string | u
 }
 
 // we had a bug where SDK was sending non-string values for exception value
-export function ensureStringExceptionValues(exceptionList?: ErrorTrackingException[]): ErrorTrackingException[] {
+function ensureStringExceptionValues(exceptionList: ErrorTrackingException[]): ErrorTrackingException[] {
     if (!Array.isArray(exceptionList)) {
         return []
     }
@@ -200,4 +227,19 @@ export function stringify(value: any): string {
     } catch {}
 
     return ''
+}
+
+export function formatResolvedName(
+    frame: Pick<ErrorTrackingStackFrame, 'module' | 'resolved_name' | 'lang'>
+): string | null {
+    if (!frame.resolved_name || frame.resolved_name === '?') {
+        return null
+    }
+    return frame.module && frame.lang === 'java' ? `${frame.module}.${frame.resolved_name}` : frame.resolved_name
+}
+
+export function formatType(exception: Pick<ErrorTrackingException, 'module' | 'type' | 'stacktrace'>): string {
+    const hasJavaFrames = exception.stacktrace?.frames?.some((frame) => frame.lang === 'java')
+
+    return exception.module && hasJavaFrames ? `${exception.module}.${exception.type}` : exception.type
 }

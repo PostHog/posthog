@@ -1,5 +1,5 @@
 use common_types::embedding::{EmbeddingModel, EmbeddingRequest};
-use common_types::error_tracking::{ExceptionData, FrameData, FrameId};
+use common_types::error_tracking::{ExceptionData, FrameData, RawFrameId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha512};
@@ -42,7 +42,7 @@ pub struct Exception {
     pub exception_id: Option<String>,
     #[serde(rename = "type")]
     pub exception_type: String,
-    #[serde(rename = "value")]
+    #[serde(rename = "value", default)]
     pub exception_message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mechanism: Option<Mechanism>,
@@ -78,6 +78,10 @@ impl ExceptionList {
             .flat_map(Stacktrace::get_frames)
     }
 
+    fn get_in_app_frames(&self) -> impl Iterator<Item = &Frame> {
+        self.get_frames_iter().filter(|f| f.in_app)
+    }
+
     pub fn get_unique_messages(&self) -> Vec<String> {
         unique_by(self.iter(), |e| Some(e.exception_message.clone()))
     }
@@ -87,11 +91,11 @@ impl ExceptionList {
     }
 
     pub fn get_unique_sources(&self) -> Vec<String> {
-        unique_by(self.get_frames_iter(), |f| f.source.clone())
+        unique_by(self.get_in_app_frames(), |f| f.source.clone())
     }
 
     pub fn get_unique_functions(&self) -> Vec<String> {
-        unique_by(self.get_frames_iter(), |f| f.resolved_name.clone())
+        unique_by(self.get_in_app_frames(), |f| f.resolved_name.clone())
     }
 
     pub fn get_release_map(&self) -> HashMap<String, ReleaseInfo> {
@@ -409,22 +413,25 @@ impl OutputErrProps {
 }
 
 impl Stacktrace {
-    pub fn resolve(&self, team_id: i32, lookup_table: &HashMap<FrameId, Frame>) -> Option<Self> {
-        let Stacktrace::Raw { frames } = self else {
+    pub fn resolve(
+        &self,
+        team_id: i32,
+        lookup_table: &HashMap<RawFrameId, Vec<Frame>>,
+    ) -> Option<Self> {
+        let Stacktrace::Raw { frames: raw_frames } = self else {
             return Some(self.clone());
         };
 
-        let mut resolved_frames = Vec::with_capacity(frames.len());
-        for frame in frames {
-            match lookup_table.get(&frame.frame_id(team_id)) {
-                Some(resolved_frame) => resolved_frames.push(resolved_frame.clone()),
+        let mut resolved_frames = Vec::with_capacity(raw_frames.len() + 10);
+        for raw_frame in raw_frames {
+            match lookup_table.get(&raw_frame.raw_id(team_id)) {
+                Some(resolved) => resolved_frames.extend(resolved.clone()),
                 None => return None,
             }
         }
 
-        if resolved_frames.iter().any(|f| f.suspicious) {
-            metrics::counter!(POSTHOG_SDK_EXCEPTION_RESOLVED).increment(1);
-        }
+        metrics::counter!(POSTHOG_SDK_EXCEPTION_RESOLVED)
+            .increment(resolved_frames.iter().filter(|f| f.suspicious).count() as u64);
 
         Some(Stacktrace::Resolved {
             frames: resolved_frames,
@@ -462,10 +469,7 @@ mod test {
             exception_list[0].exception_type,
             "UnhandledRejection".to_string()
         );
-        assert_eq!(
-            exception_list[0].exception_message,
-            "Unexpected usage".to_string()
-        );
+        assert_eq!(exception_list[0].exception_message, "Unexpected usage");
         let mechanism = exception_list[0].mechanism.as_ref().unwrap();
         assert_eq!(mechanism.handled, Some(false));
         assert_eq!(mechanism.mechanism_type, None);
@@ -518,12 +522,10 @@ mod test {
             }]
         }"#;
 
-        let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
-        assert!(props.is_err());
-        assert_eq!(
-            props.unwrap_err().to_string(),
-            "missing field `value` at line 4 column 13"
-        );
+        // We support default values
+        let props: RawErrProps =
+            serde_json::from_str(raw).expect("Can deserialize with missing value");
+        assert_eq!(props.exception_list[0].exception_message, "");
 
         let raw: &'static str = r#"{
             "$exception_list": [{

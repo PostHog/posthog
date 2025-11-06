@@ -37,8 +37,6 @@ import {
 } from './sessionRecordingPlayerLogic'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
 
-const MAX_PLAYBACK_SPEED = 4
-
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     noMeta?: boolean
     noBorder?: boolean
@@ -100,11 +98,20 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         closeExplorer,
         setIsHovering,
         allowPlayerChromeToHide,
+        setMuted,
     } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound, isRecentAndInvalid } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
-    const { isFullScreen, explorerMode, isBuffering, isCommenting, quickEmojiIsOpen, showingClipParams, resolution } =
-        useValues(sessionRecordingPlayerLogic(logicProps))
+    const {
+        isFullScreen,
+        explorerMode,
+        isBuffering,
+        isCommenting,
+        quickEmojiIsOpen,
+        showingClipParams,
+        resolution,
+        isMuted,
+    } = useValues(sessionRecordingPlayerLogic(logicProps))
     const {
         setPlayNextAnimationInterrupted,
         setIsCommenting,
@@ -128,12 +135,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         if (hidePlayerElements) {
             setSkipInactivitySetting(false)
         }
-
-        if (mode === SessionRecordingPlayerMode.Video) {
-            // Not the maximum, but 4 for a balance between speed and quality
-            setSpeed(MAX_PLAYBACK_SPEED)
-        }
-    }, [mode, setSkipInactivitySetting, setSpeed, hidePlayerElements, resolution])
+    }, [mode, setSkipInactivitySetting, hidePlayerElements, resolution])
 
     useEffect(
         () => {
@@ -167,6 +169,9 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             },
             t: {
                 action: () => setIsCinemaMode(!isCinemaMode),
+            },
+            m: {
+                action: () => setMuted(!isMuted),
             },
             space: {
                 action: () => togglePlayPause(),

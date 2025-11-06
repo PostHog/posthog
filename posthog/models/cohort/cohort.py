@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
-from django.db import connection, models, transaction
+from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
 from django.db.models.signals import post_delete
@@ -33,6 +33,7 @@ class CohortType(StrEnum):
     STATIC = "static"
     PERSON_PROPERTY = "person_property"
     BEHAVIORAL = "behavioral"
+    REALTIME = "realtime"
     ANALYTICAL = "analytical"
 
 
@@ -519,7 +520,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         current_batch_index = -1
         processing_error = None
         try:
-            cursor = connection.cursor()
+            from django.db import connections
+
+            persons_connection = connections[READ_DB_FOR_PERSONS]
+            cursor = persons_connection.cursor()
             for batch_index, batch in batch_iterator:
                 current_batch_index = batch_index
                 persons_query = (

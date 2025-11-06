@@ -181,6 +181,9 @@ class JsonType(pa.ExtensionType):
     def __arrow_ext_serialize__(self):
         return b""
 
+    def __hash__(self):
+        return pa.DataType.__hash__(self)
+
     @classmethod
     def __arrow_ext_deserialize__(self, storage_type, serialized):
         return JsonType()
@@ -191,7 +194,7 @@ class JsonType(pa.ExtensionType):
 
 def cast_record_batch_json_columns(
     record_batch: pa.RecordBatch,
-    json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
+    json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
 ) -> pa.RecordBatch:
     """Cast json_columns in record_batch to JsonType.
 
@@ -217,7 +220,7 @@ def cast_record_batch_json_columns(
 
 def cast_record_batch_schema_json_columns(
     schema: pa.Schema,
-    json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
+    json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
 ):
     column_names = set(schema.names)
     intersection = column_names & set(json_columns)

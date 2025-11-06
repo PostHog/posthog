@@ -19,7 +19,6 @@ from .run_evaluation import (
 
 
 @pytest.fixture
-@pytest.mark.django_db
 def setup_data(db):
     """Create test organization, team, and evaluation"""
     organization = Organization.objects.create(name="Test Org")
@@ -27,7 +26,10 @@ def setup_data(db):
     evaluation = Evaluation.objects.create(
         team=team,
         name="Test Evaluation",
-        prompt="Is this response factually accurate?",
+        evaluation_type="llm_judge",
+        evaluation_config={"prompt": "Is this response factually accurate?"},
+        output_type="boolean",
+        output_config={},
         enabled=True,
     )
     return {"organization": organization, "team": team, "evaluation": evaluation}
@@ -58,7 +60,10 @@ class TestRunEvaluationWorkflow:
                 )
             ]
 
-            inputs = RunEvaluationInputs(evaluation_id=str(evaluation.id), target_event_id=event_id)
+            timestamp = datetime.now().isoformat()
+            inputs = RunEvaluationInputs(
+                evaluation_id=str(evaluation.id), target_event_id=event_id, timestamp=timestamp
+            )
 
             result = await fetch_target_event_activity(inputs, team.id)
 
@@ -78,13 +83,19 @@ class TestRunEvaluationWorkflow:
         evaluation = setup_data["evaluation"]
         team = setup_data["team"]
 
-        inputs = RunEvaluationInputs(evaluation_id=str(evaluation.id), target_event_id=str(uuid.uuid4()))
+        timestamp = datetime.now().isoformat()
+        inputs = RunEvaluationInputs(
+            evaluation_id=str(evaluation.id), target_event_id=str(uuid.uuid4()), timestamp=timestamp
+        )
 
         with patch("posthog.temporal.llm_analytics.run_evaluation.Evaluation.objects.get") as mock_get:
             mock_evaluation = MagicMock()
             mock_evaluation.id = evaluation.id
             mock_evaluation.name = "Test Evaluation"
-            mock_evaluation.prompt = "Is this response factually accurate?"
+            mock_evaluation.evaluation_type = "llm_judge"
+            mock_evaluation.evaluation_config = {"prompt": "Is this response factually accurate?"}
+            mock_evaluation.output_type = "boolean"
+            mock_evaluation.output_config = {}
             mock_evaluation.team_id = team.id
             mock_get.return_value = mock_evaluation
 
@@ -92,7 +103,10 @@ class TestRunEvaluationWorkflow:
 
             assert result["id"] == str(evaluation.id)
             assert result["name"] == "Test Evaluation"
-            assert result["prompt"] == "Is this response factually accurate?"
+            assert result["evaluation_type"] == "llm_judge"
+            assert result["evaluation_config"] == {"prompt": "Is this response factually accurate?"}
+            assert result["output_type"] == "boolean"
+            assert result["output_config"] == {}
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -104,7 +118,10 @@ class TestRunEvaluationWorkflow:
         evaluation = {
             "id": str(evaluation_obj.id),
             "name": "Test Evaluation",
-            "prompt": "Is this response factually accurate?",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
             "team_id": team.id,
         }
 
@@ -124,16 +141,20 @@ class TestRunEvaluationWorkflow:
             mock_client = MagicMock()
             mock_openai.return_value = mock_client
 
+            mock_parsed = MagicMock()
+            mock_parsed.verdict = True
+            mock_parsed.reasoning = "The answer is correct"
+
             mock_response = MagicMock()
             mock_response.choices = [MagicMock()]
-            mock_response.choices[0].message.content = '{"verdict": true, "reasoning": "The answer is correct"}'
-            mock_client.chat.completions.create.return_value = mock_response
+            mock_response.choices[0].message.parsed = mock_parsed
+            mock_client.beta.chat.completions.parse.return_value = mock_response
 
             result = await execute_llm_judge_activity(evaluation, event_data)
 
             assert result["verdict"] is True
             assert result["reasoning"] == "The answer is correct"
-            mock_client.chat.completions.create.assert_called_once()
+            mock_client.beta.chat.completions.parse.assert_called_once()
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

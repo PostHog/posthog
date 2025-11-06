@@ -35,6 +35,10 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     get_winsorized_metric_values_query,
 )
 from posthog.hogql_queries.experiments.error_handling import experiment_error_handler
+from posthog.hogql_queries.experiments.experiment_query_builder import (
+    ExperimentQueryBuilder,
+    get_exposure_config_params_for_builder,
+)
 from posthog.hogql_queries.experiments.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
@@ -54,15 +58,23 @@ logger = structlog.get_logger(__name__)
 
 
 MAX_EXECUTION_TIME = 600
+MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
 
 
 class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
     cached_response: CachedExperimentQueryResponse
 
-    def __init__(self, *args, override_end_date: Optional[datetime] = None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        override_end_date: Optional[datetime] = None,
+        user_facing: bool = True,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
+        self.user_facing = user_facing
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -107,6 +119,18 @@ class ExperimentQueryRunner(QueryRunner):
         # Just to simplify access
         self.metric = self.query.metric
 
+        # NOTE: Temporary flag to control the usage of the new query builder
+        if self.experiment.stats_config is None:
+            self.use_new_query_builder = False
+        else:
+            self.use_new_query_builder = self.experiment.stats_config.get("use_new_query_builder", False)
+
+    def _should_use_new_query_builder(self) -> bool:
+        """
+        Determines whether to use the new CTE-based query builder.
+        """
+        return self.use_new_query_builder is True
+
     def _get_metrics_aggregated_per_entity_query(
         self,
         exposure_query: ast.SelectQuery,
@@ -138,6 +162,10 @@ class ExperimentQueryRunner(QueryRunner):
                 expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "exposure_session_id"])]),
             ),
             ast.Alias(
+                alias="exposure_timestamp",
+                expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "first_exposure_time"])]),
+            ),
+            ast.Alias(
                 expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team),
                 alias="value",
             ),
@@ -148,6 +176,11 @@ class ExperimentQueryRunner(QueryRunner):
             select_fields.append(
                 parse_expr(
                     "mapFromArrays(groupArray(COALESCE(toString(uuid), '')), groupArray(COALESCE(toString(session_id), ''))) AS uuid_to_session"
+                )
+            )
+            select_fields.append(
+                parse_expr(
+                    "mapFromArrays(groupArray(COALESCE(toString(uuid), '')), groupArray(COALESCE(timestamp, toDateTime(0)))) AS uuid_to_timestamp"
                 )
             )
 
@@ -394,17 +427,17 @@ class ExperimentQueryRunner(QueryRunner):
             step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
             select_fields.append(parse_expr(step_counts_expr))
 
-            # For each step in the funnel, get at least 100 pairs of person_id, session_id and event uuid, that have
+            # For each step in the funnel, get at least 100 pairs of person_id, session_id, event uuid, and timestamp that have
             # that step as their last step in the funnel.
-            # For the users that have 0 matching steps in the funnel (-1), we return the event uuid for the exposure event.
+            # For the users that have 0 matching steps in the funnel (-1), we return the event uuid and timestamp for the exposure event.
             event_uuids_exprs = []
             for i in range(num_steps + 1):
                 event_uuids_expr = f"""
                     groupArraySampleIf(100)(
                         if(
                             metric_events.value.2 != '',
-                            tuple(toString(metric_events.entity_id), uuid_to_session[metric_events.value.2], metric_events.value.2),
-                            tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))),
+                            tuple(toString(metric_events.entity_id), uuid_to_session[metric_events.value.2], metric_events.value.2, toString(uuid_to_timestamp[metric_events.value.2])),
+                            tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid), toString(metric_events.exposure_timestamp))),
                         metric_events.value.1 = {i} - 1
                     )
                 """
@@ -439,6 +472,33 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
     def _get_experiment_query(self) -> ast.SelectQuery:
+        """
+        Returns the main experiment query.
+        """
+        if self._should_use_new_query_builder():
+            assert isinstance(self.metric, ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric)
+
+            # Get the "missing" (not directly accessible) parameters required for the builder
+            (
+                exposure_config,
+                multiple_variant_handling,
+                filter_test_accounts,
+            ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
+
+            builder = ExperimentQueryBuilder(
+                team=self.team,
+                feature_flag_key=self.feature_flag.key,
+                exposure_config=exposure_config,
+                filter_test_accounts=filter_test_accounts,
+                multiple_variant_handling=multiple_variant_handling,
+                variants=self.variants,
+                date_range_query=self.date_range_query,
+                entity_key=self.entity_key,
+                metric=self.metric,
+            )
+            return builder.build_query()
+
+        # Old implementation
         # Get all entities that should be included in the experiment
         exposure_query = get_experiment_exposure_query(
             self.experiment,
@@ -511,7 +571,11 @@ class ExperimentQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME, allow_experimental_analyzer=True),
+            settings=HogQLGlobalSettings(
+                max_execution_time=MAX_EXECUTION_TIME,
+                allow_experimental_analyzer=True,
+                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+            ),
         )
 
         # Remove the $multiple variant only when using exclude handling

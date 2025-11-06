@@ -8,6 +8,10 @@ on:
     pull_request:
     workflow_dispatch:
 
+permissions:
+    contents: write
+    pull-requests: write
+
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: redis://localhost
@@ -80,187 +84,38 @@ jobs:
                         - docker-compose.dev.yml
                         - Dockerfile
                         - playwright/**
-    container:
-        name: (Optional) Container - Build and cache image
-        # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
+
+    detect-snapshot-mode:
+        name: Detect snapshot mode
         runs-on: ubuntu-latest
-        timeout-minutes: 60
         needs: [changes]
         if: needs.changes.outputs.shouldRun == 'true'
-        permissions:
-            contents: read
-            id-token: write # allow issuing OIDC tokens for this workflow run
         outputs:
-            tag: ${{ steps.build.outputs.tag }}
-            build-id: ${{ steps.build.outputs.build-id }}
+            mode: ${{ steps.detect.outputs.mode }}
         steps:
-            - name: Checkout
-              uses: actions/checkout@v4
-            - name: Build the Docker image with Depot
-              # Build the container image in preparation for the E2E tests
-              uses: ./.github/actions/build-n-cache-image
-              id: build
-              with:
-                  save: true
-                  actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-                  no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
-
-    playwright-on-container:
-        name: (Optional) Container - E2E Playwright tests
-        runs-on: depot-ubuntu-latest-arm-4
-        timeout-minutes: 60
-        needs: [changes, container]
-        if: needs.changes.outputs.shouldRun == 'true'
-        permissions:
-            id-token: write # allow issuing OIDC tokens for this workflow run
-
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v4
-
-            - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
-
-            - name: Set up Node.js
-              uses: actions/setup-node@v4
-              with:
-                  node-version: 22.17.1
-                  cache: 'pnpm'
-
-            - name: Get pnpm cache directory path
-              id: pnpm-cache-dir
-              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-            - uses: actions/cache@v4
-              id: pnpm-cache
-              with:
-                  path: |
-                      ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pnpm-playwright-
-
-            - name: Install package.json dependencies with pnpm
-              run: pnpm --filter=@posthog/playwright... install --frozen-lockfile
-
-            - name: Stop/Start stack with Docker Compose
+            - name: Detect mode
+              id: detect
               run: |
-                  docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d &
-
-            # Install playwright and dependencies whilst we wait for the stack to start
-            - name: Install playwright and dependencies
-              run: pnpm --filter=@posthog/playwright exec playwright install --with-deps
-
-            - name: Wait for services to be available
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
-
-            - name: Install Depot CLI
-              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
-
-            - name: Get Docker image cached in Depot
-              uses: depot/pull-action@8a922bdade29cf5facf3a13020cccd3b7a8127c2 # v1
-              with:
-                  build-id: ${{ needs.container.outputs.build-id }}
-                  tags: ${{ needs.container.outputs.tag }}
-
-            - name: Write .env
-              run: |
-                  cat <<EOT >> .env
-                  SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
-                  REDIS_URL=redis://localhost
-                  DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
-                  KAFKA_HOSTS=kafka:9092
-                  DISABLE_SECURE_SSL_REDIRECT=1
-                  SECURE_COOKIES=0
-                  OPT_OUT_CAPTURE=0
-                  E2E_TESTING=1
-                  SKIP_SERVICE_VERSION_REQUIREMENTS=1
-                  EMAIL_HOST=email.test.posthog.net
-                  SITE_URL=http://localhost:8000
-                  NO_RESTART_LOOP=1
-                  CLICKHOUSE_SECURE=0
-                  OBJECT_STORAGE_ENABLED=1
-                  OBJECT_STORAGE_ENDPOINT=http://localhost:19000
-                  OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
-                  OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
-                  GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                  CELERY_METRICS_PORT=8999
-                  CLOUD_DEPLOYMENT=1
-                  EOT
-
-            - name: Start PostHog
-              run: |
-                  mkdir -p /tmp/logs
-
-                  echo "Starting PostHog using the container image ${{ needs.container.outputs.tag }}"
-                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --add-host clickhouse:127.0.0.1 --env-file .env ${{ needs.container.outputs.tag }}"
-
-                  # Run Django migrations (./bin/migrate will skip Rust migrations since rust/bin doesn't exist in container)
-                  $DOCKER_RUN ./bin/migrate
-
-                  # Now run Rust migrations using dedicated container
-                  docker build -f rust/Dockerfile.persons-migrate -t posthog-migrations:latest ./rust
-                  docker run --rm --network host \
-                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
-                    -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
-                    posthog-migrations:latest
-
-                  $DOCKER_RUN python manage.py setup_dev
-
-                  # only starts the plugin server so that the "wait for PostHog" step passes
-                  $DOCKER_RUN ./bin/docker-worker &> /tmp/logs/worker.txt &
-                  $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
-
-            - name: Wait for PostHog
-              # this action might be abandoned - but v1 doesn't point to latest of v1 (which it should)
-              # so pointing to v1.1.0 to remove warnings about node version with v1
-              # todo check https://github.com/iFaxity/wait-on-action/releases for new releases
-              uses: iFaxity/wait-on-action@a7d13170ec542bdca4ef8ac4b15e9c6aa00a6866 # v1.2.1
-              timeout-minutes: 5
-              with:
-                  verbose: true
-                  log: true
-                  resource: http://localhost:8000
-
-            - name: Playwright run
-              run: pnpm --filter=@posthog/playwright test
-              env:
-                  E2E_TESTING: 1
-                  OPT_OUT_CAPTURE: 0
-                  GITHUB_ACTION_RUN_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
-
-            - name: Archive report
-              uses: actions/upload-artifact@v4
-              with:
-                  name: playwright-container-report
-                  path: playwright/playwright-report/
-                  retention-days: 30
-              if: ${{ failure() }}
-
-            - name: Archive screenshots
-              if: always()
-              uses: actions/upload-artifact@v4
-              with:
-                  name: playwright-container-screenshots
-                  path: playwright/test-results
-                  retention-days: 30
-
-            - name: Archive docker-server logs
-              if: failure()
-              uses: actions/upload-artifact@v4
-              with:
-                  name: docker-server-logs
-                  path: /tmp/logs/server.txt
-                  retention-days: 5
+                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+                    echo "mode=check" >> $GITHUB_OUTPUT
+                    echo "Fork detected - running in CHECK mode (no commits allowed)"
+                  else
+                    AUTHOR="${{ github.actor }}"
+                    echo "Workflow triggered by: $AUTHOR"
+                    if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
+                      echo "mode=check" >> $GITHUB_OUTPUT
+                      echo "⚠️  Running in CHECK mode - snapshots must match exactly"
+                    else
+                      echo "mode=update" >> $GITHUB_OUTPUT
+                      echo "✓ Running in UPDATE mode - snapshots can be updated"
+                    fi
+                  fi
 
     playwright:
         name: Playwright E2E tests
-        needs: [changes]
+        needs: [changes, detect-snapshot-mode]
         if: needs.changes.outputs.shouldRun == 'true'
-        runs-on: depot-ubuntu-latest-8
+        runs-on: depot-ubuntu-latest-16
         timeout-minutes: 30
         steps:
             - uses: actions/checkout@v4
@@ -318,7 +173,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
                   version: 0.8.19
@@ -443,18 +298,18 @@ jobs:
                   python manage.py migrate --noinput
 
                   # Build and run Rust migrations using dedicated container
-                  docker build -f rust/Dockerfile.persons-migrate -t posthog-migrations:latest ./rust
+                  docker build -f rust/Dockerfile.sqlx-migrate -t posthog-migrations:latest ./rust
                   docker run --rm --network host \
                     -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
-                    posthog-migrations:latest
+                    posthog-migrations:latest all
 
                   # Build and run Rust migrations using dedicated container
-                  docker build -f rust/Dockerfile.persons-migrate -t posthog-migrations:latest ./rust
+                  docker build -f rust/Dockerfile.sqlx-migrate -t posthog-migrations:latest ./rust
                   docker run --rm --network host \
                     -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_e2e_test" \
                     -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
-                    posthog-migrations:latest
+                    posthog-migrations:latest all
 
                   python manage.py setup_dev
                   wait
@@ -482,181 +337,103 @@ jobs:
                   verbose: true
 
             - name: Run Playwright tests
-              continue-on-error: true
               id: playwright-tests
-              run: pnpm --filter=@posthog/playwright exec playwright test
-
-            - name: Configure global git diff log
-              run: git config --global --add safe.directory '*'
-
-            - name: Count and optimize updated screenshots
-              id: diff
-              # Skip on forks
-              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              shell: bash
+              # we can run 10 workers because we have 16 CPU
+              # we don't want to run 16 since we need to leave some for everything else
               run: |
-                  echo $(git diff --name-status playwright/__snapshots__) # Wrapped to ignore exit 1 on empty diff
-                  ADDED=$(git diff --name-status playwright/__snapshots__/ | grep '^A' | wc -l)
-                  MODIFIED=$(git diff --name-status playwright/__snapshots__/ | grep '^M' | wc -l)
-                  DELETED=$(git diff --name-status playwright/__snapshots__/ | grep '^D' | wc -l)
-                  TOTAL=$(git diff --name-status playwright/__snapshots__/ | wc -l)
+                  set +e  # Allow snapshot update retry
+                  # Attempt 1: Always verify (fast path when snapshots match)
+                  # Attempt 2: Update snapshots if previous failure was screenshot-related (UPDATE mode only)
+                  # Note: Playwright's built-in retry (3x per test) handles test flakiness
+                  echo "Attempt 1: Running Playwright tests"
+                  set -o pipefail
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=10 2>&1 | tee /tmp/playwright-output-attempt-1.log
+                  EXIT_CODE=$?
+                  set +o pipefail
 
-                  # If added or modified, run OptiPNG
-                  if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
-                    echo "Screenshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
-                    apt update && apt install -y optipng
-                    # TODO: RESTORE OptiPNG - it turns out it never worked before
-                    # optipng -clobber -o4 -strip all playwright/__snapshots__/**/*.png
+                  if [ $EXIT_CODE -ne 0 ]; then
+                    # Check if we should retry with snapshot update
+                    if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -q "Screenshot comparison failed" /tmp/playwright-output-attempt-1.log 2>/dev/null; then
+                      echo "Screenshot comparison failed - retrying with --update-snapshots"
 
-                    # we don't want to _always_ run OptiPNG
-                    # so, we run it after checking for a diff
-                    # but, the files we diffed might then be changed by OptiPNG
-                    # and as a result they might no longer be different...
+                      # Preserve attempt 1 artifacts
+                      echo "Preserving attempt 1 artifacts..."
+                      mkdir -p playwright/test-results-attempt-1 playwright/playwright-report-attempt-1
+                      cp -r playwright/test-results/* playwright/test-results-attempt-1/ 2>/dev/null || true
+                      cp -r playwright/playwright-report/* playwright/playwright-report-attempt-1/ 2>/dev/null || true
 
-                    # we check again
-                    git diff --name-status playwright/__snapshots__/ # For debugging
-                    ADDED=$(git diff --name-status playwright/__snapshots__/ | grep '^A' | wc -l)
-                    MODIFIED=$(git diff --name-status playwright/__snapshots__/ | grep '^M' | wc -l)
-                    DELETED=$(git diff --name-status playwright/__snapshots__/ | grep '^D' | wc -l)
-                    TOTAL=$(git diff --name-status playwright/__snapshots__/ | wc -l)
+                      # Attempt 2: Update snapshots
+                      echo "Attempt 2: Running Playwright tests with --update-snapshots"
+                      set -o pipefail
+                      pnpm --filter=@posthog/playwright exec playwright test --workers=10 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
+                      EXIT_CODE=$?
+                      set +o pipefail
 
-                    if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
-                        echo "Screenshots updated ($ADDED new, $MODIFIED changed), _even after_ running OptiPNG"
-                        git add playwright/__snapshots__/ playwright/
+                      if [ $EXIT_CODE -ne 0 ]; then
+                        echo "Playwright tests failed after 2 attempts"
+                        exit 1
+                      fi
+                    else
+                      echo "Non-screenshot failure - not retrying (Playwright already retried failed tests 3x)"
+                      exit 1
                     fi
                   fi
 
-                  echo "Screenshot changes:"
-                  echo "Added: $ADDED"
-                  echo "Modified: $MODIFIED"
-                  echo "Deleted: $DELETED"
-                  echo "Total: $TOTAL"
-
-            - name: Detect flapping screenshots
-              id: flap-detector
-              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
-              shell: bash
+            # Create git patch for aggregation (handles A/M/D including binary files)
+            # Only run in UPDATE mode - CHECK mode doesn't update snapshots
+            - name: Create screenshot patch
+              id: create-patch
+              if: needs.detect-snapshot-mode.outputs.mode == 'update' && success() && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               run: |
-                  set +e  # Don't exit on error, we'll handle errors explicitly
-                  PATHS_FLAPPING=()
-
-                  # Find last human commit (not github-actions bot)
-                  last_human_commit=$(git log --pretty=format:"%H %an" | grep -v "github-actions" | head -1 | cut -d' ' -f1 || true)
-                  echo "Last human commit identified: $last_human_commit"
-
-                  if [ -z "$last_human_commit" ]; then
-                      echo "No human commit found in history, cannot detect flapping"
-                      echo "This is expected for bot-only commits or shallow checkouts"
-                      echo "flapping=false" >> $GITHUB_OUTPUT
-                      echo "Paths flapping: none"
-                      exit 0
+                  # Verify we're in a git repository before running git commands
+                  if ! git rev-parse --git-dir > /dev/null 2>&1; then
+                    echo "Not in a git repository, skipping patch creation"
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    exit 0
                   fi
 
-                  for screenshot_path in $(git diff --name-only HEAD playwright/__snapshots__); do
-                      echo "Checking screenshot path: $screenshot_path"
-                      bot_changes=$(git log --oneline ${last_human_commit}..HEAD --author="github-actions" -- $screenshot_path | wc -l | xargs)
-                      echo "Number of bot changes to $screenshot_path since last human commit: $bot_changes"
-
-                      if [ "$bot_changes" -ge 2 ]; then
-                          PATHS_FLAPPING+=($screenshot_path)
-                      fi
-                  done
-
-                  if [ ${#PATHS_FLAPPING[@]} -gt 0 ]; then
-                      echo "flapping=true" >> $GITHUB_OUTPUT
-                      echo "paths=${PATHS_FLAPPING[*]}" >> $GITHUB_OUTPUT
+                  # Check if there are any changes in the playwright directory
+                  if git diff --quiet playwright/; then
+                    echo "No screenshot changes"
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
                   else
-                      echo "flapping=false" >> $GITHUB_OUTPUT
+                    # Create binary-safe patch file
+                    mkdir -p /tmp/patches
+                    git diff --binary --full-index playwright/ > /tmp/patches/playwright-patch.patch
+                    echo "Created patch file"
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
                   fi
 
-                  echo "Paths flapping: ${PATHS_FLAPPING[*]:-none}"
-
-            - name: Comment on PR about flapping screenshots
-              if: steps.flap-detector.outputs.flapping == 'true'
-              uses: actions/github-script@v7
+            - name: Upload screenshot patch
+              if: steps.create-patch.outputs.has-changes == 'true'
+              uses: actions/upload-artifact@v4
               with:
-                  script: |
-                      const flappingPaths = '${{ steps.flap-detector.outputs.paths }}'.split(' ');
-                      const pathList = flappingPaths.map(p => `- \`${p}\``).join('\n');
-                      const comment = `## ⚠️ Flapping Screenshots Detected
-
-                      The following screenshots have been updated multiple times by the bot, indicating test instability:
-
-                      ${pathList}
-
-                      **What this means:**
-                      - These screenshots are changing on each test run (timing issues, rendering differences, etc.)
-                      - This prevents reliable verification and blocks auto-merge
-                      - Human intervention is required
-
-                      **How to fix:**
-                      1. **Investigate flakiness**: Check test timing, wait for elements, stabilize animations
-                      2. **Fix the underlying issue**: Don't just update snapshots repeatedly
-                      3. **Verify locally**: Run tests multiple times to ensure stability
-                      4. **Push your fix**: This will reset the flap counter
-
-                      **If you need to proceed anyway:**
-                      - Fix the test flakiness first (recommended)
-                      - Or manually verify snapshots are acceptable and revert the bot commits, then push a fix
-
-                      The workflow has been failed to prevent merging unstable tests.`;
-
-                      github.rest.issues.createComment({
-                          issue_number: context.issue.number,
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          body: comment
-                      });
-
-            - name: Fail workflow if screenshots are flapping
-              if: steps.flap-detector.outputs.flapping == 'true'
-              run: |
-                  echo "::error::Screenshots are flapping - this indicates test instability"
-                  echo "Flapping paths: ${{ steps.flap-detector.outputs.paths }}"
-                  exit 1
-
-            - name: Commit updated screenshots
-              uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
-              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && steps.flap-detector.outputs.flapping != 'true'
-              id: commit
-              with:
-                  add: 'playwright/'
-                  message: 'Update E2E screenshots for Playwright'
-                  pull: --rebase --autostash # Make sure we're up to date with other commits
-                  default_author: github_actions
-                  github_token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+                  name: playwright-patch
+                  path: /tmp/patches/playwright-patch.patch
+                  retention-days: 1
+                  if-no-files-found: ignore
 
             # ── Artifacts on failure / always ─────────────────────────────────────
-            - name: Show celery logs
-              run: cat /tmp/celery.log
-            - name: Show server logs
-              run: cat /tmp/server.log
+            - name: Capture docker logs
+              if: always()
+              run: docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
 
-            - name: Show server logs
-              run: |
-                  docker ps
-                  docker logs posthog-proxy-1
-
-            - name: Archive Playwright report on failure
-              if: failure()
+            - name: Archive test artifacts
+              if: always()
               uses: actions/upload-artifact@v4
               with:
-                  name: playwright-report
-                  path: playwright/playwright-report/
+                  name: playwright-test-results-${{ matrix.segment }}
+                  path: |
+                      playwright/playwright-report/
+                      playwright/playwright-report-attempt-*/
+                      playwright/test-results/
+                      playwright/test-results-attempt-*/
+                      /tmp/celery.log
+                      /tmp/server.log
+                      /tmp/playwright-output-attempt-*.log
                   retention-days: 30
-
-            - name: Archive screenshots
-              uses: actions/upload-artifact@v4
-              with:
-                  name: playwright-screenshots
-                  path: playwright/test-results
-                  retention-days: 30
-
-            - name: Fail workflow if tests failed
-              if: needs.changes.outputs.shouldRun == 'true' && steps.playwright-tests.outcome == 'failure'
-              run: |
-                  echo "❌ Playwright tests failed, but screenshots were processed and committed."
-                  echo "Check the test logs above for details on which tests failed."
-                  exit 1
+                  if-no-files-found: ignore
 
     capture-run-time:
         name: Capture run time
@@ -693,3 +470,58 @@ jobs:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-running-time'
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
+
+    # Aggregate all screenshot artifacts and commit once
+    handle-screenshots:
+        name: Handle screenshot changes
+        runs-on: ubuntu-latest
+        needs: [playwright, detect-snapshot-mode, changes]
+        if: always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+
+            - name: Download screenshot patches
+              id: download-patches
+              continue-on-error: true
+              uses: actions/download-artifact@v4
+              with:
+                  pattern: playwright-patch
+                  path: /tmp/screenshot-patches/
+                  merge-multiple: true
+
+            - name: Check for screenshot changes
+              id: check-screenshots
+              run: |
+                  # Check if patches were downloaded and have content
+                  if [ "${{ steps.download-patches.outcome }}" == "failure" ] || [ ! -d /tmp/screenshot-patches/ ]; then
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    echo "No screenshot patches found"
+                    exit 0
+                  fi
+
+                  # Check if any patch files have content (>0 bytes)
+                  PATCHES=$(find /tmp/screenshot-patches -name "*.patch" -type f -size +0c)
+                  if [ -z "$PATCHES" ]; then
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    echo "Patch files empty - no screenshot changes"
+                  else
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
+                    echo "Screenshot changes detected in patches"
+                  fi
+
+            # UPDATE mode: commit the changes
+            - name: Commit screenshot changes
+              if: steps.check-screenshots.outputs.has-changes == 'true' && needs.detect-snapshot-mode.outputs.mode == 'update'
+              uses: ./.github/actions/commit-snapshots
+              with:
+                  workflow-type: playwright
+                  patch-path: /tmp/screenshot-patches/
+                  snapshot-path: playwright/
+                  commit-message: Update E2E screenshots (Playwright)
+                  pr-number: ${{ github.event.pull_request.number }}
+                  repository: ${{ github.repository }}
+                  commit-sha: ${{ github.event.pull_request.head.sha }}
+                  github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}

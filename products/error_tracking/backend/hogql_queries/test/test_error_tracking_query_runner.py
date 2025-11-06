@@ -160,6 +160,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         withAggregations=False,
         withFirstEvent=False,
         personId=None,
+        groupKey=None,
+        groupTypeIndex=None,
     ):
         return (
             ErrorTrackingQueryRunner(
@@ -180,6 +182,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     withFirstEvent=withFirstEvent,
                     withAggregations=withAggregations,
                     personId=personId,
+                    groupKey=groupKey,
+                    groupTypeIndex=groupTypeIndex,
                 ),
             )
             .calculate()
@@ -192,12 +196,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         columns = self._calculate()["columns"]
         self.assertEqual(
             columns,
-            [
-                "id",
-                "last_seen",
-                "first_seen",
-                "library",
-            ],
+            ["id", "last_seen", "first_seen", "function", "source", "library"],
         )
 
         columns = self._calculate(withAggregations=True)["columns"]
@@ -207,6 +206,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "id",
                 "last_seen",
                 "first_seen",
+                "function",
+                "source",
                 "occurrences",
                 "sessions",
                 "users",
@@ -222,6 +223,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "id",
                 "last_seen",
                 "first_seen",
+                "function",
+                "source",
                 "first_event",
                 "library",
             ],
@@ -234,6 +237,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "id",
                 "last_seen",
                 "first_seen",
+                "function",
+                "source",
                 "occurrences",
                 "sessions",
                 "users",
@@ -414,6 +419,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # only includes valid session ids
         self.assertEqual(results[0]["aggregations"]["sessions"], 2)
 
+    @freeze_time("2022-01-10 12:11:00")
+    @snapshot_clickhouse_queries
+    def test_correctly_counts_persons(self):
+        results = self._calculate(issueId=self.issue_id_one, withAggregations=True)["results"]
+        self.assertEqual(results[0]["id"], self.issue_id_one)
+        self.assertEqual(results[0]["aggregations"]["users"], 2)
+
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_hogql_filters(self):
@@ -554,6 +566,52 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], issue_id)
+
+    @freeze_time("2022-01-10T12:11:00")
+    @snapshot_clickhouse_queries
+    def test_group_key_filter(self):
+        group_a_id = "org:acme"
+        group_b_id = "org:widgets"
+        project_1_id = "project:alpha"
+
+        issue_id_group_a = "784bd8ae-498f-4548-bc05-e621b5b5b9a1"
+        issue_id_group_b = "784bd8ae-498f-4548-bc05-e621b5b5b9a2"
+        issue_id_project_1 = "784bd8ae-498f-4548-bc05-e621b5b5b9a3"
+
+        self.create_events_and_issue(
+            issue_id=issue_id_group_a,
+            fingerprint="fingerprint_group_a",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={"$group_0": group_a_id},
+        )
+        self.create_events_and_issue(
+            issue_id=issue_id_group_b,
+            fingerprint="fingerprint_group_b",
+            distinct_ids=[self.distinct_id_two],
+            additional_properties={"$group_0": group_b_id},
+        )
+        self.create_events_and_issue(
+            issue_id=issue_id_project_1,
+            fingerprint="fingerprint_project_1",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={"$group_1": project_1_id},
+        )
+        flush_persons_and_events()
+
+        results = self._calculate(groupKey=group_a_id, groupTypeIndex=0)["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], issue_id_group_a)
+
+        results = self._calculate(groupKey=group_b_id, groupTypeIndex=0)["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], issue_id_group_b)
+
+        results = self._calculate(groupKey=project_1_id, groupTypeIndex=1)["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], issue_id_project_1)
+
+        results = self._calculate(groupKey="nonexistent", groupTypeIndex=0)["results"]
+        self.assertEqual(len(results), 0)
 
     @freeze_time("2020-01-10T12:11:00")
     @snapshot_clickhouse_queries

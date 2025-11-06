@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -69,12 +70,17 @@ import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/fronten
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
+import { defaultEvaluationEnvironmentsLogic } from './defaultEvaluationEnvironmentsLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'> & {
     variants?: MultivariateFlagVariant[]
     payloads?: Record<string, any>
+}
+
+export type VariantError = {
+    key: string | undefined
 }
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
@@ -122,6 +128,7 @@ export const NEW_FLAG: FeatureFlagType = {
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
     evaluation_tags: [],
+    _should_create_usage_dashboard: true,
 }
 const NEW_VARIANT = {
     key: '',
@@ -312,6 +319,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['currentOrganization'],
             enabledFeaturesLogic,
             ['featureFlags as enabledFeatures'],
+            defaultEvaluationEnvironmentsLogic,
+            ['defaultEvaluationEnvironments'],
         ],
         actions: [
             newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
@@ -322,6 +331,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['closeSidePanel'],
             teamLogic,
             ['addProductIntent'],
+            defaultEvaluationEnvironmentsLogic,
+            ['loadDefaultEvaluationEnvironments'],
         ],
     })),
     actions({
@@ -364,7 +375,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             defaults: {
                 ...NEW_FLAG,
                 ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
-                _should_create_usage_dashboard: true,
             },
             errors: ({ key, filters, is_remote_configuration }) => {
                 return {
@@ -682,6 +692,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         featureFlag: {
             loadFeatureFlag: async () => {
                 const sourceId = router.values.searchParams.sourceId
+
                 if (props.id === 'new' && sourceId) {
                     // Used when "duplicating a feature flag". This populates the form with the source flag's data.
                     const sourceFlag = await api.featureFlags.get(sourceId)
@@ -730,9 +741,45 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         throw e
                     }
                 }
+                // For new flags, load default evaluation environments and set default tags
+                if (props.id === 'new') {
+                    // Only load and apply default evaluation environments if BOTH conditions are met:
+                    // 1. The feature flag is enabled globally
+                    // 2. The team has enabled default evaluation environments
+                    const isFeatureEnabled = values.enabledFeatures[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]
+                    const isTeamEnabled = values.currentTeam?.default_evaluation_environments_enabled
+
+                    if (isFeatureEnabled && isTeamEnabled) {
+                        try {
+                            actions.loadDefaultEvaluationEnvironments()
+                        } catch (error) {
+                            // If loading default evaluation environments fails, continue with empty tags
+                            console.warn('Failed to load default evaluation environments:', error)
+                        }
+                        const defaultEnvs = values.defaultEvaluationEnvironments
+                        const defaultTags = defaultEnvs?.default_evaluation_tags || []
+
+                        return {
+                            ...NEW_FLAG,
+                            ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                            _should_create_usage_dashboard: true,
+                            tags: defaultTags.map((tag) => tag.name),
+                            evaluation_tags: defaultTags.map((tag) => tag.name),
+                        }
+                    }
+
+                    // If either condition is false, return flag without default tags
+                    return {
+                        ...NEW_FLAG,
+                        ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                        _should_create_usage_dashboard: true,
+                    }
+                }
+
                 return {
                     ...NEW_FLAG,
                     ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                    _should_create_usage_dashboard: true,
                 }
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
@@ -1297,7 +1344,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 {
                     key: [Scene.FeatureFlag, featureFlag.id || 'unknown'],
                     name: featureFlag.key || (!featureFlag.id ? 'New feature flag' : 'Unnamed'),
-                    iconType: 'feature_flag',
+                    iconType: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                 },
             ],
         ],
@@ -1404,20 +1451,38 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return !experiment?.start_date
             },
         ],
+        properties: [
+            (s) => [s.featureFlag],
+            (featureFlag: FeatureFlagType) => {
+                return featureFlag?.filters?.groups?.flatMap((g) => g.properties ?? []) ?? []
+            },
+        ],
+        variantErrors: [
+            (s) => [s.variants],
+            (variants) => {
+                const errors: VariantError[] = variants.map(({ key: variantKey }: MultivariateFlagVariant) => ({
+                    key: validateFeatureFlagKey(variantKey),
+                }))
+                return errors
+            },
+        ],
     }),
     urlToAction(({ actions, props, values }) => ({
         [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method }) => {
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
+                // Reset editing state when navigating to prevent it from persisting across flags
+                actions.editFeatureFlag(false)
+
                 if (props.id) {
                     // When there is sourceId, we load the feature flag
                     if (props.id === 'new' && searchParams.sourceId != null) {
                         actions.loadFeatureFlag()
                         return
                     }
-                    // When pushing to `/new` and the feature flag has no id, do not load the flag again
-                    if (props.id === 'new' && values.featureFlag.id == null) {
+                    // When pushing to `/new` and the feature flag already has default tags loaded, do not load the flag again
+                    if (props.id === 'new' && values.featureFlag.id == null && values.featureFlag.tags?.length > 0) {
                         return
                     }
                     actions.loadFeatureFlag()
@@ -1445,6 +1510,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
             actions.loadFeatureFlagStatus()
+        } else if (props.id === 'new') {
+            // Load default evaluation environments for new flags
+            actions.loadFeatureFlag()
         }
     }),
 ])

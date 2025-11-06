@@ -19,7 +19,7 @@
   SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
   FROM raw_cohort_people 
   WHERE and(equals(cohort_id, XX), equals(version, 0))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
-  WHERE and(equals(event, 'RANDOM_TEST_ID::UUID'), equals(__in_cohort.matched, 1)) 
+  WHERE and(and(1, equals(event, 'RANDOM_TEST_ID::UUID')), equals(__in_cohort.matched, 1)) 
   LIMIT 100
   '''
 # ---
@@ -43,7 +43,7 @@
   SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
   FROM static_cohort_people 
   WHERE in(cohort_id, [1, 2, 3, 4, 5 /* ... */])) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
-  WHERE equals(__in_cohort.matched, 1) 
+  WHERE and(1, equals(__in_cohort.matched, 1)) 
   LIMIT 100
   '''
 # ---
@@ -67,7 +67,7 @@
   SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
   FROM static_cohort_people 
   WHERE in(cohort_id, [1, 2, 3, 4, 5 /* ... */])) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
-  WHERE equals(__in_cohort.matched, 1) 
+  WHERE and(1, equals(__in_cohort.matched, 1)) 
   LIMIT 100
   '''
 # ---

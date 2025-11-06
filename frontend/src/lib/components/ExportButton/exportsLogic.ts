@@ -42,6 +42,7 @@ export const exportsLogic = kea<exportsLogicType>([
         removeFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
         setAssetFormat: (format: ExporterFormat | null) => ({ format }),
+        setHasReachedExportFullVideoLimit: (hasReached: boolean) => ({ hasReached }),
         startReplayExport: (
             sessionRecordingId: string,
             format?: ExporterFormat,
@@ -81,6 +82,12 @@ export const exportsLogic = kea<exportsLogicType>([
                 addFresh: (state, { exportedAsset }) =>
                     state.some((asset) => asset.id === exportedAsset.id) ? state : [...state, exportedAsset],
                 removeFresh: (state, { exportedAsset }) => state.filter((asset) => asset.id !== exportedAsset.id),
+            },
+        ],
+        hasReachedExportFullVideoLimit: [
+            false,
+            {
+                setHasReachedExportFullVideoLimit: (_, { hasReached }) => hasReached,
             },
         ],
     }),
@@ -177,7 +184,7 @@ export const exportsLogic = kea<exportsLogicType>([
         },
     })),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         exports: [
             [] as ExportedAssetType[],
             {
@@ -212,9 +219,9 @@ export const exportsLogic = kea<exportsLogicType>([
                                 expires_after: dayjs().add(6, 'hour').toJSON(),
                             })
 
-                            const currentExports = exportsLogic.values.exports
+                            const currentExports = values.exports
                             const updatedExports = [response, ...currentExports.filter((e) => e.id !== response.id)]
-                            exportsLogic.actions.loadExportsSuccess(updatedExports)
+                            actions.loadExportsSuccess(updatedExports)
 
                             // If this was a blocking export, we should download it now
                             if (response && response.has_content) {
@@ -226,7 +233,8 @@ export const exportsLogic = kea<exportsLogicType>([
                             const apiError = error as { data?: APIErrorType }
                             // Show a survey when the user reaches the export limit
                             if (apiError?.data?.attr === 'export_limit_exceeded') {
-                                lemonToast.info(apiError?.data?.detail || 'You reached your export limit.', {
+                                actions.setHasReachedExportFullVideoLimit(true)
+                                lemonToast.error(apiError?.data?.detail || 'You reached your export limit.', {
                                     button: {
                                         label: 'I want more',
                                         className: 'replay-export-limit-reached-button',

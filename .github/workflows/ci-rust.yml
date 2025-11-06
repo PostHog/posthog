@@ -82,6 +82,7 @@ jobs:
                 package:
                     - batch-import-worker
                     - capture
+                    - capture-logs
                     - common-alloc
                     - common-cookieless
                     - common-compression
@@ -107,7 +108,6 @@ jobs:
                     - hook-worker
                     - kafka-deduplicator
                     - limiters
-                    - log-capture
                     - posthog-symbol-data
                     - property-defs-rs
                     - serve-metrics
@@ -161,7 +161,7 @@ jobs:
             - name: Install uv
               id: setup-uv
               if: needs.changes.outputs.rust == 'true'
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
                   version: 0.8.19

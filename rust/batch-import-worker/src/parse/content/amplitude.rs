@@ -24,7 +24,10 @@ pub struct ChangedGroup {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AmplitudeData {
     pub path: Option<String>,
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_flexible_bool"
+    )]
     pub user_properties_updated: bool,
     #[serde(rename = "group_first_event", default)]
     pub group_first_event: HashMap<String, Value>,
@@ -75,6 +78,10 @@ pub struct AmplitudeEvent {
     pub groups: HashMap<String, Vec<String>>,
     pub idfa: Option<String>,
     pub ip_address: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_flexible_option_bool"
+    )]
     pub is_attribution_event: Option<bool>,
     pub language: Option<String>,
     pub library: Option<String>,
@@ -83,6 +90,10 @@ pub struct AmplitudeEvent {
     pub os_name: Option<String>,
     pub os_version: Option<String>,
     pub partner_id: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_flexible_option_bool"
+    )]
     pub paying: Option<bool>,
     #[serde(default)]
     pub plan: HashMap<String, Value>,
@@ -203,7 +214,10 @@ fn create_group_identify_event(
         now: timestamp.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
         sent_at: None,
         token: context.token.clone(),
+        event: "$groupidentify".to_string(),
+        timestamp,
         is_cookieless_mode: false,
+        historical_migration: true,
     };
 
     Ok(InternallyCapturedEvent {
@@ -577,7 +591,10 @@ impl AmplitudeEvent {
                     now: Utc::now().to_rfc3339(),
                     sent_at: None,
                     token,
+                    event: raw_event.event.clone(),
+                    timestamp,
                     is_cookieless_mode: false,
+                    historical_migration: true,
                 };
 
                 events.push(InternallyCapturedEvent { team_id, inner });
@@ -1816,6 +1833,106 @@ mod tests {
     }
 
     #[test]
+    fn test_user_properties_updated_string_bool() {
+        // Test that user_properties_updated accepts string "true"
+        let json = r#"{
+            "data": {
+                "user_properties_updated": "true"
+            }
+        }"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert!(event.data.user_properties_updated);
+
+        // Test that user_properties_updated accepts string "false"
+        let json = r#"{
+            "data": {
+                "user_properties_updated": "false"
+            }
+        }"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert!(!event.data.user_properties_updated);
+
+        // Test with actual boolean
+        let json = r#"{
+            "data": {
+                "user_properties_updated": true
+            }
+        }"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert!(event.data.user_properties_updated);
+
+        // Test with string "1"
+        let json = r#"{
+            "data": {
+                "user_properties_updated": "1"
+            }
+        }"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert!(event.data.user_properties_updated);
+    }
+
+    #[test]
+    fn test_is_attribution_event_string_bool() {
+        // Test with string "true"
+        let json = r#"{"is_attribution_event": "true"}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, Some(true));
+
+        // Test with string "false"
+        let json = r#"{"is_attribution_event": "false"}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, Some(false));
+
+        // Test with string "1"
+        let json = r#"{"is_attribution_event": "1"}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, Some(true));
+
+        // Test with actual boolean
+        let json = r#"{"is_attribution_event": true}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, Some(true));
+
+        // Test with null
+        let json = r#"{"is_attribution_event": null}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, None);
+
+        // Test with missing field
+        let json = r#"{}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, None);
+    }
+
+    #[test]
+    fn test_paying_string_bool() {
+        // Test with string "true"
+        let json = r#"{"paying": "true"}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.paying, Some(true));
+
+        // Test with string "0"
+        let json = r#"{"paying": "0"}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.paying, Some(false));
+
+        // Test with integer
+        let json = r#"{"paying": 1}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.paying, Some(true));
+
+        // Test with actual boolean
+        let json = r#"{"paying": false}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.paying, Some(false));
+
+        // Test with missing field
+        let json = r#"{}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.paying, None);
+    }
+
+    #[test]
     fn test_job_id_in_group_identify_event() {
         use crate::cache::{MockGroupCache, MockIdentifyCache};
         use std::collections::HashMap;
@@ -1871,6 +1988,54 @@ mod tests {
         assert_eq!(
             original_data["properties"]["$import_job_id"],
             json!(test_job_id.to_string())
+        );
+    }
+
+    #[test]
+    fn test_captured_event_has_historical_migration_and_now_fields() {
+        let before_test = Utc::now();
+
+        let amp_event = AmplitudeEvent {
+            insert_id: Some("test_insert_id".to_string()),
+            event_type: Some("test_event".to_string()),
+            user_id: Some("user123".to_string()),
+            event_time: Some("2023-10-15 14:30:00".to_string()),
+            ..Default::default()
+        };
+
+        let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
+        let result = parser(amp_event).unwrap();
+        let captured_event = result.into_iter().next().unwrap();
+
+        let after_test = Utc::now();
+
+        assert!(
+            captured_event.inner.historical_migration,
+            "historical_migration field must be true for batch import events"
+        );
+
+        assert!(
+            !captured_event.inner.now.is_empty(),
+            "now field must be set for events"
+        );
+
+        let now_timestamp = chrono::DateTime::parse_from_rfc3339(&captured_event.inner.now)
+            .expect("now should be valid RFC3339 timestamp")
+            .with_timezone(&Utc);
+        assert!(
+            now_timestamp >= before_test && now_timestamp <= after_test,
+            "now timestamp should be current (between test start and end)"
+        );
+
+        let serialized = serde_json::to_value(&captured_event.inner).unwrap();
+        assert_eq!(
+            serialized["historical_migration"],
+            json!(true),
+            "historical_migration must be in serialized output"
+        );
+        assert!(
+            serialized["now"].is_string(),
+            "now must be a string in serialized output"
         );
     }
 }

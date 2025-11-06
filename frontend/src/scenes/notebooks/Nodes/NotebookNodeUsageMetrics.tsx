@@ -1,4 +1,7 @@
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
+
+import { UsageMetricsConfig } from 'scenes/settings/environment/UsageMetricsConfig'
+import { usageMetricsConfigLogic } from 'scenes/settings/environment/usageMetricsConfigLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind, UsageMetric, UsageMetricsQueryResponse } from '~/queries/schema/schema-general'
@@ -8,20 +11,32 @@ import {
     UsageMetricCardSkeleton,
 } from 'products/customer_analytics/frontend/components/UsageMetricCard'
 
-import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { createPostHogWidgetNode } from './NodeWrapper'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
-    const { personId } = attributes
-    const logic = dataNodeLogic({
-        query: {
-            kind: NodeKind.UsageMetricsQuery,
-            person_id: personId,
-        },
-        key: personId,
-    })
+    const { personId, groupKey, groupTypeIndex } = attributes
+    const dataNodeLogicProps = personId
+        ? {
+              query: {
+                  kind: NodeKind.UsageMetricsQuery,
+                  person_id: personId,
+              },
+              key: personId,
+          }
+        : groupKey
+          ? {
+                query: {
+                    kind: NodeKind.UsageMetricsQuery,
+                    group_key: groupKey,
+                    group_type_index: groupTypeIndex,
+                },
+                key: groupKey,
+            }
+          : { key: 'error', query: { kind: NodeKind.UsageMetricsQuery } }
+    const logic = dataNodeLogic(dataNodeLogicProps)
     const { response, responseLoading, responseError } = useValues(logic)
 
     if (!expanded) {
@@ -55,18 +70,34 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     )
 }
 
+const Settings = ({ attributes }: NotebookNodeAttributeProperties<NotebookNodeUsageMetricsAttributes>): JSX.Element => {
+    return (
+        <div className="p-2">
+            <BindLogic logic={usageMetricsConfigLogic} props={{ logicKey: attributes.nodeId }}>
+                <UsageMetricsConfig />
+            </BindLogic>
+        </div>
+    )
+}
+
 type NotebookNodeUsageMetricsAttributes = {
-    personId: string
+    personId?: string
+    groupKey?: string
+    groupTypeIndex?: number
 }
 
 export const NotebookNodeUsageMetrics = createPostHogWidgetNode<NotebookNodeUsageMetricsAttributes>({
     nodeType: NotebookNodeType.UsageMetrics,
     titlePlaceholder: 'Usage',
     Component,
+    Settings,
+    settingsIcon: 'gear',
     resizeable: false,
     expandable: true,
     startExpanded: true,
     attributes: {
         personId: {},
+        groupKey: {},
+        groupTypeIndex: {},
     },
 })

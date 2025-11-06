@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`segment templates template segment-actions-absmartly matches expected result 1`] = `
 {
@@ -25,7 +25,7 @@ exports[`segment templates template segment-actions-absmartly matches expected r
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -892,7 +892,7 @@ exports[`segment templates template segment-actions-algolia-insights matches exp
       "key": "apiKey",
       "label": "apiKey",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -1615,7 +1615,7 @@ exports[`segment templates template segment-actions-amplitude matches expected r
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -1624,7 +1624,7 @@ exports[`segment templates template segment-actions-amplitude matches expected r
       "key": "secretKey",
       "label": "Secret Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -7139,7 +7139,7 @@ exports[`segment templates template segment-actions-attentive matches expected r
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -7258,7 +7258,7 @@ exports[`segment templates template segment-actions-blend-ai matches expected re
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -7376,7 +7376,7 @@ exports[`segment templates template segment-actions-canny matches expected resul
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -8510,7 +8510,7 @@ exports[`segment templates template segment-actions-drip matches expected result
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -9952,7 +9952,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -10955,7 +10955,7 @@ exports[`segment templates template segment-actions-iterable matches expected re
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -13433,7 +13433,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
       "key": "apiSecret",
       "label": "Secret Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -23783,7 +23783,7 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -24779,7 +24779,7 @@ exports[`segment templates template segment-actions-schematic matches expected r
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -24990,7 +24990,7 @@ exports[`segment templates template segment-actions-sprig matches expected resul
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -26775,7 +26775,7 @@ exports[`segment templates template segment-actions-usermotion matches expected 
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -27034,7 +27034,7 @@ exports[`segment templates template segment-actions-userpilot-cloud matches expe
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -27264,7 +27264,7 @@ exports[`segment templates template segment-actions-voyage matches expected resu
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -27494,7 +27494,7 @@ exports[`segment templates template segment-actions-vwo-cloud matches expected r
       "key": "apikey",
       "label": "VWO SDK Key",
       "required": false,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -27910,7 +27910,7 @@ exports[`segment templates template segment-actions-xtremepush matches expected 
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -28642,7 +28642,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -29370,7 +29370,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -30535,7 +30535,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
       "key": "apiKey",
       "label": "Application ID",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {

@@ -59,14 +59,11 @@ class TestExecuteTaskInSandboxActivity:
                     task_id="test-task-123",
                     repository="PostHog/posthog-js",
                     distinct_id="test-user-id",
-                    workflow_id="test-workflow-id",
                 )
 
                 await activity_environment.run(execute_task_in_sandbox, input_data)
 
-                mock_task_cmd.assert_called_once_with(
-                    "test-task-123", "test-workflow-id", "/tmp/workspace/repos/posthog/posthog-js"
-                )
+                mock_task_cmd.assert_called_once_with("test-task-123", "/tmp/workspace/repos/posthog/posthog-js")
 
         finally:
             if sandbox:
@@ -110,7 +107,6 @@ class TestExecuteTaskInSandboxActivity:
                     task_id="test-task-fail",
                     repository="PostHog/posthog-js",
                     distinct_id="test-user-id",
-                    workflow_id="test-workflow-id",
                 )
 
                 with pytest.raises(TaskExecutionFailedError):
@@ -144,7 +140,6 @@ class TestExecuteTaskInSandboxActivity:
                     task_id="test-task-no-repo",
                     repository="PostHog/posthog-js",
                     distinct_id="test-user-id",
-                    workflow_id="test-workflow-id",
                 )
 
                 with pytest.raises(TaskExecutionFailedError):
@@ -162,7 +157,6 @@ class TestExecuteTaskInSandboxActivity:
             task_id="test-task",
             repository="PostHog/posthog-js",
             distinct_id="test-user-id",
-            workflow_id="test-workflow-id",
         )
 
         with pytest.raises(SandboxNotFoundError):
@@ -208,14 +202,12 @@ class TestExecuteTaskInSandboxActivity:
                             task_id=f"test-task-{repo.split('/')[1]}",
                             repository=repo,
                             distinct_id="test-user-id",
-                            workflow_id="test-workflow-id",
                         )
 
                         await activity_environment.run(execute_task_in_sandbox, input_data)
 
                         mock_task_cmd.assert_called_once_with(
                             f"test-task-{repo.split('/')[1]}",
-                            "test-workflow-id",
                             f"/tmp/workspace/repos/{repo.lower()}",
                         )
 

@@ -10,6 +10,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -35,7 +36,6 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import {
@@ -58,12 +58,20 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, duplicateSurvey, setIsDuplicateToProjectModalOpen } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
-    const { isOnNewEmptyStateExperiment } = useValues(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
+
+    const surveyId = survey?.id && survey.id !== 'new' ? survey.id : null
+
+    useFileSystemLogView({
+        type: 'survey',
+        ref: surveyId,
+        enabled: Boolean(surveyId && !surveyLoading),
+        deps: [surveyId, surveyLoading],
+    })
 
     useEffect(() => {
         if (survey.start_date) {
@@ -149,9 +157,10 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             AccessControlLevel.Editor,
                             survey.user_access_level
                         )}
+                        saveOnBlur
                         onNameChange={(name) => updateSurvey({ id, name })}
                         onDescriptionChange={(description) => updateSurvey({ id, description })}
-                        renameDebounceMs={1000}
+                        renameDebounceMs={0}
                         isLoading={surveyLoading}
                         actions={
                             <>
@@ -249,7 +258,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             </>
                         }
                     />
-                    <SceneDivider />
                     <LemonTabs
                         activeKey={tabKey}
                         onChange={(key) => setTabKey(key)}
@@ -265,13 +273,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                       key: 'results',
                                       label: 'Results',
                                   }
-                                : isOnNewEmptyStateExperiment
-                                  ? {
-                                        content: <SurveyResultDemo />,
-                                        key: 'results',
-                                        label: 'Results (Demo)',
-                                    }
-                                  : null,
+                                : {
+                                      content: <SurveyResultDemo />,
+                                      key: 'results',
+                                      label: 'Results (Demo)',
+                                  },
                             {
                                 content: <SurveyOverview onTabChange={setTabKey} />,
                                 key: 'overview',

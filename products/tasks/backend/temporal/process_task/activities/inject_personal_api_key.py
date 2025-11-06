@@ -9,7 +9,6 @@ from temporalio import activity
 from posthog.models import PersonalAPIKey
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, mask_key_value
-from posthog.scopes import API_SCOPE_OBJECTS
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import Task
@@ -114,12 +113,14 @@ async def inject_personal_api_key(input: InjectPersonalAPIKeyInput) -> InjectPer
 
 
 def _get_default_scopes() -> list[str]:
-    """
-    Get default scopes for task agent API keys.
+    # TODO: Make scopes configurable per task in the future.
 
-    TODO: Make scopes configurable per task in the future.
-    For now, we provide read access to most resources.
-    """
-    read_scopes = [f"{obj}:read" for obj in API_SCOPE_OBJECTS if obj not in ["INTERNAL"]]
+    scopes = [
+        "error_tracking:read",
+        "user:read",
+        "organization:read",
+        "project:read",
+        "task:write",
+    ]
 
-    return read_scopes
+    return scopes

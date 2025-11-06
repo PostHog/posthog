@@ -24,11 +24,12 @@ from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldT
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 def build_destination_table_prefix(schema_id: str | None) -> str:
-    return f"__posthog_import_{schema_id if schema_id else ''}"
+    return f"__posthog_import_{schema_id.replace('-', '_') if schema_id else ''}"
 
 
 @SourceRegistry.register
@@ -81,8 +82,8 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
         if not config.key_file.private_key:
             raise ValueError(f"Missing private key for BigQuery: '{inputs.job_id}'")
 
-        using_temporary_dataset = False
         dataset_project_id: str | None = None
+        destination_table_dataset_id = config.dataset_id
 
         if (
             config.dataset_project
@@ -90,23 +91,27 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
             and config.dataset_project.dataset_project_id is not None
             and config.dataset_project.dataset_project_id != ""
         ):
-            using_temporary_dataset = True
             dataset_project_id = config.dataset_project.dataset_project_id
+
+        if (
+            config.temporary_dataset
+            and config.temporary_dataset.enabled
+            and config.temporary_dataset.temporary_dataset_id is not None
+            and config.temporary_dataset.temporary_dataset_id != ""
+        ):
+            destination_table_dataset_id = config.temporary_dataset.temporary_dataset_id
 
         # Including the schema ID in table prefix ensures we only delete tables
         # from this schema, and that if we fail we will clean up any previous
         # execution's tables.
         # Table names in BigQuery can have up to 1024 bytes, so we can be pretty
         # relaxed with using a relatively long UUID as part of the prefix.
-        # Some special characters do need to be replaced, so we use the hex
-        # representation of the UUID.
         destination_table_prefix = build_destination_table_prefix(inputs.schema_id)
 
-        destination_table_dataset_id = dataset_project_id if using_temporary_dataset else config.dataset_id
-        destination_table = f"{config.key_file.project_id}.{destination_table_dataset_id}.{destination_table_prefix}{inputs.job_id}_{str(datetime.now().timestamp()).replace('.', '')}"
+        destination_table = f"{config.key_file.project_id}.{destination_table_dataset_id}.{destination_table_prefix}_{inputs.job_id.replace('-', '_')}_{str(datetime.now().timestamp()).replace('.', '')}"
 
         delete_all_temp_destination_tables(
-            dataset_id=config.dataset_id,
+            dataset_id=destination_table_dataset_id,
             table_prefix=destination_table_prefix,
             project_id=config.key_file.project_id,
             dataset_project_id=dataset_project_id,

@@ -16,16 +16,13 @@ posthog/tasks/update_survey_iteration @PostHog/team-surveys
 posthog/tasks/test/test_stop_surveys_reached_target.py @PostHog/team-surveys
 posthog/templates/surveys @PostHog/team-surveys
 
-# plugin server ownership is split between ingestion and messaging teams
+# plugin server ownership is split between ingestion and workflows teams
 
-plugin-server/src/ @PostHog/team-ingestion @PostHog/team-messaging
+plugin-server/src/ @PostHog/team-ingestion @PostHog/team-workflows
 plugin-server/tests/ @PostHog/team-ingestion
 plugin-server/src/ingestion/ @PostHog/team-ingestion
-plugin-server/src/cdp/ @PostHog/team-messaging
-
-# ClickHouse team owns Clickhouse migrations
-
-posthog/clickhouse/migrations/** @PostHog/clickhouse
+plugin-server/src/cdp/ @PostHog/team-workflows
+plugin-server/src/ingestion/ai-costs/ @PostHog/team-llm-analytics
 
 # Web Analytics team owns web analytics code
 
@@ -33,25 +30,28 @@ products/web_analytics/** @PostHog/team-web-analytics
 frontend/src/scenes/web-analytics/** @PostHog/team-web-analytics
 posthog/hogql_queries/web_analytics/** @PostHog/team-web-analytics
 frontend/src/toolbar/web-vitals/** @PostHog/team-web-analytics
-posthog/hogql/database/schema/sessions_v1.py @PostHog/team-web-analytics
-posthog/hogql/database/schema/sessions_v2.py @PostHog/team-web-analytics
-posthog/models/raw_sessions/** @PostHog/team-web-analytics
-posthog/models/sessions/** @PostHog/team-web-analytics
 rust/common/cookieless/** @PostHog/team-web-analytics
 plugin-server/src/ingestion/cookieless/** @PostHog/team-web-analytics
 dags/locations/web_analytics.py @PostHog/team-web-analytics
+
+# Analytics Platform
+dags/locations/analytics_platform.py @PostHog/team-analytics-platform
+ee/tasks/subscriptions/** @PostHog/team-analytics-platform
+frontend/src/scenes/data-management/schema/** @PostHog/team-analytics-platform
+posthog/api/schema_property_group.py @PostHog/team-analytics-platform
+posthog/hogql/database/schema/sessions_*.py @PostHog/team-analytics-platform
+posthog/models/raw_sessions/** @PostHog/team-analytics-platform
+posthog/models/schema.py @PostHog/team-analytics-platform
+posthog/models/sessions/** @PostHog/team-analytics-platform
+posthog/tasks/alerts/** @PostHog/team-analytics-platform
+posthog/tasks/exports/** @PostHog/team-analytics-platform
+
 
 # Revenue Analytics team owns revenue analytics stuff
 
 products/revenue_analytics/** @PostHog/team-revenue-analytics
 
 # Feature Flags team
-
-# Platform (the `/flags` and `/decide` endpoints + associated utils)
-
-rust/feature-flags/ @PostHog/team-feature-flags
-posthog/api/decide.py @PostHog/team-feature-flags
-posthog/models/flag_matching.py @PostHog/team-feature-flags
 
 # Feature Flags CRUD operations
 
@@ -75,20 +75,19 @@ frontend/src/scenes/feature-flags/ @PostHog/team-feature-flags
 
 # Team data warehouse
 
-posthog/temporal/data_imports/** @PostHog/team-data-warehouse
-posthog/temporal/data_modeling/** @PostHog/team-data-warehouse
-posthog/warehouse/** @PostHog/team-data-warehouse
-products/data_warehouse/** @PostHog/team-data-warehouse
-frontend/src/scenes/data-warehouse/** @PostHog/team-data-warehouse
-posthog/management/commands/generate_source_configs.py @PostHog/team-data-warehouse
-posthog/settings/data_warehouse.py @PostHog/team-data-warehouse
-posthog/hogql/** @PostHog/team-data-warehouse
+posthog/temporal/data_imports/** @PostHog/team-data-stack
+posthog/temporal/data_modeling/** @PostHog/team-data-stack
+posthog/warehouse/** @PostHog/team-data-stack
+products/data_warehouse/** @PostHog/team-data-stack
+frontend/src/scenes/data-warehouse/** @PostHog/team-data-stack
+posthog/management/commands/generate_source_configs.py @PostHog/team-data-stack
+posthog/settings/data_warehouse.py @PostHog/team-data-stack
+posthog/hogql/** @PostHog/team-data-stack
 
 # Team error tracking
 
-products/error_tracking/** @PostHog/team-error-tracking
-posthog/models/error_tracking/ @PostHog/team-error-tracking
-posthog/api/error_tracking.py @PostHog/team-error-tracking
+products/error_tracking/backend/** @PostHog/team-error-tracking
+products/error_tracking/frontend/** @PostHog/team-error-tracking
 posthog/hogql_queries/error_tracking/error_tracking_query_runner.py @PostHog/team-error-tracking
 posthog/hogql_queries/error_tracking/error_tracking_issue_correlation_query_runner.py @PostHog/team-error-tracking
 
@@ -107,5 +106,11 @@ ee/session_recordings/**/*.py @PostHog/team-replay
 ee/frontend/mobile-replay @PostHog/team-replay
 
 # DevEx
-
-posthog/management/migration_analysis/ @PostHog/DevEx
+Dockerfile @PostHog/team-devex
+docker-compose*.yml @PostHog/team-devex
+pyproject.toml @PostHog/team-devex
+.prettierrc @PostHog/team-devex
+mypy.ini @PostHog/team-devex
+posthog/management/migration_analysis/ @PostHog/team-devex
+common/hogli/ @PostHog/team-devex
+bin/ @PostHog/team-devex

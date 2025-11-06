@@ -14,7 +14,7 @@ from dags.common import JobOwners, redis
 
 logger = structlog.get_logger(__name__)
 
-CACHE_EXPIRY = 60 * 60 * 24 * 3  # 3 days
+CACHE_EXPIRY = 60 * 60 * 24 * 7  # 7 days
 MAX_REQUEST_RETRIES = 3
 INITIAL_RETRIES_BACKOFF = 1  # in seconds
 
@@ -415,7 +415,7 @@ def cache_github_sdk_versions_job():
 
 cache_github_sdk_versions_schedule = dagster.ScheduleDefinition(
     job=cache_github_sdk_versions_job,
-    cron_schedule="0 */6 * * *",  # Every 6 hours
+    cron_schedule="0 0 * * *",  # Every day at midnight
     execution_timezone="UTC",
     name="cache_github_sdk_versions_schedule",
 )

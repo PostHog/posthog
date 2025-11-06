@@ -19,7 +19,6 @@ jobs:
               uses: actions/checkout@v4
               with:
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
-                  fetch-depth: 0
 
             - name: Run update script
               run: |
@@ -60,4 +59,4 @@ jobs:
                       bot-ips
                       dependencies
                   reviewers: |
-                      PostHog/team-messaging
+                      PostHog/team-workflows

@@ -17,7 +17,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import LLMGatewayBurstRateThrottle, LLMGatewaySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
@@ -39,7 +39,7 @@ litellm.failure_callback = ["posthog"]
 
 
 class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]

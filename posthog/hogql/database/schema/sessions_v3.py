@@ -27,7 +27,7 @@ from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.models.property_definition import PropertyType
-from posthog.models.raw_sessions.sql_v3 import (
+from posthog.models.raw_sessions.sessions_v3 import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_V3,
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER_V3,
     SESSION_V3_LOWER_TIER_AD_IDS,
@@ -45,7 +45,6 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
         name="session_timestamp", nullable=False
     ),  # not a DateTimeDatabaseField to avoid wrapping with toTimeZone
     "distinct_id": DatabaseField(name="distinct_id", nullable=False),
-    "person_id": DatabaseField(name="person_id", nullable=False),
     "min_timestamp": DateTimeDatabaseField(name="min_timestamp", nullable=False),
     "max_timestamp": DateTimeDatabaseField(name="max_timestamp", nullable=False),
     "max_inserted_at": DateTimeDatabaseField(name="max_inserted_at", nullable=False),
@@ -82,7 +81,9 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "pageview_uniq": DatabaseField(name="pageview_uniq", nullable=False),
     "autocapture_uniq": DatabaseField(name="autocapture_uniq", nullable=False),
     "screen_uniq": DatabaseField(name="screen_uniq", nullable=False),
-    "page_screen_autocapture_uniq_up_to": DatabaseField(name="page_screen_autocapture_uniq_up_to", nullable=False),
+    "page_screen_uniq_up_to": DatabaseField(name="page_screen_uniq_up_to", nullable=False),
+    "has_autocapture": BooleanDatabaseField(name="has_autocapture", nullable=False),
+    "has_replay_events": BooleanDatabaseField(name="has_replay_events", nullable=False),
 }
 
 LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
@@ -94,7 +95,6 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "session_id": StringDatabaseField(name="session_id"),
     "session_timestamp": DateTimeDatabaseField(name="session_timestamp", nullable=False),
     "distinct_id": StringDatabaseField(name="distinct_id"),
-    "person_id": UUIDDatabaseField(name="person_id"),
     # timestamp
     "$start_timestamp": DateTimeDatabaseField(name="$start_timestamp"),
     "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp"),
@@ -129,7 +129,8 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
     "$screen_count": IntegerDatabaseField(name="$screen_count"),
     # some perf optimisation columns
-    "$page_screen_autocapture_count_up_to": DatabaseField(name="$page_screen_autocapture_count_up_to"),
+    "$page_screen_count_up_to": DatabaseField(name="$page_screen_count_up_to"),
+    "$has_autocapture": BooleanDatabaseField(name="$has_autocapture"),
     "$entry_channel_type_properties": DatabaseField(name="$entry_channel_type_properties"),
     # computed fields
     "$channel_type": StringDatabaseField(name="$channel_type"),
@@ -138,6 +139,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
     "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
+    "$has_replay_events": BooleanDatabaseField(name="$has_replay_events", nullable=False),
 }
 
 
@@ -210,7 +212,6 @@ def select_from_sessions_table_v3(
             ],
         ),  # try not to use this, prefer to use session_id_v7
         "distinct_id": arg_max_merge_field("distinct_id"),
-        "person_id": arg_max_merge_field("person_id"),
         "$start_timestamp": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
         "$end_timestamp": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
         "max_inserted_at": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_inserted_at"])]),
@@ -241,14 +242,19 @@ def select_from_sessions_table_v3(
         "$pageview_count": ast.Call(name="uniqExactMerge", args=[ast.Field(chain=[table_name, "pageview_uniq"])]),
         "$screen_count": ast.Call(name="uniqExactMerge", args=[ast.Field(chain=[table_name, "screen_uniq"])]),
         "$autocapture_count": ast.Call(name="uniqExactMerge", args=[ast.Field(chain=[table_name, "autocapture_uniq"])]),
-        "$page_screen_autocapture_count_up_to": ast.Call(
+        "$page_screen_count_up_to": ast.Call(
             name="uniqUpToMerge",
             params=[ast.Constant(value=1)],
-            args=[ast.Field(chain=[table_name, "page_screen_autocapture_uniq_up_to"])],
+            args=[ast.Field(chain=[table_name, "page_screen_uniq_up_to"])],
+        ),
+        "$has_autocapture": ast.Call(
+            name="max",
+            args=[ast.Field(chain=[table_name, "has_autocapture"])],
         ),
         "$entry_ad_ids_map": arg_min_merge_field("entry_ad_ids_map"),
         "$entry_ad_ids_set": arg_min_merge_field("entry_ad_ids_set"),
         "$entry_channel_type_properties": arg_min_merge_field("entry_channel_type_properties"),
+        "$has_replay_events": ast.Call(name="max", args=[ast.Field(chain=[table_name, "has_replay_events"])]),
     }
 
     # Alias
@@ -305,12 +311,12 @@ def select_from_sessions_table_v3(
         if context.modifiers.bounceRateDurationSeconds is not None
         else DEFAULT_BOUNCE_RATE_DURATION_SECONDS
     )
-    bounce_event_count = aggregate_fields["$page_screen_autocapture_count_up_to"]
+    bounce_pageview_count = aggregate_fields["$page_screen_count_up_to"]
     aggregate_fields["$is_bounce"] = ast.Call(
         name="if",
         args=[
-            # if the count is 0, return NULL, so it doesn't contribute towards the bounce rate either way
-            ast.Call(name="equals", args=[bounce_event_count, ast.Constant(value=0)]),
+            # if the pageview/screen count is 0, return NULL, so it doesn't contribute towards the bounce rate either way
+            ast.Call(name="equals", args=[bounce_pageview_count, ast.Constant(value=0)]),
             ast.Constant(value=None),
             ast.Call(
                 name="not",
@@ -318,8 +324,10 @@ def select_from_sessions_table_v3(
                     ast.Call(
                         name="or",
                         args=[
-                            # if pageviews + autocaptures > 1, not a bounce
-                            ast.Call(name="greater", args=[bounce_event_count, ast.Constant(value=1)]),
+                            # if >= 2 pageviews/screens, not a bounce
+                            ast.Call(name="greaterOrEquals", args=[bounce_pageview_count, ast.Constant(value=2)]),
+                            # if there was an autocapture, not a bounce
+                            aggregate_fields["$has_autocapture"],
                             # if session duration >= bounce_rate_duration_seconds, not a bounce
                             ast.Call(
                                 name="greaterOrEquals",
@@ -409,6 +417,8 @@ class SessionsTableV3(LazyTable):
                 # aliases for people upgrading from v1 to v2
                 "$exit_current_url",
                 "$exit_pathname",
+                "$has_autocapture",
+                "$entry_channel_type_properties",
             }
         )
 
@@ -449,7 +459,6 @@ def get_lazy_session_table_properties_v3(search: Optional[str]):
         "max_inserted_at",
         "team_id",
         "distinct_id",
-        "person_id",
         "session_id",
         "id",
         "session_id_v7",
@@ -458,6 +467,8 @@ def get_lazy_session_table_properties_v3(search: Optional[str]):
         "duration",
         "$num_uniq_urls",
         "$page_screen_autocapture_count_up_to",
+        "$page_screen_count_up_to",
+        "$has_autocapture",
         "$entry_channel_type_properties",
         "session_timestamp",  # really people should be using $start_timestamp for most queries
         # aliases for people upgrading from v1 to v2/v3

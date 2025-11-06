@@ -7,7 +7,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
-import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
+import { Experiment, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
 import { VariantTag } from '../../ExperimentView/components'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../../constants'
@@ -61,7 +61,6 @@ type DeltaChartContextType = {
     chartBound: number
 
     // Experiment data
-    experimentId: ExperimentIdType
     experiment: Experiment
     variants: FunnelExperimentVariant[] | TrendExperimentVariant[]
     hasMinimumExposureForResults: boolean
@@ -151,7 +150,6 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
         metric,
         dimensions,
         valueToX,
-        experimentId,
         featureFlags,
         colors,
         tooltip: { setTooltipData },
@@ -233,12 +231,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                         height="16"
                         transform="translate(-90, 0)" // Move left to accommodate tag width
                     >
-                        <VariantTag
-                            className="justify-end mt-0.5"
-                            experimentId={experimentId as ExperimentIdType}
-                            variantKey={variant.key}
-                            fontSize={10}
-                        />
+                        <VariantTag className="justify-end mt-0.5" variantKey={variant.key} fontSize={10} />
                     </foreignObject>
                     {variant.key === 'control' ? (
                         <path
@@ -309,12 +302,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                 <>
                     {/* Move foreignObject for variant tag to left of 0 point */}
                     <foreignObject x={valueToX(0) - 150} y={y + barHeight / 2 - 10} width="90" height="16">
-                        <VariantTag
-                            className="justify-end mt-0.5"
-                            experimentId={experimentId as ExperimentIdType}
-                            variantKey={variant.key}
-                            fontSize={10}
-                        />
+                        <VariantTag className="justify-end mt-0.5" variantKey={variant.key} fontSize={10} />
                     </foreignObject>
 
                     {/* First draw a solid background to cover grid lines */}
@@ -426,7 +414,6 @@ function ChartControls(): JSX.Element {
 function ChartTooltips(): JSX.Element {
     const {
         tooltip: { tooltipData },
-        experimentId,
         result,
         metricType,
         conversionRateForVariant,
@@ -441,7 +428,6 @@ function ChartTooltips(): JSX.Element {
             {tooltipData && (
                 <VariantTooltip
                     tooltipData={tooltipData}
-                    experimentId={experimentId as ExperimentIdType}
                     result={result}
                     metricType={metricType}
                     conversionRateForVariant={conversionRateForVariant}
@@ -478,7 +464,6 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
             <ChartEmptyState
                 height={chartHeight}
                 experimentStarted={!!experiment.start_date}
-                hasMinimumExposure={hasMinimumExposureForResults}
                 metric={metric}
                 error={error}
             />
@@ -512,7 +497,6 @@ export function DeltaChart({
 }): JSX.Element {
     // Get values from logic
     const {
-        experimentId,
         experiment,
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
@@ -586,7 +570,6 @@ export function DeltaChart({
         chartBound,
 
         // Experiment data
-        experimentId: experimentId as ExperimentIdType, // Cast to ensure type compatibility
         experiment,
         variants,
         hasMinimumExposureForResults,
@@ -643,7 +626,6 @@ export function DeltaChart({
                 displayOrder={displayOrder}
                 isSecondary={isSecondary}
                 result={result}
-                experimentId={experimentId as ExperimentIdType}
                 experiment={experiment}
             />
         </DeltaChartContext.Provider>

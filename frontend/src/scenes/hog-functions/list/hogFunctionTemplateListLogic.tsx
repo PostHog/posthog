@@ -183,7 +183,15 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 const { search } = filters
 
                 if (search) {
-                    return templatesFuse.search(search).map((x) => x.item)
+                    return templatesFuse
+                        .search(search)
+                        .map((x) => {
+                            if (!customFilterFunction(x.item)) {
+                                return null
+                            }
+                            return x.item
+                        })
+                        .filter(Boolean) as HogFunctionTemplateType[]
                 }
 
                 const [available, comingSoon] = templates.reduce(

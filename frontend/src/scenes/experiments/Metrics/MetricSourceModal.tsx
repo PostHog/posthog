@@ -2,16 +2,16 @@ import { useActions, useValues } from 'kea'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { modalsLogic } from '../modalsLogic'
 import { experimentMetricModalLogic } from './experimentMetricModalLogic'
 import { metricSourceModalLogic } from './metricSourceModalLogic'
+import { sharedMetricModalLogic } from './sharedMetricModalLogic'
 
-export const MetricSourceModal = (): JSX.Element => {
+export const MetricSourceModal = (): JSX.Element | null => {
     const { isModalOpen, context } = useValues(metricSourceModalLogic)
     const { closeMetricSourceModal } = useActions(metricSourceModalLogic)
 
     const { openExperimentMetricModal } = useActions(experimentMetricModalLogic)
-    const { openPrimarySharedMetricModal, openSecondarySharedMetricModal } = useActions(modalsLogic)
+    const { openSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     return (
         <LemonModal isOpen={isModalOpen} onClose={closeMetricSourceModal} width={1000} title="Choose metric source">
@@ -34,9 +34,7 @@ export const MetricSourceModal = (): JSX.Element => {
                     className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
                     onClick={() => {
                         closeMetricSourceModal()
-                        context.type === 'primary'
-                            ? openPrimarySharedMetricModal(null)
-                            : openSecondarySharedMetricModal(null)
+                        openSharedMetricModal(context)
                     }}
                 >
                     <div className="font-semibold">

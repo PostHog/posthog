@@ -113,10 +113,11 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.6.9.98}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.6.13.41}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
+            KAFKA_HOSTS: 'kafka:9092'
 
     zookeeper:
         image: zookeeper:3.7.0
@@ -246,6 +247,25 @@ services:
             REDIS_URL: 'redis://redis:6379/'
             CAPTURE_MODE: recordings
 
+    capture-logs:
+        image: ghcr.io/posthog/posthog/capture-logs:master
+        build:
+            context: rust/
+            args:
+                BIN: capture-logs
+        restart: on-failure
+        environment:
+            BIND_HOST: '0.0.0.0'
+            BIND_PORT: '4318'
+            RUST_LOG: info,rdkafka=warn
+            RUST_BACKTRACE: '1'
+            KAFKA_HOSTS: kafka:9092
+            JWT_SECRET: '<randomly generated secret key>'
+            KAFKA_TOPIC: logs_ingestion
+        networks:
+            - otel_network
+            - default
+
     property-defs-rs:
         image: ghcr.io/posthog/posthog/property-defs-rs:master
         build:
@@ -290,6 +310,7 @@ services:
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CLICKHOUSE_HOST: 'clickhouse'
@@ -411,8 +432,11 @@ services:
         image: otel/opentelemetry-collector-contrib:latest
         container_name: otel-collector-local
         command: [--config=/etc/otel-collector-config.yaml]
+        user: '0:0' # have to run as root to read the docker logs
         volumes:
             - ./otel-collector-config.dev.yaml:/etc/otel-collector-config.yaml
+            # mount docker containers dir so we can ship the docker logs to local posthog
+            - /var/lib/docker/containers:/var/lib/docker/containers:ro
         ports:
             - '4317:4317' # OTLP gRPC receiver (mapped to host)
             - '4318:4318' # OTLP HTTP receiver (mapped to host)

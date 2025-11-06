@@ -44,6 +44,24 @@ pub struct KafkaDeduplicatorService {
 }
 
 impl KafkaDeduplicatorService {
+    /// Reset the local checkpoint directory (remove if exists, then create fresh)
+    fn reset_checkpoint_directory(checkpoint_dir: &str) -> Result<()> {
+        let path = std::path::Path::new(checkpoint_dir);
+
+        if path.exists() {
+            info!("Resetting local checkpoint directory: {checkpoint_dir}");
+            std::fs::remove_dir_all(path).with_context(|| {
+                format!("Failed to remove existing checkpoint directory: {checkpoint_dir}",)
+            })?;
+        }
+
+        std::fs::create_dir_all(path)
+            .with_context(|| format!("Failed to create checkpoint directory: {checkpoint_dir}"))?;
+
+        info!("Local checkpoint directory ready: {checkpoint_dir}");
+        Ok(())
+    }
+
     /// Create a new service from configuration
     pub async fn new(config: Config, liveness: HealthRegistry) -> Result<Self> {
         // Validate configuration
@@ -79,27 +97,26 @@ impl KafkaDeduplicatorService {
         // Create checkpoint manager and inject an exporter to enable uploads
         let checkpoint_config = CheckpointConfig {
             checkpoint_interval: config.checkpoint_interval(),
-            cleanup_interval: config.checkpoint_cleanup_interval(),
+            checkpoint_full_upload_interval: config.checkpoint_full_upload_interval,
             local_checkpoint_dir: config.local_checkpoint_dir.clone(),
             s3_bucket: config.s3_bucket.clone().unwrap_or_default(),
             s3_key_prefix: config.s3_key_prefix.clone(),
-            full_upload_interval: config.checkpoint_full_upload_interval,
             aws_region: config.aws_region.clone(),
-            checkpoints_per_partition: config.checkpoints_per_partition,
-            max_checkpoint_retention_hours: config.max_checkpoint_retention_hours,
             max_concurrent_checkpoints: config.max_concurrent_checkpoints,
             checkpoint_gate_interval: config.checkpoint_gate_interval(),
             checkpoint_worker_shutdown_timeout: config.checkpoint_worker_shutdown_timeout(),
-            s3_timeout: config.s3_timeout(),
+            checkpoint_import_window_hours: config.checkpoint_import_window_hours,
+            s3_operation_timeout: config.s3_operation_timeout(),
+            s3_attempt_timeout: config.s3_attempt_timeout(),
         };
+
+        // Reset local checkpoint directory on startup (it's temporary storage)
+        Self::reset_checkpoint_directory(&checkpoint_config.local_checkpoint_dir)?;
 
         // create exporter conditionally if S3 config is populated
         let exporter = if !config.aws_region.is_empty() && config.s3_bucket.is_some() {
             let uploader = Box::new(S3Uploader::new(checkpoint_config.clone()).await.unwrap());
-            Some(Arc::new(CheckpointExporter::new(
-                checkpoint_config.clone(),
-                uploader,
-            )))
+            Some(Arc::new(CheckpointExporter::new(uploader)))
         } else {
             None
         };

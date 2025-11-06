@@ -18,7 +18,7 @@ from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.format import enrich_props_with_descriptions, format_properties_xml
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyErrorMessages
-from ee.hogai.graph.taxonomy.tools import ask_user_for_help, base_final_answer
+from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types.base import AssistantNodeName
@@ -53,16 +53,27 @@ logger.setLevel(logging.DEBUG)
 
 
 class RevenueAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
-    def __init__(self, team: Team):
-        super().__init__(team)
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user)
 
-    async def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
+    async def handle_tools(self, tool_metadata: dict[str, list[tuple[TaxonomyTool, str]]]) -> dict[str, str]:
         """Handle custom tool execution."""
-        if tool_name == "retrieve_revenue_analytics_property_values":
-            result = await self._retrieve_revenue_analytics_property_values(tool_input.arguments.property_key)
-            return tool_name, result
+        results = {}
+        unhandled_tools = {}
+        for tool_name, tool_inputs in tool_metadata.items():
+            if tool_name == "retrieve_revenue_analytics_property_values":
+                if tool_inputs:
+                    for tool_input, tool_call_id in tool_inputs:
+                        result = await self._retrieve_revenue_analytics_property_values(
+                            tool_input.arguments.property_key  # type: ignore
+                        )
+                        results[tool_call_id] = result
+            else:
+                unhandled_tools[tool_name] = tool_inputs
 
-        return await super().handle_tools(tool_name, tool_input)
+        if unhandled_tools:
+            results.update(await super().handle_tools(unhandled_tools))
+        return results
 
     def _get_custom_tools(self) -> list:
         return [final_answer, retrieve_revenue_analytics_property_values]
@@ -172,10 +183,8 @@ class FilterRevenueAnalyticsTool(MaxTool):
       * When the user asks to search for revenue analytics or revenue
         - "search for" synonyms: "find", "look up", and similar
     """
-    thinking_message: str = "Coming up with filters"
-    root_system_prompt_template: str = "Current revenue analytics filters are: {current_filters}"
+    context_prompt_template: str = "Current revenue analytics filters are: {current_filters}"
     args_schema: type[BaseModel] = FilterRevenueAnalyticsArgs
-    show_tool_call_message: bool = False
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         """

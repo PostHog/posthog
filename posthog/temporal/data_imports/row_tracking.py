@@ -1,5 +1,7 @@
 import uuid
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db.models import Sum
@@ -12,7 +14,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team
 from posthog.redis import get_client
 from posthog.settings import EE_AVAILABLE
-from posthog.warehouse.models import ExternalDataJob
+from posthog.settings.base_variables import TEST
+
+from products.data_warehouse.backend.models import ExternalDataJob
+
+if TYPE_CHECKING:
+    from products.data_warehouse.backend.models import ExternalDataSource
 
 
 def _get_hash_key(team_id: int) -> str:
@@ -103,7 +110,12 @@ def get_all_rows_for_team(team_id: int) -> int:
         return sum(int(v) for v in pairs.values())
 
 
-def will_hit_billing_limit(team_id: int, logger: FilteringBoundLogger) -> bool:
+# To be removed after 2025-11-06
+dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
+dwh_pricing_free_period_end = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
+
+
+def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", logger: FilteringBoundLogger) -> bool:
     if not EE_AVAILABLE:
         return False
 
@@ -111,6 +123,24 @@ def will_hit_billing_limit(team_id: int, logger: FilteringBoundLogger) -> bool:
         from ee.billing.billing_manager import BillingManager
 
         logger.debug("Running will_hit_billing_limit")
+
+        # Handle free period for newly created data sources
+        if source.created_at >= datetime.now(UTC) - timedelta(days=7):
+            logger.info(
+                f"Skipping billing limits check for newly created data source for 7-days free rows. source.created_at = {source.created_at}"
+            )
+            return False
+
+        # Handle free period for data synced during free period (to be removed after 2025-11-06)
+        if (
+            not TEST
+            and datetime.now(UTC) >= dwh_pricing_free_period_start
+            and datetime.now(UTC) <= dwh_pricing_free_period_end
+        ):
+            logger.info(
+                f"Skipping billing limits check for data synced during free period from {dwh_pricing_free_period_start} to {dwh_pricing_free_period_end}."
+            )
+            return False
 
         license = get_cached_instance_license()
         billing_manager = BillingManager(license)
@@ -120,37 +150,35 @@ def will_hit_billing_limit(team_id: int, logger: FilteringBoundLogger) -> bool:
             value[0] for value in Team.objects.filter(organization_id=organization.id).values_list("id")
         ]
 
-        logger.debug(f"will_hit_billing_limit: Organisation_id = {organization.id}")
-        logger.debug(f"will_hit_billing_limit: Teams in org: {all_teams_in_org}")
+        logger.debug(f"BillingLimits: Organisation_id = {organization.id}")
+        logger.debug(f"BillingLimits: Teams in org: {all_teams_in_org}")
 
         billing_res = billing_manager.get_billing(organization)
 
         current_billing_cycle_start = billing_res.get("billing_period", {}).get("current_period_start")
         if current_billing_cycle_start is None:
             logger.debug(
-                f"will_hit_billing_limit: returning early, no current_period_start available. current_billing_cycle_start = {current_billing_cycle_start}"
+                f"BillingLimits: returning early, no current_period_start available. current_billing_cycle_start = {current_billing_cycle_start}"
             )
             return False
 
         current_billing_cycle_start_dt = parser.parse(current_billing_cycle_start)
 
-        logger.debug(f"will_hit_billing_limit: current_billing_cycle_start = {current_billing_cycle_start}")
+        logger.debug(f"BillingLimits: current_billing_cycle_start = {current_billing_cycle_start}")
 
         usage_summary = billing_res["usage_summary"]
         rows_synced_summary = usage_summary.get("rows_synced", None)
 
         if not rows_synced_summary:
-            logger.debug(
-                f"will_hit_billing_limit: returning early, no rows_synced key in usage_summary. {usage_summary}"
-            )
+            logger.debug(f"BillingLimits: returning early, no rows_synced key in usage_summary. {usage_summary}")
             return False
 
         rows_synced_limit = rows_synced_summary.get("limit")
 
-        logger.debug(f"will_hit_billing_limit: rows_synced_limit = {rows_synced_limit}")
+        logger.debug(f"BillingLimits: rows_synced_limit = {rows_synced_limit}")
 
         if rows_synced_limit is None or not isinstance(rows_synced_limit, int | float):
-            logger.debug("will_hit_billing_limit: rows_synced_limit is None or not a number, returning False")
+            logger.debug("BillingLimits: rows_synced_limit is None or not a number, returning False")
             return False
 
         # Get all completed rows for all teams in org
@@ -163,7 +191,7 @@ def will_hit_billing_limit(team_id: int, logger: FilteringBoundLogger) -> bool:
 
         rows_synced_in_billing_period = rows_synced_in_billing_period_dict.get("total_rows", 0) or 0
 
-        logger.debug(f"will_hit_billing_limit: rows_synced_in_billing_period = {rows_synced_in_billing_period}")
+        logger.debug(f"BillingLimits: rows_synced_in_billing_period = {rows_synced_in_billing_period}")
 
         # Get all in-progress rows for all teams in org
         existing_rows_in_progress = sum(get_all_rows_for_team(t_id) for t_id in all_teams_in_org)
@@ -173,12 +201,12 @@ def will_hit_billing_limit(team_id: int, logger: FilteringBoundLogger) -> bool:
         result = expected_rows > rows_synced_limit
 
         logger.debug(
-            f"will_hit_billing_limit: expected_rows = {expected_rows}. rows_synced_limit = {rows_synced_limit}. Returning {result}"
+            f"BillingLimits: expected_rows = {expected_rows}. rows_synced_limit = {rows_synced_limit}. Returning {result}"
         )
 
         return result
     except Exception as e:
-        logger.debug(f"will_hit_billing_limit: Failed with exception {e}")
+        logger.debug(f"BillingLimits: Failed with exception {e}")
         capture_exception(e)
 
         return False

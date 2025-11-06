@@ -50,11 +50,10 @@ class HogFunctionFiltersOutput(BaseModel):
 
 
 class CreateHogTransformationFunctionTool(MaxTool):
-    name: str = "create_hog_transformation_function"  # Must match a value in AssistantContextualTool enum
+    name: str = "create_hog_transformation_function"  # Must match a value in AssistantTool enum
     description: str = "Write or edit the hog code to create your desired function and apply it to the current editor"
-    thinking_message: str = "Creating your desired function"
     args_schema: type[BaseModel] = CreateHogTransformationFunctionArgs
-    root_system_prompt_template: str = (
+    context_prompt_template: str = (
         HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT
         + "\n\n"
         + TRANSFORMATION_LIMITATIONS_MESSAGE
@@ -129,13 +128,12 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
 
 class CreateHogFunctionFiltersTool(MaxTool):
-    name: str = "create_hog_function_filters"  # Must match a value in AssistantContextualTool enum
+    name: str = "create_hog_function_filters"  # Must match a value in AssistantTool enum
     description: str = (
         "Create or edit filters for hog functions to specify which events and properties trigger the function"
     )
-    thinking_message: str = "Setting up filters"
     args_schema: type[BaseModel] = CreateHogFunctionFiltersArgs
-    root_system_prompt_template: str = HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT
+    context_prompt_template: str = HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     def _run_impl(self, instructions: str) -> tuple[str, str]:
         current_filters = self.context.get("current_filters", "{}")
@@ -219,9 +217,8 @@ class HogFunctionInputsOutput(BaseModel):
 class CreateHogFunctionInputsTool(MaxTool):
     name: str = "create_hog_function_inputs"
     description: str = "Generate or modify input variables for hog functions based on the current code and requirements"
-    thinking_message: str = "Generating input variables for your hog function"
     args_schema: type[BaseModel] = CreateHogFunctionInputsArgs
-    root_system_prompt_template: str = HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT
+    context_prompt_template: str = HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     def _run_impl(self, instructions: str) -> tuple[str, list]:
         current_inputs_schema = self.context.get("current_inputs_schema", [])

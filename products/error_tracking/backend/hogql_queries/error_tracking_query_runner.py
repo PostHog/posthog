@@ -25,7 +25,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.util import property_to_django_filter
 from posthog.utils import relative_date_parse
 
-from products.error_tracking.backend.api.error_tracking import ErrorTrackingIssueSerializer
+from products.error_tracking.backend.api.issues import ErrorTrackingIssuePreviewSerializer
 from products.error_tracking.backend.models import ErrorTrackingIssue
 
 logger = structlog.get_logger(__name__)
@@ -103,7 +103,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             events_select.order_by = order_by
             return events_select
 
-        group_by.append(ast.Field(chain=["e", self.revenue_entity, self.revenue_entity_key]))
+        group_by.append(self.revenue_entity_field)
         events_select.group_by = group_by
 
         return ast.SelectQuery(
@@ -111,6 +111,18 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             select_from=ast.JoinExpr(table=events_select, alias="per_issue_per_revenue_entity"),
             group_by=[ast.Field(chain=["id"])],
             order_by=order_by,
+        )
+
+    def innermost_frame_attribute(self, materialized_col):
+        return ast.Call(
+            name="argMax",
+            args=[
+                ast.TupleAccess(
+                    tuple=ast.Field(chain=["properties", materialized_col]),
+                    index=-1,
+                ),
+                ast.Field(chain=["timestamp"]),
+            ],
         )
 
     def select_pairs(self):
@@ -123,6 +135,14 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             [
                 ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
                 ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["first_seen"])])),
+            ],
+            [
+                ast.Alias(alias="function", expr=self.innermost_frame_attribute("$exception_functions")),
+                ast.Alias(alias="function", expr=ast.Call(name="max", args=[ast.Field(chain=["function"])])),
+            ],
+            [
+                ast.Alias(alias="source", expr=self.innermost_frame_attribute("$exception_sources")),
+                ast.Alias(alias="source", expr=ast.Call(name="max", args=[ast.Field(chain=["source"])])),
             ],
         ]
 
@@ -156,7 +176,14 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                         ast.Alias(alias="sessions", expr=ast.Call(name="sum", args=[ast.Field(chain=["sessions"])])),
                     ],
                     [
-                        ast.Alias(alias="users", expr=ast.Constant(value=1)),
+                        ast.Alias(
+                            alias="users",
+                            expr=ast.Call(
+                                name="count",
+                                distinct=True,
+                                args=[self.revenue_entity_field],
+                            ),
+                        ),
                         ast.Alias(alias="users", expr=ast.Call(name="sum", args=[ast.Field(chain=["users"])])),
                     ],
                     [
@@ -465,6 +492,15 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                 )
             )
 
+        if self.query.groupKey and self.query.groupTypeIndex is not None:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=[f"$group_{self.query.groupTypeIndex}"]),
+                    right=ast.Constant(value=self.query.groupKey),
+                )
+            )
+
         if self.query.searchQuery:
             # TODO: Refine this so it only searches the frames inside $exception_list
             # TODO: We'd eventually need a more efficient searching strategy
@@ -639,10 +675,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     def error_tracking_issues(self, ids):
         status = self.query.status
         queryset = (
-            ErrorTrackingIssue.objects.with_first_seen()
-            .select_related("assignment")
-            .prefetch_related("external_issues__integration")
-            .filter(team=self.team, id__in=ids)
+            ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team=self.team, id__in=ids)
         )
 
         if self.query.issueId:
@@ -660,7 +693,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         for filter in self.issue_properties:
             queryset = property_to_django_filter(queryset, filter)
 
-        serializer = ErrorTrackingIssueSerializer(queryset, many=True)
+        serializer = ErrorTrackingIssuePreviewSerializer(queryset, many=True)
         return {issue["id"]: issue for issue in serializer.data}
 
     def prefetch_issue_ids(self) -> list[str]:
@@ -708,13 +741,14 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     def properties(self):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else []
 
-    @property
+    @cached_property
+    def revenue_entity_field(self):
+        key = "id" if (self.revenue_entity == "person" or self.revenue_entity is None) else "key"
+        return ast.Field(chain=["e", self.revenue_entity, key])
+
+    @cached_property
     def revenue_entity(self):
         return self.query.revenueEntity or RevenueEntity.PERSON
-
-    @property
-    def revenue_entity_key(self):
-        return "id" if (self.query.revenueEntity == "person" or self.query.revenueEntity is None) else "key"
 
 
 def search_tokenizer(query: str) -> list[str]:

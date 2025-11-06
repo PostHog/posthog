@@ -755,3 +755,30 @@ export const HOG_MASK_EXAMPLES: Record<string, Pick<HogFunctionType, 'masking'>>
         },
     },
 }
+
+export const HOG_FLOW_MASK_EXAMPLES: Record<string, Pick<any, 'trigger_masking'>> = {
+    everyTime: {
+        trigger_masking: {
+            ttl: 30,
+            hash: 'all',
+            bytecode: ['_h', 32, 'all'],
+            threshold: null,
+        },
+    },
+    oncePerTimePeriod: {
+        trigger_masking: {
+            ttl: 30,
+            hash: '{person.id}',
+            bytecode: ['_h', 32, 'id', 32, 'person', 1, 2],
+            threshold: null,
+        },
+    },
+    onceEver: {
+        trigger_masking: {
+            ttl: null,
+            hash: '{person.id}',
+            bytecode: ['_h', 32, 'id', 32, 'person', 1, 2],
+            threshold: null,
+        },
+    },
+}

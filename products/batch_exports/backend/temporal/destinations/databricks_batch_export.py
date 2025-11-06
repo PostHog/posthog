@@ -50,14 +50,13 @@ from products.batch_exports.backend.temporal.batch_exports import (
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
-from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer, TransformerProtocol
+from products.batch_exports.backend.temporal.pipeline.transformer import (
+    ChunkTransformerProtocol,
+    ParquetStreamTransformer,
+)
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import (
-    JsonType,
-    cast_record_batch_schema_json_columns,
-    handle_non_retryable_errors,
-)
+from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
@@ -68,12 +67,13 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     "DatabricksConnectionError",
     # Raised when we don't have sufficient permissions to perform an operation.
     "DatabricksInsufficientPermissionsError",
-    # Raised when the table partition field provided is invalid.
-    "DatabricksInvalidPartitionFieldError",
     # Raised when the Databricks integration is not found.
     "DatabricksIntegrationNotFoundError",
     # Raised when the Databricks integration is not valid.
     "DatabricksIntegrationError",
+    # Raised when we hit our self-imposed long running operation timeout.
+    # We don't want to continually retry as it could consume a lot of compute resources in the user's account.
+    "DatabricksOperationTimeoutError",
 ]
 
 DatabricksField = tuple[str, str]
@@ -89,13 +89,6 @@ class DatabricksInsufficientPermissionsError(Exception):
     """Error for Databricks permission."""
 
     pass
-
-
-class DatabricksInvalidPartitionFieldError(Exception):
-    """Error raised when the table partition field provided is invalid."""
-
-    def __init__(self, partition_field: str):
-        super().__init__(f"Invalid table partition field: '{partition_field}'")
 
 
 class DatabricksIntegrationNotFoundError(Exception):
@@ -118,6 +111,19 @@ class DatabricksSchemaNotFoundError(Exception):
         super().__init__(f"Schema '{schema}' not found")
 
 
+class DatabricksOperationTimeoutError(Exception):
+    """Error raised when we hit our self-imposed long running operation timeout.
+
+    We impose this timeout to prevent operations from running for too long, which could cause SLA violations and consume
+    a lot of compute resources in the user's account.
+    """
+
+    def __init__(self, operation: str, timeout: float):
+        super().__init__(
+            f"{operation} timed out after {timeout} seconds. If this happens regularly, you may want to increase the size of your Databricks SQL warehouse."
+        )
+
+
 @dataclasses.dataclass(kw_only=True)
 class DatabricksInsertInputs(BatchExportInsertInputs):
     """Inputs for Databricks.
@@ -137,8 +143,6 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
         This means the target table will automatically be updated with the schema of the source table (however, no
         columns will be dropped from the target table).
         NOTE: currently we don't expose this in the frontend as we're assuming all users would want to use this.
-    table_partition_field: the field to partition the table by.
-        If None, we will use the default partition by field for the model (if exists)
     """
 
     integration_id: int
@@ -148,7 +152,6 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
     table_name: str
     use_variant_type: bool = True
     use_automatic_schema_evolution: bool = True
-    table_partition_field: str | None = None
 
 
 class DatabricksConfig(Config):
@@ -267,7 +270,7 @@ class DatabricksClient:
                 # user agent can be used for usage tracking
                 user_agent_entry="PostHog batch exports",
                 enable_telemetry=False,
-                _socket_timeout=5,
+                _socket_timeout=300,  # Databricks seems to use this for all timeouts
                 _retry_stop_after_attempts_count=2,
                 _retry_delay_max=1,
             )
@@ -432,7 +435,6 @@ class DatabricksClient:
         table_name: str,
         fields: list[DatabricksField],
         delete: bool = False,
-        partition_by: str | None = None,
     ):
         """Manage a table in Databricks by ensuring it exists while in context."""
         # log if we're creating a permanent table
@@ -441,7 +443,7 @@ class DatabricksClient:
         else:
             self.logger.info("Creating Databricks table %s", table_name)
 
-        await self.acreate_table(table_name=table_name, fields=fields, partition_by=partition_by)
+        await self.acreate_table(table_name=table_name, fields=fields)
 
         yield table_name
 
@@ -449,17 +451,15 @@ class DatabricksClient:
             self.logger.info("Deleting Databricks table %s", table_name)
             await self.adelete_table(table_name)
 
-    async def acreate_table(self, table_name: str, fields: list[DatabricksField], partition_by: str | None = None):
+    async def acreate_table(self, table_name: str, fields: list[DatabricksField]):
         """Asynchronously create the Databricks delta table if it doesn't exist."""
         field_ddl = ", ".join(f"`{field[0]}` {field[1]}" for field in fields)
-        partitioned_by_ddl = f"PARTITIONED BY (`{partition_by}`)" if partition_by else ""
         try:
             query = f"""
                 CREATE TABLE IF NOT EXISTS `{table_name}` (
                     {field_ddl}
                 )
                 USING DELTA
-                {partitioned_by_ddl}
                 COMMENT 'PostHog generated table'
                 """
             await self.execute_query(query, fetch_results=False)
@@ -485,15 +485,22 @@ class DatabricksClient:
         )
 
     async def acopy_into_table_from_volume(
-        self, table_name: str, volume_path: str, fields: list[DatabricksField], with_schema_evolution: bool = True
-    ):
+        self,
+        table_name: str,
+        volume_path: str,
+        fields: list[DatabricksField],
+        with_schema_evolution: bool = True,
+        timeout: float = 60 * 60,
+    ) -> None:
         """Asynchronously copy data from a Databricks volume into a Databricks table."""
         self.logger.info("Copying data from volume into table '%s'", table_name)
         query = self._get_copy_into_table_from_volume_query(
             table_name=table_name, volume_path=volume_path, fields=fields, with_schema_evolution=with_schema_evolution
         )
         try:
-            await self.execute_async_query(query, fetch_results=False)
+            await self.execute_async_query(query, fetch_results=False, timeout=timeout)
+        except TimeoutError:
+            raise DatabricksOperationTimeoutError(operation="Copy into table from volume", timeout=timeout)
         except ServerOperationError as err:
             if _is_insufficient_permissions_error(err):
                 raise DatabricksInsufficientPermissionsError(
@@ -579,7 +586,9 @@ class DatabricksClient:
         """
         with self.connection.cursor() as cursor:
             try:
-                await asyncio.to_thread(cursor.columns, table_name=table_name)
+                await asyncio.to_thread(
+                    cursor.columns, catalog_name=self.catalog, schema_name=self.schema, table_name=table_name
+                )
                 results = await asyncio.to_thread(cursor.fetchall)
                 try:
                     column_names = [row.name for row in results]
@@ -602,7 +611,8 @@ class DatabricksClient:
         update_key: collections.abc.Iterable[str],
         source_table_fields: collections.abc.Iterable[DatabricksField],
         with_schema_evolution: bool = True,
-    ):
+        timeout: float = 60 * 60,
+    ) -> None:
         """Merge data from source_table into target_table in Databricks.
 
         If `with_schema_evolution` is True, we will use `WITH SCHEMA EVOLUTION` to enable [automatic schema
@@ -643,7 +653,10 @@ class DatabricksClient:
                 target_table_field_names=target_table_field_names,
             )
 
-        await self.execute_async_query(merge_query, fetch_results=False)
+        try:
+            await self.execute_async_query(merge_query, fetch_results=False, timeout=timeout)
+        except TimeoutError:
+            raise DatabricksOperationTimeoutError(operation="Merge into target table", timeout=timeout)
 
     def _get_merge_query_with_schema_evolution(
         self,
@@ -781,14 +794,12 @@ class TableSettings(t.NamedTuple):
     table_fields: list[DatabricksField]
     record_batch_schema: pa.Schema
     known_variant_columns: list[str]
-    partition_field: str | None
 
 
 def _get_databricks_table_settings(
     model: BatchExportModel | BatchExportSchema | None,
     record_batch_schema: pa.Schema,
     use_variant_type: bool,
-    input_partition_field: str | None,
 ) -> TableSettings:
     """Get the various table settings for this batch export.
 
@@ -825,27 +836,7 @@ def _get_databricks_table_settings(
             known_variant_columns=known_variant_columns,
         )
 
-    table_fields_names = [field[0] for field in table_fields]
-    partition_field = None
-    if input_partition_field is not None:
-        if input_partition_field not in table_fields_names:
-            raise DatabricksInvalidPartitionFieldError(input_partition_field)
-        partition_field = input_partition_field
-    else:
-        # get default partition by field
-        if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
-            partition_field = "timestamp"
-        elif isinstance(model, BatchExportModel) and model.name == "sessions":
-            partition_field = "end_timestamp"
-        # TODO: not sure if we have a decent default partition by field for persons?
-        # elif isinstance(model, BatchExportModel) and model.name == "persons":
-        # partition_field = "person_version"
-
-        # double check the partition by field is present in the table fields
-        if partition_field not in table_fields_names:
-            partition_field = None
-
-    return TableSettings(table_fields, record_batch_schema, known_variant_columns, partition_field)
+    return TableSettings(table_fields, record_batch_schema, known_variant_columns)
 
 
 def _get_databricks_merge_config(
@@ -887,6 +878,27 @@ def _is_insufficient_permissions_error(err: ServerOperationError) -> bool:
     return "INSUFFICIENT_PERMISSIONS" in err.message or "PERMISSION_DENIED" in err.message
 
 
+def _get_long_running_query_timeout(data_interval_start: dt.datetime | None, data_interval_end: dt.datetime) -> float:
+    """Get the timeout to use for long running queries.
+
+    Operations like COPY INTO TABLE can take a long time to complete, especially if there is a lot of data and
+    the warehouse being used is not very powerful. We don't want to allow these queries to run for too long, as they can
+    cause SLA violations and can consume a lot of compute resources in the user's account.
+
+    We can probably reduce this timeout a bit once the beta testing phase is complete.
+    """
+    min_timeout_seconds = 30 * 60  # 30 minutes
+    max_timeout_seconds = 6 * 60 * 60  # 6 hours
+    if data_interval_start is None:
+        return max_timeout_seconds
+    interval_seconds = (data_interval_end - data_interval_start).total_seconds()
+    # we don't want to timeout to be too short (eg in case of 5 min batch exports)
+    # we also multiply the interval by 2 for now while we are in beta testing
+    timeout_seconds = max(min_timeout_seconds, interval_seconds * 2)
+    # we don't want to timeout to be too long (eg in case of 1 day batch exports)
+    return min(timeout_seconds, max_timeout_seconds)
+
+
 class DatabricksConsumer(Consumer):
     """A consumer that uploads data to a Databricks managed volume."""
 
@@ -900,9 +912,7 @@ class DatabricksConsumer(Consumer):
         self.client = client
         self.volume_path = volume_path
 
-        self.logger.bind(
-            volume=self.volume_path,
-        )
+        self.logger = self.logger.bind(volume=self.volume_path)
 
         self.current_file_index = 0
         self.current_buffer = io.BytesIO()
@@ -927,9 +937,9 @@ class DatabricksConsumer(Consumer):
             return  # Nothing to upload
 
         self.logger.info(
-            "Uploading file %d with %d bytes to Databricks volume '%s'",
+            "Uploading file %d with %.2f MB to Databricks volume '%s'",
             self.current_file_index,
-            buffer_size,
+            buffer_size / 1024 / 1024,
             self.volume_path,
         )
 
@@ -942,9 +952,9 @@ class DatabricksConsumer(Consumer):
         )
 
         self.external_logger.info(
-            "File %d with %d bytes uploaded to Databricks volume '%s'",
+            "File %d with %.2f MB uploaded to Databricks volume '%s'",
             self.current_file_index,
-            buffer_size,
+            buffer_size / 1024 / 1024,
             self.volume_path,
         )
         self.current_buffer = io.BytesIO()
@@ -961,11 +971,10 @@ async def manage_resources(
     fields: list[DatabricksField],
     table_name: str,
     stage_table_name: str | None = None,
-    partition_field: str | None = None,
 ) -> AsyncGenerator[tuple[str, str, str | None], None]:
     """Manage resources in Databricks by ensuring they exist while in context."""
     async with client.managed_volume(volume_name) as volume:
-        async with client.managed_table(table_name, fields, delete=False, partition_by=partition_field) as table:
+        async with client.managed_table(table_name, fields, delete=False) as table:
             if stage_table_name is not None:
                 async with client.managed_table(stage_table_name, fields, delete=True) as stage_table:
                     yield volume, table, stage_table
@@ -1028,11 +1037,10 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
 
             return BatchExportResult(records_completed=0, bytes_exported=0)
 
-        table_fields, record_batch_schema, known_variant_columns, partition_field = _get_databricks_table_settings(
+        table_fields, record_batch_schema, known_variant_columns = _get_databricks_table_settings(
             model=model,
             record_batch_schema=record_batch_schema,
             use_variant_type=inputs.use_variant_type,
-            input_partition_field=inputs.table_partition_field,
         )
 
         requires_merge, merge_key, update_key = _get_databricks_merge_config(model=model)
@@ -1047,6 +1055,11 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
         volume_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
         volume_path = f"/Volumes/{inputs.catalog}/{inputs.schema}/{volume_name}"
 
+        long_running_query_timeout = _get_long_running_query_timeout(
+            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None,
+            dt.datetime.fromisoformat(inputs.data_interval_end),
+        )
+
         async with DatabricksClient.from_inputs_and_integration(
             inputs, databricks_integration
         ).connect() as databricks_client:
@@ -1056,29 +1069,23 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                 fields=table_fields,
                 table_name=inputs.table_name,
                 stage_table_name=stage_table_name,
-                partition_field=partition_field,
             ):
                 consumer = DatabricksConsumer(
                     client=databricks_client,
                     volume_path=volume_path,
                 )
 
-                transformer: TransformerProtocol = ParquetStreamTransformer(
-                    schema=cast_record_batch_schema_json_columns(
-                        record_batch_schema, json_columns=known_variant_columns
-                    ),
+                transformer: ChunkTransformerProtocol = ParquetStreamTransformer(
                     compression="zstd",
                     include_inserted_at=False,
+                    max_file_size_bytes=settings.BATCH_EXPORT_DATABRICKS_UPLOAD_CHUNK_SIZE_BYTES,
                 )
 
                 result = await run_consumer_from_stage(
                     queue=queue,
                     consumer=consumer,
                     producer_task=producer_task,
-                    schema=record_batch_schema,
                     transformer=transformer,
-                    max_file_size_bytes=settings.BATCH_EXPORT_DATABRICKS_UPLOAD_CHUNK_SIZE_BYTES,
-                    json_columns=known_variant_columns,
                 )
 
                 # TODO - maybe move this into the consumer finalize method?
@@ -1088,6 +1095,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                     volume_path=volume_path,
                     fields=table_fields,
                     with_schema_evolution=inputs.use_automatic_schema_evolution,
+                    timeout=long_running_query_timeout,
                 )
 
                 if requires_merge and stage_table_name is not None:
@@ -1098,6 +1106,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                         merge_key=merge_key,
                         update_key=update_key,
                         with_schema_evolution=inputs.use_automatic_schema_evolution,
+                        timeout=long_running_query_timeout,
                     )
 
                 return result
@@ -1172,7 +1181,6 @@ class DatabricksBatchExportWorkflow(PostHogWorkflow):
             table_name=inputs.table_name,
             use_variant_type=inputs.use_variant_type,
             use_automatic_schema_evolution=inputs.use_automatic_schema_evolution,
-            table_partition_field=inputs.table_partition_field,
         )
 
         await execute_batch_export_using_internal_stage(

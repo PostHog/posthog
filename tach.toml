@@ -35,8 +35,11 @@ depends_on = [
     "products.llm_analytics",
     "products.marketing_analytics",
     "products.endpoints",
-
-    "products.error_tracking",]
+    "products.error_tracking",
+    "products.notebooks",
+    "products.live_debugger",
+    "products.desktop_recordings",
+]
 
 [[modules]]
 path = "products.early_access_features"
@@ -64,4 +67,16 @@ depends_on = ["posthog"]
 
 [[modules]]
 path = "products.error_tracking"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.notebooks"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.desktop_recordings"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.live_debugger"
 depends_on = ["posthog"]

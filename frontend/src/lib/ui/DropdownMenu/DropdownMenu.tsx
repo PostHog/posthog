@@ -16,7 +16,13 @@ const DropdownMenu = DropdownMenuPrimitive.Root
 
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
 
-const DropdownMenuGroup = DropdownMenuPrimitive.Group
+const DropdownMenuGroup = React.forwardRef<
+    React.ElementRef<typeof DropdownMenuPrimitive.Group>,
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Group>
+>(({ className, ...props }, ref): JSX.Element => {
+    return <DropdownMenuPrimitive.Group ref={ref} className={cn('flex flex-col gap-px p-1', className)} {...props} />
+})
+DropdownMenuGroup.displayName = DropdownMenuPrimitive.Group.displayName
 
 const DropdownMenuPortal = DropdownMenuPrimitive.Portal
 
@@ -26,7 +32,9 @@ const DropdownMenuRadioGroup = React.forwardRef<
     React.ElementRef<typeof DropdownMenuPrimitive.RadioGroup>,
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioGroup>
 >(({ className, ...props }, ref): JSX.Element => {
-    return <DropdownMenuPrimitive.RadioGroup ref={ref} className={cn('flex flex-col gap-px', className)} {...props} />
+    return (
+        <DropdownMenuPrimitive.RadioGroup ref={ref} className={cn('flex flex-col gap-px p-1', className)} {...props} />
+    )
 })
 DropdownMenuRadioGroup.displayName = DropdownMenuPrimitive.RadioGroup.displayName
 

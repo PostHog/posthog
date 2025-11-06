@@ -2,8 +2,12 @@ from django.utils import timezone
 
 from structlog import get_logger
 
-from posthog.models.notebook.notebook import Notebook
-from posthog.models.notebook.util import (
+from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
+
+from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.util import (
     TipTapContent,
     TipTapNode,
     create_bullet_list,
@@ -14,9 +18,6 @@ from posthog.models.notebook.util import (
     create_task_list,
     create_text_content,
 )
-from posthog.models.team import Team
-from posthog.models.user import User
-from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
 
 from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPattern,

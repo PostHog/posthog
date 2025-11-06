@@ -20,7 +20,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
-from posthog.models.utils import RootTeamMixin
+from posthog.models.utils import RootTeamMixin, UUIDModel
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
@@ -93,6 +93,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     # JSON including evaluation_tags, and when we deserialize, we store them here
     # temporarily to avoid N+1 queries when accessing evaluation tags.
     _evaluation_tag_names: Optional[list[str]] = None
+
+    last_called_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time this feature flag was called (from $feature_flag_called events)",
+    )
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
@@ -639,3 +645,22 @@ class FeatureFlagEvaluationTag(models.Model):
 
     def __str__(self) -> str:
         return f"{self.feature_flag.key} - {self.tag.name}"
+
+
+class TeamDefaultEvaluationTag(UUIDModel):
+    """
+    Defines default evaluation tags that will be automatically applied to new feature flags in a team.
+    These tags serve as default evaluation environments that can be configured at the team/organization level.
+    When a new feature flag is created and the team has default_evaluation_environments_enabled=True,
+    these tags will be automatically added as evaluation tags for the new flag.
+    """
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="default_evaluation_tags")
+    tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="team_defaults")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [["team", "tag"]]
+
+    def __str__(self) -> str:
+        return f"{self.team.name} - {self.tag.name}"

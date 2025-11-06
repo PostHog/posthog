@@ -4,6 +4,7 @@ from posthog.hogql.base import UnknownType
 from ..core import HogQLFunctionMeta
 
 # dates and times
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "timeZoneOf": HogQLFunctionMeta("timeZoneOf", 1, 1),
     "timeZoneOffset": HogQLFunctionMeta("timeZoneOffset", 1, 1),
@@ -202,6 +203,7 @@ DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "fromModifiedJulianDay": HogQLFunctionMeta("fromModifiedJulianDayOrNull", 1, 1),
 }
 
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 DATE_GENERATOR_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "now": HogQLFunctionMeta(
         "now64",
@@ -245,6 +247,7 @@ DATE_GENERATOR_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 }
 
 # Interval functions
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 INTERVAL_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toIntervalSecond": HogQLFunctionMeta(
         "toIntervalSecond",
@@ -312,6 +315,7 @@ INTERVAL_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
 }
 
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 POSTGRESQL_DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     # PostgreSQL-style date/time functions
     "date_part": HogQLFunctionMeta(

@@ -53,6 +53,16 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
             if (values.draftTags && values.draftTags.length === 0 && values.showEvaluationOptions) {
                 actions.setShowEvaluationOptions(false)
             }
+
+            // Remove evaluation tags that are no longer in the main tags list
+            if (values.draftTags && values.draftEvaluationTags) {
+                const validEvaluationTags = values.draftEvaluationTags.filter(
+                    (tag) => values.draftTags && values.draftTags.includes(tag)
+                )
+                if (validEvaluationTags.length !== values.draftEvaluationTags.length) {
+                    actions.setDraftEvaluationTags(validEvaluationTags)
+                }
+            }
         },
         setEditingTags: ({ editing }) => {
             if (editing) {

@@ -7,6 +7,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
@@ -50,6 +51,13 @@ export function NotebookScene(): JSX.Element {
         }
         // oxlint-disable-next-line exhaustive-deps
     }, [notebookId])
+
+    useFileSystemLogView({
+        type: 'notebook',
+        ref: notebook?.short_id,
+        enabled: Boolean(notebook?.short_id && notebookId !== 'new' && !loading && !conflictWarningVisible),
+        deps: [notebook?.short_id, notebookId, loading, conflictWarningVisible],
+    })
 
     if (accessDeniedToNotebook) {
         return <AccessDenied object="notebook" />

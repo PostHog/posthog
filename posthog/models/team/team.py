@@ -27,7 +27,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import (
     UUIDTClassicModel,
@@ -115,9 +115,13 @@ class TeamManager(models.Manager):
             team.kick_off_demo_data_generation(initiating_user)
             return team  # Return quickly, as the demo data and setup will be created asynchronously
 
-        team.test_account_filters = self.set_test_account_filters(
-            kwargs.get("organization_id") or kwargs["organization"].id
-        )
+        # Get organization to apply defaults
+        organization = kwargs.get("organization") or Organization.objects.get(id=kwargs.get("organization_id"))
+
+        # Apply organization-level IP anonymization default
+        team.anonymize_ips = organization.default_anonymize_ips
+
+        team.test_account_filters = self.set_test_account_filters(organization.id)
 
         # Create default dashboards
         dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
@@ -372,6 +376,9 @@ class Team(UUIDTClassicModel):
     # Heatmaps
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
 
+    # Activity logs
+    receive_org_level_activity_logs = models.BooleanField(null=True, blank=True, default=False)
+
     # Web analytics
     web_analytics_pre_aggregated_tables_enabled = field_access_control(
         models.BooleanField(default=False, null=True), "web_analytics", "editor"
@@ -384,6 +391,12 @@ class Team(UUIDTClassicModel):
     flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_enabled = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_message = models.TextField(null=True, blank=True)
+    default_evaluation_environments_enabled = models.BooleanField(
+        null=True,
+        blank=True,
+        default=False,
+        help_text="Whether to automatically apply default evaluation environments to new feature flags",
+    )
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)

@@ -1,8 +1,10 @@
 import io
+import csv
 import gzip
 import json
 import typing
 import asyncio
+import functools
 import contextlib
 import collections
 import collections.abc
@@ -20,6 +22,7 @@ from psycopg import sql
 from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
+from products.batch_exports.backend.temporal.pipeline.table import Table, TypeTupleToCastMapping, are_types_compatible
 
 logger = get_write_only_logger()
 
@@ -31,30 +34,44 @@ class Chunk(typing.NamedTuple):
     is_eof: bool
 
 
-class TransformerProtocol(typing.Protocol):
+class TransformerProtocol[T](typing.Protocol):
     """Transformer protocol iterating record batches into chunks of bytes."""
 
     async def iter(
-        self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch], max_file_size_bytes: int = 0
-    ) -> collections.abc.AsyncIterator[Chunk]:
+        self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch]
+    ) -> collections.abc.AsyncIterator[T]:
         if typing.TYPE_CHECKING:
             # We need a yield for mypy to interpret this as Callable[[...], AsyncIterator[int]].
             # Otherwise, it will treat it as Callable[[], Coroutine[Any, Any, AsyncIterator[int]]].
             # See: https://mypy.readthedocs.io/en/stable/more_types.html#asynchronous-iterators
-            yield Chunk(b"", False)
+            # Update: Unfortunately, now that the protocol is generic, we cannot yield a
+            # Chunk as that is a concrete type. But we still need the yield for the
+            # reason above. And if we have a yield, then we must yield something that
+            # fits the type hint for mypy to be happy. But no concrete type fits a
+            # generic. So, the best we can do is to just ignore.
+            yield Chunk(b"", False)  # type: ignore[misc]
         raise NotImplementedError
+
+
+ChunkTransformerProtocol = TransformerProtocol[Chunk]
 
 
 def get_json_stream_transformer(
     include_inserted_at: bool = False,
     compression: str | None = None,
+    max_file_size_bytes: int = 0,
     max_workers: int = settings.BATCH_EXPORT_TRANSFORMER_MAX_WORKERS,
-) -> TransformerProtocol:
+) -> ChunkTransformerProtocol:
     if compression == "brotli":
-        return JSONLBrotliStreamTransformer(include_inserted_at=include_inserted_at, max_workers=max_workers)
+        return JSONLBrotliStreamTransformer(
+            include_inserted_at=include_inserted_at, max_file_size_bytes=max_file_size_bytes, max_workers=max_workers
+        )
 
     return JSONLStreamTransformer(
-        compression=compression, include_inserted_at=include_inserted_at, max_workers=max_workers
+        compression=compression,
+        include_inserted_at=include_inserted_at,
+        max_file_size_bytes=max_file_size_bytes,
+        max_workers=max_workers,
     )
 
 
@@ -68,17 +85,19 @@ class JSONLStreamTransformer:
         self,
         compression: str | None = None,
         include_inserted_at: bool = False,
+        max_file_size_bytes: int = 0,
         max_workers: int = settings.BATCH_EXPORT_TRANSFORMER_MAX_WORKERS,
     ):
         self.include_inserted_at = include_inserted_at
         self.compression = compression
         self.max_workers = max_workers
+        self.max_file_size_bytes = max_file_size_bytes
 
         self._futures_pending: set[asyncio.Future[list[bytes]]] = set()
         self._semaphore = asyncio.Semaphore(max_workers)
 
     async def iter(
-        self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch], max_file_size_bytes: int = 0
+        self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch]
     ) -> collections.abc.AsyncIterator[Chunk]:
         """Distribute transformation of record batches into multiple processes.
 
@@ -123,7 +142,7 @@ class JSONLStreamTransformer:
                         for chunk in chunks:
                             yield Chunk(chunk, False)
 
-                            if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
+                            if self.max_file_size_bytes and current_file_size + len(chunk) > self.max_file_size_bytes:
                                 yield Chunk(b"", True)
                                 current_file_size = 0
 
@@ -135,9 +154,11 @@ class JSONLBrotliStreamTransformer:
     def __init__(
         self,
         include_inserted_at: bool = False,
+        max_file_size_bytes: int = 0,
         max_workers: int = settings.BATCH_EXPORT_TRANSFORMER_MAX_WORKERS,
     ):
         self.include_inserted_at = include_inserted_at
+        self.max_file_size_bytes = max_file_size_bytes
         self.max_workers = max_workers
 
         self._futures_pending: set[asyncio.Future[list[bytes]]] = set()
@@ -145,7 +166,7 @@ class JSONLBrotliStreamTransformer:
         self._brotli_compressor = None
 
     async def iter(
-        self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch], max_file_size_bytes: int = 0
+        self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch]
     ) -> collections.abc.AsyncIterator[Chunk]:
         """Distribute transformation of record batches into multiple processes.
 
@@ -190,7 +211,7 @@ class JSONLBrotliStreamTransformer:
 
                             yield Chunk(chunk, False)
 
-                            if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
+                            if self.max_file_size_bytes and current_file_size + len(chunk) > self.max_file_size_bytes:
                                 data = await loop.run_in_executor(None, self._finish_brotli_compressor)
 
                                 yield Chunk(data, True)
@@ -270,7 +291,11 @@ def dump_record_batch(
     """Dump all records in a record batch to JSON lines."""
     column_names = record_batch.column_names
     if not include_inserted_at:
-        _ = column_names.pop(column_names.index("_inserted_at"))
+        try:
+            _ = column_names.pop(column_names.index("_inserted_at"))
+        except ValueError:
+            # Already not included, filtered upstream.
+            pass
 
     def compress(content: bytes):
         match compression:
@@ -354,27 +379,30 @@ class ParquetStreamTransformer:
 
     def __init__(
         self,
-        schema: pa.Schema,
         compression: str | None = None,
         compression_level: int | None = None,
         include_inserted_at: bool = False,
+        max_file_size_bytes: int = 0,
     ):
         self.include_inserted_at = include_inserted_at
-        self.schema = schema
         self.compression = compression
         self.compression_level = compression_level
+        self.max_file_size_bytes = max_file_size_bytes
 
         # For Parquet, we need to handle schema and batching
         self._parquet_writer: pq.ParquetWriter | None = None
         self._parquet_buffer = io.BytesIO()
+        self._schema: pa.Schema | None = None
 
     async def iter(
-        self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch], max_file_size_bytes: int = 0
+        self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch]
     ) -> collections.abc.AsyncIterator[Chunk]:
         """Iterate over record batches transforming them into chunks."""
         current_file_size = 0
 
         async for record_batch in record_batches:
+            self.schema = record_batch.schema
+
             with ExecutionTimeRecorder(
                 "parquet_stream_transformer_record_batch_transform_duration",
                 description="Duration to transform a record batch into Parquet bytes.",
@@ -391,7 +419,7 @@ class ParquetStreamTransformer:
 
                 yield Chunk(chunk, False)
 
-                if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
+                if self.max_file_size_bytes and current_file_size + len(chunk) > self.max_file_size_bytes:
                     footer = await asyncio.to_thread(self.finish_parquet_file)
 
                     yield Chunk(footer, True)
@@ -415,6 +443,23 @@ class ParquetStreamTransformer:
         assert self._parquet_writer is not None
         return self._parquet_writer
 
+    @property
+    def schema(self) -> pa.Schema:
+        if not self._schema:
+            raise ValueError("Schema not set, is the transformer running?")
+        return self._schema
+
+    @schema.setter
+    def schema(self, schema: pa.Schema) -> None:
+        if self._schema is not None:
+            return
+
+        if not self.include_inserted_at:
+            if (index := schema.get_field_index("_inserted_at")) >= 0:
+                schema = schema.remove(index)
+
+        self._schema = schema
+
     def finish_parquet_file(self) -> bytes:
         """Ensure underlying Parquet writer is closed before flushing buffer."""
         self.parquet_writer.close()
@@ -428,10 +473,7 @@ class ParquetStreamTransformer:
 
     def write_record_batch(self, record_batch: pa.RecordBatch) -> bytes:
         """Write record batch to buffer as Parquet."""
-        column_names = self.parquet_writer.schema.names
-        if not self.include_inserted_at and "_inserted_at" in column_names:
-            column_names.pop(column_names.index("_inserted_at"))
-
+        column_names = self.schema.names
         self.parquet_writer.write_batch(record_batch.select(column_names))
         data = self._parquet_buffer.getvalue()
 
@@ -450,29 +492,27 @@ class RedshiftQueryStreamTransformer:
         redshift_table: str,
         redshift_schema: str | None,
         table_columns: collections.abc.Sequence[str],
-        known_json_columns: collections.abc.Sequence[str],
-        use_super: bool,
+        known_json_columns: collections.abc.Iterable[str],
         redshift_client,
+        max_query_size_bytes: int = 8 * 1024 * 1024,
     ):
         self.schema = schema
         self.redshift_table = redshift_table
         self.redshift_schema = redshift_schema
         self.table_columns = list(table_columns)
         self.known_json_columns = known_json_columns
-        self.use_super = use_super
         self.redshift_client = redshift_client
+        self.max_query_size_bytes = max_query_size_bytes
 
         placeholders: list[sql.Composable] = []
         for column in table_columns:
-            if column in known_json_columns and use_super is True:
-                placeholders.append(sql.SQL("JSON_PARSE({placeholder})").format(placeholder=sql.Placeholder(column)))
-            else:
-                placeholders.append(sql.Placeholder(column))
+            placeholders.append(sql.Placeholder(column))
 
         self.template = sql.SQL("({})").format(sql.SQL(", ").join(placeholders))
 
     async def iter(
-        self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch], max_file_size_bytes: int = 0
+        self,
+        record_batches: collections.abc.AsyncIterable[pa.RecordBatch],
     ) -> collections.abc.AsyncIterator[Chunk]:
         """Iterate over record batches transforming them into chunks."""
         current_file_size = 0
@@ -501,7 +541,7 @@ class RedshiftQueryStreamTransformer:
 
                 yield Chunk(chunk, False)
 
-                if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
+                if current_file_size + len(chunk) > self.max_query_size_bytes:
                     yield Chunk(b"", True)
                     current_file_size = 0
                     is_query_start = True
@@ -564,3 +604,166 @@ def remove_escaped_whitespace_recursive(value):
 
         case value:
             return value
+
+
+def ensure_curly_brackets_array(v: list[typing.Any]) -> str:
+    """Convert list to str and replace ends with curly braces for PostgreSQL arrays.
+
+    NOTE: This doesn't support nested arrays (i.e. multi-dimensional arrays).
+    """
+    str_list = str(v)
+    return f"{{{str_list[1:len(str_list)-1]}}}"
+
+
+class CSVStreamTransformer:
+    """A transformer to convert record batches into CSV/TSV format.
+
+    TODO: Do we need to support compression and use ProcessPoolExecutor?
+    """
+
+    def __init__(
+        self,
+        field_names: collections.abc.Sequence[str],
+        delimiter: str = ",",
+        quote_char: str = '"',
+        escape_char: str | None = "\\",
+        line_terminator: str = "\n",
+        quoting: typing.Literal[0, 1, 2, 3, 4, 5] = csv.QUOTE_NONE,
+        include_inserted_at: bool = False,
+        max_file_size_bytes: int = 0,
+    ):
+        self.field_names = field_names
+        self.delimiter = delimiter
+        self.quote_char = quote_char
+        self.escape_char = escape_char
+        self.line_terminator = line_terminator
+        self.quoting = quoting
+        self.include_inserted_at = include_inserted_at
+        self.max_file_size_bytes = max_file_size_bytes
+
+    async def iter(
+        self,
+        record_batches: collections.abc.AsyncIterable[pa.RecordBatch],
+    ) -> collections.abc.AsyncIterator[Chunk]:
+        """Iterate over record batches transforming them into CSV chunks."""
+        current_file_size = 0
+
+        async for record_batch in record_batches:
+            chunk = await asyncio.to_thread(self.write_record_batch, record_batch)
+
+            yield Chunk(chunk, False)
+
+            if self.max_file_size_bytes and current_file_size + len(chunk) > self.max_file_size_bytes:
+                yield Chunk(b"", True)
+                current_file_size = 0
+
+            else:
+                current_file_size += len(chunk)
+
+        yield Chunk(b"", True)
+
+    def write_record_batch(self, record_batch: pa.RecordBatch) -> bytes:
+        """Write record batch to CSV bytes."""
+
+        column_names = list(self.field_names)
+        if not self.include_inserted_at and "_inserted_at" in column_names:
+            column_names.pop(column_names.index("_inserted_at"))
+
+        buffer = io.BytesIO()
+        text_wrapper = io.TextIOWrapper(buffer, encoding="utf-8", newline="")
+
+        writer = csv.DictWriter(
+            text_wrapper,
+            fieldnames=column_names,
+            extrasaction="ignore",
+            delimiter=self.delimiter,
+            quotechar=self.quote_char,
+            escapechar=self.escape_char,
+            quoting=self.quoting,
+            lineterminator=self.line_terminator,
+        )
+
+        rows = []
+        for record in record_batch.select(column_names).to_pylist():
+            rows.append({k: ensure_curly_brackets_array(v) if isinstance(v, list) else v for k, v in record.items()})
+
+        writer.writerows(rows)
+        text_wrapper.flush()
+
+        return buffer.getvalue()
+
+
+class SchemaTransformer:
+    """Transformer to cast record batches into a new schema."""
+
+    def __init__(
+        self,
+        table: Table,
+        extra_compatible_types: TypeTupleToCastMapping | None = None,
+    ):
+        self.table = table
+        self.extra_compatible_types = extra_compatible_types
+
+    async def iter(
+        self,
+        record_batches: collections.abc.AsyncIterable[pa.RecordBatch],
+    ) -> collections.abc.AsyncIterator[pa.RecordBatch]:
+        async for record_batch in record_batches:
+            yield self.cast_record_batch(record_batch)
+
+    def cast_record_batch(self, record_batch: pa.RecordBatch) -> pa.RecordBatch:
+        """Cast a record batch into a new schema that matches `self.table`.
+
+        If the record batch's schema already matches table, then nothing is cast.
+        """
+        field_names = [field.name for field in self.table.fields]
+
+        arrays = []
+        for field_name, array in zip(field_names, record_batch.select(field_names).itercolumns()):
+            field = self.table[field_name]
+
+            if array.type == field.data_type:
+                arrays.append(array)
+                continue
+
+            compatible, cast = are_types_compatible(array.type, field.data_type, self.extra_compatible_types)
+
+            if compatible:
+                assert cast is not None, "If types are compatible cast function should be defined"
+
+                arrays.append(cast(array))
+            else:
+                raise TypeError(
+                    f"'{field_name}' has type '{array.type}' which is not compatible with field's type: '{field.data_type}'"
+                )
+
+        return pa.RecordBatch.from_arrays(
+            arrays,
+            names=field_names,
+        )
+
+
+class PipelineTransformer:
+    """Transformer that pipes multiple transformers together.
+
+    It is expected that the 1..n-1 transformers will yield record batches, and the n
+    transformer will yield a `Chunk`. Thus, the pipeline in its entirety is a
+    `ChunkTransformerProtocol`.
+
+    Unfortunately, we don't really have a way to enforce this.
+    """
+
+    def __init__(self, transformers: collections.abc.Sequence[TransformerProtocol]):
+        self.transformers = transformers
+
+    async def iter(
+        self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch]
+    ) -> collections.abc.AsyncIterator[Chunk]:
+        async def generate(record_batches_iter, transformer):
+            async for chunk in transformer.iter(record_batches_iter):
+                yield chunk
+
+        pipeline = functools.reduce(generate, iter(self.transformers), record_batches)
+
+        async for chunk in pipeline:
+            yield chunk  # type: ignore[misc]

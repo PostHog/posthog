@@ -16,12 +16,10 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb } from '~/types'
 
 import { PipelineNodeLogs } from '../legacy-plugins/PipelineNodeLogs'
-import { PipelineNodeMetrics } from '../legacy-plugins/PipelineNodeMetrics'
 import { BatchExportConfiguration } from './BatchExportConfiguration'
 import {
     BatchExportConfigurationClearChangesButton,
@@ -212,11 +210,7 @@ export function BatchExportSceneContent({
             ? {
                   label: 'Metrics',
                   key: 'metrics',
-                  content: (
-                      <FlaggedFeature flag="batch-export-new-metrics" fallback={<PipelineNodeMetrics id={id} />}>
-                          <BatchExportsMetrics id={id} />
-                      </FlaggedFeature>
-                  ),
+                  content: <BatchExportsMetrics id={id} />,
               }
             : null,
         id
@@ -225,7 +219,7 @@ export function BatchExportSceneContent({
                   key: 'logs',
                   content: (
                       <FlaggedFeature flag="batch-export-new-logs" fallback={<PipelineNodeLogs id={id} />}>
-                          <LogsViewer sourceType="batch_export" sourceId={id} instanceLabel="run" />
+                          <LogsViewer sourceType="batch_exports" sourceId={id} instanceLabel="run" />
                       </FlaggedFeature>
                   ),
               }
@@ -249,7 +243,6 @@ export function BatchExportSceneContent({
     return (
         <SceneContent>
             <BatchExportSceneHeader logicProps={logicProps} />
-            <SceneDivider />
             <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
         </SceneContent>
     )

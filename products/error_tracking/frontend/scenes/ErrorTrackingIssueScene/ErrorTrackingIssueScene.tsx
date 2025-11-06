@@ -2,6 +2,8 @@ import './ErrorTrackingIssueScene.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
@@ -11,6 +13,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -19,6 +22,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
+import { breakdownFiltersLogic } from '../../components/Breakdowns/breakdownFiltersLogic'
+import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
@@ -27,6 +32,7 @@ import { Metadata } from '../../components/IssueMetadata'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
+import { V2Layout } from './V2Layout'
 import {
     ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
     ErrorTrackingIssueSceneLogicProps,
@@ -45,10 +51,29 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const hasNewIssueLayout = useFeatureFlag('ERROR_TRACKING_ISSUE_LAYOUT_V2')
 
     const isPostHogSDKIssue = selectedEvent?.properties.$exception_values?.some((v: string) =>
         v.includes('persistence.isDisabled is not a function')
     )
+
+    useEffect(() => {
+        posthog.capture('error_tracking_issue_viewed', { issue_id: issueId })
+    }, [issueId])
+
+    if (hasNewIssueLayout) {
+        return (
+            <ErrorTrackingSetupPrompt>
+                <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
+                    <BindLogic logic={breakdownFiltersLogic} props={{}}>
+                        <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
+                            <V2Layout />
+                        </BindLogic>
+                    </BindLogic>
+                </BindLogic>
+            </ErrorTrackingSetupPrompt>
+        )
+    }
 
     return (
         <ErrorTrackingSetupPrompt>
@@ -64,17 +89,19 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                             </DropdownMenuTrigger>
 
                             <DropdownMenuContent loop align="end">
-                                <DropdownMenuItem asChild>
-                                    <ButtonPrimitive
-                                        size="base"
-                                        menuItem
-                                        onClick={() =>
-                                            router.actions.push(urls.errorTrackingIssueFingerprints(issueId))
-                                        }
-                                    >
-                                        Split issue
-                                    </ButtonPrimitive>
-                                </DropdownMenuItem>
+                                <DropdownMenuGroup>
+                                    <DropdownMenuItem asChild>
+                                        <ButtonPrimitive
+                                            size="base"
+                                            menuItem
+                                            onClick={() =>
+                                                router.actions.push(urls.errorTrackingIssueFingerprints(issueId))
+                                            }
+                                        >
+                                            Split issue
+                                        </ButtonPrimitive>
+                                    </DropdownMenuItem>
+                                </DropdownMenuGroup>
                             </DropdownMenuContent>
                         </DropdownMenu>
                     )}

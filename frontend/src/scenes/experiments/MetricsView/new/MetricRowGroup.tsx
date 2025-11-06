@@ -1,6 +1,6 @@
 import './MetricRowGroup.scss'
 
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -30,6 +30,7 @@ import {
     getDelta,
     getMetricSubtitleValues,
     getNiceTickValues,
+    hasValidationFailures,
     isDeltaPositive,
     isSignificant,
     isWinning,
@@ -108,7 +109,9 @@ export function MetricRowGroup({
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     const { featureFlags } = useValues(experimentLogic)
-    const timeseriesEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES]
+    const { reportExperimentTimeseriesViewed } = useActions(experimentLogic)
+
+    const timeseriesEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES] && experiment.stats_config?.timeseries
 
     // Calculate total rows for loading/error states
     const totalRows = isLoading || error || !result ? 1 : 1 + (result.variant_results?.length || 0)
@@ -193,6 +196,7 @@ export function MetricRowGroup({
             isOpen: true,
             variantResult,
         })
+        reportExperimentTimeseriesViewed(experiment.id, metric)
     }
 
     const handleTimeseriesModalClose = (): void => {
@@ -202,8 +206,11 @@ export function MetricRowGroup({
         })
     }
 
-    // Handle loading or error states
-    if (isLoading || error || !result || !hasMinimumExposureForResults) {
+    // Handle loading, API errors, or missing result
+    // Note: If result has validation_failures but no API error, we'll show the data with inline warnings
+    const hasResultWithValidationFailures = result && hasValidationFailures(result)
+
+    if (isLoading || error || !result || (!hasMinimumExposureForResults && !hasResultWithValidationFailures)) {
         return (
             <tr
                 className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
@@ -243,7 +250,6 @@ export function MetricRowGroup({
                         <ChartEmptyState
                             height={CELL_HEIGHT}
                             experimentStarted={!!experiment.start_date}
-                            hasMinimumExposure={hasMinimumExposureForResults}
                             metric={metric}
                             error={error}
                         />
@@ -325,7 +331,7 @@ export function MetricRowGroup({
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    <VariantTag experimentId={experiment.id} variantKey={baselineResult.key} />
+                    <VariantTag variantKey={baselineResult.key} />
                 </td>
 
                 {/* Value */}
@@ -435,7 +441,7 @@ export function MetricRowGroup({
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
-                            <VariantTag experimentId={experiment.id} variantKey={variant.key} />
+                            <VariantTag variantKey={variant.key} />
                         </td>
 
                         {/* Value */}

@@ -28,6 +28,8 @@ export const DEFAULT_PLAYLIST_FILTERS = {
     createdBy: 'All users',
     page: 1,
     dateFrom: 'all',
+    order: '-last_modified_at',
+    collectionType: null,
 }
 
 export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsLogicType>([
@@ -94,13 +96,14 @@ export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsL
                 const params = {
                     limit: PLAYLISTS_PER_PAGE,
                     offset: Math.max(0, (filters.page - 1) * PLAYLISTS_PER_PAGE),
-                    order: filters.order ?? '-last_modified_at', // Sync with `sorting` selector
+                    order: filters.order ?? '-last_modified_at',
                     created_by: createdBy ?? undefined,
                     search: filters.search || undefined,
                     date_from: filters.dateFrom && filters.dateFrom != 'all' ? filters.dateFrom : undefined,
                     date_to: filters.dateTo ?? undefined,
                     pinned: filters.pinned ? true : undefined,
                     type: 'collection',
+                    collection_type: filters.collectionType ?? undefined,
                 }
 
                 const response = await api.recordings.listPlaylists(toParams(params))

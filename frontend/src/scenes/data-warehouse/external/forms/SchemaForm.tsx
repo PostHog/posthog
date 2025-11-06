@@ -1,35 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconInfo } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCheckbox,
-    LemonInput,
-    LemonModal,
-    LemonSwitch,
-    LemonTable,
-    LemonTag,
-    Tooltip,
-    lemonToast,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonModal, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
-import { SyncTypeLabelMap, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
-import { teamLogic } from 'scenes/teamLogic'
+import { SyncTypeLabelMap } from 'scenes/data-warehouse/utils'
 
-import { ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
+import { ExternalDataSourceSyncSchema } from '~/types'
 
 import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { SyncMethodForm } from './SyncMethodForm'
 
 export default function SchemaForm(): JSX.Element {
     const containerRef = useFloatingContainer()
-    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsProjectTime, updateSchemaSyncType } =
-        useActions(sourceWizardLogic)
-    const { databaseSchema, isProjectTime } = useValues(sourceWizardLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { toggleSchemaShouldSync, openSyncMethodModal, toggleAllTables } = useActions(sourceWizardLogic)
+    const { databaseSchema, tablesAllToggledOn } = useValues(sourceWizardLogic)
 
     const onClickCheckbox = (schema: ExternalDataSourceSyncSchema, checked: boolean): void => {
         if (schema.sync_type === null) {
@@ -38,69 +23,6 @@ export default function SchemaForm(): JSX.Element {
         }
         toggleSchemaShouldSync(schema, checked)
     }
-
-    const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined => {
-        // check for timestamp field matching "updated_at" or "updatedAt" case insensitive
-        const updatedAt = fields.find((field) => {
-            const regex = /^updated/i
-            return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
-        })
-        if (updatedAt) {
-            return updatedAt
-        }
-        // fallback to timestamp field matching "created_at" or "createdAt" case insensitive
-        const createdAt = fields.find((field) => {
-            const regex = /^created/i
-            return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
-        })
-        if (createdAt) {
-            return createdAt
-        }
-        // fallback to any timestamp or datetime field
-        const timestamp = fields.find((field) => {
-            return field.field_type === 'timestamp' || field.type === 'datetime'
-        })
-        if (timestamp) {
-            return timestamp
-        }
-        // fallback to numeric fields matching "id" or "uuid" case insensitive
-        const id = fields.find((field) => {
-            const idRegex = /^id/i
-            const uuidRegex = /^uuid/i
-            return (idRegex.test(field.field) || uuidRegex.test(field.field)) && field.field_type === 'integer'
-        })
-        if (id) {
-            return id
-        }
-        // leave unset and require user configuration
-        return undefined
-    }
-
-    const smartConfigureTables = (databaseSchema: ExternalDataSourceSyncSchema[]): void => {
-        databaseSchema.forEach((schema) => {
-            if (schema.sync_type === null) {
-                // Use incremental if available
-                if (schema.incremental_available || schema.append_available) {
-                    const method = schema.incremental_available ? 'incremental' : 'append'
-                    const field = resolveIncrementalField(schema.incremental_fields)
-                    if (field) {
-                        updateSchemaSyncType(schema, method, field.field, field.field_type)
-                        toggleSchemaShouldSync(schema, true)
-                    }
-                } else {
-                    updateSchemaSyncType(schema, 'full_refresh', null, null)
-                    toggleSchemaShouldSync(schema, true)
-                }
-            }
-        })
-        lemonToast.info(
-            "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
-        )
-    }
-
-    useEffect(() => {
-        smartConfigureTables(databaseSchema)
-    }, [smartConfigureTables, databaseSchema])
 
     // scroll to top of container
     useEffect(() => {
@@ -116,6 +38,12 @@ export default function SchemaForm(): JSX.Element {
                         dataSource={databaseSchema}
                         columns={[
                             {
+                                title: (
+                                    <LemonCheckbox
+                                        checked={tablesAllToggledOn}
+                                        onChange={(checked) => toggleAllTables(checked)}
+                                    />
+                                ),
                                 width: 0,
                                 key: 'enabled',
                                 render: function RenderEnabled(_, schema) {
@@ -150,61 +78,6 @@ export default function SchemaForm(): JSX.Element {
                                 },
                             },
                             {
-                                title: (
-                                    <div className="flex items-center gap-2">
-                                        <span>Anchor Time</span>
-                                        <div className="flex items-center gap-1">
-                                            <span>UTC</span>
-                                            {currentTeam?.timezone !== 'UTC' && currentTeam?.timezone !== 'GMT' && (
-                                                <>
-                                                    <LemonSwitch checked={isProjectTime} onChange={setIsProjectTime} />
-                                                    <span>{currentTeam?.timezone || 'UTC'}</span>
-                                                </>
-                                            )}
-                                        </div>
-                                    </div>
-                                ),
-                                key: 'sync_time_of_day',
-                                tooltip:
-                                    'The sync interval will be offset from the anchor time. This will not apply to sync intervals one hour or less.',
-                                render: function RenderSyncTimeOfDay(_, schema) {
-                                    const utcTime = schema.sync_time_of_day || '00:00:00'
-                                    const localTime = isProjectTime
-                                        ? dayjs
-                                              .utc(`${dayjs().format('YYYY-MM-DD')}T${utcTime}`)
-                                              .local()
-                                              .tz(currentTeam?.timezone || 'UTC')
-                                              .format('HH:mm:00')
-                                        : utcTime
-
-                                    return (
-                                        <LemonInput
-                                            type="time"
-                                            disabled={!schema.should_sync}
-                                            value={localTime.substring(0, 5)}
-                                            onChange={(value) => {
-                                                const newValue = `${value}:00`
-                                                const utcValue = isProjectTime
-                                                    ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
-                                                          .tz(currentTeam?.timezone || 'UTC')
-                                                          .utc()
-                                                          .format('HH:mm:00')
-                                                    : newValue
-                                                updateSyncTimeOfDay(schema, utcValue)
-                                            }}
-                                            suffix={
-                                                <Tooltip
-                                                    interactive={schema.should_sync}
-                                                    title={syncAnchorIntervalToHumanReadable(utcTime, '6hour')}
-                                                >
-                                                    <IconInfo className="text-muted-alt" />
-                                                </Tooltip>
-                                            }
-                                        />
-                                    )
-                                },
-                            },
-                            {
                                 key: 'sync_field',
                                 title: 'Sync field',
                                 align: 'right',
@@ -212,7 +85,11 @@ export default function SchemaForm(): JSX.Element {
                                     'Incremental and append-only refresh methods key on a unique field to determine the most up-to-date data.',
                                 isHidden: !databaseSchema.some((schema) => schema.sync_type),
                                 render: function RenderSyncType(_, schema) {
-                                    if (schema.sync_type !== null && schema.incremental_field) {
+                                    if (
+                                        schema.sync_type !== 'full_refresh' &&
+                                        schema.sync_type !== null &&
+                                        schema.incremental_field
+                                    ) {
                                         const field =
                                             schema.incremental_fields.find(
                                                 (f) => f.field == schema.incremental_field

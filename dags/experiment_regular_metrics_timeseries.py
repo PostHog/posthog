@@ -8,7 +8,7 @@ This module defines:
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Union
 from zoneinfo import ZoneInfo
 
@@ -20,6 +20,7 @@ from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, Experim
 
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models.experiment import Experiment, ExperimentMetricResult
 
 from dags.common import JobOwners
@@ -205,10 +206,13 @@ def _get_experiment_regular_metrics_timeseries(
     experiment_metrics = []
 
     # Query experiments that are eligible for timeseries analysis (running experiments only)
+    # Exclude experiments running for longer than 3 months to avoid continuously recalculating
+    # likely stale experiments. Users can still manually backfill those.
     experiments = Experiment.objects.filter(
         deleted=False,
         stats_config__timeseries=True,
         start_date__isnull=False,
+        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=90),
         end_date__isnull=True,
     ).exclude(
         # Exclude if both metrics and metrics_secondary are empty or null
@@ -228,7 +232,7 @@ def _get_experiment_regular_metrics_timeseries(
             fingerprint = compute_metric_fingerprint(
                 metric,
                 experiment.start_date,
-                experiment.stats_config,
+                get_experiment_stats_method(experiment),
                 experiment.exposure_criteria,
             )
 

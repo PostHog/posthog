@@ -2,7 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
@@ -37,10 +37,10 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { isEmptyObject, isObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -63,7 +63,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { HogQLQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
@@ -80,7 +79,7 @@ import {
 
 import { EndpointModal } from 'products/endpoints/frontend/EndpointModal'
 
-import { getInsightIconTypeFromQuery } from './utils'
+import { getInsightIconTypeFromQuery, getOverrideWarningPropsForButton } from './utils'
 
 const RESOURCE_TYPE = 'insight'
 
@@ -106,8 +105,17 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     )
 
     // insightDataLogic
-    const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext, hogQLVariables, insightQuery } =
-        useValues(insightDataLogic(insightProps))
+    const {
+        query,
+        queryChanged,
+        showQueryEditor,
+        showDebugPanel,
+        hogQL,
+        exportContext,
+        hogQLVariables,
+        insightQuery,
+        insightData,
+    } = useValues(insightDataLogic(insightProps))
     const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(insightDataLogic(insightProps))
     const { createStaticCohort } = useActions(exportsLogic)
 
@@ -129,12 +137,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
     const [endpointModalOpen, setEndpointModalOpen] = useState<boolean>(false)
-
-    const dashboardOverridesExist =
-        (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
-        (isObject(variablesOverride) && !isEmptyObject(variablesOverride))
-
-    const overrideType = isObject(filtersOverride) ? 'filters' : 'variables'
 
     const showCohortButton =
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
@@ -174,6 +176,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
                         insight={insight}
+                        cachedResults={insightData}
                         previewIframe
                         userAccessLevel={insight.user_access_level}
                     />
@@ -311,7 +314,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             <TemplateLinkSection
                                                 templateLink={templateLink}
                                                 heading={undefined}
-                                                tooltip={undefined}
                                                 piiWarning={TEMPLATE_LINK_PII_WARNING}
                                             />
                                         ),
@@ -361,16 +363,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         {hogQL &&
                             !isHogQLQuery(query) &&
                             !(isDataVisualizationNode(query) && isHogQLQuery(query.source)) && (
-                                <ButtonPrimitive
-                                    data-attr={`${RESOURCE_TYPE}-edit-sql`}
-                                    onClick={() => {
-                                        router.actions.push(urls.sqlEditor(hogQL))
+                                <Link
+                                    to={urls.sqlEditor(hogQL)}
+                                    buttonProps={{
+                                        'data-attr': `${RESOURCE_TYPE}-edit-sql`,
+                                        menuItem: true,
                                     }}
-                                    menuItem
                                 >
                                     <IconPencil />
                                     Edit in SQL editor
-                                </ButtonPrimitive>
+                                </Link>
                             )}
 
                         {hogQL && showCohortButton && (
@@ -506,10 +508,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}
-                // Renaming insights is too fast, so we need to debounce it
-                renameDebounceMs={1000}
+                renameDebounceMs={0}
                 // Use onBlur-only saves to prevent autosave while typing
-                saveOnBlur={true}
+                saveOnBlur
                 actions={
                     <>
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
@@ -533,12 +534,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     <LemonButton
                                         type="primary"
                                         size="small"
-                                        icon={dashboardOverridesExist ? <IconWarning /> : undefined}
-                                        tooltip={
-                                            dashboardOverridesExist
-                                                ? `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`
-                                                : undefined
-                                        }
                                         tooltipPlacement="bottom"
                                         onClick={() => {
                                             if (isDataVisualizationNode(query) && insight.short_id) {
@@ -551,6 +546,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 setInsightMode(ItemMode.Edit, null)
                                             }
                                         }}
+                                        {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}
                                         data-attr="insight-edit-button"
                                     >
                                         Edit
@@ -574,7 +570,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     </>
                 }
             />
-            <SceneDivider />
         </>
     )
 }
