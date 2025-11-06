@@ -204,8 +204,9 @@ const SupportResponseTimesTable = ({
 export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     useValues(userLogic)
-    const { isEmailFormOpen, title: supportPanelTitle, targetArea } = useValues(supportLogic)
-    const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
+    const { isEmailFormOpen, title: supportPanelTitle, targetArea, isSubmitButtonDisabled } = useValues(supportLogic)
+    const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest, setSubmitButtonDisabled } =
+        useActions(supportLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
@@ -245,6 +246,10 @@ export function SidePanelSupport(): JSX.Element {
                     fullWidth
                     center
                     className="mt-4"
+                    onClick={() => {
+                        setSubmitButtonDisabled(true)
+                    }}
+                    disabledReason={isSubmitButtonDisabled ? 'Ticket submission pending' : ''}
                 >
                     Submit
                 </LemonButton>

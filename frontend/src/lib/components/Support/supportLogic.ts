@@ -418,6 +418,7 @@ export const supportLogic = kea<supportLogicType>([
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
+        setSubmitButtonDisabled: (disabled: boolean) => ({ disabled }),
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -432,6 +433,15 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openEmailForm: () => true,
                 closeEmailForm: () => false,
+            },
+        ],
+        isSubmitButtonDisabled: [
+            false,
+            {
+                setSubmitButtonDisabled: (_, { disabled }) => disabled,
+                openEmailForm: () => false,
+                submitZendeskTicket: () => true,
+                closeSupportForm: () => false,
             },
         ],
     })),
