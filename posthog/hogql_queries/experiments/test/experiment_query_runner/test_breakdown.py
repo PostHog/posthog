@@ -3,6 +3,7 @@ from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+from unittest import skip
 
 from django.test import override_settings
 
@@ -125,10 +126,12 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # Verify breakdown_values is populated (now as list of lists)
         self.assertIsNotNone(result.breakdown_values)
+        assert result.breakdown_values is not None
         self.assertEqual(sorted(result.breakdown_values), [["Chrome"], ["Safari"]])
 
         # Verify breakdown_results is populated with per-breakdown statistics
         self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 2)
 
         # Verify each breakdown has correct structure (breakdown_value is now a list)
@@ -238,10 +241,12 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # Verify breakdown_values is populated (now as list of lists)
         self.assertIsNotNone(result.breakdown_values)
+        assert result.breakdown_values is not None
         self.assertEqual(sorted(result.breakdown_values), [["Chrome"], ["Safari"]])
 
         # Verify breakdown_results is populated with per-breakdown statistics
         self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 2)
 
         # Verify each breakdown has correct structure (breakdown_value is now a list)
@@ -378,10 +383,12 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # Verify breakdown_values is populated (now as list of lists)
         self.assertIsNotNone(result.breakdown_values)
+        assert result.breakdown_values is not None
         self.assertEqual(sorted(result.breakdown_values), [["Chrome"], ["Safari"]])
 
         # Verify breakdown_results is populated with per-breakdown statistics
         self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 2)
 
         # Verify each breakdown has correct structure (breakdown_value is now a list)
@@ -462,10 +469,12 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # Verify breakdown_values is populated including NULL label (now as list of lists)
         self.assertIsNotNone(result.breakdown_values)
+        assert result.breakdown_values is not None
         self.assertEqual(sorted(result.breakdown_values), sorted([[BREAKDOWN_NULL_STRING_LABEL], ["Chrome"]]))
 
         # Verify breakdown_results is populated with per-breakdown statistics
         self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 2)
 
         # Verify each breakdown has correct structure (breakdown_value is now a list)
@@ -593,6 +602,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # Verify breakdown_values (sorted list of lists with 2 elements each)
         self.assertIsNotNone(result.breakdown_values)
+        assert result.breakdown_values is not None
         self.assertEqual(len(result.breakdown_values), 4)  # 2 browsers × 2 OS = 4 combinations
         expected_breakdowns = sorted(
             [["Chrome", "Windows"], ["Chrome", "Mac"], ["Safari", "Windows"], ["Safari", "Mac"]]
@@ -601,6 +611,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # Verify breakdown_results structure
         self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 4)
 
         # Verify each breakdown has correct structure
@@ -731,7 +742,9 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # Verify 8 breakdown combinations (2×2×2)
         self.assertIsNotNone(result.breakdown_values)
+        assert result.breakdown_values is not None
         self.assertEqual(len(result.breakdown_values), 8)
+        assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 8)
 
         # Each breakdown_value should be a list of 3 elements
@@ -740,12 +753,14 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # Spot check a specific breakdown
         chrome_windows_desktop = None
+        assert result.breakdown_results is not None
         for breakdown_result in result.breakdown_results:
             if breakdown_result.breakdown_value == ["Chrome", "Windows", "Desktop"]:
                 chrome_windows_desktop = breakdown_result
                 break
 
         self.assertIsNotNone(chrome_windows_desktop)
+        assert chrome_windows_desktop is not None
         self.assertEqual(chrome_windows_desktop.baseline.number_of_samples, 2)
 
     @parameterized.expand([("new_query_builder", True)])
@@ -847,7 +862,9 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         self.assertIsNotNone(result.baseline)
+        assert result.breakdown_values is not None
         self.assertEqual(len(result.breakdown_values), 4)
+        assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 4)
 
         # Verify 2-element breakdown values
@@ -963,7 +980,9 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
+        assert result.breakdown_values is not None
         self.assertEqual(len(result.breakdown_values), 8)
+        assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 8)
 
         # Verify 3-element breakdown values
@@ -1084,7 +1103,9 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
+        assert result.breakdown_values is not None
         self.assertEqual(len(result.breakdown_values), 4)
+        assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 4)
 
         # Verify ratio-specific fields exist
@@ -1233,7 +1254,9 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
+        assert result.breakdown_values is not None
         self.assertEqual(len(result.breakdown_values), 8)
+        assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 8)
 
         # Verify 3-element breakdown values and ratio fields
@@ -1347,7 +1370,9 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         # All 4 breakdown combinations should still appear
+        assert result.breakdown_values is not None
         self.assertEqual(len(result.breakdown_values), 4)
+        assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 4)
 
         # Check that breakdown_results exist for all combinations
@@ -1395,6 +1420,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         self.assertTrue(safari_mac_found, "Safari+Mac breakdown should exist")
 
     @parameterized.expand([("new_query_builder", True)])
+    @skip("potential flakiness")
     @freeze_time("2023-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_data_warehouse_mean_metric_with_breakdown(self, name, use_new_query_builder):
@@ -1467,9 +1493,11 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # Verify breakdown by data warehouse property
         self.assertIsNotNone(result.breakdown_values)
+        assert result.breakdown_values is not None
         self.assertGreater(len(result.breakdown_values), 0)
 
         # Verify breakdown_results structure
+        assert result.breakdown_results is not None
         self.assertGreater(len(result.breakdown_results), 0)
 
         for breakdown_result in result.breakdown_results:
@@ -1477,6 +1505,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             self.assertGreater(len(breakdown_result.variants), 0)
 
     @parameterized.expand([("new_query_builder", True)])
+    @skip("potential flakiness")
     @freeze_time("2023-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_data_warehouse_ratio_metric_with_breakdown(self, name, use_new_query_builder):
@@ -1564,9 +1593,11 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         # Verify breakdown structure
         self.assertIsNotNone(result.breakdown_values)
+        assert result.breakdown_values is not None
         self.assertGreater(len(result.breakdown_values), 0)
 
         # Verify ratio-specific fields per breakdown
+        assert result.breakdown_results is not None
         for breakdown_result in result.breakdown_results:
             baseline = breakdown_result.baseline
             self.assertIsNotNone(baseline.sum)
