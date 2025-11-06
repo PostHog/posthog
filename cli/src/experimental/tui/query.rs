@@ -1,6 +1,6 @@
 use std::{io::Stdout, thread::JoinHandle, time::Duration};
 
-use anyhow::Error;
+use anyhow::{bail, Error};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -17,6 +17,7 @@ use crate::{
     experimental::query::{
         run_query, HogQLQueryErrorResponse, HogQLQueryResponse, HogQLQueryResult,
     },
+    invocation_context::context,
     utils::homedir::posthog_home_dir,
 };
 
@@ -302,6 +303,9 @@ impl QueryTui {
 }
 
 pub fn start_query_editor(debug: bool) -> Result<String, Error> {
+    if !context().is_terminal {
+        bail!("Failed to start query editor: Terminal not available");
+    }
     let terminal = ratatui::init();
 
     let mut app = QueryTui::new(debug);
