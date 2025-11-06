@@ -272,7 +272,9 @@ impl Config {
                 return Err(anyhow::anyhow!("Storage capacity cannot be negative: {s}"));
             }
             if float_val > u64::MAX as f64 {
-                return Err(anyhow::anyhow!("Storage capacity exceeds maximum value: {s}"));
+                return Err(anyhow::anyhow!(
+                    "Storage capacity exceeds maximum value: {s}"
+                ));
             }
             return Ok(float_val as u64);
         }
