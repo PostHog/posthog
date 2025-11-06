@@ -8,6 +8,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { uuid } from 'lib/utils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
@@ -32,34 +33,35 @@ export const EXIT_NODE_ID = 'exit_node'
 
 export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 
+const TRIGGER_NODE: HogFlowAction = {
+    id: TRIGGER_NODE_ID,
+    type: 'trigger',
+    name: 'Trigger',
+    description: 'User performs an action to start the workflow.',
+    created_at: 0,
+    updated_at: 0,
+    config: {
+        type: 'event',
+        filters: {},
+    },
+}
+
+const EXIT_NODE: HogFlowAction = {
+    id: EXIT_NODE_ID,
+    type: 'exit',
+    name: 'Exit',
+    description: 'User moved through the workflow without errors.',
+    created_at: 0,
+    updated_at: 0,
+    config: {
+        reason: 'Default exit',
+    },
+}
+
 const NEW_WORKFLOW: HogFlow = {
     id: 'new',
     name: 'New workflow',
-    actions: [
-        {
-            id: TRIGGER_NODE_ID,
-            type: 'trigger',
-            name: 'Trigger',
-            description: 'User performs an action to start the workflow.',
-            created_at: 0,
-            updated_at: 0,
-            config: {
-                type: 'event',
-                filters: {},
-            },
-        },
-        {
-            id: EXIT_NODE_ID,
-            type: 'exit',
-            name: 'Exit',
-            description: 'User moved through the workflow without errors.',
-            config: {
-                reason: 'Default exit',
-            },
-            created_at: 0,
-            updated_at: 0,
-        },
-    ],
+    actions: [TRIGGER_NODE, EXIT_NODE],
     edges: [
         {
             from: TRIGGER_NODE_ID,
@@ -74,6 +76,81 @@ const NEW_WORKFLOW: HogFlow = {
     team_id: -1,
     created_at: '',
     updated_at: '',
+}
+
+const workflowWithMonitorId = (monitorId: string): HogFlow => {
+    const emailNodeId = 'email_node'
+    const newWorkflow: HogFlow = JSON.parse(JSON.stringify(NEW_WORKFLOW))
+
+    newWorkflow.actions = [
+        // Custom trigger action with synthetic_http_check event filters
+        {
+            ...TRIGGER_NODE,
+            config: {
+                type: 'event',
+                filters: {
+                    events: [
+                        {
+                            id: '$synthetic_http_check',
+                            name: '$synthetic_http_check',
+                            uuid: uuid(),
+                            type: 'events',
+                            order: 0,
+                            properties: [
+                                { key: 'monitor_id', value: [monitorId], operator: 'exact', type: 'event' },
+                                { key: 'success', value: [false], operator: 'exact', type: 'event' },
+                            ],
+                        },
+                    ],
+                },
+            },
+        },
+        {
+            id: emailNodeId,
+            type: 'function_email',
+            name: 'Email',
+            description: 'Send an email to the user.',
+            created_at: 0,
+            updated_at: 0,
+            config: {
+                template_id: 'template-email',
+                inputs: {
+                    email: {
+                        value: {
+                            to: {
+                                name: '',
+                                email: '',
+                            },
+                            from: {
+                                name: '',
+                                email: '',
+                            },
+                            html: '<div>Oh no, your website is down!</div>',
+                            text: 'Oh no, your website is down!',
+                            subject: 'Your website is down! 🚨',
+                            preheader: '',
+                        },
+                    },
+                },
+            },
+        },
+        EXIT_NODE,
+    ]
+
+    newWorkflow.edges = [
+        {
+            from: TRIGGER_NODE_ID,
+            to: emailNodeId,
+            type: 'continue',
+        },
+        {
+            from: emailNodeId,
+            to: EXIT_NODE_ID,
+            type: 'continue',
+        },
+    ]
+
+    return newWorkflow
 }
 
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
@@ -133,52 +210,11 @@ export const workflowLogic = kea<workflowLogicType>([
             {
                 loadWorkflow: async () => {
                     if (!props.id || props.id === 'new') {
-                        const workflow = { ...NEW_WORKFLOW }
+                        let workflow: HogFlow = { ...NEW_WORKFLOW }
 
                         // Pre-fill trigger for synthetic monitor if monitorId is provided
                         if (props.monitorId) {
-                            try {
-                                // Fetch monitor to get its name
-                                const monitor = await api.syntheticMonitoring.get(props.monitorId)
-
-                                // Update trigger action with synthetic_http_check event filters
-                                const triggerAction = workflow.actions.find((a) => a.id === TRIGGER_NODE_ID)
-                                if (triggerAction && triggerAction.type === 'trigger') {
-                                    triggerAction.config = {
-                                        type: 'event',
-                                        filters: {
-                                            events: [
-                                                {
-                                                    id: 'synthetic_http_check',
-                                                    name: 'synthetic_http_check',
-                                                    type: 'events',
-                                                    order: 0,
-                                                },
-                                            ],
-                                            properties: [
-                                                {
-                                                    key: 'monitor_id',
-                                                    value: [props.monitorId],
-                                                    operator: 'exact',
-                                                    type: 'event',
-                                                },
-                                                {
-                                                    key: 'success',
-                                                    value: [false],
-                                                    operator: 'exact',
-                                                    type: 'event',
-                                                },
-                                            ],
-                                        },
-                                    }
-                                }
-
-                                // Update workflow name
-                                workflow.name = `Synthetic monitor for ${monitor.name}`
-                            } catch (error) {
-                                // If monitor fetch fails, still create workflow with default trigger
-                                console.error('Failed to fetch monitor:', error)
-                            }
+                            workflow = workflowWithMonitorId(props.monitorId)
                         }
 
                         return workflow
@@ -220,9 +256,9 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ actions, values, props }) => ({
         workflow: {
-            defaults: NEW_WORKFLOW,
+            defaults: props.monitorId ? workflowWithMonitorId(props.monitorId) : NEW_WORKFLOW,
             errors: ({ name, actions }) => {
                 const errors = {
                     name: !name ? 'Name is required' : undefined,
