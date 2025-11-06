@@ -244,21 +244,7 @@ def _delete_person(
         sync=sync,
     )
 
-def _delete_ch_cohortpeople(team_id: int, person_uuid, sync: bool = False) -> None:
-    """
-    Delete of cohortpeople rows for this person.
-    """
-    settings = {"lightweight_deletes_sync": 1 if sync else 0}
-
-    sync_execute(
-        """
-        DELETE FROM cohortpeople
-        WHERE team_id = %(team_id)s AND person_id = %(person_id)s
-        """,
-        {"team_id": team_id, "person_id": str(person_uuid)},
-        settings=settings,
-        workload=Workload.OFFLINE,
-    )
+def _delete_ch_cohortpeople(team_id: int, person_uuid: UUID, sync: bool = False) -> None:
 
 def _get_distinct_ids_with_version(person: Person) -> dict[str, int]:
     return {
