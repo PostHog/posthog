@@ -99,6 +99,15 @@ describe('newTabSceneLogic - recents search', () => {
         expect(listMock).not.toHaveBeenCalled()
     })
 
+    it('searches project folders by folder name only', async () => {
+        logic.actions.setSearch('Feature flags')
+        await expectLogic(logic).toFinishAllListeners()
+
+        const folderCall = listMock.mock.calls.find(([params]) => params?.type === 'folder')
+
+        expect(folderCall?.[0]).toMatchObject({ search: 'name:Feature name:flags' })
+    })
+
     it('loads additional recents with pagination', async () => {
         const PAGINATION_LIMIT = 10
         const INITIAL_LIMIT = 5

@@ -32,7 +32,7 @@ import { NoResultsFound } from './NoResultsFound'
 export const getCategoryDisplayName = (category: string): string => {
     const displayNames: Record<string, string> = {
         'create-new': 'Create new',
-        'project-folders': 'Project folders',
+        folders: 'Folders',
         apps: 'Apps',
         'data-management': 'Data management',
         recents: 'Recents',
@@ -346,6 +346,21 @@ function Category({
                                     </ButtonGroupPrimitive>
                                 )
                             })}
+                            {category === 'folders' && isLoading ? (
+                                <ListBox.Item
+                                    key="folders-loading"
+                                    virtualFocusIgnore
+                                    row={typedItems.length}
+                                    column={columnIndex}
+                                    focusKey={`loading-${category}`}
+                                    aria-disabled={true}
+                                >
+                                    <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted">
+                                        <Spinner size="small" />
+                                        Loading folders…
+                                    </div>
+                                </ListBox.Item>
+                            ) : null}
                             {(() => {
                                 const currentLimit = getSectionItemLimit(category)
                                 const fullCount = newTabSceneDataGroupedItemsFullData[category] || 0

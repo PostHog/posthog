@@ -24,7 +24,6 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { urls } from 'scenes/urls'
 
-import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import {
     ProductIconWrapper,
     getDefaultTreeData,
@@ -168,6 +167,28 @@ function matchesRecentsSearch(entry: FileSystemEntry, searchChunks: string[]): b
     )
 }
 
+function buildFolderNameSearchQuery(search: string): string {
+    const tokens = search.match(/"[^"]+"|'[^']+'|\S+/g) ?? []
+
+    return tokens
+        .map((token) => {
+            const isNegated = token.startsWith('-') || token.startsWith('!')
+            const prefix = isNegated ? token[0] : ''
+            const remainder = isNegated ? token.slice(1) : token
+
+            if (!remainder) {
+                return token
+            }
+
+            if (remainder.includes(':')) {
+                return `${prefix}${remainder}`
+            }
+
+            return `${prefix}name:${remainder}`
+        })
+        .join(' ')
+}
+
 function buildProjectPathUrl(path: string): string {
     const trimmed = path.replace(/^\/+/, '').replace(/\/+$/, '')
     const projectUri = trimmed ? `project://${trimmed}/` : 'project://'
@@ -186,7 +207,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
     props({} as { tabId?: string }),
     key((props) => props.tabId || 'default'),
-    connect(() => ({
+    connect(({ tabId }) => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -194,7 +215,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             ['groupTypes', 'aggregationLabel'],
             projectTreeDataLogic,
             ['folders', 'folderStates'],
-            projectTreeLogic({ key: PROJECT_TREE_KEY }),
+            projectTreeLogic({ key: `new-tab-${tabId}` }),
             [
                 'searchResults as projectTreeSearchResults',
                 'searchResultsLoading as projectTreeSearchResultsLoading',
@@ -204,7 +225,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         actions: [
             projectTreeDataLogic,
             ['loadFolder'],
-            projectTreeLogic({ key: PROJECT_TREE_KEY }),
+            projectTreeLogic({ key: `new-tab-${tabId}` }),
             [
                 'setSearchTerm as setProjectTreeSearchTerm',
                 'clearSearch as clearProjectTreeSearch',
@@ -378,8 +399,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                     try {
                         const searchLimit = values.projectPath ? FILE_BROWSER_SEARCH_LIMIT : DEFAULT_FOLDER_SEARCH_LIMIT
+                        const nameOnlySearch = buildFolderNameSearchQuery(trimmed) || `name:${trimmed}`
                         const response = await api.fileSystem.list({
-                            search: trimmed,
+                            search: nameOnlySearch,
                             limit: searchLimit,
                             type: 'folder',
                         })

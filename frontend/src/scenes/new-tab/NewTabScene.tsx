@@ -9,7 +9,6 @@ import { NEW_TAB_COMMANDS, NEW_TAB_COMMANDS_ITEMS, newTabSceneLogic } from 'scen
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 
@@ -38,7 +37,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         fileBrowserIsLoading,
         fileBrowserFirstFolderMatch,
     } = useValues(newTabSceneLogic({ tabId }))
-    const { searchTerm: projectTreeSearchTerm } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { searchTerm: projectTreeSearchTerm } = useValues(projectTreeLogic({ key: `new-tab-${tabId}` }))
     const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle, setProjectPath, loadMoreFileBrowser } =
         useActions(newTabSceneLogic({ tabId }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
@@ -54,7 +53,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     // Convert active commands to selected commands for the SearchInput
     // Filter out 'all' since that represents the default state (no specific filters)
     const fallbackCommandLabels: Partial<Record<NEW_TAB_COMMANDS, string>> = {
-        'project-folders': 'Project folders',
+        'project-folders': 'Folders',
     }
 
     const selectedCommands: SearchInputCommand<NEW_TAB_COMMANDS>[] = isFileBrowserMode
@@ -156,29 +155,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                 <div className="flex flex-col gap-2">
                     <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
                         <div className="flex flex-col gap-1">
-                            {isFileBrowserMode ? (
-                                <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
-                                    <button
-                                        type="button"
-                                        className="text-primary hover:underline"
-                                        onClick={() => navigateToFolder('')}
-                                    >
-                                        project://
-                                    </button>
-                                    {fileBrowserBreadcrumbs.map((crumb) => (
-                                        <span className="flex items-center gap-1" key={crumb.path || crumb.label}>
-                                            <span className="text-muted">/</span>
-                                            <button
-                                                type="button"
-                                                className="text-primary hover:underline"
-                                                onClick={() => navigateToFolder(crumb.path)}
-                                            >
-                                                {crumb.label}
-                                            </button>
-                                        </span>
-                                    ))}
-                                </div>
-                            ) : null}
                             <SearchInput
                                 ref={commandInputRef}
                                 commands={isFileBrowserMode ? [] : NEW_TAB_COMMANDS_ITEMS}
@@ -219,6 +195,29 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     refreshDataAfterToggle()
                                 }}
                             />
+                            {isFileBrowserMode ? (
+                                <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
+                                    <button
+                                        type="button"
+                                        className="text-primary hover:underline"
+                                        onClick={() => navigateToFolder('')}
+                                    >
+                                        project://
+                                    </button>
+                                    {fileBrowserBreadcrumbs.map((crumb) => (
+                                        <span className="flex items-center gap-1" key={crumb.path || crumb.label}>
+                                            <span className="text-muted">/</span>
+                                            <button
+                                                type="button"
+                                                className="text-primary hover:underline"
+                                                onClick={() => navigateToFolder(crumb.path)}
+                                            >
+                                                {crumb.label}
+                                            </button>
+                                        </span>
+                                    ))}
+                                </div>
+                            ) : null}
                         </div>
                     </div>
                     <div className="border-b">
