@@ -131,7 +131,7 @@ class PipelineNonDLT:
             # If the schema has no DWH table, it's a first ever sync
             is_first_ever_sync: bool = self._schema.table is None
 
-            for item in self._resource.items:
+            for item in self._resource.items():
                 py_table = None
 
                 if isinstance(item, list):

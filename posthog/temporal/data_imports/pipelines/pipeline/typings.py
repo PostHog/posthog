@@ -1,9 +1,11 @@
 import dataclasses
-from collections.abc import Iterable
-from typing import Any, Literal, Optional
+from collections.abc import Callable, Iterable
+from typing import Any, ClassVar, Literal, Optional, Protocol, TypeVar
 
 from dlt.common.data_types.typing import TDataType
 from structlog.types import FilteringBoundLogger
+
+from posthog.temporal.data_imports.sources.common.base import Generic
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
@@ -12,10 +14,17 @@ PartitionMode = Literal["md5", "numerical", "datetime"]
 PartitionFormat = Literal["month", "week", "day", "hour"]
 
 
+class _Dataclass(Protocol):
+    __dataclass_fields__: ClassVar[dict[str, Any]]
+
+
+ResumableData = TypeVar("ResumableData", bound=_Dataclass)
+
+
 @dataclasses.dataclass
 class SourceResponse:
     name: str
-    items: Iterable[Any]
+    items: Callable[[], Iterable[Any]]
     primary_keys: list[str] | None
     column_hints: dict[str, TDataType | None] | None = None  # Legacy support for DLT sources
     partition_count: Optional[int] = None
@@ -31,6 +40,12 @@ class SourceResponse:
     rows_to_sync: Optional[int] = None
     has_duplicate_primary_keys: Optional[bool] = None
     """Whether incremental tables have non-unique primary keys"""
+    resumable: Optional[bool] = None
+    """Whether the source supports resumable full-refresh imports"""
+
+
+class ResumableSourceResponse(SourceResponse, Generic[ResumableData]):
+    resume_items: Callable[[ResumableData], Iterable[Any]]
 
 
 @dataclasses.dataclass

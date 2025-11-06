@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar, Union
+from typing import Generic, Protocol, TypeVar, Union
 
 from posthog.schema import (
     SourceConfig,
@@ -11,14 +11,21 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.typings import (
+    ResumableData,
+    ResumableSourceResponse,
+    SourceInputs,
+    SourceResponse,
+)
 from posthog.temporal.data_imports.sources.common.config import Config
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import get_config_for_source
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 ConfigType = TypeVar("ConfigType", bound=Config)
+ConfigType_contra = TypeVar("ConfigType_contra", bound=Config, contravariant=True)
 
 FieldType = Union[
     SourceFieldInputConfig,
@@ -32,8 +39,12 @@ FieldType = Union[
 SourceCredentialsValidationResult = tuple[bool, str | None]
 
 
-class BaseSource(ABC, Generic[ConfigType]):
-    """Base class for all data import sources"""
+class _BaseSource(ABC, Generic[ConfigType]):
+    """Base class for all data import sources.
+
+    This class provides common functionality for all sources but does NOT define
+    source_for_pipeline - use SimpleSource or ResumableSource instead.
+    """
 
     @property
     @abstractmethod
@@ -47,9 +58,6 @@ class BaseSource(ABC, Generic[ConfigType]):
             raise ValueError(f"Config class for {self.source_type} does not exist in SOURCE_CONFIG_MAPPING")
 
         return config
-
-    def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
-        raise NotImplementedError()
 
     def get_schemas(self, config: ConfigType, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         raise NotImplementedError()
@@ -68,3 +76,42 @@ class BaseSource(ABC, Generic[ConfigType]):
     def validate_credentials(self, config: ConfigType, team_id: int) -> tuple[bool, str | None]:
         """Check whether the provided credentials are valid for this source. Returns an optional error message"""
         return True, None
+
+
+class SimpleSourceProtocol(Protocol[ConfigType_contra]):
+    """Protocol for sources that use standard pipeline creation."""
+
+    def source_for_pipeline(self, config: ConfigType_contra, inputs: SourceInputs) -> SourceResponse: ...
+
+
+class ResumableSourceProtocol(Protocol[ConfigType_contra, ResumableData]):
+    """Protocol for sources that support resumable full-refresh imports."""
+
+    def source_for_pipeline(
+        self,
+        config: ConfigType_contra,
+        resumable_source_manager: ResumableSourceManager[ResumableData],
+        inputs: SourceInputs,
+    ) -> ResumableSourceResponse: ...
+
+
+class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
+    """Base class for sources with standard pipeline creation."""
+
+    @abstractmethod
+    def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
+        raise NotImplementedError()
+
+
+class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData]):
+    """Base class for sources that support resumable full-refresh imports."""
+
+    @abstractmethod
+    def source_for_pipeline(
+        self, config: ConfigType, resumable_source_manager: ResumableSourceManager[ResumableData], inputs: SourceInputs
+    ) -> ResumableSourceResponse:
+        raise NotImplementedError()
+
+
+# Type alias for any source that can create a pipeline
+AnySource = SimpleSource[ConfigType] | ResumableSource[ConfigType, ResumableData]
