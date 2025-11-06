@@ -1,6 +1,5 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
@@ -18,19 +17,6 @@ interface FixModalProps {
 export function FixModal({ isOpen, onClose }: FixModalProps): JSX.Element {
     const { exceptionList } = useValues(errorPropertiesLogic)
     const { stackFrameRecords } = useValues(stackFrameLogic)
-    const { loadFromRawIds } = useActions(stackFrameLogic)
-
-    // Load all raw_ids for frames when modal opens
-    useEffect(() => {
-        if (isOpen && exceptionList.length > 0) {
-            const rawIds = exceptionList
-                .flatMap((exception) => exception.stacktrace?.frames || [])
-                .map((frame) => frame.raw_id)
-            if (rawIds.length > 0) {
-                loadFromRawIds(rawIds)
-            }
-        }
-    }, [isOpen, exceptionList, loadFromRawIds])
 
     const generatePrompt = (): string => {
         const stacktraceText = exceptionList

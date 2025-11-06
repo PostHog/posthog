@@ -1,8 +1,8 @@
 import './StackTraces.scss'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { MouseEvent, useEffect, useState } from 'react'
+import { useValues } from 'kea'
+import { MouseEvent, useState } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { IconBox } from '@posthog/icons'
@@ -69,7 +69,6 @@ export function ChainedStackTraces({
     onFrameContextClick?: FrameContextClickHandler
     onFirstFrameExpanded?: () => void
 }): JSX.Element {
-    const { loadFromRawIds } = useActions(stackFrameLogic)
     const { exceptionList, exceptionAttributes, getExceptionFingerprint } = useValues(errorPropertiesLogic)
     const [hasCalledOnFirstExpanded, setHasCalledOnFirstExpanded] = useState<boolean>(false)
 
@@ -79,17 +78,6 @@ export function ChainedStackTraces({
             onFirstFrameExpanded()
         }
     }
-
-    useEffect(() => {
-        const frames: ErrorTrackingStackFrame[] = exceptionList.flatMap((e) => {
-            const trace = e.stacktrace
-            if (trace?.type === 'resolved') {
-                return trace.frames
-            }
-            return []
-        })
-        loadFromRawIds(frames.map(({ raw_id }) => raw_id))
-    }, [exceptionList, loadFromRawIds])
 
     const isScriptError =
         exceptionAttributes &&
