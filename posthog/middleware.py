@@ -29,7 +29,7 @@ from posthog.api.decide import get_decide
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
@@ -495,7 +495,14 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
     def process_response(self, request, response):
         response = super().process_response(request, response)
 
-        if not is_cloud():
+        if settings.TEST:
+            pass
+        elif is_dev_mode():
+            # for local development
+            default_cookie_options["domain"] = None
+            default_cookie_options["secure"] = False
+        elif not is_cloud():
+            # skip adding cookies for self-hosted instance
             return response
 
         # skip adding the cookie on API requests
@@ -507,41 +514,76 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             # clears the cookies that were previously set, except for ph_current_instance as that is used for the website login button
             response.delete_cookie("ph_current_project_token", domain=default_cookie_options["domain"])
             response.delete_cookie("ph_current_project_name", domain=default_cookie_options["domain"])
-        if request.user and request.user.is_authenticated and request.user.team:
-            response.set_cookie(
-                key="ph_current_project_token",
-                value=request.user.team.api_token,
-                max_age=365 * 24 * 60 * 60,
-                expires=default_cookie_options["expires"],
-                path=default_cookie_options["path"],
-                domain=default_cookie_options["domain"],
-                secure=default_cookie_options["secure"],
-                samesite=default_cookie_options["samesite"],
-            )
+        if request.user and request.user.is_authenticated:
+            if request.user.team:
+                response.set_cookie(
+                    key="ph_current_project_token",
+                    value=request.user.team.api_token,
+                    max_age=default_cookie_options["max_age"],
+                    expires=default_cookie_options["expires"],
+                    path=default_cookie_options["path"],
+                    domain=default_cookie_options["domain"],
+                    secure=default_cookie_options["secure"],
+                    samesite=default_cookie_options["samesite"],
+                )
 
-            response.set_cookie(
-                key="ph_current_project_name",  # clarify which project is active (orgs can have multiple projects)
-                value=request.user.team.name.encode("utf-8").decode("latin-1"),
-                max_age=365 * 24 * 60 * 60,
-                expires=default_cookie_options["expires"],
-                path=default_cookie_options["path"],
-                domain=default_cookie_options["domain"],
-                secure=default_cookie_options["secure"],
-                samesite=default_cookie_options["samesite"],
-            )
+                response.set_cookie(
+                    key="ph_current_project_name",  # clarify which project is active (orgs can have multiple projects)
+                    value=request.user.team.name.encode("utf-8").decode("latin-1"),
+                    max_age=default_cookie_options["max_age"],
+                    expires=default_cookie_options["expires"],
+                    path=default_cookie_options["path"],
+                    domain=default_cookie_options["domain"],
+                    secure=default_cookie_options["secure"],
+                    samesite=default_cookie_options["samesite"],
+                )
 
-            response.set_cookie(
-                key="ph_current_instance",
-                value=SITE_URL,
-                max_age=365 * 24 * 60 * 60,
-                expires=default_cookie_options["expires"],
-                path=default_cookie_options["path"],
-                domain=default_cookie_options["domain"],
-                secure=default_cookie_options["secure"],
-                samesite=default_cookie_options["samesite"],
-            )
+                response.set_cookie(
+                    key="ph_current_instance",
+                    value=SITE_URL,
+                    max_age=default_cookie_options["max_age"],
+                    expires=default_cookie_options["expires"],
+                    path=default_cookie_options["path"],
+                    domain=default_cookie_options["domain"],
+                    secure=default_cookie_options["secure"],
+                    samesite=default_cookie_options["samesite"],
+                )
+
+            login_method = self._get_login_method(request)
+            if login_method:
+                response.set_cookie(
+                    key="ph_last_login_method",
+                    value=login_method,
+                    max_age=default_cookie_options["max_age"],
+                    expires=default_cookie_options["expires"],
+                    path=default_cookie_options["path"],
+                    domain=default_cookie_options["domain"],
+                    secure=default_cookie_options["secure"],
+                    samesite=default_cookie_options["samesite"],
+                )
 
         return response
+
+    def _get_login_method(self, request):
+        """
+        Determine login method based on the auth backend.
+        Returns SSOProvider format ('password', 'google-oauth2', 'github', 'gitlab', 'saml')
+        to match frontend types.
+        """
+        auth_backend = request.session.get("_auth_user_backend", "django.contrib.auth.backends.ModelBackend")
+
+        if auth_backend == "django.contrib.auth.backends.ModelBackend":
+            return "password"
+        if "google" in auth_backend.lower():
+            return "google-oauth2"
+        if "github" in auth_backend.lower():
+            return "github"
+        if "gitlab" in auth_backend.lower():
+            return "gitlab"
+        if "SAML" in auth_backend:
+            return "saml"
+
+        return None
 
 
 def get_or_set_session_cookie_created_at(request: HttpRequest) -> float:
