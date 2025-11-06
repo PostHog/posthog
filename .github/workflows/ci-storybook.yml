@@ -229,122 +229,6 @@ jobs:
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
-        outputs:
-            # The below have to be manually listed unfortunately, as GitHub Actions doesn't allow matrix-dependent outputs
-            chromium-1-added: ${{ steps.diff.outputs.chromium-1-added }}
-            chromium-1-modified: ${{ steps.diff.outputs.chromium-1-modified }}
-            chromium-1-deleted: ${{ steps.diff.outputs.chromium-1-deleted }}
-            chromium-1-total: ${{ steps.diff.outputs.chromium-1-total }}
-            chromium-1-commitHash: ${{ steps.commit-hash.outputs.chromium-1-commitHash }}
-            chromium-1-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-1-pathsFlapping }}
-            chromium-2-added: ${{ steps.diff.outputs.chromium-2-added }}
-            chromium-2-modified: ${{ steps.diff.outputs.chromium-2-modified }}
-            chromium-2-deleted: ${{ steps.diff.outputs.chromium-2-deleted }}
-            chromium-2-total: ${{ steps.diff.outputs.chromium-2-total }}
-            chromium-2-commitHash: ${{ steps.commit-hash.outputs.chromium-2-commitHash }}
-            chromium-2-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-2-pathsFlapping }}
-            chromium-3-added: ${{ steps.diff.outputs.chromium-3-added }}
-            chromium-3-modified: ${{ steps.diff.outputs.chromium-3-modified }}
-            chromium-3-deleted: ${{ steps.diff.outputs.chromium-3-deleted }}
-            chromium-3-total: ${{ steps.diff.outputs.chromium-3-total }}
-            chromium-3-commitHash: ${{ steps.commit-hash.outputs.chromium-3-commitHash }}
-            chromium-3-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-3-pathsFlapping }}
-            chromium-4-added: ${{ steps.diff.outputs.chromium-4-added }}
-            chromium-4-modified: ${{ steps.diff.outputs.chromium-4-modified }}
-            chromium-4-deleted: ${{ steps.diff.outputs.chromium-4-deleted }}
-            chromium-4-total: ${{ steps.diff.outputs.chromium-4-total }}
-            chromium-4-commitHash: ${{ steps.commit-hash.outputs.chromium-4-commitHash }}
-            chromium-4-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-4-pathsFlapping }}
-            chromium-5-added: ${{ steps.diff.outputs.chromium-5-added }}
-            chromium-5-modified: ${{ steps.diff.outputs.chromium-5-modified }}
-            chromium-5-deleted: ${{ steps.diff.outputs.chromium-5-deleted }}
-            chromium-5-total: ${{ steps.diff.outputs.chromium-5-total }}
-            chromium-5-commitHash: ${{ steps.commit-hash.outputs.chromium-5-commitHash }}
-            chromium-5-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-5-pathsFlapping }}
-            chromium-6-added: ${{ steps.diff.outputs.chromium-6-added }}
-            chromium-6-modified: ${{ steps.diff.outputs.chromium-6-modified }}
-            chromium-6-deleted: ${{ steps.diff.outputs.chromium-6-deleted }}
-            chromium-6-total: ${{ steps.diff.outputs.chromium-6-total }}
-            chromium-6-commitHash: ${{ steps.commit-hash.outputs.chromium-6-commitHash }}
-            chromium-6-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-6-pathsFlapping }}
-            chromium-7-added: ${{ steps.diff.outputs.chromium-7-added }}
-            chromium-7-modified: ${{ steps.diff.outputs.chromium-7-modified }}
-            chromium-7-deleted: ${{ steps.diff.outputs.chromium-7-deleted }}
-            chromium-7-total: ${{ steps.diff.outputs.chromium-7-total }}
-            chromium-7-commitHash: ${{ steps.commit-hash.outputs.chromium-7-commitHash }}
-            chromium-7-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-7-pathsFlapping }}
-            chromium-8-added: ${{ steps.diff.outputs.chromium-8-added }}
-            chromium-8-modified: ${{ steps.diff.outputs.chromium-8-modified }}
-            chromium-8-deleted: ${{ steps.diff.outputs.chromium-8-deleted }}
-            chromium-8-total: ${{ steps.diff.outputs.chromium-8-total }}
-            chromium-8-commitHash: ${{ steps.commit-hash.outputs.chromium-8-commitHash }}
-            chromium-8-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-8-pathsFlapping }}
-            chromium-9-added: ${{ steps.diff.outputs.chromium-9-added }}
-            chromium-9-modified: ${{ steps.diff.outputs.chromium-9-modified }}
-            chromium-9-deleted: ${{ steps.diff.outputs.chromium-9-deleted }}
-            chromium-9-total: ${{ steps.diff.outputs.chromium-9-total }}
-            chromium-9-commitHash: ${{ steps.commit-hash.outputs.chromium-9-commitHash }}
-            chromium-9-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-9-pathsFlapping }}
-            chromium-10-added: ${{ steps.diff.outputs.chromium-10-added }}
-            chromium-10-modified: ${{ steps.diff.outputs.chromium-10-modified }}
-            chromium-10-deleted: ${{ steps.diff.outputs.chromium-10-deleted }}
-            chromium-10-total: ${{ steps.diff.outputs.chromium-10-total }}
-            chromium-10-commitHash: ${{ steps.commit-hash.outputs.chromium-10-commitHash }}
-            chromium-10-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-10-pathsFlapping }}
-            chromium-11-added: ${{ steps.diff.outputs.chromium-11-added }}
-            chromium-11-modified: ${{ steps.diff.outputs.chromium-11-modified }}
-            chromium-11-deleted: ${{ steps.diff.outputs.chromium-11-deleted }}
-            chromium-11-total: ${{ steps.diff.outputs.chromium-11-total }}
-            chromium-11-commitHash: ${{ steps.commit-hash.outputs.chromium-11-commitHash }}
-            chromium-11-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-11-pathsFlapping }}
-            chromium-12-added: ${{ steps.diff.outputs.chromium-12-added }}
-            chromium-12-modified: ${{ steps.diff.outputs.chromium-12-modified }}
-            chromium-12-deleted: ${{ steps.diff.outputs.chromium-12-deleted }}
-            chromium-12-total: ${{ steps.diff.outputs.chromium-12-total }}
-            chromium-12-commitHash: ${{ steps.commit-hash.outputs.chromium-12-commitHash }}
-            chromium-12-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-12-pathsFlapping }}
-            chromium-13-added: ${{ steps.diff.outputs.chromium-13-added }}
-            chromium-13-modified: ${{ steps.diff.outputs.chromium-13-modified }}
-            chromium-13-deleted: ${{ steps.diff.outputs.chromium-13-deleted }}
-            chromium-13-total: ${{ steps.diff.outputs.chromium-13-total }}
-            chromium-13-commitHash: ${{ steps.commit-hash.outputs.chromium-13-commitHash }}
-            chromium-13-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-13-pathsFlapping }}
-            chromium-14-added: ${{ steps.diff.outputs.chromium-14-added }}
-            chromium-14-modified: ${{ steps.diff.outputs.chromium-14-modified }}
-            chromium-14-deleted: ${{ steps.diff.outputs.chromium-14-deleted }}
-            chromium-14-total: ${{ steps.diff.outputs.chromium-14-total }}
-            chromium-14-commitHash: ${{ steps.commit-hash.outputs.chromium-14-commitHash }}
-            chromium-14-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-14-pathsFlapping }}
-            chromium-15-added: ${{ steps.diff.outputs.chromium-15-added }}
-            chromium-15-modified: ${{ steps.diff.outputs.chromium-15-modified }}
-            chromium-15-deleted: ${{ steps.diff.outputs.chromium-15-deleted }}
-            chromium-15-total: ${{ steps.diff.outputs.chromium-15-total }}
-            chromium-15-commitHash: ${{ steps.commit-hash.outputs.chromium-15-commitHash }}
-            chromium-15-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-15-pathsFlapping }}
-            chromium-16-added: ${{ steps.diff.outputs.chromium-16-added }}
-            chromium-16-modified: ${{ steps.diff.outputs.chromium-16-modified }}
-            chromium-16-deleted: ${{ steps.diff.outputs.chromium-16-deleted }}
-            chromium-16-total: ${{ steps.diff.outputs.chromium-16-total }}
-            chromium-16-commitHash: ${{ steps.commit-hash.outputs.chromium-16-commitHash }}
-            chromium-16-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-16-pathsFlapping }}
-            webkit-1-added: ${{ steps.diff.outputs.webkit-1-added }}
-            webkit-1-modified: ${{ steps.diff.outputs.webkit-1-modified }}
-            webkit-1-deleted: ${{ steps.diff.outputs.webkit-1-deleted }}
-            webkit-1-total: ${{ steps.diff.outputs.webkit-1-total }}
-            webkit-1-commitHash: ${{ steps.commit-hash.outputs.webkit-1-commitHash }}
-            webkit-1-pathsFlapping: ${{ steps.flappy-bird.outputs.webkit-1-pathsFlapping }}
-            webkit-2-added: ${{ steps.diff.outputs.webkit-2-added }}
-            webkit-2-modified: ${{ steps.diff.outputs.webkit-2-modified }}
-            webkit-2-deleted: ${{ steps.diff.outputs.webkit-2-deleted }}
-            webkit-2-total: ${{ steps.diff.outputs.webkit-2-total }}
-            webkit-2-commitHash: ${{ steps.commit-hash.outputs.webkit-2-commitHash }}
-            webkit-2-pathsFlapping: ${{ steps.flappy-bird.outputs.webkit-2-pathsFlapping }}
-            webkit-3-added: ${{ steps.diff.outputs.webkit-3-added }}
-            webkit-3-modified: ${{ steps.diff.outputs.webkit-3-modified }}
-            webkit-3-deleted: ${{ steps.diff.outputs.webkit-3-deleted }}
-            webkit-3-total: ${{ steps.diff.outputs.webkit-3-total }}
-            webkit-3-commitHash: ${{ steps.commit-hash.outputs.webkit-3-commitHash }}
-            webkit-3-pathsFlapping: ${{ steps.flappy-bird.outputs.webkit-3-pathsFlapping }}
         steps:
             - uses: actions/checkout@v4
               with:
@@ -483,8 +367,15 @@ jobs:
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
             - name: Create snapshot patch
               id: create-patch
-              if: needs.detect-snapshot-mode.outputs.mode == 'update' && (success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.detect-snapshot-mode.outputs.mode == 'update' && success() && github.event.pull_request.head.repo.full_name == github.repository
               run: |
+                  # Verify we're in a git repository before running git commands
+                  if ! git rev-parse --git-dir > /dev/null 2>&1; then
+                    echo "Not in a git repository, skipping patch creation"
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
                   # Check if there are any changes in the snapshot directory
                   if git diff --quiet frontend/__snapshots__/; then
                     echo "No snapshot changes"
@@ -522,26 +413,6 @@ jobs:
                     exit 1
                   fi
                   echo "All jobs in the visual-regression test matrix passed."
-
-    post-check-comment:
-        name: Post check mode comment
-        runs-on: ubuntu-latest
-        needs: [visual-regression, detect-snapshot-mode]
-        if: always() && needs.detect-snapshot-mode.outputs.mode == 'check' && needs.visual-regression.result == 'failure'
-        steps:
-            - uses: actions/checkout@v4
-
-            - name: Post check-failed comment
-              env:
-                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
-              run: |
-                  .github/scripts/post-snapshot-comment.js \
-                    "storybook" \
-                    "check-failed" \
-                    "" \
-                    "${{ github.event.pull_request.number }}" \
-                    "${{ github.repository }}" \
-                    "${{ github.event.pull_request.head.sha }}"
 
     handle-snapshots:
         name: Handle snapshot changes
