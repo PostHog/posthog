@@ -6,6 +6,7 @@ use std::fs;
 use std::path::Path;
 use tracing::info;
 
+use crate::api::client::PHClient;
 use crate::invocation_context::context;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -131,14 +132,15 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
     );
 
     // Load credentials
-    let token = context().token.clone();
-    let host = token.get_host();
+    // let token = context().token.clone();
+    // let host = token.get_host();
+    let client = &context().client;
 
     // Determine output path
     let output_path = determine_output_path(language, output_override)?;
 
     // Fetch definitions from the server
-    let response = fetch_definitions(&host, &token.env_id, &token.token, language)?;
+    let response = fetch_definitions(client, language)?;
 
     info!(
         "✓ Fetched {} definitions for {} events",
@@ -263,14 +265,14 @@ pub fn status() -> Result<()> {
     println!("\nPostHog Schema Sync Status\n");
 
     println!("Authentication:");
-    let token = context().token.clone();
+    let config = context().config.clone();
     println!("  ✓ Authenticated");
-    println!("  Host: {}", token.get_host());
-    println!("  Project ID: {}", token.env_id);
+    println!("  Host: {}", config.host);
+    println!("  Project ID: {}", config.env_id);
     let masked_token = format!(
         "{}****{}",
-        &token.token[..4],
-        &token.token[token.token.len() - 4..]
+        &config.api_key[..4],
+        &config.api_key[config.api_key.len() - 4..]
     );
     println!("  Token: {masked_token}");
 
@@ -311,21 +313,14 @@ pub fn status() -> Result<()> {
     Ok(())
 }
 
-fn fetch_definitions(
-    host: &str,
-    env_id: &str,
-    token: &str,
-    language: Language,
-) -> Result<DefinitionsResponse> {
+fn fetch_definitions(client: &PHClient, language: Language) -> Result<DefinitionsResponse> {
     let url = format!(
-        "{}/api/projects/{}/event_definitions/{}/",
-        host,
-        env_id,
+        "/api/projects/{}/event_definitions/{}/",
+        client.get_env_id(),
         language.as_str()
     );
 
-    let client = &context().client;
-    let response = client.get(&url).bearer_auth(token).send().context(format!(
+    let response = client.get(&url).send().context(format!(
         "Failed to fetch {} definitions",
         language.display_name()
     ))?;

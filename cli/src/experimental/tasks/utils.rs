@@ -1,11 +1,10 @@
 use anyhow::{Context, Result};
 use inquire::Select;
-use reqwest::blocking::Client;
 use std::collections::VecDeque;
 
 use super::{Task, TaskWorkflow, WorkflowStage};
 use crate::{
-    experimental::tasks::list::TaskIterator, invocation_context::context, utils::auth::Token,
+    api::client::PHClient, experimental::tasks::list::TaskIterator, invocation_context::context,
 };
 
 const PAGE_SIZE: usize = 10;
@@ -29,11 +28,9 @@ impl std::fmt::Display for SelectionChoice {
 }
 
 pub fn select_task(prompt: &str) -> Result<Task> {
-    let token = context().token.clone();
-    let host = token.get_host();
     let client = context().client.clone();
 
-    let mut task_iter = fetch_tasks(client, host, token, None)?;
+    let mut task_iter = fetch_tasks(client, None)?;
 
     loop {
         let mut choices = Vec::new();
@@ -67,13 +64,8 @@ pub fn select_task(prompt: &str) -> Result<Task> {
     }
 }
 
-pub fn fetch_tasks(
-    client: Client,
-    host: String,
-    token: Token,
-    offset: Option<usize>,
-) -> Result<TaskIterator> {
-    TaskIterator::new(client, host, token, offset)
+pub fn fetch_tasks(client: PHClient, offset: Option<usize>) -> Result<TaskIterator> {
+    TaskIterator::new(client, offset)
 }
 
 #[derive(serde::Deserialize)]
@@ -83,30 +75,24 @@ struct WorkflowListResponse {
 }
 
 pub struct WorkflowIterator {
-    client: Client,
-    token: Token,
+    client: PHClient,
     buffer: VecDeque<TaskWorkflow>,
     next_url: Option<String>,
 }
 
 impl WorkflowIterator {
-    fn new(client: Client, host: String, token: Token) -> Result<Self> {
-        let initial_url = format!(
-            "{}/api/environments/{}/task_workflows/?limit={}",
-            host, token.env_id, BUFFER_SIZE
-        );
+    fn new(client: PHClient) -> Result<Self> {
+        let initial_url = format!("task_workflows/?limit={}", BUFFER_SIZE);
 
         let response = client
             .get(&initial_url)
-            .header("Authorization", format!("Bearer {}", token.token))
             .send()
             .context("Failed to send request")?;
 
         if !response.status().is_success() {
             // Return empty iterator on error, don't fail
             return Ok(Self {
-                client,
-                token,
+                client: client.clone(),
                 buffer: VecDeque::new(),
                 next_url: None,
             });
@@ -121,7 +107,6 @@ impl WorkflowIterator {
 
         Ok(Self {
             client,
-            token,
             buffer,
             next_url: workflow_response.next,
         })
@@ -137,7 +122,6 @@ impl WorkflowIterator {
         let response = self
             .client
             .get(&url)
-            .header("Authorization", format!("Bearer {}", self.token.token))
             .send()
             .context("Failed to send request")?;
 
@@ -175,8 +159,8 @@ impl Iterator for WorkflowIterator {
     }
 }
 
-pub fn fetch_workflows(client: Client, host: String, token: Token) -> Result<WorkflowIterator> {
-    WorkflowIterator::new(client, host, token)
+pub fn fetch_workflows(client: PHClient) -> Result<WorkflowIterator> {
+    WorkflowIterator::new(client)
 }
 
 #[derive(serde::Deserialize)]
@@ -186,29 +170,19 @@ struct StageListResponse {
 }
 
 pub struct StageIterator {
-    client: Client,
-    token: Token,
+    client: PHClient,
     buffer: VecDeque<WorkflowStage>,
     next_url: Option<String>,
 }
 
 impl StageIterator {
-    fn new(client: Client, host: String, token: Token) -> Result<Self> {
-        let initial_url = format!(
-            "{}/api/environments/{}/workflow_stages/?limit={}",
-            host, token.env_id, BUFFER_SIZE
-        );
-
-        let response = client
-            .get(&initial_url)
-            .header("Authorization", format!("Bearer {}", token.token))
-            .send()
-            .context("Failed to send request")?;
+    fn new(client: PHClient) -> Result<Self> {
+        let path = format!("workflow_stages/?limit={}", BUFFER_SIZE);
+        let response = client.get(&path).send().context("Failed to send request")?;
 
         if !response.status().is_success() {
             return Ok(Self {
                 client,
-                token,
                 buffer: VecDeque::new(),
                 next_url: None,
             });
@@ -223,7 +197,6 @@ impl StageIterator {
 
         Ok(Self {
             client,
-            token,
             buffer,
             next_url: stage_response.next,
         })
@@ -239,7 +212,6 @@ impl StageIterator {
         let response = self
             .client
             .get(&url)
-            .header("Authorization", format!("Bearer {}", self.token.token))
             .send()
             .context("Failed to send request")?;
 
@@ -277,6 +249,6 @@ impl Iterator for StageIterator {
     }
 }
 
-pub fn fetch_stages(client: Client, host: String, token: Token) -> Result<StageIterator> {
-    StageIterator::new(client, host, token)
+pub fn fetch_stages(client: PHClient) -> Result<StageIterator> {
+    StageIterator::new(client)
 }

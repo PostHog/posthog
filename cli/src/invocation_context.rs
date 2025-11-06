@@ -1,4 +1,8 @@
 use anyhow::Result;
+use inquire::{
+    validator::{ErrorMessage, Validation},
+    CustomUserError,
+};
 use posthog_rs::Event;
 use reqwest::blocking::Client;
 use std::{
@@ -7,14 +11,17 @@ use std::{
 };
 use tracing::{debug, info, warn};
 
-use crate::utils::auth::{get_token, Token};
+use crate::{
+    api::client::PHClient,
+    utils::auth::{env_id_validator, get_token, host_validator, token_validator},
+};
 
 // I've decided in my infinite wisdom that global state is fine, actually.
 pub static INVOCATION_CONTEXT: OnceLock<InvocationContext> = OnceLock::new();
 
 pub struct InvocationContext {
-    pub token: Token,
-    pub client: Client,
+    pub config: InvocationConfig,
+    pub client: PHClient,
 
     handles: Mutex<Vec<JoinHandle<()>>>,
 }
@@ -24,17 +31,19 @@ pub fn context() -> &'static InvocationContext {
 }
 
 pub fn init_context(host: Option<String>, skip_ssl: bool) -> Result<()> {
-    let mut token = get_token()?;
-    if let Some(host) = host {
-        // If the user passed a host, respect it
-        token.host = Some(host);
-    }
+    let token = get_token()?;
+    let config = InvocationConfig {
+        api_key: token.token.clone(),
+        host: host.unwrap_or(token.host.unwrap_or("https://us.i.posthog.com".into())),
+        env_id: token.env_id.clone(),
+        skip_ssl,
+    };
 
-    let client = reqwest::blocking::Client::builder()
-        .danger_accept_invalid_certs(skip_ssl)
-        .build()?;
+    config.validate()?;
 
-    INVOCATION_CONTEXT.get_or_init(|| InvocationContext::new(token, client));
+    let client: PHClient = PHClient::from_config(config.clone())?;
+
+    INVOCATION_CONTEXT.get_or_init(|| InvocationContext::new(config, client));
 
     // This is pulled at compile time, not runtime - we set it at build.
     if let Some(token) = option_env!("POSTHOG_API_TOKEN") {
@@ -51,17 +60,53 @@ pub fn init_context(host: Option<String>, skip_ssl: bool) -> Result<()> {
     Ok(())
 }
 
+#[derive(Clone)]
+pub struct InvocationConfig {
+    pub api_key: String,
+    pub host: String,
+    pub env_id: String,
+    pub skip_ssl: bool,
+}
+
+impl InvocationConfig {
+    pub fn validate(&self) -> Result<()> {
+        fn handle_validation(
+            validation: Result<Validation, CustomUserError>,
+            context: &str,
+        ) -> Result<()> {
+            let validation =
+                validation.map_err(|err| anyhow::anyhow!("Invalid Personal API key: {}", err))?;
+            if let Validation::Invalid(ErrorMessage::Custom(msg)) = validation {
+                anyhow::bail!("{context}: {msg:?}");
+            }
+            Ok(())
+        }
+
+        handle_validation(token_validator(&self.api_key), "Invalid Personal API key")?;
+        handle_validation(host_validator(&self.host), "Invalid Host")?;
+        handle_validation(env_id_validator(&self.env_id), "Invalid Environment ID")?;
+        Ok(())
+    }
+}
+
 impl InvocationContext {
-    pub fn new(token: Token, client: Client) -> Self {
+    pub fn new(config: InvocationConfig, client: PHClient) -> Self {
         Self {
-            token,
+            config,
             client,
             handles: Default::default(),
         }
     }
 
+    pub fn build_http_client(&self) -> Result<Client> {
+        let client = Client::builder()
+            .danger_accept_invalid_certs(self.config.skip_ssl)
+            .build()?;
+        Ok(client)
+    }
+
     pub fn capture_command_invoked(&self, command: &str) {
-        let env_id = &self.token.env_id;
+        let env_id = self.client.get_env_id();
         let event_name = "posthog cli command run".to_string();
         let mut event = Event::new_anon(event_name);
 
