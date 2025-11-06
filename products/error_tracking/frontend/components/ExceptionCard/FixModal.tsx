@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonButton, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
@@ -9,23 +9,7 @@ import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { formatResolvedName, formatType } from 'lib/components/Errors/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-type FixMode = 'explain' | 'fix'
-
-const fixModalLogic = kea([
-    path(['products', 'error_tracking', 'frontend', 'components', 'ExceptionCard', 'fixModalLogic']),
-    actions(() => ({
-        setMode: (mode: any) => ({ mode }),
-    })),
-    reducers(() => ({
-        mode: [
-            'fix' as FixMode,
-            { persist: true },
-            {
-                setMode: (_, { mode }: any) => mode,
-            },
-        ],
-    })),
-])
+import { fixModalLogic } from './fixModalLogic'
 
 interface FixModalProps {
     isOpen: boolean
