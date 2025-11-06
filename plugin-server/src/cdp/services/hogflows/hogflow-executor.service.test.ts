@@ -17,7 +17,7 @@ import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
-import { HogFlowExecutorService } from './hogflow-executor.service'
+import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 
 // Mock before importing fetch
@@ -1072,6 +1072,62 @@ describe('Hogflow Executor', () => {
                     distinct_id: 'user2',
                     properties: { user: 'User2', value: 'value2' },
                 })
+            })
+        })
+    })
+
+    describe('variable merging', () => {
+        it('merges default and provided variables correctly', () => {
+            const hogFlow: HogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: {},
+                            },
+                        },
+
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                })
+                .build()
+
+            // Set variables directly with required fields
+            hogFlow.variables = [
+                { key: 'foo', default: 'bar', type: 'string', label: 'foo' },
+                { key: 'baz', default: 123, type: 'number', label: 'baz' },
+                { key: 'overrideMe', default: 'defaultValue', type: 'string', label: 'overrideMe' },
+            ]
+
+            const globals = {
+                event: {
+                    event: 'test',
+                    properties: {},
+                    url: '',
+                    distinct_id: '',
+                    timestamp: '',
+                    uuid: '',
+                    elements_chain: '',
+                },
+                project: { id: 1, name: 'Test Project', url: '' },
+                person: { id: 'person_id', name: '', properties: {}, url: '' },
+                variables: {
+                    overrideMe: 'customValue',
+                    extra: 'shouldBeIncluded',
+                },
+            }
+            const invocation = createHogFlowInvocation(globals, hogFlow, {} as any)
+            expect(invocation.state.variables).toEqual({
+                foo: 'bar',
+                baz: 123,
+                overrideMe: 'customValue',
+                extra: 'shouldBeIncluded',
             })
         })
     })

@@ -89,13 +89,6 @@ class DashboardCreationNode(AssistantNode):
     def _get_found_insight_count(self, queries_metadata: dict[str, QueryMetadata]) -> int:
         return sum(len(query.found_insight_ids) for query in queries_metadata.values())
 
-    def _dispatch_update_message(self, content: str) -> None:
-        self.dispatcher.message(
-            AssistantMessage(
-                content=content,
-            )
-        )
-
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         dashboard_name = (
             state.dashboard_name[:50] if state.dashboard_name else "Analytics Dashboard"
@@ -117,18 +110,18 @@ class DashboardCreationNode(AssistantNode):
                 for i, query in enumerate(state.search_insights_queries)
             }
 
-            self._dispatch_update_message(f"Searching for {pluralize(len(state.search_insights_queries), 'insight')}")
+            self.dispatcher.update(f"Searching for {pluralize(len(state.search_insights_queries), 'insight')}")
 
             result = await self._search_insights(result, config)
 
-            self._dispatch_update_message(f"Found {pluralize(self._get_found_insight_count(result), 'insight')}")
+            self.dispatcher.update(f"Found {pluralize(self._get_found_insight_count(result), 'insight')}")
 
             left_to_create = {
                 query_id: result[query_id].query for query_id in result.keys() if not result[query_id].found_insight_ids
             }
 
             if left_to_create:
-                self._dispatch_update_message(f"Will create {pluralize(len(left_to_create), 'insight')}")
+                self.dispatcher.update(f"Will create {pluralize(len(left_to_create), 'insight')}")
 
                 result = await self._create_insights(left_to_create, result, config)
 
@@ -187,9 +180,7 @@ class DashboardCreationNode(AssistantNode):
         message = AssistantMessage(content="", id=str(uuid4()), tool_calls=tool_calls)
 
         executor = DashboardCreationExecutorNode(self._team, self._user)
-        result = await executor.arun(
-            AssistantState(messages=[message], root_tool_call_id=self._parent_tool_call_id), config
-        )
+        result = await executor.arun(AssistantState(messages=[message], root_tool_call_id=self.tool_call_id), config)
 
         query_metadata = await self._process_insight_creation_results(tool_calls, result.task_results, query_metadata)
 
@@ -211,9 +202,7 @@ class DashboardCreationNode(AssistantNode):
         message = AssistantMessage(content="", id=str(uuid4()), tool_calls=tool_calls)
 
         executor = DashboardCreationExecutorNode(self._team, self._user)
-        result = await executor.arun(
-            AssistantState(messages=[message], root_tool_call_id=self._parent_tool_call_id), config
-        )
+        result = await executor.arun(AssistantState(messages=[message], root_tool_call_id=self.tool_call_id), config)
         final_task_executor_state = BaseStateWithTasks.model_validate(result)
 
         for task_result in final_task_executor_state.task_results:
@@ -307,7 +296,7 @@ class DashboardCreationNode(AssistantNode):
         self, dashboard_name: str, insights: set[int], dashboard_id: int | None = None
     ) -> tuple[Dashboard, list[Insight]]:
         """Create a dashboard and add the insights to it."""
-        self._dispatch_update_message("Saving your dashboard")
+        self.dispatcher.update("Saving your dashboard")
 
         @database_sync_to_async
         @transaction.atomic

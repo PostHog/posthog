@@ -8,7 +8,7 @@ from braintrust import EvalCase
 from posthog.schema import HumanMessage, VisualizationMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph import AssistantGraph
+from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
@@ -84,16 +84,7 @@ def call_insight_search(demo_org_team_user):
     graph = (
         AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-        .add_root(
-            {
-                "insights": AssistantNodeName.END,
-                "search_documentation": AssistantNodeName.END,
-                "root": AssistantNodeName.END,
-                "end": AssistantNodeName.END,
-                "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
-            }
-        )
-        .add_insights_search()
+        .add_root()
         .compile(checkpointer=DjangoCheckpointer())
     )
 
