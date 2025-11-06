@@ -59,7 +59,7 @@ jobs:
                       project: vznmbshh6q
                     - image: kafka-sidecar
                       dockerfile: ./rust/Dockerfile
-                      project: t8z3sbdjpn
+                      project: vznmbshh6q
         runs-on: depot-ubuntu-22.04
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
