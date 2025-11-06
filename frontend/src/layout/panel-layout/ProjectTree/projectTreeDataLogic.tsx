@@ -61,14 +61,21 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     actions({
         loadUnfiledItems: true,
 
-        loadFolder: (folder: string) => ({ folder }),
+        loadFolder: (folder: string, forceReload: boolean = false) => ({ folder, forceReload }),
         loadFolderIfNotLoaded: (folderId: string) => ({ folderId }),
-        loadFolderStart: (folder: string) => ({ folder }),
-        loadFolderSuccess: (folder: string, entries: FileSystemEntry[], hasMore: boolean, offsetIncrease: number) => ({
+        loadFolderStart: (folder: string, forceReload: boolean = false) => ({ folder, forceReload }),
+        loadFolderSuccess: (
+            folder: string,
+            entries: FileSystemEntry[],
+            hasMore: boolean,
+            offsetIncrease: number,
+            forceReload: boolean = false
+        ) => ({
             folder,
             entries,
             hasMore,
             offsetIncrease,
+            forceReload,
         }),
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
 
@@ -242,9 +249,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                     ? deletionSummary
                                           .map((entry) => {
                                               const refLabel = entry.ref ? ` ${entry.ref}` : ''
-                                              const modeLabel = entry.mode === 'soft' ? 'soft delete' : 'hard delete'
-                                              const undoLabel = entry.undo ? ` Undo: ${entry.undo}` : ''
-                                              return `Deleted ${entry.type}${refLabel} (${modeLabel}).${undoLabel ? ` ${undoLabel}` : ''}`
+                                              const humanType = (entry.type ?? 'item').replace(/_/g, ' ')
+                                              return `Deleted ${humanType}${refLabel}.`
                                           })
                                           .join(' ')
                                           .trim()
@@ -267,11 +273,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                                   )
                                                   const foldersToReload = new Set(
                                                       undoableEntries.map((entry) =>
-                                                          joinPath(splitPath(entry.path).slice(0, -1))
+                                                          joinPath(splitPath(entry.path || '').slice(0, -1))
                                                       )
                                                   )
                                                   for (const folder of foldersToReload) {
-                                                      actions.loadFolder(folder)
+                                                      actions.loadFolder(folder, true)
                                                       if (folder) {
                                                           projectTreeLogic
                                                               .findMounted({ key: projectTreeLogicKey })
@@ -420,8 +426,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         folderLoadOffset: [
             {} as Record<string, number>,
             {
-                loadFolderSuccess: (state, { folder, offsetIncrease }) => {
-                    return { ...state, [folder]: offsetIncrease + (state[folder] ?? 0) }
+                loadFolderSuccess: (state, { folder, offsetIncrease, forceReload }) => {
+                    const previousOffset = forceReload ? 0 : (state[folder] ?? 0)
+                    return { ...state, [folder]: previousOffset + offsetIncrease }
                 },
             },
         ],
@@ -805,15 +812,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        loadFolder: async ({ folder }) => {
+        loadFolder: async ({ folder, forceReload }) => {
             const currentState = values.folderStates[folder]
-            if (currentState === 'loading' || currentState === 'loaded') {
+            if (!forceReload && (currentState === 'loading' || currentState === 'loaded')) {
                 return
             }
-            actions.loadFolderStart(folder)
+            actions.loadFolderStart(folder, forceReload)
             try {
-                const previousFiles = values.folders[folder] || []
-                const offset = values.folderLoadOffset[folder] ?? 0
+                const previousFiles = forceReload ? [] : values.folders[folder] || []
+                const offset = forceReload ? 0 : (values.folderLoadOffset[folder] ?? 0)
                 const response = await api.fileSystem.list({
                     parent: folder,
                     depth: splitPath(folder).length + 1,
@@ -828,13 +835,19 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     hasMore = true
                 }
                 const fileIds = new Set(files.map((file) => file.id))
-                const previousUniqueFiles = previousFiles.filter(
-                    (prevFile) => !fileIds.has(prevFile.id) && prevFile.path !== folder
-                )
+                const previousUniqueFiles = forceReload
+                    ? []
+                    : previousFiles.filter((prevFile) => !fileIds.has(prevFile.id) && prevFile.path !== folder)
                 if (response.users?.length > 0) {
                     actions.addLoadedUsers(response.users)
                 }
-                actions.loadFolderSuccess(folder, [...previousUniqueFiles, ...files], hasMore, files.length)
+                actions.loadFolderSuccess(
+                    folder,
+                    [...previousUniqueFiles, ...files],
+                    hasMore,
+                    files.length,
+                    !!forceReload
+                )
             } catch (error) {
                 actions.loadFolderFailure(folder, String(error))
             }
