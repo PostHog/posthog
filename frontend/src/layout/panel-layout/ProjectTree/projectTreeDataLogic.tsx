@@ -9,7 +9,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
@@ -225,9 +225,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             const response = await api.fileSystem.count(action.item.id)
                             actions.removeQueuedAction(action)
                             if (response && response.count > DELETE_ALERT_LIMIT) {
-                                const confirmMessage = `Delete the folder "${splitPath(
-                                    action.item.path
-                                ).pop()}" and move ${response.count} items back into "Unfiled"?`
+                                const folderName =
+                                    splitPath(action.item.path).pop() ?? action.item.path ?? 'this folder'
+                                const confirmMessage = `Delete the folder "${folderName}" and delete its ${pluralize(
+                                    response.count,
+                                    'item'
+                                )}?`
                                 if (!confirm(confirmMessage)) {
                                     return false
                                 }
@@ -244,16 +247,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             actions.removeQueuedAction(action)
                             actions.deleteSavedItem(action.item)
                             const deletionSummary = deletionResult?.deleted ?? []
+                            const countsByType = new Map<string, number>()
+                            for (const entry of deletionSummary) {
+                                countsByType.set(entry.type, (countsByType.get(entry.type) ?? 0) + 1)
+                            }
+                            const summaryParts = Array.from(countsByType.entries()).map(([type, count]) =>
+                                pluralize(count, identifierToHuman(type).toLowerCase(), undefined, count !== 1)
+                            )
                             const message =
-                                deletionSummary.length > 0
-                                    ? deletionSummary
-                                          .map((entry) => {
-                                              const refLabel = entry.ref ? ` ${entry.ref}` : ''
-                                              const humanType = (entry.type ?? 'item').replace(/_/g, ' ')
-                                              return `Deleted ${humanType}${refLabel}.`
-                                          })
-                                          .join(' ')
-                                          .trim()
+                                summaryParts.length > 0
+                                    ? `Deleted ${humanList(summaryParts)}.`
                                     : 'Item deleted successfully'
                             const undoableEntries = deletionSummary.filter(
                                 (entry) => entry.can_undo && Boolean(entry.ref)
@@ -284,7 +287,27 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                                               ?.actions.expandProjectFolder(folder)
                                                       }
                                                   }
-                                                  lemonToast.success('Items restored')
+                                                  const restoreCountsByType = new Map<string, number>()
+                                                  for (const entry of undoableEntries) {
+                                                      restoreCountsByType.set(
+                                                          entry.type,
+                                                          (restoreCountsByType.get(entry.type) ?? 0) + 1
+                                                      )
+                                                  }
+                                                  const restoreParts = Array.from(restoreCountsByType.entries()).map(
+                                                      ([type, count]) =>
+                                                          pluralize(
+                                                              count,
+                                                              identifierToHuman(type).toLowerCase(),
+                                                              undefined,
+                                                              count !== 1
+                                                          )
+                                                  )
+                                                  const restoreMessage =
+                                                      restoreParts.length > 0
+                                                          ? `Restored ${humanList(restoreParts)}.`
+                                                          : 'Item restored.'
+                                                  lemonToast.success(restoreMessage)
                                               } catch (undoError) {
                                                   console.error('Error undoing delete:', undoError)
                                                   lemonToast.error(`Error undoing delete: ${undoError}`)

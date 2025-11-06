@@ -67,6 +67,7 @@ export function MenuItems({
     const {
         createFolder,
         deleteItem,
+        deleteCheckedItems,
         onItemChecked,
         moveCheckedItems,
         linkCheckedItems,
@@ -77,6 +78,8 @@ export function MenuItems({
     const { openLinkToModal } = useActions(linkToLogic)
 
     const { resetPanelLayout } = useActions(panelLayoutLogic)
+
+    const shouldDeleteCheckedItems = checkedItemCountNumeric > 1 && checkedItems[item.id]
 
     const MenuItem = type === 'context' ? ContextMenuItem : DropdownMenuItem
     const MenuSeparator = type === 'context' ? ContextMenuSeparator : DropdownMenuSeparator
@@ -319,7 +322,11 @@ export function MenuItems({
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
+                        if (shouldDeleteCheckedItems) {
+                            deleteCheckedItems()
+                        } else {
+                            deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
+                        }
                     }}
                     data-attr="tree-item-menu-delete-shortcut-button"
                 >
@@ -332,7 +339,11 @@ export function MenuItems({
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
+                        if (shouldDeleteCheckedItems) {
+                            deleteCheckedItems()
+                        } else {
+                            deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
+                        }
                     }}
                     data-attr="tree-item-menu-delete-folder-button"
                 >
@@ -343,7 +354,11 @@ export function MenuItems({
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
+                        if (shouldDeleteCheckedItems) {
+                            deleteCheckedItems()
+                        } else {
+                            deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
+                        }
                     }}
                     data-attr="tree-item-menu-delete-item-button"
                 >
