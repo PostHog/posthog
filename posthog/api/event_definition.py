@@ -192,7 +192,7 @@ class EventDefinitionViewSet(
                 if tags_list:
                     # Convert raw queryset to regular queryset for filtering
                     ids = [obj.id for obj in queryset]
-                    queryset = event_definition_object_manager.filter(
+                    queryset = event_definition_object_manager.filter(  # type: ignore[assignment]
                         id__in=ids, tagged_items__tag__name__in=tags_list
                     ).distinct()
             except (orjson.JSONDecodeError, TypeError):
