@@ -258,3 +258,119 @@ class TestFileSystemLogViewEndpoint(APIBaseTest):
         assert [entry["ref"] for entry in payload] == ["Second", "First"]
         assert all(entry["type"] == "scene" for entry in payload)
         assert all("viewed_at" in entry for entry in payload)
+
+
+class TestFileSystemDeletion(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        _ensure_session_cookie(self.client)
+
+    def test_deleting_last_copy_soft_deletes_feature_flag(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="delete-flag", created_by=self.user)
+        file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/file_system/{file_entry.id}/",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["deleted"][0]["mode"] == "soft"
+        assert payload["deleted"][0]["type"] == "feature_flag"
+        assert payload["deleted"][0]["can_undo"] is True
+        assert payload["deleted"][0]["path"] == file_entry.path
+
+        flag.refresh_from_db()
+        assert flag.deleted is True
+
+    def test_deleting_non_last_copy_only_removes_entry(self) -> None:
+        action = Action.objects.create(team=self.team, name="Delete action", created_by=self.user)
+        primary_entry = FileSystem.objects.get(team=self.team, type="action", ref=str(action.id))
+        duplicate_entry = FileSystem.objects.create(
+            team=self.team,
+            path="Unfiled/Actions/Extra copy",
+            depth=3,
+            type="action",
+            ref=str(action.id),
+            shortcut=False,
+            created_by=self.user,
+        )
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/file_system/{duplicate_entry.id}/",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert FileSystem.objects.filter(team=self.team, type="action", ref=str(action.id)).count() == 1
+        action.refresh_from_db()
+        assert action.deleted is False
+        assert FileSystem.objects.filter(id=primary_entry.id).exists()
+
+    def test_deleting_unknown_type_raises_error(self) -> None:
+        entry = FileSystem.objects.create(
+            team=self.team,
+            path="Unfiled/Unknown/Item",
+            depth=3,
+            type="unknown_type",
+            ref="mystery",
+            shortcut=False,
+            created_by=self.user,
+        )
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/file_system/{entry.id}/",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert FileSystem.objects.filter(id=entry.id).exists()
+
+    def test_deleting_folder_with_unknown_type_aborts(self) -> None:
+        folder = FileSystem.objects.create(
+            team=self.team,
+            path="Unfiled/Unknown",
+            depth=2,
+            type="folder",
+            ref=None,
+            shortcut=False,
+            created_by=self.user,
+        )
+        FileSystem.objects.create(
+            team=self.team,
+            path="Unfiled/Unknown/Item",
+            depth=3,
+            type="unknown_type",
+            ref="mystery",
+            shortcut=False,
+            created_by=self.user,
+        )
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/file_system/{folder.id}/",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert FileSystem.objects.filter(team=self.team, path="Unfiled/Unknown/Item").exists()
+
+    def test_undo_delete_restores_feature_flag(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="undo-flag", created_by=self.user)
+        file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
+
+        delete_response = self.client.delete(
+            f"/api/environments/{self.team.id}/file_system/{file_entry.id}/",
+        )
+
+        assert delete_response.status_code == status.HTTP_200_OK
+        flag.refresh_from_db()
+        assert flag.deleted is True
+        assert flag.active is False
+
+        undo_response = self.client.post(
+            f"/api/environments/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "feature_flag", "ref": str(flag.id)}]},
+        )
+
+        assert undo_response.status_code == status.HTTP_200_OK
+        flag.refresh_from_db()
+        assert flag.deleted is False
+        assert flag.active is True
+        assert FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).exists()

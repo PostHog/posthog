@@ -338,6 +338,17 @@ export function MenuItems({
                 >
                     <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
                 </MenuItem>
+            ) : item.record?.path && (item.id.startsWith('project/') || item.id.startsWith('project://')) ? (
+                <MenuItem
+                    asChild
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
+                    }}
+                    data-attr="tree-item-menu-delete-item-button"
+                >
+                    <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
+                </MenuItem>
             ) : root === 'persons://' && item.record?.category === 'Groups' && item.record?.href ? (
                 <MenuItem
                     asChild

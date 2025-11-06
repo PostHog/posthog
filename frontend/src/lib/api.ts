@@ -106,6 +106,7 @@ import {
     ExternalDataSourceSyncSchema,
     FeatureFlagStatusResponse,
     FeatureFlagType,
+    FileSystemDeleteResponse,
     GoogleAdsConversionActionType,
     Group,
     GroupListParams,
@@ -513,6 +514,10 @@ export class ApiRequest {
 
     public fileSystemCount(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id).addPathComponent('count')
+    }
+
+    public fileSystemUndoDelete(teamId?: TeamType['id']): ApiRequest {
+        return this.fileSystem(teamId).addPathComponent('undo_delete')
     }
 
     public fileSystemShortcut(teamId?: TeamType['id']): ApiRequest {
@@ -1832,8 +1837,22 @@ const api = {
         async update(id: NonNullable<FileSystemEntry['id']>, data: Partial<FileSystemEntry>): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemDetail(id).update({ data })
         },
-        async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemEntry> {
-            return await new ApiRequest().fileSystemDetail(id).delete()
+        async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemDeleteResponse | null> {
+            const response = await new ApiRequest().fileSystemDetail(id).delete()
+
+            if (typeof Response !== 'undefined' && response instanceof Response) {
+                if (response.status === 204) {
+                    return null
+                }
+
+                try {
+                    return (await response.clone().json()) as FileSystemDeleteResponse
+                } catch {
+                    return null
+                }
+            }
+
+            return (response as FileSystemDeleteResponse) ?? null
         },
         async move(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemMove(id).create({ data: { new_path: newPath } })
@@ -1843,6 +1862,9 @@ const api = {
         },
         async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
             return await new ApiRequest().fileSystemCount(id).create()
+        },
+        async undoDelete(items: { type: string; ref: string }[]): Promise<void> {
+            await new ApiRequest().fileSystemUndoDelete().create({ data: { items } })
         },
     },
 

@@ -1,6 +1,8 @@
 import re
 import shlex
-from typing import Any, Optional, cast
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, Literal, Optional, cast
 
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
@@ -14,15 +16,300 @@ from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.models.action.action import Action
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
+from posthog.models.cohort import Cohort
+from posthog.models.dashboard import Dashboard
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog, annotate_file_system_with_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
+from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.insight import Insight
+from posthog.models.link import Link
+from posthog.models.surveys.survey import Survey
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+
+from products.early_access_features.backend.models import EarlyAccessFeature
+from products.notebooks.backend.models import Notebook
 
 HOG_FUNCTION_TYPES = ["broadcast", "campaign", "destination", "site_app", "source", "transformation"]
+
+
+@dataclass(frozen=True)
+class DeleteHandler:
+    delete: Callable[["FileSystemViewSet", FileSystem], None]
+    mode: Literal["soft", "hard"]
+    undo: str
+    restore: Optional[Callable[["FileSystemViewSet", dict[str, Any]], None]] = None
+
+
+def _soft_delete(instance: Any, *, field: str = "deleted", extra_updates: Optional[dict[str, Any]] = None) -> None:
+    update_fields: list[str] = []
+    if extra_updates:
+        for attr, value in extra_updates.items():
+            if getattr(instance, attr) != value:
+                setattr(instance, attr, value)
+                update_fields.append(attr)
+    if getattr(instance, field) is not True:
+        setattr(instance, field, True)
+        update_fields.append(field)
+    if update_fields:
+        instance.save(update_fields=update_fields)
+    else:
+        # Ensure post_save triggers even if nothing changed
+        instance.save()
+
+
+def _restore_soft_delete(
+    instance: Any,
+    *,
+    field: str = "deleted",
+    extra_updates: Optional[dict[str, Any]] = None,
+) -> None:
+    update_fields: list[str] = []
+    if getattr(instance, field) is not False:
+        setattr(instance, field, False)
+        update_fields.append(field)
+    if extra_updates:
+        for attr, value in extra_updates.items():
+            if getattr(instance, attr) != value:
+                setattr(instance, attr, value)
+                update_fields.append(attr)
+    if update_fields:
+        instance.save(update_fields=update_fields)
+    else:
+        instance.save()
+
+
+def _delete_action(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
+    action = Action.objects.get(team=entry.team, id=entry.ref)
+    _soft_delete(action)
+
+
+def _restore_action(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+    action = Action.objects.get(team=viewset.team, id=payload["ref"])
+    _restore_soft_delete(action)
+
+
+def _delete_dashboard(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
+    dashboard = Dashboard.objects_including_soft_deleted.get(team=entry.team, id=entry.ref)
+    if dashboard.deleted:
+        dashboard.save(update_fields=["deleted"])
+    else:
+        dashboard.deleted = True
+        dashboard.save(update_fields=["deleted"])
+
+
+def _restore_dashboard(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+    dashboard = Dashboard.objects_including_soft_deleted.get(team=viewset.team, id=payload["ref"])
+    _restore_soft_delete(dashboard)
+
+
+def _delete_feature_flag(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
+    flag = FeatureFlag.objects.get(team=entry.team, id=entry.ref)
+    _soft_delete(flag, extra_updates={"active": False})
+
+
+def _restore_feature_flag(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+    flag = FeatureFlag.objects.get(team=viewset.team, id=payload["ref"])
+    _restore_soft_delete(flag, extra_updates={"active": True})
+
+
+def _delete_experiment(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
+    experiment = Experiment.objects.get(team=entry.team, id=entry.ref)
+    _soft_delete(experiment)
+
+
+def _restore_experiment(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+    experiment = Experiment.objects.get(team=viewset.team, id=payload["ref"])
+    _restore_soft_delete(experiment)
+
+
+def _delete_insight(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
+    insight = Insight.objects_including_soft_deleted.get(team=entry.team, short_id=entry.ref)
+    _soft_delete(insight)
+
+
+def _restore_insight(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+    insight = Insight.objects_including_soft_deleted.get(team=viewset.team, short_id=payload["ref"])
+    _restore_soft_delete(insight)
+
+
+def _delete_link(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
+    link = Link.objects.get(team=entry.team, id=entry.ref)
+    link.delete()
+
+
+def _delete_notebook(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
+    notebook = Notebook.objects.get(team=entry.team, short_id=entry.ref)
+    _soft_delete(notebook)
+
+
+def _restore_notebook(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+    notebook = Notebook.objects.get(team=viewset.team, short_id=payload["ref"])
+    _restore_soft_delete(notebook)
+
+
+def _delete_session_recording_playlist(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
+    playlist = SessionRecordingPlaylist.objects.get(team=entry.team, short_id=entry.ref)
+    _soft_delete(playlist)
+
+
+def _restore_session_recording_playlist(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+    playlist = SessionRecordingPlaylist.objects.get(team=viewset.team, short_id=payload["ref"])
+    _restore_soft_delete(playlist)
+
+
+def _delete_cohort(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
+    cohort = Cohort.objects.get(team=entry.team, id=entry.ref)
+    _soft_delete(cohort)
+
+
+def _restore_cohort(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+    cohort = Cohort.objects.get(team=viewset.team, id=payload["ref"])
+    _restore_soft_delete(cohort)
+
+
+def _delete_hog_function(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
+    hog_function = HogFunction.objects.get(team=entry.team, id=entry.ref)
+    _soft_delete(hog_function, extra_updates={"enabled": False})
+
+
+def _restore_hog_function(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+    hog_function = HogFunction.objects.get(team=viewset.team, id=payload["ref"])
+    _restore_soft_delete(hog_function, extra_updates={"enabled": True})
+
+
+def _delete_survey(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
+    survey = Survey.objects.select_related("targeting_flag", "internal_targeting_flag").get(
+        team=entry.team, id=entry.ref
+    )
+    if survey.targeting_flag:
+        survey.targeting_flag.delete()
+    if survey.internal_targeting_flag:
+        survey.internal_targeting_flag.delete()
+
+    if hasattr(viewset, "organization") and viewset.organization:
+        log_activity(
+            organization_id=viewset.organization.id,
+            team_id=viewset.team_id,
+            user=cast(User, viewset.request.user),
+            was_impersonated=is_impersonated_session(viewset.request),
+            item_id=survey.id,
+            scope="Survey",
+            activity="deleted",
+            detail=Detail(name=survey.name),
+        )
+
+    survey.delete()
+
+
+def _delete_early_access_feature(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
+    feature = EarlyAccessFeature.objects.select_related("feature_flag").get(team=entry.team, id=entry.ref)
+    if feature.feature_flag:
+        feature.feature_flag.filters = {
+            **feature.feature_flag.filters,
+            "super_groups": None,
+        }
+        feature.feature_flag.save(update_fields=["filters"])
+    feature.delete()
+
+
+DELETE_HANDLER_MAP: dict[str, DeleteHandler] = {
+    "action": DeleteHandler(
+        delete=_delete_action,
+        mode="soft",
+        undo="Send PATCH /api/projects/@current/actions/{id} with deleted=false.",
+        restore=_restore_action,
+    ),
+    "dashboard": DeleteHandler(
+        delete=_delete_dashboard,
+        mode="soft",
+        undo="Send PATCH /api/projects/@current/dashboards/{id} with deleted=false.",
+        restore=_restore_dashboard,
+    ),
+    "feature_flag": DeleteHandler(
+        delete=_delete_feature_flag,
+        mode="soft",
+        undo="Send PATCH /api/projects/@current/feature_flags/{id} with deleted=false.",
+        restore=_restore_feature_flag,
+    ),
+    "experiment": DeleteHandler(
+        delete=_delete_experiment,
+        mode="soft",
+        undo="Send PATCH /api/projects/@current/experiments/{id} with deleted=false.",
+        restore=_restore_experiment,
+    ),
+    "insight": DeleteHandler(
+        delete=_delete_insight,
+        mode="soft",
+        undo="Send PATCH /api/projects/@current/insights/{id} with deleted=false.",
+        restore=_restore_insight,
+    ),
+    "link": DeleteHandler(
+        delete=_delete_link,
+        mode="hard",
+        undo="Create a new link with the same details.",
+    ),
+    "notebook": DeleteHandler(
+        delete=_delete_notebook,
+        mode="soft",
+        undo="Send PATCH /api/projects/@current/notebooks/{id} with deleted=false.",
+        restore=_restore_notebook,
+    ),
+    "session_recording_playlist": DeleteHandler(
+        delete=_delete_session_recording_playlist,
+        mode="soft",
+        undo="Send PATCH /api/projects/@current/session_recordings/playlists/{id} with deleted=false.",
+        restore=_restore_session_recording_playlist,
+    ),
+    "cohort": DeleteHandler(
+        delete=_delete_cohort,
+        mode="soft",
+        undo="Send PATCH /api/projects/@current/cohorts/{id} with deleted=false.",
+        restore=_restore_cohort,
+    ),
+    "survey": DeleteHandler(
+        delete=_delete_survey,
+        mode="hard",
+        undo="Create a new survey using the saved configuration.",
+    ),
+    "early_access_feature": DeleteHandler(
+        delete=_delete_early_access_feature,
+        mode="hard",
+        undo="Recreate the early access feature and reapply any filters.",
+    ),
+}
+
+PREFIX_DELETE_HANDLERS: list[tuple[str, DeleteHandler]] = [
+    (
+        "hog_function/",
+        DeleteHandler(
+            delete=_delete_hog_function,
+            mode="soft",
+            undo="Send PATCH /api/projects/@current/hog_functions/{id} with deleted=false.",
+            restore=_restore_hog_function,
+        ),
+    ),
+]
+
+
+def _get_delete_handler(file_type: str | None) -> DeleteHandler | None:
+    if not file_type:
+        return None
+    handler = DELETE_HANDLER_MAP.get(file_type)
+    if handler:
+        return handler
+    for prefix, prefixed_handler in PREFIX_DELETE_HANDLERS:
+        if file_type.startswith(prefix):
+            return prefixed_handler
+    return None
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
@@ -106,6 +393,15 @@ class FileSystemViewLogSerializer(serializers.Serializer):
 class FileSystemViewLogListQuerySerializer(serializers.Serializer):
     type = serializers.CharField(required=False, allow_blank=True)
     limit = serializers.IntegerField(required=False, min_value=1)
+
+
+class UndoDeleteItemSerializer(serializers.Serializer):
+    type = serializers.CharField()
+    ref = serializers.CharField()
+
+
+class UndoDeleteRequestSerializer(serializers.Serializer):
+    items = UndoDeleteItemSerializer(many=True)
 
 
 def tokenize_search(search: str) -> list[str]:
@@ -368,26 +664,146 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response
 
+    def _ensure_can_delete(self, entry: FileSystem) -> None:
+        stack: list[FileSystem] = [entry]
+        seen: set[str] = set()
+        entries_to_check: list[FileSystem] = []
+
+        while stack:
+            current = stack.pop()
+            key = f"{current.id}"
+            if key in seen:
+                continue
+            seen.add(key)
+
+            if current.shortcut:
+                continue
+
+            if current.type == "folder":
+                descendants = FileSystem.objects.filter(path__startswith=f"{current.path}/")
+                descendants = self._scope_by_project_and_environment(descendants)
+                if self.user_access_control:
+                    descendants = self.user_access_control.filter_and_annotate_file_system_queryset(descendants)
+                stack.extend(descendants)
+                continue
+
+            entries_to_check.append(current)
+
+        if not entries_to_check:
+            return None
+
+        ids_to_remove = [entry.id for entry in entries_to_check]
+
+        for current in entries_to_check:
+            remaining = (
+                FileSystem.objects.filter(team=current.team, type=current.type, ref=current.ref, shortcut=False)
+                .exclude(id__in=ids_to_remove)
+                .count()
+            )
+
+            if remaining == 0:
+                if not current.ref:
+                    raise serializers.ValidationError(
+                        {"detail": f"Cannot delete type '{current.type}' without a reference."}
+                    )
+                handler = _get_delete_handler(current.type)
+                if handler is None:
+                    raise serializers.ValidationError(
+                        {"detail": f"Deletion for type '{current.type}' is not supported."}
+                    )
+
+        return None
+
+    def _delete_file_system_entry(self, entry: FileSystem) -> list[dict[str, Any]]:
+        deleted_objects: list[dict[str, Any]] = []
+
+        if entry.shortcut:
+            entry.delete()
+            return deleted_objects
+
+        if entry.type == "folder":
+            descendants = FileSystem.objects.filter(path__startswith=f"{entry.path}/")
+            descendants = self._scope_by_project_and_environment(descendants)
+            if self.user_access_control:
+                descendants = self.user_access_control.filter_and_annotate_file_system_queryset(descendants)
+            for child in descendants.order_by("depth", "path"):
+                deleted_objects.extend(self._delete_file_system_entry(child))
+            entry.delete()
+            return deleted_objects
+
+        remaining = (
+            FileSystem.objects.filter(team=entry.team, type=entry.type, ref=entry.ref, shortcut=False)
+            .exclude(id=entry.id)
+            .count()
+        )
+
+        if remaining > 0:
+            entry.delete()
+            return deleted_objects
+
+        handler = _get_delete_handler(entry.type)
+        if handler is None:
+            raise serializers.ValidationError({"detail": f"Deletion for type '{entry.type}' is not supported."})
+
+        if not entry.ref:
+            raise serializers.ValidationError({"detail": f"Cannot delete type '{entry.type}' without a reference."})
+
+        handler.delete(self, entry)
+
+        # Ensure the original FileSystem entry is gone even if signals haven't run yet
+        FileSystem.objects.filter(id=entry.id).delete()
+
+        deleted_objects.append(
+            {
+                "type": entry.type,
+                "ref": entry.ref,
+                "mode": handler.mode,
+                "undo": handler.undo,
+                "path": entry.path,
+                "can_undo": handler.restore is not None,
+            }
+        )
+        return deleted_objects
+
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        original_path = instance.path
+        instance_created_by = instance.created_by
+        instance_team = instance.team
+        deleted_objects: list[dict[str, Any]]
+
+        with transaction.atomic():
+            self._ensure_can_delete(instance)
+            deleted_objects = self._delete_file_system_entry(instance)
+
         if instance.type == "folder":
-            path = instance.path
-            qs = FileSystem.objects.filter(path__startswith=f"{path}/")
-            qs = self._scope_by_project_and_environment(qs)
-            if self.user_access_control:
-                qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
-            with transaction.atomic():
-                qs.delete()
-                instance.delete()
-            # Repair folder tree for items we *didn't* move (hog functions in other teams under the moved folder)
-            leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{path}/"))
+            leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/"))
             first_leftover = leftovers.first()
             if first_leftover:
-                self._assure_parent_folders(first_leftover.path, instance.created_by, first_leftover.team)
-        else:
-            instance.delete()
+                self._assure_parent_folders(first_leftover.path, instance_created_by, instance_team)
+
+        if deleted_objects:
+            return Response({"deleted": deleted_objects}, status=status.HTTP_200_OK)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=["POST"], detail=False)
+    def undo_delete(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = UndoDeleteRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        items = serializer.validated_data["items"]
+        undo_results: list[dict[str, str]] = []
+
+        with transaction.atomic():
+            for item in items:
+                handler = _get_delete_handler(item["type"])
+                if handler is None or handler.restore is None:
+                    raise serializers.ValidationError({"detail": f"Undo for type '{item['type']}' is not supported."})
+                handler.restore(self, item)
+                undo_results.append({"type": item["type"], "ref": item["ref"]})
+
+        return Response({"undone": undo_results}, status=status.HTTP_200_OK)
 
     @action(methods=["GET"], detail=False)
     def unfiled(self, request: Request, *args: Any, **kwargs: Any) -> Response:

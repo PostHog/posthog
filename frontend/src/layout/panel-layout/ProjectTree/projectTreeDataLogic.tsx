@@ -233,10 +233,60 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         }
                     } else if (action.type === 'delete' && action.item.id) {
                         try {
-                            await api.fileSystem.delete(action.item.id)
+                            const deletionResult = await api.fileSystem.delete(action.item.id)
                             actions.removeQueuedAction(action)
                             actions.deleteSavedItem(action.item)
-                            lemonToast.success('Item deleted successfully')
+                            const deletionSummary = deletionResult?.deleted ?? []
+                            const message =
+                                deletionSummary.length > 0
+                                    ? deletionSummary
+                                          .map((entry) => {
+                                              const refLabel = entry.ref ? ` ${entry.ref}` : ''
+                                              const modeLabel = entry.mode === 'soft' ? 'soft delete' : 'hard delete'
+                                              const undoLabel = entry.undo ? ` Undo: ${entry.undo}` : ''
+                                              return `Deleted ${entry.type}${refLabel} (${modeLabel}).${undoLabel ? ` ${undoLabel}` : ''}`
+                                          })
+                                          .join(' ')
+                                          .trim()
+                                    : 'Item deleted successfully'
+                            const undoableEntries = deletionSummary.filter(
+                                (entry) => entry.can_undo && Boolean(entry.ref)
+                            )
+                            lemonToast.success(message, {
+                                button: undoableEntries.length
+                                    ? {
+                                          label: 'Undo',
+                                          dataAttr: 'project-tree-undo-delete',
+                                          action: async () => {
+                                              try {
+                                                  await api.fileSystem.undoDelete(
+                                                      undoableEntries.map((entry) => ({
+                                                          type: entry.type,
+                                                          ref: entry.ref as string,
+                                                      }))
+                                                  )
+                                                  const foldersToReload = new Set(
+                                                      undoableEntries.map((entry) =>
+                                                          joinPath(splitPath(entry.path).slice(0, -1))
+                                                      )
+                                                  )
+                                                  for (const folder of foldersToReload) {
+                                                      actions.loadFolder(folder)
+                                                      if (folder) {
+                                                          projectTreeLogic
+                                                              .findMounted({ key: projectTreeLogicKey })
+                                                              ?.actions.expandProjectFolder(folder)
+                                                      }
+                                                  }
+                                                  lemonToast.success('Items restored')
+                                              } catch (undoError) {
+                                                  console.error('Error undoing delete:', undoError)
+                                                  lemonToast.error(`Error undoing delete: ${undoError}`)
+                                              }
+                                          },
+                                      }
+                                    : undefined,
+                            })
                         } catch (error) {
                             console.error('Error deleting item:', error)
                             lemonToast.error(`Error deleting item: ${error}`)
