@@ -51,6 +51,11 @@ services:
                         path /public/m/*
                     }
 
+                    @hypercache {
+                        path /api/surveys
+                        path /api/surveys/*
+                    }
+
                     handle @capture {
                         reverse_proxy capture:3307
                     }
@@ -64,6 +69,11 @@ services:
                     }
 
                     handle @webhooks {
+                        reverse_proxy plugins:6738
+                    }
+
+                    handle @hypercache {
+                        rewrite * /public/hypercache{uri}
                         reverse_proxy plugins:6738
                     }
 
