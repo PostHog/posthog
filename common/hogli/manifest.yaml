@@ -417,7 +417,19 @@ tools:
         hidden: true
     create:notebook:node:
         bin_script: create-notebook-node.sh
-        description: 'Create a new NotebookNode file and update types and editor references'
+        description: Create a new NotebookNode file and update types and editor references
+        hidden: true
+    copy:posthog:js:
+        bin_script: copy-posthog-js
+        description: 'TODO: add description for copy-posthog-js'
+        hidden: true
+    install:macosx_arm64:
+        bin_script: install-macosx_arm64
+        description: 'TODO: add description for install-macosx_arm64'
+        hidden: true
+    start:cyclotron:
+        bin_script: start-cyclotron
+        description: 'TODO: add description for start-cyclotron'
         hidden: true
 utilities:
     utilities:posthog-worktree:

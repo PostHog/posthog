@@ -112,6 +112,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_threads: Optional[int] = None
     allow_experimental_object_type: Optional[bool] = True
     format_csv_allow_double_quotes: Optional[bool] = False
+    output_format_json_quote_64bit_integers: Optional[bool] = True
     max_ast_elements: Optional[int] = 4_000_000  # default value 50000
     max_expanded_ast_elements: Optional[int] = 4_000_000
     max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
