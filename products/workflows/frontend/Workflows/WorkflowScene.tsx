@@ -10,7 +10,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 
 import { Workflow } from './Workflow'
 import { WorkflowMetrics } from './WorkflowMetrics'
@@ -76,7 +75,6 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     return (
         <SceneContent className="flex flex-col">
             <WorkflowSceneHeader {...props} />
-            <SceneDivider />
             {/* Only show Logs and Metrics tabs if the workflow has already been created */}
             {!props.id || props.id === 'new' ? (
                 <Workflow {...props} />
