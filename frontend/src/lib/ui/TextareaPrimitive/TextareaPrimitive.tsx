@@ -12,17 +12,18 @@ type TextareaPrimitiveProps = TextareaAutosizeProps &
     TextInputBaseProps & {
         error?: boolean
         markdown?: boolean
+        wrapperClassName?: string
     }
 
 export const TextareaPrimitive = forwardRef<HTMLTextAreaElement, TextareaPrimitiveProps>(
-    ({ className, variant, error, markdown = false, ...rest }, ref): JSX.Element => {
+    ({ className, variant, error, markdown = false, wrapperClassName, ...rest }, ref): JSX.Element => {
         // Ensure cursor is at the end of the textarea when it is focused
         function onFocus(e: React.FocusEvent<HTMLTextAreaElement>): void {
             e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)
         }
 
         return (
-            <div className="relative flex flex-col gap-0">
+            <div className={cn('relative flex flex-col gap-0', wrapperClassName)}>
                 <TextareaAutosize
                     ref={ref}
                     onFocus={onFocus}

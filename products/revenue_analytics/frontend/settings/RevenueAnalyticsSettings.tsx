@@ -61,7 +61,6 @@ export function RevenueAnalyticsSettings(): JSX.Element {
                     type: sceneConfigurations[Scene.RevenueAnalytics].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
 
             {managedViewsetsEnabled && (
                 <>

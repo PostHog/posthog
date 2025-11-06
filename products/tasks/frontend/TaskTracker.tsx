@@ -6,7 +6,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { BacklogView } from './components/BacklogView'
@@ -54,19 +54,16 @@ export function TaskTracker(): JSX.Element {
     ]
 
     return (
-        <div className="TaskTracker">
-            <div className="space-y-4">
-                <SceneTitleSection
-                    name={sceneConfigurations[Scene.TaskTracker].name}
-                    description={sceneConfigurations[Scene.TaskTracker].description}
-                    resourceType={{
-                        type: sceneConfigurations[Scene.TaskTracker].iconType || 'default_icon_type',
-                    }}
-                />
-                <SceneDivider />
+        <SceneContent className="TaskTracker">
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.TaskTracker].name}
+                description={sceneConfigurations[Scene.TaskTracker].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.TaskTracker].iconType || 'default_icon_type',
+                }}
+            />
 
-                <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} size="medium" sceneInset />
-            </div>
-        </div>
+            <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} size="medium" sceneInset />
+        </SceneContent>
     )
 }
