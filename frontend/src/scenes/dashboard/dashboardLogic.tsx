@@ -1660,7 +1660,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     action: RefreshDashboardItemsAction.Refresh,
                     forceRefresh: false,
                 })
-            } else if (mode === null && source === DashboardEventSource.DashboardHeaderSaveDashboard) {
+            } else if (
+                mode === null &&
+                (source === DashboardEventSource.DashboardHeaderSaveDashboard ||
+                    (source === DashboardEventSource.Hotkey && values.dashboardMode === DashboardMode.Edit))
+            ) {
                 // save edit mode changes
                 actions.saveEditModeChanges()
             }
