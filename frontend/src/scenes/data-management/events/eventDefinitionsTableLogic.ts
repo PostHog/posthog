@@ -276,10 +276,10 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     selectors(({ cache }) => ({
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
+        // Convert filters to API params
         paramsFromFilters: [
-            (s) => [s.filters, s.eventDefinitionsLoading],
-            // eslint-disable-next-line no-unused-vars
-            (filters: Filters, _eventDefinitionsLoading: boolean): Record<string, any> => {
+            (s) => [s.filters],
+            (filters: Filters) => {
                 const params: Record<string, any> = {
                     search: filters.event,
                     ordering: filters.ordering,
