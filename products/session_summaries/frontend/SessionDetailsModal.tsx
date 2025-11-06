@@ -42,8 +42,12 @@ interface SessionDetailsModalProps {
 }
 
 export function SessionDetailsModal({ isOpen, onClose, event }: SessionDetailsModalProps): JSX.Element {
-    const sessionRecordingId = '019a5952-8c20-7fe7-a254-bfd8fea8a1d3'
     const playerKey = 'session-details-modal'
+    const sessionRecordingId = event.target_event.session_id
+    // Raise error if recording id is not found
+    if (!sessionRecordingId) {
+        throw new Error('Session recording id not found')
+    }
 
     const logicProps = {
         sessionRecordingId,
@@ -53,11 +57,13 @@ export function SessionDetailsModal({ isOpen, onClose, event }: SessionDetailsMo
 
     const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { sessionPlayerData } = useValues(sessionRecordingPlayerLogic(logicProps))
+    // Scrolling to a bit before the moment to better notice it
+    const timeToSeeekTo = (ms: number): number => Math.max(ms - 4000, 0)
 
     // Seek to target event timestamp when modal opens and player is loaded
     useEffect(() => {
         if (isOpen && event && sessionPlayerData) {
-            seekToTime(event.target_event.milliseconds_since_start)
+            seekToTime(timeToSeeekTo(event.target_event.milliseconds_since_start))
         }
     }, [isOpen, event, sessionPlayerData, seekToTime])
 
