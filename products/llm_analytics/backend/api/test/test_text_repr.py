@@ -435,13 +435,13 @@ class TestEdgeCases(APIBaseTest):
         self.assertEqual(data["metadata"]["truncated"], True)
 
     def test_default_max_length(self):
-        """Should use 3MB default max_length when not specified."""
-        # Test content under 3MB - should NOT truncate at max_length level
-        under_limit = "a" * 2500000  # 2.5MB
+        """Should use 4MB default max_length when not specified."""
+        # Test content under 4MB - should NOT truncate at max_length level
+        under_limit = "a" * 3500000  # 3.5MB
         request_data = {
             "event_type": "$ai_generation",
             "data": {
-                "id": "gen123",
+                "id": "gen_under_limit",
                 "event": "$ai_generation",
                 "properties": {
                     "$ai_input": under_limit,
@@ -459,10 +459,11 @@ class TestEdgeCases(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.data
         self.assertEqual(data["metadata"]["truncated"], False)
-        self.assertGreater(data["metadata"]["char_count"], 2500000)
+        self.assertGreater(data["metadata"]["char_count"], 3500000)
 
-        # Test content over 3MB - should truncate at max_length level
-        over_limit = "a" * 3500000  # 3.5MB
+        # Test content over 4MB - should truncate at max_length level
+        over_limit = "a" * 4500000  # 4.5MB
+        request_data["data"]["id"] = "gen_over_limit"  # Use different ID to avoid cache
         request_data["data"]["properties"]["$ai_input"] = over_limit  # type: ignore[index]
         request_data["options"] = {"truncated": False}  # Disable internal truncation to test max_length
 

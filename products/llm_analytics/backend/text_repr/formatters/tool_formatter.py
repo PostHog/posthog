@@ -29,7 +29,7 @@ class Tool(TypedDict, total=False):
     parameters: dict[str, Any]  # Google/Gemini format (unwrapped)
 
 
-def _format_tools_list(tools_list: list[dict[str, Any]]) -> str:
+def _format_tools_list(tools_list: list[Any]) -> str:
     """
     Format a list of tools into text representation.
     Returns the formatted text as a single string.
@@ -42,7 +42,7 @@ def _format_tools_list(tools_list: list[dict[str, Any]]) -> str:
             continue
 
         # Handle Google/Gemini format: {functionDeclarations: [{name, description, parameters}]}
-        tools_to_process: list[dict[str, Any]] = []
+        tools_to_process: list[Any] = []
         if "functionDeclarations" in tool and isinstance(tool["functionDeclarations"], list):
             tools_to_process = tool["functionDeclarations"]
         else:
@@ -129,7 +129,7 @@ def format_tools(ai_tools: Any, options: "FormatterOptions | None" = None) -> li
         return lines
 
     # Convert dictionary format to list
-    tools_list: list[dict[str, Any]]
+    tools_list: list[Any]
     if isinstance(ai_tools, dict):
         # Handle dictionary format: {tool_name: tool_spec, ...}
         tools_list = list(ai_tools.values())
