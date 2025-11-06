@@ -17,6 +17,7 @@ const persistConfig = { persist: true, prefix: `${teamId}__` }
 export enum DisplayOption {
     ExpandAll = 'expand_all',
     CollapseExceptOutputAndLastInput = 'collapse_except_output_and_last_input',
+    TextView = 'text_view',
 }
 
 export interface LLMAnalyticsTraceDataNodeLogicParams {
@@ -52,6 +53,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
         setEventId: (eventId: string | null) => ({ eventId }),
+        setLineNumber: (lineNumber: number | null) => ({ lineNumber }),
         setDateRange: (dateFrom: string | null, dateTo?: string | null) => ({ dateFrom, dateTo }),
         setIsRenderingMarkdown: (isRenderingMarkdown: boolean) => ({ isRenderingMarkdown }),
         toggleMarkdownRendering: true,
@@ -70,6 +72,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     reducers({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
+        lineNumber: [null as number | null, { setLineNumber: (_, { lineNumber }) => lineNumber }],
         dateRange: [
             null as { dateFrom: string | null; dateTo: string | null } | null,
             {
@@ -267,9 +270,10 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     })),
 
     urlToAction(({ actions }) => ({
-        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search }) => {
+        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
+            actions.setLineNumber(line ? parseInt(line, 10) : null)
             if (timestamp) {
                 actions.setDateRange(timestamp || null)
             } else if (exception_ts) {
