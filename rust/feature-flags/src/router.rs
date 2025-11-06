@@ -38,8 +38,9 @@ pub struct State {
     pub redis_reader: Arc<dyn RedisClient + Send + Sync>,
     pub redis_writer: Arc<dyn RedisClient + Send + Sync>,
     // Dedicated Redis for critical path (team cache + flags cache)
-    pub flags_redis_reader: Arc<dyn RedisClient + Send + Sync>,
-    pub flags_redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    // None if not configured (falls back to shared Redis)
+    pub flags_redis_reader: Option<Arc<dyn RedisClient + Send + Sync>>,
+    pub flags_redis_writer: Option<Arc<dyn RedisClient + Send + Sync>>,
     pub database_pools: Arc<DatabasePools>,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
@@ -57,8 +58,8 @@ pub struct State {
 pub fn router<RR, RW, FRR, FRW>(
     redis_reader: Arc<RR>,
     redis_writer: Arc<RW>,
-    flags_redis_reader: Arc<FRR>,
-    flags_redis_writer: Arc<FRW>,
+    flags_redis_reader: Option<Arc<FRR>>,
+    flags_redis_writer: Option<Arc<FRW>>,
     database_pools: Arc<DatabasePools>,
     cohort_cache: Arc<CohortCacheManager>,
     geoip: Arc<GeoIpClient>,
@@ -114,11 +115,17 @@ where
     // Clone database_pools for readiness check before moving into State
     let db_pools_for_readiness = database_pools.clone();
 
+    // Convert generic Arc types to trait objects for State
+    let flags_redis_reader_trait: Option<Arc<dyn RedisClient + Send + Sync>> =
+        flags_redis_reader.map(|arc| -> Arc<dyn RedisClient + Send + Sync> { arc });
+    let flags_redis_writer_trait: Option<Arc<dyn RedisClient + Send + Sync>> =
+        flags_redis_writer.map(|arc| -> Arc<dyn RedisClient + Send + Sync> { arc });
+
     let state = State {
         redis_reader,
         redis_writer,
-        flags_redis_reader,
-        flags_redis_writer,
+        flags_redis_reader: flags_redis_reader_trait,
+        flags_redis_writer: flags_redis_writer_trait,
         database_pools,
         cohort_cache_manager: cohort_cache,
         geoip,

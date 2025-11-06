@@ -1,6 +1,8 @@
 use crate::{
     api::errors::FlagError,
+    config::Config,
     flags::flag_models::FeatureFlagList,
+    flags_read_through_cache::FlagsReadThroughCache,
     metrics::consts::{
         DB_FLAG_READS_COUNTER, DB_TEAM_READS_COUNTER, FLAG_CACHE_ERRORS_COUNTER,
         FLAG_CACHE_HIT_COUNTER, TEAM_CACHE_ERRORS_COUNTER, TEAM_CACHE_HIT_COUNTER,
@@ -8,7 +10,6 @@ use crate::{
     },
     team::team_models::Team,
 };
-use common_cache::ReadThroughCache;
 use common_database::PostgresReader;
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
@@ -24,30 +25,47 @@ pub struct FlagResult {
 
 /// Service layer for handling feature flag operations
 pub struct FlagService {
-    redis_reader: Arc<dyn RedisClient + Send + Sync>,
-    redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    // Flags Redis clients (critical path: team cache + flags cache)
+    flags_redis_reader: Arc<dyn RedisClient + Send + Sync>,
+    flags_redis_writer: Arc<dyn RedisClient + Send + Sync>,
     pg_client: PostgresReader,
     team_cache_ttl_seconds: u64,
-    flags_cache: ReadThroughCache,
+    flags_cache: FlagsReadThroughCache,
 }
 
 impl FlagService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        redis_reader: Arc<dyn RedisClient + Send + Sync>,
-        redis_writer: Arc<dyn RedisClient + Send + Sync>,
+        shared_redis_reader: Arc<dyn RedisClient + Send + Sync>,
+        shared_redis_writer: Arc<dyn RedisClient + Send + Sync>,
+        flags_redis_reader: Option<Arc<dyn RedisClient + Send + Sync>>,
+        flags_redis_writer: Option<Arc<dyn RedisClient + Send + Sync>>,
         pg_client: PostgresReader,
         team_cache_ttl_seconds: u64,
         flags_cache_ttl_seconds: u64,
+        config: Config,
     ) -> Self {
-        let flags_cache = FeatureFlagList::create_cache(
-            redis_reader.clone(),
-            redis_writer.clone(),
-            Some(flags_cache_ttl_seconds),
+        // Let FlagsReadThroughCache encapsulate all cache selection logic
+        let flags_cache = FlagsReadThroughCache::from_redis_clients(
+            shared_redis_reader.clone(),
+            shared_redis_writer.clone(),
+            flags_redis_reader.clone(),
+            flags_redis_writer.clone(),
+            flags_cache_ttl_seconds,
+            config,
+        );
+
+        // Determine which Redis to use for team cache (critical path)
+        let (team_redis_reader, team_redis_writer) = FlagsReadThroughCache::get_team_cache_clients(
+            shared_redis_reader,
+            shared_redis_writer,
+            flags_redis_reader,
+            flags_redis_writer,
         );
 
         Self {
-            redis_reader,
-            redis_writer,
+            flags_redis_reader: team_redis_reader,
+            flags_redis_writer: team_redis_writer,
             pg_client,
             team_cache_ttl_seconds,
             flags_cache,
@@ -58,7 +76,9 @@ impl FlagService {
     /// If the token is not found in the cache, it will be verified against the database,
     /// and the result will be cached in redis.
     pub async fn verify_token(&self, token: &str) -> Result<String, FlagError> {
-        let (result, cache_hit) = match Team::from_redis(self.redis_reader.clone(), token).await {
+        let (result, cache_hit) = match Team::from_redis(self.flags_redis_reader.clone(), token)
+            .await
+        {
             Ok(_) => (Ok(token.to_string()), true),
             Err(_) => {
                 match Team::from_pg(self.pg_client.clone(), token).await {
@@ -66,7 +86,7 @@ impl FlagService {
                         inc(DB_TEAM_READS_COUNTER, &[], 1);
                         // Token found in PostgreSQL, update Redis cache so that we can verify it from Redis next time
                         if let Err(e) = Team::update_redis_cache(
-                            self.redis_writer.clone(),
+                            self.flags_redis_writer.clone(),
                             &team,
                             Some(self.team_cache_ttl_seconds),
                         )
@@ -108,14 +128,14 @@ impl FlagService {
     /// Returns the team if found, otherwise an error.
     pub async fn get_team_from_cache_or_pg(&self, token: &str) -> Result<Team, FlagError> {
         let (team_result, cache_hit) =
-            match Team::from_redis(self.redis_reader.clone(), token).await {
+            match Team::from_redis(self.flags_redis_reader.clone(), token).await {
                 Ok(team) => (Ok(team), true),
                 Err(_) => match Team::from_pg(self.pg_client.clone(), token).await {
                     Ok(team) => {
                         inc(DB_TEAM_READS_COUNTER, &[], 1);
                         // If we have the team in postgres, but not redis, update redis so we're faster next time
                         if Team::update_redis_cache(
-                            self.redis_writer.clone(),
+                            self.flags_redis_writer.clone(),
                             &team,
                             Some(self.team_cache_ttl_seconds),
                         )
@@ -147,14 +167,25 @@ impl FlagService {
     /// Fetches the flags from the cache or the database.
     /// Tracks cache hits and misses for a given project_id.
     ///
-    /// Uses the ReadThroughCache pattern for automatic cache management.
+    /// Uses the FlagsReadThroughCache pattern for automatic cache management
+    /// and dual-write support during migration.
     pub async fn get_flags_from_cache_or_pg(
         &self,
         project_id: ProjectId,
     ) -> Result<FlagResult, FlagError> {
-        let cache_result =
-            FeatureFlagList::get_with_cache(&self.flags_cache, self.pg_client.clone(), project_id)
-                .await?;
+        let pg_client = self.pg_client.clone();
+        let cache_result = self
+            .flags_cache
+            .get_or_load(&project_id, move |&project_id| {
+                let pg_client = pg_client.clone();
+                async move {
+                    // Load from PostgreSQL - always returns Some, even for empty results
+                    // This ensures empty flag lists are cached to prevent repeated DB queries
+                    let flags = FeatureFlagList::from_pg(pg_client, project_id).await?;
+                    Ok::<Option<Vec<_>>, FlagError>(Some(flags))
+                }
+            })
+            .await?;
 
         // Track cache hits and misses
         let was_cache_hit = cache_result.was_cached();
@@ -215,9 +246,12 @@ mod tests {
         let flag_service = FlagService::new(
             redis_client.clone(),
             redis_client.clone(),
+            None, // No dedicated flags Redis in tests
+            None,
             pg_client.clone(),
             432000, // team_cache_ttl_seconds
             432000, // flags_cache_ttl_seconds
+            crate::config::DEFAULT_TEST_CONFIG.clone(),
         );
 
         // Test valid token in Redis
@@ -256,9 +290,12 @@ mod tests {
         let flag_service = FlagService::new(
             redis_client.clone(),
             redis_client.clone(),
+            None, // No dedicated flags Redis in tests
+            None,
             pg_client.clone(),
             432000, // team_cache_ttl_seconds
             432000, // flags_cache_ttl_seconds
+            crate::config::DEFAULT_TEST_CONFIG.clone(),
         );
 
         // Test fetching from Redis
@@ -278,9 +315,12 @@ mod tests {
         let flag_service = FlagService::new(
             redis_client.clone(),
             redis_client.clone(),
+            None, // No dedicated flags Redis in tests
+            None,
             pg_client.clone(),
             432000, // team_cache_ttl_seconds
             432000, // flags_cache_ttl_seconds
+            crate::config::DEFAULT_TEST_CONFIG.clone(),
         );
 
         let result = flag_service
@@ -397,9 +437,12 @@ mod tests {
         let flag_service = FlagService::new(
             redis_client.clone(),
             redis_client.clone(),
+            None, // No dedicated flags Redis in tests
+            None,
             pg_client.clone(),
             432000, // team_cache_ttl_seconds
             432000, // flags_cache_ttl_seconds
+            crate::config::DEFAULT_TEST_CONFIG.clone(),
         );
 
         // Test fetching from Redis
@@ -499,9 +542,12 @@ mod tests {
         let flag_service = FlagService::new(
             reader,
             writer,
+            None, // No dedicated flags Redis in tests
+            None,
             context.non_persons_reader.clone(),
             432000, // team_cache_ttl_seconds
             432000, // flags_cache_ttl_seconds
+            crate::config::DEFAULT_TEST_CONFIG.clone(),
         );
 
         let result = flag_service
@@ -547,9 +593,12 @@ mod tests {
         let flag_service = FlagService::new(
             reader,
             writer,
+            None, // No dedicated flags Redis in tests
+            None,
             context.non_persons_reader.clone(),
             432000, // team_cache_ttl_seconds
             432000, // flags_cache_ttl_seconds
+            crate::config::DEFAULT_TEST_CONFIG.clone(),
         );
 
         let result = flag_service
@@ -596,9 +645,12 @@ mod tests {
         let flag_service = FlagService::new(
             reader,
             writer,
+            None, // No dedicated flags Redis in tests
+            None,
             context.non_persons_reader.clone(),
             custom_team_ttl,
             custom_flags_ttl,
+            crate::config::DEFAULT_TEST_CONFIG.clone(),
         );
 
         // Trigger team cache operation

@@ -558,26 +558,26 @@ impl Config {
     }
 
     /// Get the Redis URL for flags cache reads (critical path: team cache + flags cache)
-    /// Falls back to shared Redis reader URL if dedicated flags Redis is not configured
-    pub fn get_flags_redis_reader_url(&self) -> &str {
+    /// Returns None if dedicated flags Redis is not configured
+    pub fn get_flags_redis_reader_url(&self) -> Option<&str> {
         if !self.flags_redis_reader_url.is_empty() {
-            &self.flags_redis_reader_url
+            Some(&self.flags_redis_reader_url)
         } else if !self.flags_redis_url.is_empty() {
-            &self.flags_redis_url
+            Some(&self.flags_redis_url)
         } else {
-            self.get_redis_reader_url()
+            None
         }
     }
 
     /// Get the Redis URL for flags cache writes (critical path: team cache + flags cache)
-    /// Falls back to shared Redis writer URL if dedicated flags Redis is not configured
-    pub fn get_flags_redis_writer_url(&self) -> &str {
+    /// Returns None if dedicated flags Redis is not configured
+    pub fn get_flags_redis_writer_url(&self) -> Option<&str> {
         if !self.flags_redis_writer_url.is_empty() {
-            &self.flags_redis_writer_url
+            Some(&self.flags_redis_writer_url)
         } else if !self.flags_redis_url.is_empty() {
-            &self.flags_redis_url
+            Some(&self.flags_redis_url)
         } else {
-            self.get_redis_writer_url()
+            None
         }
     }
 
