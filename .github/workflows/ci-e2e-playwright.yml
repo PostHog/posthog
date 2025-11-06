@@ -342,14 +342,15 @@ jobs:
               # we can run 10 workers because we have 16 CPU
               # we don't want to run 16 since we need to leave some for everything else
               run: |
-                  set +e  # Disable immediate exit on error for retry loop
-                  # First attempt: Always verify (fast path when snapshots match)
-                  # Subsequent attempts: Only update if previous failure was screenshot-related
-                  for i in 1 2 3; do
+                  set +e  # Allow snapshot update retry
+                  # Attempt 1: Always verify (fast path when snapshots match)
+                  # Attempt 2: Update snapshots if previous failure was screenshot-related (UPDATE mode only)
+                  # Note: Playwright's built-in retry (3x per test) handles test flakiness
+                  for i in 1 2; do
                     echo "Attempt $i: Running Playwright tests"
                     if [ $i -eq 1 ]; then
                       FLAG=""
-                    elif [ $i -gt 1 ] && [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ]; then
+                    elif [ $i -eq 2 ] && [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ]; then
                       # Check if previous failure was due to screenshots
                       if grep -q "Screenshot comparison failed" /tmp/playwright-output.log 2>/dev/null; then
                         FLAG="--update-snapshots"
@@ -361,8 +362,8 @@ jobs:
                     fi
 
                     # Run tests and capture output
-                    set -o pipefail  # Ensure pipeline failures are captured
-                    pnpm --filter=@posthog/playwright exec playwright test --workers=10 $FLAG 2>&1 | tee /tmp/playwright-output.log
+                    set -o pipefail
+                    pnpm --filter=@posthog/playwright exec playwright test --workers=10 $FLAG 2>&1 | tee /tmp/playwright-output-attempt-$i.log
                     EXIT_CODE=$?
                     set +o pipefail
 
@@ -370,8 +371,16 @@ jobs:
                       break
                     fi
 
-                    if [ $i -eq 3 ]; then
-                      echo "Playwright tests failed after 3 attempts"
+                    # If this attempt failed, preserve artifacts before next retry
+                    if [ $i -eq 1 ] && [ $EXIT_CODE -ne 0 ]; then
+                      echo "Preserving attempt $i artifacts..."
+                      mkdir -p playwright/test-results-attempt-$i playwright/playwright-report-attempt-$i
+                      cp -r playwright/test-results/* playwright/test-results-attempt-$i/ 2>/dev/null || true
+                      cp -r playwright/playwright-report/* playwright/playwright-report-attempt-$i/ 2>/dev/null || true
+                    fi
+
+                    if [ $i -eq 2 ]; then
+                      echo "Playwright tests failed after 2 attempts"
                       exit 1
                     fi
                   done
@@ -422,9 +431,12 @@ jobs:
                   name: playwright-test-results-${{ matrix.segment }}
                   path: |
                       playwright/playwright-report/
+                      playwright/playwright-report-attempt-*/
                       playwright/test-results/
+                      playwright/test-results-attempt-*/
                       /tmp/celery.log
                       /tmp/server.log
+                      /tmp/playwright-output-attempt-*.log
                   retention-days: 30
                   if-no-files-found: ignore
 
