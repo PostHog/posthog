@@ -15,7 +15,9 @@ import {
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { getExceptionAttributes } from 'lib/components/Errors/utils'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import useIsHovering from 'lib/hooks/useIsHovering'
 
 import { RecordingEventType } from '~/types'
@@ -46,7 +48,6 @@ function ExceptionTitlePill({ event }: { event: RecordingEventType }): JSX.Eleme
 export function eventToIcon(event: string | undefined | null): React.ComponentType {
     switch (event) {
         case '$pageview':
-            return IconEye
         case '$screen':
             return IconEye
         case '$pageleave':
@@ -160,7 +161,12 @@ export function SessionEventItem({
                         showPopover={false}
                         className="text-xs text-muted-alt min-w-32"
                     />
-                    <span className="font-semibold truncate max-w-40">{event.event}</span>
+                    <PropertyKeyInfo
+                        value={event.event}
+                        type={TaxonomicFilterGroupType.Events}
+                        className="font-semibold truncate max-w-80"
+                        disablePopover
+                    />
                     {event.event === '$exception' ? (
                         <ExceptionTitlePill event={event} />
                     ) : (
