@@ -2,7 +2,7 @@ import * as jwt from 'jsonwebtoken'
 
 import { EventHeaders, IncomingEventWithTeam, JwtVerificationStatus, Team } from '../../types'
 import { TeamSecretKey, TeamSecretKeysManager } from '../../utils/team-secret-keys-manager'
-import { ok } from '../pipelines/results'
+import { drop, ok } from '../pipelines/results'
 import { createValidateJwtStep } from './validate-jwt'
 
 describe('createValidateJwtStep', () => {
@@ -28,6 +28,7 @@ describe('createValidateJwtStep', () => {
         timezone: 'UTC',
         available_features: [],
         drop_events_older_than_seconds: null,
+        verify_events: 'accept_all',
     }
 
     const mockEventWithTeam: IncomingEventWithTeam = {
@@ -201,9 +202,9 @@ describe('createValidateJwtStep', () => {
         )
     })
 
-    it('should return verified=Verified when JWT is valid', async () => {
+    it('should return verified=Verified when JWT is valid with matching distinct_id', async () => {
         const secret = 'phs_test_secret123'
-        const token = jwt.sign({ data: 'test', sub: 'user123' }, secret, {
+        const token = jwt.sign({ data: 'test', distinct_id: 'user123' }, secret, {
             algorithm: 'HS256',
             keyid: 'phsk_test_abc123',
         })
@@ -239,7 +240,10 @@ describe('createValidateJwtStep', () => {
 
     it('should support HS512 algorithm', async () => {
         const secret = 'phs_test_secret123'
-        const token = jwt.sign({ data: 'test' }, secret, { algorithm: 'HS512', keyid: 'phsk_test_abc123' })
+        const token = jwt.sign({ data: 'test', distinct_id: 'user123' }, secret, {
+            algorithm: 'HS512',
+            keyid: 'phsk_test_abc123',
+        })
 
         const mockSecretKey: TeamSecretKey = {
             id: 'phsk_test_abc123',
@@ -310,5 +314,265 @@ describe('createValidateJwtStep', () => {
                 verified: JwtVerificationStatus.Invalid,
             })
         )
+    })
+
+    describe('distinct_id validation', () => {
+        it('should return verified=Invalid when JWT is missing distinct_id claim', async () => {
+            const secret = 'phs_test_secret123'
+            const token = jwt.sign({ data: 'test' }, secret, { algorithm: 'HS256', keyid: 'phsk_test_abc123' })
+
+            const mockSecretKey: TeamSecretKey = {
+                id: 'phsk_test_abc123',
+                team_id: 1,
+                name: 'Test Key',
+                secure_value: secret,
+                created_at: '2023-01-01T00:00:00Z',
+                last_used_at: null,
+            }
+
+            mockTeamSecretKeysManager.getSecretKey.mockResolvedValue(mockSecretKey)
+
+            const input = {
+                headers: {
+                    jwt: token,
+                } as EventHeaders,
+                eventWithTeam: mockEventWithTeam,
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    verified: JwtVerificationStatus.Invalid,
+                })
+            )
+        })
+
+        it('should return verified=Invalid when JWT distinct_id does not match event distinct_id', async () => {
+            const secret = 'phs_test_secret123'
+            const token = jwt.sign({ data: 'test', distinct_id: 'different_user' }, secret, {
+                algorithm: 'HS256',
+                keyid: 'phsk_test_abc123',
+            })
+
+            const mockSecretKey: TeamSecretKey = {
+                id: 'phsk_test_abc123',
+                team_id: 1,
+                name: 'Test Key',
+                secure_value: secret,
+                created_at: '2023-01-01T00:00:00Z',
+                last_used_at: null,
+            }
+
+            mockTeamSecretKeysManager.getSecretKey.mockResolvedValue(mockSecretKey)
+
+            const input = {
+                headers: {
+                    jwt: token,
+                } as EventHeaders,
+                eventWithTeam: mockEventWithTeam,
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    verified: JwtVerificationStatus.Invalid,
+                })
+            )
+        })
+    })
+
+    describe('verify_events modes', () => {
+        it('should drop event when verify_events=reject_invalid and JWT is invalid', async () => {
+            const secret = 'phs_test_secret123'
+            const wrongSecret = 'phs_wrong_secret456'
+            const token = jwt.sign({ data: 'test', distinct_id: 'user123' }, wrongSecret, {
+                algorithm: 'HS256',
+                keyid: 'phsk_test_abc123',
+            })
+
+            const mockSecretKey: TeamSecretKey = {
+                id: 'phsk_test_abc123',
+                team_id: 1,
+                name: 'Test Key',
+                secure_value: secret,
+                created_at: '2023-01-01T00:00:00Z',
+                last_used_at: null,
+            }
+
+            mockTeamSecretKeysManager.getSecretKey.mockResolvedValue(mockSecretKey)
+
+            const teamWithRejectInvalid = {
+                ...mockEventWithTeam,
+                team: { ...mockTeam, verify_events: 'reject_invalid' as const },
+            }
+
+            const input = {
+                headers: {
+                    jwt: token,
+                } as EventHeaders,
+                eventWithTeam: teamWithRejectInvalid,
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual(drop('jwt_invalid'))
+        })
+
+        it('should accept unverified event when verify_events=reject_invalid', async () => {
+            const teamWithRejectInvalid = {
+                ...mockEventWithTeam,
+                team: { ...mockTeam, verify_events: 'reject_invalid' as const },
+            }
+
+            const input = {
+                headers: {
+                    force_disable_person_processing: false,
+                } as EventHeaders,
+                eventWithTeam: teamWithRejectInvalid,
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    verified: JwtVerificationStatus.NotVerified,
+                })
+            )
+        })
+
+        it('should drop event when verify_events=reject_unverified and event has no JWT', async () => {
+            const teamWithRejectUnverified = {
+                ...mockEventWithTeam,
+                team: { ...mockTeam, verify_events: 'reject_unverified' as const },
+            }
+
+            const input = {
+                headers: {
+                    force_disable_person_processing: false,
+                } as EventHeaders,
+                eventWithTeam: teamWithRejectUnverified,
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual(drop('jwt_not_verified'))
+        })
+
+        it('should drop event when verify_events=reject_unverified and JWT is invalid', async () => {
+            const secret = 'phs_test_secret123'
+            const wrongSecret = 'phs_wrong_secret456'
+            const token = jwt.sign({ data: 'test', distinct_id: 'user123' }, wrongSecret, {
+                algorithm: 'HS256',
+                keyid: 'phsk_test_abc123',
+            })
+
+            const mockSecretKey: TeamSecretKey = {
+                id: 'phsk_test_abc123',
+                team_id: 1,
+                name: 'Test Key',
+                secure_value: secret,
+                created_at: '2023-01-01T00:00:00Z',
+                last_used_at: null,
+            }
+
+            mockTeamSecretKeysManager.getSecretKey.mockResolvedValue(mockSecretKey)
+
+            const teamWithRejectUnverified = {
+                ...mockEventWithTeam,
+                team: { ...mockTeam, verify_events: 'reject_unverified' as const },
+            }
+
+            const input = {
+                headers: {
+                    jwt: token,
+                } as EventHeaders,
+                eventWithTeam: teamWithRejectUnverified,
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual(drop('jwt_not_verified'))
+        })
+
+        it('should accept verified event when verify_events=reject_unverified', async () => {
+            const secret = 'phs_test_secret123'
+            const token = jwt.sign({ data: 'test', distinct_id: 'user123' }, secret, {
+                algorithm: 'HS256',
+                keyid: 'phsk_test_abc123',
+            })
+
+            const mockSecretKey: TeamSecretKey = {
+                id: 'phsk_test_abc123',
+                team_id: 1,
+                name: 'Test Key',
+                secure_value: secret,
+                created_at: '2023-01-01T00:00:00Z',
+                last_used_at: null,
+            }
+
+            mockTeamSecretKeysManager.getSecretKey.mockResolvedValue(mockSecretKey)
+
+            const teamWithRejectUnverified = {
+                ...mockEventWithTeam,
+                team: { ...mockTeam, verify_events: 'reject_unverified' as const },
+            }
+
+            const input = {
+                headers: {
+                    jwt: token,
+                } as EventHeaders,
+                eventWithTeam: teamWithRejectUnverified,
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    verified: JwtVerificationStatus.Verified,
+                })
+            )
+        })
+
+        it('should accept all events when verify_events=accept_all (default)', async () => {
+            const secret = 'phs_test_secret123'
+            const wrongSecret = 'phs_wrong_secret456'
+            const token = jwt.sign({ data: 'test', distinct_id: 'user123' }, wrongSecret, {
+                algorithm: 'HS256',
+                keyid: 'phsk_test_abc123',
+            })
+
+            const mockSecretKey: TeamSecretKey = {
+                id: 'phsk_test_abc123',
+                team_id: 1,
+                name: 'Test Key',
+                secure_value: secret,
+                created_at: '2023-01-01T00:00:00Z',
+                last_used_at: null,
+            }
+
+            mockTeamSecretKeysManager.getSecretKey.mockResolvedValue(mockSecretKey)
+
+            const input = {
+                headers: {
+                    jwt: token,
+                } as EventHeaders,
+                eventWithTeam: mockEventWithTeam, // Uses default accept_all
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    verified: JwtVerificationStatus.Invalid,
+                })
+            )
+        })
     })
 })
