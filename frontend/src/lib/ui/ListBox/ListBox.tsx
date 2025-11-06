@@ -452,6 +452,9 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
                     targetEl?.scrollIntoView({ block: 'nearest' })
                 }
             } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                if (e.metaKey) {
+                    return
+                }
                 if (gridPosition.row === -1 || gridPosition.column === -1) {
                     return
                 }

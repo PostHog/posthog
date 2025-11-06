@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 
+import { ProjectFileBrowser } from './components/ProjectFileBrowser'
 import { Results } from './components/Results'
 import { SearchInput, SearchInputCommand, SearchInputHandle } from './components/SearchInput'
 
@@ -22,8 +23,19 @@ export const scene: SceneExport = {
 export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
     const commandInputRef = useRef<SearchInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
-    const { search, newTabSceneDataInclude } = useValues(newTabSceneLogic({ tabId }))
-    const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle } = useActions(newTabSceneLogic({ tabId }))
+    const {
+        search,
+        newTabSceneDataInclude,
+        isFileBrowserMode,
+        fileBrowserBreadcrumbs,
+        fileBrowserListItems,
+        fileBrowserParentPath,
+        fileBrowserHasMore,
+        fileBrowserIsLoading,
+        fileBrowserFirstFolderMatch,
+    } = useValues(newTabSceneLogic({ tabId }))
+    const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle, setProjectPath, loadMoreFileBrowser } =
+        useActions(newTabSceneLogic({ tabId }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
     const handleAskAi = (question?: string): void => {
@@ -43,6 +55,31 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
             return commandInfo || { value: commandValue, displayName: commandValue }
         })
 
+    const navigateToFolder = (path: string): void => {
+        const trimmed = path.replace(/^\/+/, '').replace(/\/+$/, '')
+        const projectUri = trimmed ? `project://${trimmed}/` : 'project://'
+        setProjectPath(projectUri)
+    }
+
+    const handleSearchChange = (value: string): void => {
+        if (isFileBrowserMode && value.endsWith('/') && value.length > 1) {
+            const folderMatch = fileBrowserFirstFolderMatch
+            if (folderMatch) {
+                navigateToFolder(folderMatch.path || '')
+                setSearch('')
+                return
+            }
+        }
+
+        if (value !== '/') {
+            setSearch(value)
+        }
+    }
+
+    const handleFileBrowserFolderOpen = (path: string): void => {
+        navigateToFolder(path)
+    }
+
     return (
         <>
             <ListBox
@@ -59,46 +96,65 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                 </div>
                 <div className="flex flex-col gap-2">
                     <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
-                        <SearchInput
-                            ref={commandInputRef}
-                            commands={NEW_TAB_COMMANDS_ITEMS}
-                            value={search}
-                            onChange={(value) => {
-                                // Only prevent setting search if the entire value is just "/" (command mode)
-                                // Allow "/" characters in other positions for normal search
-                                if (value !== '/') {
-                                    setSearch(value)
+                        <div className="flex flex-col gap-1">
+                            {isFileBrowserMode ? (
+                                <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
+                                    <span className="text-muted">project://</span>
+                                    {fileBrowserBreadcrumbs.map((crumb, index) => (
+                                        <span className="flex items-center gap-1" key={crumb.path || `root-${index}`}>
+                                            <button
+                                                type="button"
+                                                className="text-primary hover:underline"
+                                                onClick={() => navigateToFolder(crumb.path)}
+                                            >
+                                                {crumb.label}
+                                            </button>
+                                            {index < fileBrowserBreadcrumbs.length - 1 ? (
+                                                <span className="text-muted">/</span>
+                                            ) : null}
+                                        </span>
+                                    ))}
+                                </div>
+                            ) : null}
+                            <SearchInput
+                                ref={commandInputRef}
+                                commands={NEW_TAB_COMMANDS_ITEMS}
+                                value={search}
+                                onChange={handleSearchChange}
+                                placeholder={
+                                    isFileBrowserMode
+                                        ? 'Filter this folder or open a subfolder…'
+                                        : 'Search or ask an AI question'
                                 }
-                            }}
-                            placeholder="Search or ask an AI question"
-                            activeCommands={activeCommands}
-                            selectedCommands={selectedCommands}
-                            onCommandSelect={(command) => {
-                                if (command.value === 'all') {
-                                    // Check if "all" is currently selected
-                                    if (newTabSceneDataInclude.includes('all')) {
-                                        // If "all" is on, turn off everything (clear all filters)
-                                        newTabSceneDataInclude.forEach((selectedCommand) => {
-                                            toggleNewTabSceneDataInclude(selectedCommand)
-                                        })
+                                activeCommands={activeCommands}
+                                selectedCommands={selectedCommands}
+                                onCommandSelect={(command) => {
+                                    if (command.value === 'all') {
+                                        // Check if "all" is currently selected
+                                        if (newTabSceneDataInclude.includes('all')) {
+                                            // If "all" is on, turn off everything (clear all filters)
+                                            newTabSceneDataInclude.forEach((selectedCommand) => {
+                                                toggleNewTabSceneDataInclude(selectedCommand)
+                                            })
+                                        } else {
+                                            // If "all" is off, turn it on (which will show all filters)
+                                            toggleNewTabSceneDataInclude('all')
+                                        }
                                     } else {
-                                        // If "all" is off, turn it on (which will show all filters)
-                                        toggleNewTabSceneDataInclude('all')
+                                        toggleNewTabSceneDataInclude(command.value as NEW_TAB_COMMANDS)
                                     }
-                                } else {
-                                    toggleNewTabSceneDataInclude(command.value as NEW_TAB_COMMANDS)
-                                }
-                                // Refresh data after toggle
-                                refreshDataAfterToggle()
-                            }}
-                            onClearAll={() => {
-                                // Clear all filters by removing all items from newTabSceneDataInclude
-                                newTabSceneDataInclude.forEach((command) => {
-                                    toggleNewTabSceneDataInclude(command)
-                                })
-                                refreshDataAfterToggle()
-                            }}
-                        />
+                                    // Refresh data after toggle
+                                    refreshDataAfterToggle()
+                                }}
+                                onClearAll={() => {
+                                    // Clear all filters by removing all items from newTabSceneDataInclude
+                                    newTabSceneDataInclude.forEach((command) => {
+                                        toggleNewTabSceneDataInclude(command)
+                                    })
+                                    refreshDataAfterToggle()
+                                }}
+                            />
+                        </div>
                     </div>
                     <div className="border-b">
                         <div className="max-w-[1200px] mx-auto w-full px-2 @lg/main-content:px-10 pb-2">
@@ -132,7 +188,19 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                 >
                     <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-4 @lg/main-content:px-8 group/colorful-product-icons colorful-product-icons-true">
                         <div className="flex flex-col gap-2 mb-32">
-                            <Results tabId={tabId || ''} listboxRef={listboxRef} handleAskAi={handleAskAi} />
+                            {isFileBrowserMode ? (
+                                <ProjectFileBrowser
+                                    items={fileBrowserListItems}
+                                    parentPath={fileBrowserParentPath}
+                                    onOpenFolder={handleFileBrowserFolderOpen}
+                                    search={search}
+                                    hasMore={fileBrowserHasMore}
+                                    isLoading={fileBrowserIsLoading}
+                                    onLoadMore={loadMoreFileBrowser}
+                                />
+                            ) : (
+                                <Results tabId={tabId || ''} listboxRef={listboxRef} handleAskAi={handleAskAi} />
+                            )}
                         </div>
                     </div>
                 </ScrollableShadows>

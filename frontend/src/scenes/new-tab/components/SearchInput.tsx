@@ -172,6 +172,9 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 }
                 break
             case 'ArrowLeft':
+                if (e.metaKey) {
+                    return
+                }
                 // Check if cursor is at the leftmost position
                 const cursorPosition = inputRef.current?.selectionStart || 0
                 const isAtLeftmostPosition = cursorPosition === 0
@@ -204,6 +207,9 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 }
                 break
             case 'ArrowRight':
+                if (e.metaKey) {
+                    return
+                }
                 if (inputValue === '' && expandedTags && focusedTagIndex !== null) {
                     e.preventDefault()
                     e.stopPropagation() // Prevent parent ListBox from handling this event

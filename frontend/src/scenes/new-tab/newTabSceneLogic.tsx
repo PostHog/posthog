@@ -32,8 +32,9 @@ import {
     getDefaultTreeProducts,
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { joinPath, sortFilesAndFolders, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { groupsModel } from '~/models/groupsModel'
 import {
@@ -49,6 +50,7 @@ import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
 export type NEW_TAB_CATEGORY_ITEMS =
     | 'all'
+    | 'project-folders'
     | 'create-new'
     | 'apps'
     | 'data-management'
@@ -61,6 +63,7 @@ export type NEW_TAB_CATEGORY_ITEMS =
 
 export type NEW_TAB_COMMANDS =
     | 'all'
+    | 'project-folders'
     | 'create-new'
     | 'apps'
     | 'data-management'
@@ -73,6 +76,7 @@ export type NEW_TAB_COMMANDS =
 
 export const NEW_TAB_COMMANDS_ITEMS: SearchInputCommand<NEW_TAB_COMMANDS>[] = [
     { value: 'all', displayName: 'All' },
+    { value: 'project-folders', displayName: 'Project folders' },
     { value: 'create-new', displayName: 'Create new' },
     { value: 'apps', displayName: 'Apps' },
     { value: 'data-management', displayName: 'Data management' },
@@ -103,7 +107,13 @@ const INITIAL_RECENTS_LIMIT = 5
 const PAGINATION_LIMIT = 10
 const GROUP_SEARCH_LIMIT = 5
 
-export type NewTabSearchDataset = 'recents' | 'persons' | 'groups' | 'eventDefinitions' | 'propertyDefinitions'
+export type NewTabSearchDataset =
+    | 'recents'
+    | 'projectFolders'
+    | 'persons'
+    | 'groups'
+    | 'eventDefinitions'
+    | 'propertyDefinitions'
 
 function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
     // If the item has a direct icon property, use it with color wrapper
@@ -153,13 +163,35 @@ function matchesRecentsSearch(entry: FileSystemEntry, searchChunks: string[]): b
     )
 }
 
+function buildProjectPathUrl(path: string): string {
+    const trimmed = path.replace(/^\/+/, '').replace(/\/+$/, '')
+    const projectUri = trimmed ? `project://${trimmed}/` : 'project://'
+    return `${urls.newTab()}?projectPath=${encodeURIComponent(projectUri)}`
+}
+
+function normalizeProjectPath(projectPath: string | null): string {
+    if (!projectPath) {
+        return ''
+    }
+    const withoutProtocol = projectPath.startsWith('project://') ? projectPath.slice('project://'.length) : projectPath
+    return withoutProtocol.replace(/\/+$/, '')
+}
+
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
     props({} as { tabId?: string }),
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], groupsModel, ['groupTypes', 'aggregationLabel']],
-    })),
     key((props) => props.tabId || 'default'),
+    connect(() => ({
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            groupsModel,
+            ['groupTypes', 'aggregationLabel'],
+            projectTreeDataLogic,
+            ['folders', 'folderStates'],
+        ],
+        actions: [projectTreeDataLogic, ['loadFolder']],
+    })),
     actions({
         setSearch: (search: string) => ({ search }),
         selectNext: true,
@@ -168,10 +200,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         setSelectedCategory: (category: NEW_TAB_CATEGORY_ITEMS) => ({ category }),
         loadRecents: (options?: { offset?: number }) => ({ offset: options?.offset ?? 0 }),
         loadMoreRecents: true,
+        loadProjectFolderSearchResults: (searchTerm: string) => ({ searchTerm }),
+        debouncedProjectFolderSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedPersonSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedEventDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedPropertyDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedGroupSearch: (searchTerm: string) => ({ searchTerm }),
+        setProjectPath: (projectPath: string | null) => ({ projectPath }),
+        loadMoreFileBrowser: true,
         setNewTabSceneDataInclude: (include: NEW_TAB_COMMANDS[]) => ({ include }),
         toggleNewTabSceneDataInclude: (item: NEW_TAB_COMMANDS) => ({ item }),
         triggerSearchForIncludedItems: true,
@@ -295,6 +331,49 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         }
                     }
                     return recents
+                },
+            },
+        ],
+        projectFolderSearchResults: [
+            [] as FileSystemEntry[],
+            {
+                loadProjectFolderSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    const trimmed = searchTerm.trim()
+
+                    if (trimmed === '') {
+                        actions.setFirstNoResultsSearchPrefix('projectFolders', null)
+                        return []
+                    }
+
+                    const noResultsPrefix = values.firstNoResultsSearchPrefixes.projectFolders
+                    if (
+                        noResultsPrefix &&
+                        trimmed.length > noResultsPrefix.length &&
+                        trimmed.startsWith(noResultsPrefix)
+                    ) {
+                        return []
+                    }
+
+                    await breakpoint(250)
+
+                    try {
+                        const response = await api.fileSystem.list({
+                            search: trimmed,
+                            limit: 10,
+                            type: 'folder',
+                        })
+                        breakpoint()
+
+                        const results = response.results || []
+                        actions.setFirstNoResultsSearchPrefix('projectFolders', results.length === 0 ? trimmed : null)
+                        return results
+                    } catch (error) {
+                        if (!isBreakpoint(error)) {
+                            console.error('Project folder search failed:', error)
+                            throw error
+                        }
+                        return []
+                    }
                 },
             },
         ],
@@ -564,9 +643,16 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 toggleNewTabSceneDataInclude: () => ({}),
             },
         ],
+        projectPath: [
+            null as string | null,
+            {
+                setProjectPath: (_, { projectPath }) => projectPath,
+            },
+        ],
         firstNoResultsSearchPrefixes: [
             {
                 recents: null,
+                projectFolders: null,
                 persons: null,
                 groups: null,
                 eventDefinitions: null,
@@ -581,6 +667,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     if (search.trim() === '') {
                         return {
                             recents: null,
+                            projectFolders: null,
                             persons: null,
                             groups: null,
                             eventDefinitions: null,
@@ -626,6 +713,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         isSearching: [
             (s) => [
                 s.recentsLoading,
+                s.projectFolderSearchResultsLoading,
                 s.personSearchResultsLoading,
                 s.personSearchPending,
                 s.eventDefinitionSearchResultsLoading,
@@ -638,6 +726,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             ],
             (
                 recentsLoading: boolean,
+                projectFolderSearchResultsLoading: boolean,
                 personSearchResultsLoading: boolean,
                 personSearchPending: boolean,
                 eventDefinitionSearchResultsLoading: boolean,
@@ -649,6 +738,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 search: string
             ): boolean =>
                 (recentsLoading ||
+                    projectFolderSearchResultsLoading ||
                     personSearchResultsLoading ||
                     personSearchPending ||
                     eventDefinitionSearchResultsLoading ||
@@ -662,6 +752,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         categoryLoadingStates: [
             (s) => [
                 s.recentsLoading,
+                s.projectFolderSearchResultsLoading,
                 s.personSearchResultsLoading,
                 s.personSearchPending,
                 s.eventDefinitionSearchResultsLoading,
@@ -673,6 +764,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             ],
             (
                 recentsLoading: boolean,
+                projectFolderSearchResultsLoading: boolean,
                 personSearchResultsLoading: boolean,
                 personSearchPending: boolean,
                 eventDefinitionSearchResultsLoading: boolean,
@@ -683,6 +775,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 groupSearchPending: boolean
             ): Record<NEW_TAB_CATEGORY_ITEMS, boolean> => ({
                 all: false,
+                'project-folders': projectFolderSearchResultsLoading,
                 'create-new': false,
                 apps: false,
                 'data-management': false,
@@ -714,6 +807,143 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }
                 })
             },
+        ],
+        projectFolderSearchItems: [
+            (s) => [s.projectFolderSearchResults],
+            (projectFolderSearchResults): NewTabTreeDataItem[] =>
+                projectFolderSearchResults.map((folder) => {
+                    const path = folder.path ?? ''
+                    const segments = splitPath(path)
+                    const displayName = segments.length > 0 ? segments[segments.length - 1] : 'Project root'
+                    const href = buildProjectPathUrl(path)
+                    return {
+                        id: `project-folder-${folder.id ?? (path || 'root')}`,
+                        name: path || 'Project root',
+                        displayName,
+                        category: 'project-folders',
+                        href,
+                        icon: iconForType('folder' as FileSystemIconType),
+                        record: {
+                            ...folder,
+                            type: 'folder',
+                            path,
+                            href,
+                        },
+                    }
+                }),
+        ],
+        projectFolderItems: [
+            (s) => [s.projectFolderSearchItems, s.search],
+            (projectFolderSearchItems, search): NewTabTreeDataItem[] => {
+                const rootHref = buildProjectPathUrl('')
+                const items: NewTabTreeDataItem[] = [
+                    {
+                        id: 'project-folder-root',
+                        name: 'Project root',
+                        category: 'project-folders',
+                        href: rootHref,
+                        icon: iconForType('folder' as FileSystemIconType),
+                        record: {
+                            type: 'folder',
+                            path: '',
+                            href: rootHref,
+                        },
+                    },
+                ]
+
+                if (search.trim() !== '') {
+                    items.push(...projectFolderSearchItems)
+                }
+
+                return items
+            },
+        ],
+        projectFolderPath: [(s) => [s.projectPath], (projectPath): string => normalizeProjectPath(projectPath)],
+        isFileBrowserMode: [(s) => [s.projectPath], (projectPath): boolean => projectPath !== null],
+        fileBrowserParentPath: [
+            (s) => [s.projectFolderPath],
+            (projectFolderPath): string | null => {
+                const segments = splitPath(projectFolderPath)
+                if (segments.length === 0) {
+                    return null
+                }
+                return joinPath(segments.slice(0, -1))
+            },
+        ],
+        fileBrowserBreadcrumbs: [
+            (s) => [s.projectFolderPath],
+            (projectFolderPath) => {
+                const segments = splitPath(projectFolderPath)
+                const breadcrumbs = [
+                    { label: 'Project root', path: '' },
+                    ...segments.map((segment, index) => ({
+                        label: segment,
+                        path: joinPath(segments.slice(0, index + 1)),
+                    })),
+                ]
+                return breadcrumbs
+            },
+        ],
+        currentFolderEntries: [
+            (s) => [s.projectFolderPath, s.folders],
+            (projectFolderPath, folders): FileSystemEntry[] => {
+                const entries = folders[projectFolderPath] || []
+                return [...entries].sort(sortFilesAndFolders)
+            },
+        ],
+        fileBrowserFilteredEntries: [
+            (s) => [s.currentFolderEntries, s.search],
+            (entries: FileSystemEntry[], search: string): FileSystemEntry[] => {
+                const trimmed = search.trim().toLowerCase()
+                if (!trimmed) {
+                    return entries
+                }
+                const chunks = trimmed.split(' ').filter((chunk) => chunk)
+                if (chunks.length === 0) {
+                    return entries
+                }
+                return entries.filter((entry) => {
+                    const name = splitPath(entry.path).pop()?.toLowerCase() ?? ''
+                    const type = entry.type?.toLowerCase() ?? ''
+                    const fullPath = entry.path.toLowerCase()
+                    return chunks.every(
+                        (chunk) => name.includes(chunk) || type.includes(chunk) || fullPath.includes(chunk)
+                    )
+                })
+            },
+        ],
+        fileBrowserListItems: [
+            (s) => [s.fileBrowserFilteredEntries],
+            (entries: FileSystemEntry[]): NewTabTreeDataItem[] =>
+                entries.map((entry) => {
+                    const href = entry.type === 'folder' ? buildProjectPathUrl(entry.path) : entry.href || '#'
+                    return {
+                        id: `browser-${entry.id ?? entry.path}`,
+                        name: entry.path,
+                        displayName: splitPath(entry.path).pop() || entry.path,
+                        category: 'project-folders',
+                        href,
+                        icon: getIconForFileSystemItem({
+                            type: entry.type,
+                            iconType: entry.type as any,
+                            path: entry.path,
+                        }),
+                        record: entry,
+                        lastViewedAt: null,
+                    }
+                }),
+        ],
+        fileBrowserFirstFolderMatch: [
+            (s) => [s.fileBrowserFilteredEntries],
+            (entries): FileSystemEntry | null => entries.find((entry) => entry.type === 'folder') ?? null,
+        ],
+        fileBrowserHasMore: [
+            (s) => [s.projectFolderPath, s.folderStates],
+            (projectFolderPath, folderStates): boolean => folderStates[projectFolderPath] === 'has-more',
+        ],
+        fileBrowserIsLoading: [
+            (s) => [s.projectFolderPath, s.folderStates],
+            (projectFolderPath, folderStates): boolean => folderStates[projectFolderPath] === 'loading',
         ],
         personSearchItems: [
             (s) => [s.personSearchResults],
@@ -873,6 +1103,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         itemsGrid: [
             (s) => [
                 s.featureFlags,
+                s.projectFolderItems,
                 s.projectTreeSearchItems,
                 s.aiSearchItems,
                 s.sceneLogViewsByRef,
@@ -880,6 +1111,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             ],
             (
                 featureFlags: any,
+                projectFolderItems: NewTabTreeDataItem[],
                 projectTreeSearchItems: NewTabTreeDataItem[],
                 aiSearchItems: NewTabTreeDataItem[],
                 sceneLogViewsByRef: Record<string, string>,
@@ -1077,6 +1309,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const sortedNewOtherItems = sortByLastViewedAt(newOtherItems)
 
                 return sortByLastViewedAt([
+                    ...projectFolderItems,
                     ...aiSearchItems,
                     ...projectTreeSearchItems,
                     {
@@ -1156,6 +1389,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.itemsGrid,
                 s.search,
                 s.newTabSceneDataInclude,
+                s.projectFolderItems,
                 s.personSearchItems,
                 s.groupSearchItems,
                 s.eventDefinitionSearchItems,
@@ -1167,6 +1401,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 itemsGrid: NewTabTreeDataItem[],
                 search: string,
                 newTabSceneDataInclude: NEW_TAB_COMMANDS[],
+                projectFolderItems: NewTabTreeDataItem[],
                 personSearchItems: NewTabTreeDataItem[],
                 groupSearchItems: NewTabTreeDataItem[],
                 eventDefinitionSearchItems: NewTabTreeDataItem[],
@@ -1194,6 +1429,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 // Check if "all" is selected
                 const showAll = newTabSceneDataInclude.includes('all')
 
+                const filteredProjectFolderItems = (() => {
+                    if (!searchLower) {
+                        return projectFolderItems
+                    }
+                    const filtered = filterBySearch(projectFolderItems.slice(1))
+                    return projectFolderItems.length > 0 ? [projectFolderItems[0], ...filtered] : filtered
+                })()
                 const filteredPersonItems = filterBySearch(personSearchItems)
                 const filteredGroupItems = filterBySearch(groupSearchItems)
                 const filteredEventDefinitionItems = filterBySearch(eventDefinitionSearchItems)
@@ -1204,6 +1446,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const grouped: Record<string, NewTabTreeDataItem[]> = {}
 
                 // Add persons section if filter is enabled
+                if (showAll || newTabSceneDataInclude.includes('project-folders')) {
+                    const limit = getSectionItemLimit('project-folders')
+                    grouped['project-folders'] = filteredProjectFolderItems.slice(0, limit)
+                }
                 if (showAll || newTabSceneDataInclude.includes('persons')) {
                     const limit = getSectionItemLimit('persons')
                     grouped['persons'] = filteredPersonItems.slice(0, limit)
@@ -1268,6 +1514,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.itemsGrid,
                 s.search,
                 s.newTabSceneDataInclude,
+                s.projectFolderItems,
                 s.personSearchItems,
                 s.groupSearchItems,
                 s.eventDefinitionSearchItems,
@@ -1278,6 +1525,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 itemsGrid: NewTabTreeDataItem[],
                 search: string,
                 newTabSceneDataInclude: NEW_TAB_COMMANDS[],
+                projectFolderItems: NewTabTreeDataItem[],
                 personSearchItems: NewTabTreeDataItem[],
                 groupSearchItems: NewTabTreeDataItem[],
                 eventDefinitionSearchItems: NewTabTreeDataItem[],
@@ -1302,6 +1550,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 // Check if "all" is selected
                 const showAll = newTabSceneDataInclude.includes('all')
 
+                const filteredProjectFolderItems = (() => {
+                    if (!searchLower) {
+                        return projectFolderItems
+                    }
+                    const filtered = filterBySearch(projectFolderItems.slice(1))
+                    return projectFolderItems.length > 0 ? [projectFolderItems[0], ...filtered] : filtered
+                })()
                 const filteredPersonItems = filterBySearch(personSearchItems)
                 const filteredGroupItems = filterBySearch(groupSearchItems)
                 const filteredEventDefinitionItems = filterBySearch(eventDefinitionSearchItems)
@@ -1312,6 +1567,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const fullCounts: Record<string, number> = {}
 
                 // Add persons section if filter is enabled
+                if (showAll || newTabSceneDataInclude.includes('project-folders')) {
+                    fullCounts['project-folders'] = filteredProjectFolderItems.length
+                }
                 if (showAll || newTabSceneDataInclude.includes('persons')) {
                     fullCounts['persons'] = filteredPersonItems.length
                 }
@@ -1378,7 +1636,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const showAll = newTabSceneDataInclude.includes('all')
 
                 // Add sections in a useful order
-                const mainSections = ['recents', 'create-new', 'apps', 'data-management']
+                const mainSections = ['project-folders', 'recents', 'create-new', 'apps', 'data-management']
                 mainSections.forEach((section) => {
                     if (showAll || newTabSceneDataInclude.includes(section as NEW_TAB_COMMANDS)) {
                         orderedSections.push(section)
@@ -1417,6 +1675,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         const items = newTabSceneDataGroupedItems[section] || []
                         const isLoading = categoryLoadingStates[key] || false
                         const shouldHideForPrefix =
+                            (key === 'project-folders' && hasPrefixNoResults('projectFolders')) ||
                             (key === 'recents' && hasPrefixNoResults('recents')) ||
                             (key === 'persons' && hasPrefixNoResults('persons')) ||
                             (key === 'eventDefinitions' && hasPrefixNoResults('eventDefinitions')) ||
@@ -1503,6 +1762,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 actions.loadRecents({ offset: values.recents.results.length })
             }
         },
+        setProjectPath: ({ projectPath }) => {
+            const folder = normalizeProjectPath(projectPath)
+            actions.loadFolder(folder)
+        },
+        loadMoreFileBrowser: () => {
+            const folder = values.projectFolderPath
+            actions.loadFolder(folder)
+        },
         logCreateNewItem: async ({ href }) => {
             if (!href) {
                 return
@@ -1521,12 +1788,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
             // Expand 'all' to include all data types
             const itemsToProcess = values.newTabSceneDataInclude.includes('all')
-                ? ['persons', 'groups', 'eventDefinitions', 'propertyDefinitions', 'askAI']
+                ? ['project-folders', 'persons', 'groups', 'eventDefinitions', 'propertyDefinitions', 'askAI']
                 : values.newTabSceneDataInclude
 
             itemsToProcess.forEach((item) => {
                 if (searchTerm !== '') {
-                    if (item === 'persons') {
+                    if (item === 'project-folders') {
+                        actions.debouncedProjectFolderSearch(searchTerm)
+                    } else if (item === 'persons') {
                         actions.debouncedPersonSearch(searchTerm)
                     } else if (item === 'groups') {
                         actions.debouncedGroupSearch(searchTerm)
@@ -1537,7 +1806,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }
                 } else {
                     // Load initial data when no search term
-                    if (item === 'persons') {
+                    if (item === 'project-folders') {
+                        actions.loadProjectFolderSearchResultsSuccess([])
+                    } else if (item === 'persons') {
                         actions.loadInitialPersons({})
                     } else if (item === 'groups') {
                         actions.loadInitialGroups()
@@ -1563,6 +1834,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
         },
         setSearch: () => {
+            if (values.isFileBrowserMode) {
+                return
+            }
             actions.loadRecents()
             actions.triggerSearchForIncludedItems()
         },
@@ -1594,6 +1868,24 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         refreshDataAfterToggle: () => {
             // This action triggers after toggle to refresh data
             actions.triggerSearchForIncludedItems()
+        },
+        debouncedProjectFolderSearch: async ({ searchTerm }, breakpoint) => {
+            const trimmed = searchTerm.trim()
+            const noResultsPrefix = values.firstNoResultsSearchPrefixes.projectFolders
+
+            if (trimmed === '') {
+                actions.loadProjectFolderSearchResultsSuccess([])
+                actions.setFirstNoResultsSearchPrefix('projectFolders', null)
+                return
+            }
+
+            if (noResultsPrefix && trimmed.length > noResultsPrefix.length && trimmed.startsWith(noResultsPrefix)) {
+                actions.loadProjectFolderSearchResultsSuccess([])
+                return
+            }
+
+            await breakpoint(300)
+            actions.loadProjectFolderSearchResults(trimmed)
         },
         debouncedPersonSearch: async ({ searchTerm }, breakpoint) => {
             // Manually trigger the search and handle the result
@@ -1722,6 +2014,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 search: values.search || undefined,
                 category: undefined,
                 include: includeParam,
+                projectPath: values.projectPath || undefined,
             }
         }
 
@@ -1730,6 +2023,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             setSelectedCategory: () => [router.values.location.pathname, buildParams()],
             setNewTabSceneDataInclude: () => [router.values.location.pathname, buildParams()],
             toggleNewTabSceneDataInclude: () => [router.values.location.pathname, buildParams()],
+            setProjectPath: () => [router.values.location.pathname, buildParams()],
         }
     }),
     tabAwareUrlToAction(({ actions, values }) => ({
@@ -1769,6 +2063,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                       .filter((item): item is NEW_TAB_COMMANDS =>
                           [
                               'all',
+                              'project-folders',
                               'create-new',
                               'apps',
                               'data-management',
@@ -1824,6 +2119,19 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         }
                     })
                 }
+            }
+
+            const projectPathParam = searchParams.projectPath
+            let decodedProjectPath: string | null = null
+            if (typeof projectPathParam === 'string') {
+                try {
+                    decodedProjectPath = decodeURIComponent(projectPathParam)
+                } catch {
+                    decodedProjectPath = projectPathParam
+                }
+            }
+            if (decodedProjectPath !== values.projectPath) {
+                actions.setProjectPath(decodedProjectPath)
             }
 
             // Reset search, category, and include array to defaults if no URL params

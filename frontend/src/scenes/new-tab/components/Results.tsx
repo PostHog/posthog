@@ -32,6 +32,7 @@ import { NoResultsFound } from './NoResultsFound'
 export const getCategoryDisplayName = (category: string): string => {
     const displayNames: Record<string, string> = {
         'create-new': 'Create new',
+        'project-folders': 'Project folders',
         apps: 'Apps',
         'data-management': 'Data management',
         recents: 'Recents',
