@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 
 import { IconFeatures, IconHelmet, IconMap } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -19,6 +19,8 @@ import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType, Product
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelLogic } from '../sidePanelLogic'
+import { SidePanelTickets } from './SidePanelTickets'
+import { sidePanelTicketsLogic } from './sidePanelTicketsLogic'
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement => {
     return (
@@ -209,6 +211,16 @@ export function SidePanelSupport(): JSX.Element {
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
+    const ticketsLogic = sidePanelTicketsLogic({ key: 'sidebar' })
+    const { hasPendingTickets } = useValues(ticketsLogic)
+    const { loadTickets } = useActions(ticketsLogic)
+    
+    const [activeTab, setActiveTab] = useState<'contact' | 'tickets'>('contact')
+
+    // Prefetch tickets when Help panel opens for snappier UX
+    useEffect(() => {
+        loadTickets()
+    }, [])
 
     const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
     const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
@@ -283,10 +295,39 @@ export function SidePanelSupport(): JSX.Element {
     return (
         <div className="SidePanelSupport">
             <SidePanelPaneHeader title={isEmailFormOpen ? supportPanelTitle : 'Help'} />
+            
+            {!isEmailFormOpen && (
+                <div className="px-3 pt-2 shrink-0">
+                    <LemonTabs
+                        activeKey={activeTab}
+                        onChange={(key) => setActiveTab(key as 'contact' | 'tickets')}
+                        tabs={[
+                            {
+                                key: 'contact',
+                                label: 'Contact support',
+                            },
+                            {
+                                key: 'tickets',
+                                label: (
+                                    <div className="flex items-center gap-1.5">
+                                        <span>My tickets</span>
+                                        {hasPendingTickets && (
+                                            <div className="w-2 h-2 bg-danger rounded-full" />
+                                        )}
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
+                </div>
+            )}
 
-            <div className="overflow-y-auto flex flex-col h-full">
-                <div className="p-3 max-w-160 w-full mx-auto flex-1 flex flex-col justify-center">
-                    {isEmailFormOpen && showEmailSupport && isBillingLoaded ? (
+            {activeTab === 'tickets' && !isEmailFormOpen ? (
+                <SidePanelTickets />
+            ) : (
+                <div className="overflow-y-auto flex flex-col h-full">
+                    <div className="p-3 max-w-160 w-full mx-auto flex-1 flex flex-col justify-center">
+                        {isEmailFormOpen && showEmailSupport && isBillingLoaded ? (
                         <SupportFormBlock
                             onCancel={() => {
                                 closeEmailForm()
@@ -417,8 +458,9 @@ export function SidePanelSupport(): JSX.Element {
                             </Section>
                         </>
                     )}
+                    </div>
                 </div>
-            </div>
+            )}
         </div>
     )
 }

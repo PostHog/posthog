@@ -4,7 +4,15 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconEllipsis, IconGear, IconInfo, IconLock, IconLogomark, IconNotebook, IconSupport } from '@posthog/icons'
+import {
+    IconEllipsis,
+    IconGear,
+    IconInfo,
+    IconLock,
+    IconLogomark,
+    IconNotebook,
+    IconSupport,
+} from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'

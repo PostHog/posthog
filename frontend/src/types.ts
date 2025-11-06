@@ -422,6 +422,27 @@ export interface PluginAccess {
     configure: boolean
 }
 
+export interface ZendeskComment {
+    id: number
+    body: string
+    author_id: number
+    author_name: string
+    is_agent: boolean
+    created_at: string
+}
+
+export interface ZendeskTicket {
+    id: number
+    subject: string
+    description: string
+    status: 'new' | 'open' | 'pending' | 'hold' | 'solved' | 'closed'
+    priority: 'low' | 'normal' | 'high' | 'urgent' | null
+    created_at: string
+    updated_at: string
+    url: string
+    comments: ZendeskComment[]
+}
+
 export interface PersonalAPIKeyType {
     id: string
     label: string

@@ -461,6 +461,128 @@ class UserViewSet(
         report_user_deleted_account(user)
         super().perform_destroy(user)
 
+    @action(methods=["GET"], detail=True)
+    def zendesk_tickets(self, request, **kwargs):
+        """Fetch Zendesk tickets for the current user from Zendesk API."""
+        import requests
+        from django.conf import settings
+
+        user = self.get_object()
+
+        # Get Zendesk credentials from settings
+        subdomain = getattr(settings, 'ZENDESK_SUBDOMAIN', None)
+        admin_email = getattr(settings, 'ZENDESK_ADMIN_EMAIL', None)
+        api_token = getattr(settings, 'ZENDESK_API_TOKEN', None)
+
+        if not subdomain or not admin_email or not api_token:
+            return Response({
+                "tickets": [],
+                "count": 0,
+                "error": "Zendesk not configured"
+            })
+
+        try:
+            import base64
+
+            # Create basic auth header
+            credentials = f"{admin_email}/token:{api_token}"
+            basic_token = base64.b64encode(credentials.encode()).decode('ascii')
+            headers = {
+                "Authorization": f"Basic {basic_token}",
+                "Content-Type": "application/json"
+            }
+
+            # Search for tickets by requester email
+            base_url = f"https://{subdomain}.zendesk.com/api/v2"
+            search_url = f"{base_url}/search.json"
+            
+            # Query for open tickets for this user
+            query_string = f'type:ticket requester:{user.email} status<closed'
+            params = {
+                'query': query_string,
+                'sort_by': 'updated_at',
+                'sort_order': 'desc'
+            }
+
+            response = requests.get(search_url, headers=headers, params=params, timeout=10)
+
+            if response.status_code != 200:
+                return Response({
+                    "tickets": [],
+                    "count": 0,
+                    "error": f"Zendesk API error: {response.status_code}"
+                })
+
+            data = response.json()
+            results = data.get('results', [])
+
+            tickets = []
+            for ticket in results:
+                ticket_id = ticket.get('id')
+                
+                # Fetch comments for this ticket
+                comments = []
+                try:
+                    comments_url = f"{base_url}/tickets/{ticket_id}/comments.json"
+                    comments_response = requests.get(comments_url, headers=headers, timeout=10)
+                    
+                    if comments_response.status_code == 200:
+                        comments_data = comments_response.json()
+                        for comment in comments_data.get('comments', []):
+                            # Only include public comments
+                            if comment.get('public', False):
+                                # Fetch author name and role
+                                author_id = comment.get('author_id')
+                                author_name = 'Unknown'
+                                is_agent = False
+                                
+                                if author_id:
+                                    user_url = f"{base_url}/users/{author_id}.json"
+                                    user_response = requests.get(user_url, headers=headers, timeout=5)
+                                    if user_response.status_code == 200:
+                                        user_data = user_response.json()
+                                        user_obj = user_data.get('user', {})
+                                        author_name = user_obj.get('name', 'Unknown')
+                                        # Check if user is an agent (role: 'agent' or 'admin')
+                                        role = user_obj.get('role', '')
+                                        is_agent = role in ['agent', 'admin']
+                                
+                                comments.append({
+                                    'id': comment.get('id'),
+                                    'body': comment.get('body', ''),
+                                    'author_id': author_id,
+                                    'author_name': author_name,
+                                    'is_agent': is_agent,
+                                    'created_at': comment.get('created_at', ''),
+                                })
+                except Exception as e:
+                    # If comments fail, just log and continue without comments
+                    pass
+                
+                tickets.append({
+                    'id': ticket_id,
+                    'subject': ticket.get('subject', ''),
+                    'description': ticket.get('description', ''),
+                    'status': ticket.get('status', 'unknown'),
+                    'priority': ticket.get('priority'),
+                    'created_at': ticket.get('created_at', ''),
+                    'updated_at': ticket.get('updated_at', ''),
+                    'url': ticket.get('url', ''),
+                    'comments': comments,
+                })
+
+            return Response({
+                "tickets": tickets,
+                "count": len(tickets)
+            })
+
+        except Exception as e:
+            return Response({
+                "tickets": [],
+                "count": 0,
+                "error": str(e)
+            })
+
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
         token = request.data["token"] if "token" in request.data else None
