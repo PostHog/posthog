@@ -641,6 +641,8 @@ export function TextViewDisplay({
     const [loading, setLoading] = useState<boolean>(true)
     const [error, setError] = useState<string | null>(null)
     const [fallbackTriggered, setFallbackTriggered] = useState<boolean>(false)
+    const [expandedSegments, setExpandedSegments] = useState<Set<number | string>>(new Set())
+    const [popoutSegment, setPopoutSegment] = useState<number | string | null>(null)
 
     // Get trace ID for event links
     const traceId = trace?.id
@@ -763,9 +765,6 @@ export function TextViewDisplay({
     }, [event, trace, tree, currentTeamId, onFallback])
 
     const segments = parseTextSegments(textRepr)
-
-    const [expandedSegments, setExpandedSegments] = useState<Set<number | string>>(new Set())
-    const [popoutSegment, setPopoutSegment] = useState<number | string | null>(null)
 
     // Get indices of all expandable segments (truncated, gen_expandable, tools_expandable)
     const truncatedIndices = segments
