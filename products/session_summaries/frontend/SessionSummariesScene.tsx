@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { IconDownload, IconSearch, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconChevronDown, IconDownload, IconSearch, IconSort, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -527,17 +527,22 @@ function FilterBar(): JSX.Element {
 
     return (
         <div className="flex flex-wrap items-center gap-4 mb-4">
-            <LemonInput
-                type="search"
-                placeholder="Filter patterns by name or keyword..."
-                value={searchValue}
-                onChange={setSearchValue}
-                prefix={<IconSearch />}
-                fullWidth
-            />
-            <LemonButton type="secondary" icon={<IconDownload />}>
-                Export
-            </LemonButton>
+            <div className="flex-1 min-w-60">
+                <LemonInput
+                    type="search"
+                    placeholder="Filter patterns by name or keyword..."
+                    value={searchValue}
+                    onChange={setSearchValue}
+                    prefix={<IconSearch />}
+                    fullWidth
+                />
+            </div>
+            <div className="flex rounded border">
+                <LemonButton type="secondary" icon={<IconSort />} className="rounded-r-none border-r">
+                    Sort by impact
+                </LemonButton>
+                <LemonButton type="secondary" icon={<IconChevronDown />} className="rounded-l-none" />
+            </div>
         </div>
     )
 }
@@ -612,6 +617,11 @@ export function SessionSummariesScene(): JSX.Element {
                 resourceType={{
                     type: sceneConfigurations[Scene.SessionSummaries]?.iconType || 'default_icon_type',
                 }}
+                actions={
+                    <LemonButton type="secondary" icon={<IconDownload />}>
+                        Export
+                    </LemonButton>
+                }
             />
             <div className="space-y-4">
                 <FilterBar />
