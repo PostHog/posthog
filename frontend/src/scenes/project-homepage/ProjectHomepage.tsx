@@ -20,7 +20,6 @@ import { urls } from 'scenes/urls'
 
 import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DashboardPlacement } from '~/types'
 
@@ -86,19 +85,16 @@ function HomePageContent(): JSX.Element {
                     </>
                 }
             />
-            <div>
-                <SceneDivider />
-                {dashboardLogicProps ? (
-                    <Dashboard id={dashboardLogicProps.id.toString()} placement={DashboardPlacement.ProjectHomepage} />
-                ) : (
-                    <SceneDashboardChoiceRequired
-                        open={() => {
-                            setIsConfigurePinnedTabsOpen(true)
-                        }}
-                        scene={Scene.ProjectHomepage}
-                    />
-                )}
-            </div>
+            {dashboardLogicProps ? (
+                <Dashboard id={dashboardLogicProps.id.toString()} placement={DashboardPlacement.ProjectHomepage} />
+            ) : (
+                <SceneDashboardChoiceRequired
+                    open={() => {
+                        setIsConfigurePinnedTabsOpen(true)
+                    }}
+                    scene={Scene.ProjectHomepage}
+                />
+            )}
             <ConfigurePinnedTabsModal
                 isOpen={isConfigurePinnedTabsOpen}
                 onClose={() => setIsConfigurePinnedTabsOpen(false)}
@@ -112,12 +108,12 @@ export function ProjectHomepage(): JSX.Element {
     // if there is no numeric dashboard id, the dashboard logic will throw...
     // so we check it here first
     if (dashboardLogicProps?.id) {
-        // We add padding because the scene has layout: 'app-raw'
-        return (
-            <div className="p-4">
-                <HomePageContent />
-            </div>
-        )
+        return <HomePageContent />
     }
-    return <NewTabScene source="homepage" />
+    // Negative margin to counter-act the scene configs default padding
+    return (
+        <div className="-m-4">
+            <NewTabScene source="homepage" />
+        </div>
+    )
 }
