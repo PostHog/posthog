@@ -236,7 +236,30 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             </a>
         )
 
-        if ((tooltip && to) || tooltipDocLink) {
+        if (to && typeof to === 'string') {
+            const contextMenuTrigger = (
+                <ContextMenuTrigger asChild className="cursor-context-menu">
+                    {element}
+                </ContextMenuTrigger>
+            )
+
+            element = (
+                <ContextMenu>
+                    {tooltip || tooltipDocLink ? (
+                        <Tooltip title={tooltip} docLink={tooltipDocLink} placement={tooltipPlacement}>
+                            {contextMenuTrigger}
+                        </Tooltip>
+                    ) : (
+                        contextMenuTrigger
+                    )}
+                    <ContextMenuContent loop className="max-w-[250px]">
+                        <ContextMenuGroup>
+                            <BrowserLikeMenuItems href={to} MenuItem={ContextMenuItem} />
+                        </ContextMenuGroup>
+                    </ContextMenuContent>
+                </ContextMenu>
+            )
+        } else if (tooltip || tooltipDocLink) {
             element = (
                 <Tooltip title={tooltip} docLink={tooltipDocLink} placement={tooltipPlacement}>
                     {element}
@@ -263,21 +286,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                         </button>
                     </span>
                 </Tooltip>
-            )
-        }
-
-        if (to && typeof to === 'string') {
-            element = (
-                <ContextMenu>
-                    <ContextMenuTrigger asChild className="cursor-context-menu">
-                        {element}
-                    </ContextMenuTrigger>
-                    <ContextMenuContent loop className="max-w-[250px]">
-                        <ContextMenuGroup>
-                            <BrowserLikeMenuItems href={to} MenuItem={ContextMenuItem} />
-                        </ContextMenuGroup>
-                    </ContextMenuContent>
-                </ContextMenu>
             )
         }
 

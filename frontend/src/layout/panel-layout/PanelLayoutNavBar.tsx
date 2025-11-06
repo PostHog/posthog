@@ -24,7 +24,7 @@ import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavP
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -352,38 +352,31 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                     )}
                                                 </ButtonPrimitive>
                                             ) : (
-                                                <ButtonGroupPrimitive
-                                                    fullWidth
-                                                    className="flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
+                                                <Link
+                                                    data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
+                                                    buttonProps={{
+                                                        menuItem: !isLayoutNavCollapsed,
+                                                        className: 'group',
+                                                        iconOnly: isLayoutNavCollapsed,
+                                                        active: isStaticNavItemActive(item.identifier),
+                                                    }}
+                                                    to={item.to}
+                                                    tooltip={isLayoutNavCollapsed ? item.tooltip : undefined}
+                                                    tooltipPlacement="right"
+                                                    tooltipDocLink={item.tooltipDocLink}
                                                 >
-                                                    <Link
-                                                        data-attr={`menu-item-${item.identifier
-                                                            .toString()
-                                                            .toLowerCase()}`}
-                                                        buttonProps={{
-                                                            menuItem: !isLayoutNavCollapsed,
-                                                            className: 'group',
-                                                            iconOnly: isLayoutNavCollapsed,
-                                                            active: isStaticNavItemActive(item.identifier),
-                                                        }}
-                                                        to={item.to}
-                                                        tooltip={isLayoutNavCollapsed ? item.tooltip : undefined}
-                                                        tooltipPlacement="right"
-                                                        tooltipDocLink={item.tooltipDocLink}
+                                                    <span
+                                                        className={`flex text-tertiary group-hover:text-primary ${
+                                                            isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
+                                                        }`}
                                                     >
-                                                        <span
-                                                            className={`flex text-tertiary group-hover:text-primary ${
-                                                                isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
-                                                            }`}
-                                                        >
-                                                            {item.icon}
-                                                        </span>
+                                                        {item.icon}
+                                                    </span>
 
-                                                        {!isLayoutNavCollapsed && (
-                                                            <span className="truncate">{item.label}</span>
-                                                        )}
-                                                    </Link>
-                                                </ButtonGroupPrimitive>
+                                                    {!isLayoutNavCollapsed && (
+                                                        <span className="truncate">{item.label}</span>
+                                                    )}
+                                                </Link>
                                             )}
                                         </ListBox.Item>
                                     ))}
