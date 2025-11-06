@@ -84,9 +84,10 @@ pub fn update_stage(task_id: Option<&Uuid>) -> Result<()> {
 }
 
 fn fetch_task(client: &PHClient, task_id: &Uuid) -> Result<Task> {
-    let path = format!("tasks/{}/", task_id);
-
-    let response = client.get(&path).send().context("Failed to send request")?;
+    let response = client
+        .get(&format!("tasks/{task_id}/"))?
+        .send()
+        .context("Failed to send request")?;
 
     let response = raise_for_err(response)?;
 
@@ -96,8 +97,10 @@ fn fetch_task(client: &PHClient, task_id: &Uuid) -> Result<Task> {
 }
 
 fn fetch_workflow(client: &PHClient, workflow_id: &Uuid) -> Result<TaskWorkflow> {
-    let url = format!("task_workflows/{}/", workflow_id);
-    let response = client.get(&url).send().context("Failed to send request")?;
+    let response = client
+        .get(&format!("task_workflows/{workflow_id}/"))?
+        .send()
+        .context("Failed to send request")?;
     let response = raise_for_err(response)?;
 
     let workflow: TaskWorkflow = response
@@ -108,14 +111,12 @@ fn fetch_workflow(client: &PHClient, workflow_id: &Uuid) -> Result<TaskWorkflow>
 }
 
 fn update_task_stage(client: &PHClient, task_id: &Uuid, stage_id: &Uuid) -> Result<()> {
-    let url = format!("tasks/{}/update_stage/", task_id);
-
     let request_body = UpdateStageRequest {
         current_stage: *stage_id,
     };
 
     let response = client
-        .patch(&url)
+        .patch(&format!("tasks/{task_id}/update_stage/"))?
         .json(&request_body)
         .send()
         .context("Failed to update task stage")?;

@@ -318,7 +318,7 @@ fn fetch_definitions(client: &PHClient, language: Language) -> Result<Definition
         language.as_str()
     );
 
-    let response = client.get(&url).send().context(format!(
+    let response = client.get(&url)?.send().context(format!(
         "Failed to fetch {} definitions",
         language.display_name()
     ))?;

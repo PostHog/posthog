@@ -56,7 +56,7 @@ impl TaskIterator {
 
         let response = self
             .client
-            .get(&url)
+            .get(&url)?
             .send()
             .context("Failed to send request")?;
 

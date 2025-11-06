@@ -74,8 +74,7 @@ impl InvocationConfig {
             validation: Result<Validation, CustomUserError>,
             context: &str,
         ) -> Result<()> {
-            let validation =
-                validation.map_err(|err| anyhow::anyhow!("Invalid Personal API key: {}", err))?;
+            let validation = validation.map_err(|err| anyhow::anyhow!("{context}: {err}"))?;
             if let Validation::Invalid(ErrorMessage::Custom(msg)) = validation {
                 anyhow::bail!("{context}: {msg:?}");
             }

@@ -82,10 +82,8 @@ pub struct WorkflowIterator {
 
 impl WorkflowIterator {
     fn new(client: PHClient) -> Result<Self> {
-        let initial_url = format!("task_workflows/?limit={}", BUFFER_SIZE);
-
         let response = client
-            .get(&initial_url)
+            .get(&format!("task_workflows/?limit={BUFFER_SIZE}"))?
             .send()
             .context("Failed to send request")?;
 
@@ -121,7 +119,7 @@ impl WorkflowIterator {
 
         let response = self
             .client
-            .get(&url)
+            .get(&url)?
             .send()
             .context("Failed to send request")?;
 
@@ -177,8 +175,10 @@ pub struct StageIterator {
 
 impl StageIterator {
     fn new(client: PHClient) -> Result<Self> {
-        let path = format!("workflow_stages/?limit={}", BUFFER_SIZE);
-        let response = client.get(&path).send().context("Failed to send request")?;
+        let response = client
+            .get(&format!("workflow_stages/?limit={BUFFER_SIZE}"))?
+            .send()
+            .context("Failed to send request")?;
 
         if !response.status().is_success() {
             return Ok(Self {
@@ -211,7 +211,7 @@ impl StageIterator {
 
         let response = self
             .client
-            .get(&url)
+            .get(&url)?
             .send()
             .context("Failed to send request")?;
 

@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use reqwest::{
     blocking::{Client, RequestBuilder, Response},
     header::{HeaderMap, HeaderValue},
@@ -24,30 +24,25 @@ pub enum ClientError {
     RequestError(reqwest::Error),
     // All invalid status codes
     ApiError(u16, Box<Url>, String),
+    InvalidUrl(String, String),
 }
 
 impl Display for ClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ClientError::RequestError(err) => write!(f, "Request error: {}", err),
+            ClientError::RequestError(err) => write!(f, "Request error: {err}"),
+            ClientError::InvalidUrl(base_url, path) => {
+                write!(f, "Failed to build URL: {base_url} {path}")
+            }
             ClientError::ApiError(status, url, body) => {
                 // We only parse api error on display to catch all errors even when the body is not JSON
-                match serde_json::from_str::<ApiError>(body) {
+                match serde_json::from_str::<ApiErrorResponse>(body) {
                     Ok(api_error) => {
-                        write!(
-                            f,
-                            "API error (type='{}' status='{}' code='{}' details='{}')",
-                            api_error.r#type, status, api_error.code, api_error.detail
-                        )?;
-                        if let Some(attr) = &api_error.attr {
-                            write!(f, ", attributes='{}'", attr)?;
-                        }
-                        Ok(())
+                        write!(f, "API error: {api_error}")
                     }
                     Err(_) => write!(
                         f,
-                        "API error (status='{}' url='{}' message='{}')",
-                        status, url, body
+                        "API error: status='{status}' url='{url}' message='{body}'",
                     ),
                 }
             }
@@ -62,14 +57,14 @@ impl From<reqwest::Error> for ClientError {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ApiError {
+pub struct ApiErrorResponse {
     r#type: String,
     code: String,
     detail: String,
     attr: Option<String>,
 }
 
-impl Display for ApiError {
+impl Display for ApiErrorResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -77,7 +72,7 @@ impl Display for ApiError {
             self.r#type, self.code, self.detail
         )?;
         if let Some(attr) = &self.attr {
-            write!(f, ", attributes='{}'", attr)?;
+            write!(f, ", attributes='{attr}'")?;
         }
         Ok(())
     }
@@ -96,23 +91,23 @@ impl PHClient {
         })
     }
 
-    pub fn get(&self, path: &str) -> RequestBuilder {
+    pub fn get(&self, path: &str) -> Result<RequestBuilder, ClientError> {
         self.create_request(Method::GET, path)
     }
 
-    pub fn post(&self, path: &str) -> RequestBuilder {
+    pub fn post(&self, path: &str) -> Result<RequestBuilder, ClientError> {
         self.create_request(Method::POST, path)
     }
 
-    pub fn put(&self, path: &str) -> RequestBuilder {
+    pub fn put(&self, path: &str) -> Result<RequestBuilder, ClientError> {
         self.create_request(Method::PUT, path)
     }
 
-    pub fn delete(&self, path: &str) -> RequestBuilder {
+    pub fn delete(&self, path: &str) -> Result<RequestBuilder, ClientError> {
         self.create_request(Method::DELETE, path)
     }
 
-    pub fn patch(&self, path: &str) -> RequestBuilder {
+    pub fn patch(&self, path: &str) -> Result<RequestBuilder, ClientError> {
         self.create_request(Method::PATCH, path)
     }
 
@@ -154,7 +149,7 @@ impl PHClient {
         path: &str,
         builder: F,
     ) -> Result<Response, ClientError> {
-        let request = builder(self.create_request(method, path));
+        let request = builder(self.create_request(method, path)?);
         match request.send() {
             Ok(response) => {
                 if response.status().is_success() {
@@ -164,10 +159,6 @@ impl PHClient {
                     let box_url = Box::new(response.url().clone());
                     let body = response.text()?;
                     Err(ClientError::ApiError(status, box_url, body))
-                    // match serde_json::from_str(&body) {
-                    //     Ok(err) => Err(ClientError::ApiError(status, box_url, body)),
-                    //     Err(_) => Err(ClientError::RawApiError(status, box_url, body)),
-                    // }
                 }
             }
             Err(err) => Err(ClientError::from(err)),
@@ -178,14 +169,15 @@ impl PHClient {
         &self.config.env_id
     }
 
-    fn create_request(&self, method: Method, path: &str) -> RequestBuilder {
-        let url = self.build_url(path);
+    fn create_request(&self, method: Method, path: &str) -> Result<RequestBuilder, ClientError> {
+        let url = self.build_url(path)?;
         let headers = self.build_headers();
-        debug!("building request for {} {}", method, url);
-        self.client
+        debug!("building request for {method} {url}");
+        Ok(self
+            .client
             .request(method, url)
             .bearer_auth(&self.config.api_key)
-            .headers(headers)
+            .headers(headers))
     }
 
     fn build_client(config: &InvocationConfig) -> anyhow::Result<Client> {
@@ -200,7 +192,7 @@ impl PHClient {
             "{}/api/environments/{}/",
             config.host, config.env_id
         ))
-        .unwrap();
+        .context("Invalid base URL")?;
         Ok(base_url)
     }
 
@@ -211,9 +203,9 @@ impl PHClient {
         headers
     }
 
-    fn build_url(&self, path: &str) -> Url {
+    fn build_url(&self, path: &str) -> Result<Url, ClientError> {
         self.base_url
             .join(path)
-            .unwrap_or_else(|err| panic!("Failed to build URL for path: {err}"))
+            .map_err(|_| ClientError::InvalidUrl(self.base_url.clone().into(), path.to_string()))
     }
 }

@@ -57,8 +57,11 @@ pub fn show_progress(task_id: Option<&Uuid>) -> Result<()> {
 fn fetch_progress(task_id: &Uuid) -> Result<TaskProgressResponse> {
     let client = context().client.clone();
 
-    let path = format!("tasks/{}/progress/", task_id);
-    let response = client.get(&path).send().context("Failed to send request")?;
+    let path = format!("tasks/{task_id}/progress/");
+    let response = client
+        .get(&path)?
+        .send()
+        .context("Failed to send request")?;
     let response = raise_for_err(response)?;
 
     let progress: TaskProgressResponse = response

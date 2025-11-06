@@ -168,7 +168,7 @@ pub fn run_query(to_run: &str) -> Result<HogQLQueryResult, Error> {
         refresh: Some(QueryRefresh::Blocking),
     };
 
-    let response = client.post("query").json(&request).send()?;
+    let response = client.post("query")?.json(&request).send()?;
 
     let code = response.status();
     let body = response.text()?;
@@ -201,7 +201,7 @@ pub fn check_query(to_run: &str) -> Result<MetadataResponse, Error> {
         refresh: None,
     };
 
-    let response = client.post("query").json(&request).send()?;
+    let response = client.post("query")?.json(&request).send()?;
 
     let code = response.status();
     let body = response.text()?;
