@@ -25,5 +25,9 @@ export class Navigation {
 
     async openMenuItem(name: string): Promise<void> {
         await this.page.getByTestId(`menu-item-${name}`).click()
+        // Wait for navigation to complete and page to be ready
+        await this.page.waitForLoadState('domcontentloaded')
+        // Additional wait for network to settle (catches lazy-loaded components)
+        await this.page.waitForLoadState('networkidle')
     }
 }
