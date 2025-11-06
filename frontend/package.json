@@ -61,7 +61,7 @@
         "@medv/finder": "^4.0.2",
         "@microlink/react-json-view": "^1.26.2",
         "@microsoft/fetch-event-source": "^2.0.1",
-        "@monaco-editor/react": "4.6.0",
+        "@monaco-editor/react": "4.7.0",
         "@posthog/ee": "workspace:*",
         "@posthog/esbuilder": "workspace:*",
         "@posthog/hogvm": "workspace:*",
