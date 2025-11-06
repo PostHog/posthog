@@ -13,7 +13,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.ingestion_limits.queries import get_high_volume_distinct_ids_query
 from posthog.temporal.ingestion_limits.reporting import (
-    format_kafka_message,
+    format_kafka_messages,
     format_slack_message,
     send_to_kafka,
     send_to_slack,
@@ -110,9 +110,13 @@ async def report_ingestion_limits_activity(inputs: ReportIngestionLimitsInput) -
         logger.info("Reporting ingestion limits")
 
         # we can report to slack whether the report contains any teams of interest or not
-        should_send_slack = inputs.workflow_inputs.report_destination in (
-            ReportDestination.SLACK,
-            ReportDestination.BOTH,
+        should_send_slack = (
+            inputs.workflow_inputs.report_destination
+            in (
+                ReportDestination.SLACK,
+                ReportDestination.BOTH,
+            )
+            and inputs.workflow_inputs.slack_token is not None
         )
 
         # ingestion warnings should only go out if we have a problem to report
@@ -128,7 +132,7 @@ async def report_ingestion_limits_activity(inputs: ReportIngestionLimitsInput) -
         if should_send_slack:
             try:
                 slack_channel = inputs.workflow_inputs.slack_channel or getattr(
-                    settings, "SLACK_DEFAULT_CHANNEL", "#alerts-ingestion"
+                    settings, "SLACK_INGESTION_EVENT_RESTRICTIONS_CHANNEL", "#alerts-ingestion"
                 )
                 slack_message = format_slack_message(inputs.report)
                 await send_to_slack(channel=slack_channel, message=slack_message)
@@ -141,12 +145,14 @@ async def report_ingestion_limits_activity(inputs: ReportIngestionLimitsInput) -
 
         if should_send_kafka:
             try:
-                kafka_topic = inputs.workflow_inputs.kafka_topic or getattr(
-                    settings, "KAFKA_INGESTION_LIMITS_TOPIC", "ingestion_limits"
+                kafka_topic = inputs.workflow_inputs.kafka_topic
+                kafka_messages = format_kafka_messages(inputs.report)
+                send_to_kafka(topic=kafka_topic, messages=kafka_messages)
+                logger.info(
+                    "Sent ingestion limits report to Kafka",
+                    topic=kafka_topic,
+                    message_count=len(kafka_messages),
                 )
-                kafka_message = format_kafka_message(inputs.report)
-                send_to_kafka(topic=kafka_topic, message=kafka_message)
-                logger.info("Sent ingestion limits report to Kafka", topic=kafka_topic)
             except Exception as e:
                 logger.exception("Failed to send Kafka message", error=str(e), topic=inputs.workflow_inputs.kafka_topic)
                 # Don't raise - Slack may have succeeded
