@@ -15,7 +15,7 @@
         "start:devNoWatch": "NODE_ENV=dev tsx src/index.ts",
         "prestart:dev": "pnpm build:cyclotron",
         "prestart:devNoWatch": "pnpm build:cyclotron",
-        "build": "pnpm clean && pnpm typescript:compile && pnpm typescript:compile-cleanup",
+        "build": "pnpm clean && pnpm generate:proto && pnpm typescript:compile && pnpm typescript:compile-cleanup",
         "clean": "rm -rf dist/*",
         "typescript:compile": "tsc -b && tsc-alias",
         "typescript:compile-cleanup": "[ -d dist/src ] && mv dist/src/* dist/ || true",
