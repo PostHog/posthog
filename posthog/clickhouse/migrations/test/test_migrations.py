@@ -135,9 +135,9 @@ class TestUniqueMigrationPrefixes(TestCase):
             if not re.match(r"^\d+_", migration_name):
                 continue
 
-            # Skip migrations before 0167 (validation applies to new migrations only)
-            # Migrations 0083-0166 may not follow this rule as they were created before this validation
-            migration_number = int(re.match(r"^(\d+)_", migration_name).group(1))
+            # Skip migrations before 0150 (validation applies to new migrations only)
+            # Migrations 0083-0150 may not follow this rule as they were created before this validation
+            migration_number = int(re.match(r"^(\d+)_", migration_name).group(1))  # type: ignore[union-attr]
             if migration_number < 150:
                 continue
 
