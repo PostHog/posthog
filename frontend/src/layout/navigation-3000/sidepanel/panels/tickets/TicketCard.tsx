@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 
 import { ZendeskTicket } from '~/types'
 
@@ -27,14 +29,27 @@ const STATUS_LABELS: Record<string, string> = {
 }
 
 export function TicketCard({ ticket }: TicketCardProps): JSX.Element {
-    const { expandedTicketId } = useValues(sidePanelTicketsLogic)
-    const { setExpandedTicketId } = useActions(sidePanelTicketsLogic)
+    const { expandedTicketId, replyingToTicketId, replySuccessTicketId, replyToTicketLoading } =
+        useValues(sidePanelTicketsLogic)
+    const { setExpandedTicketId, setReplyingToTicketId, replyToTicket } = useActions(sidePanelTicketsLogic)
+
+    const [replyText, setReplyText] = useState('')
 
     const isExpanded = expandedTicketId === ticket.id
+    const isWaitingForYou = ticket.status === 'pending'
+    const isShowingReplyForm = replyingToTicketId === ticket.id
+    const showSuccessMessage = replySuccessTicketId === ticket.id
+
+    const handleSendReply = (): void => {
+        if (replyText.trim()) {
+            replyToTicket({ ticketId: ticket.id, body: replyText })
+            setReplyText('')
+        }
+    }
 
     return (
-        <div className="border rounded p-3 mb-2 hover:border-primary transition-colors cursor-pointer">
-            <div onClick={() => setExpandedTicketId(isExpanded ? null : ticket.id)}>
+        <div className="border rounded p-3 mb-2 hover:border-primary transition-colors">
+            <div onClick={() => setExpandedTicketId(isExpanded ? null : ticket.id)} className="cursor-pointer">
                 {/* Header */}
                 <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -60,6 +75,49 @@ export function TicketCard({ ticket }: TicketCardProps): JSX.Element {
                     <p className="text-sm text-muted line-clamp-2 ml-8">{ticket.description}</p>
                 )}
             </div>
+
+            {/* Reply Form (for "Waiting for you" tickets) */}
+            {isExpanded && isWaitingForYou && (
+                <div className="mt-3 pt-3 border-t">
+                    {showSuccessMessage ? (
+                        <div className="p-3 bg-success-highlight border border-success rounded text-sm">
+                            Reply sent successfully! Refreshing ticket...
+                        </div>
+                    ) : isShowingReplyForm ? (
+                        <div className="space-y-2">
+                            <LemonTextAreaMarkdown
+                                value={replyText}
+                                onChange={setReplyText}
+                                placeholder="Write your reply in markdown..."
+                                minRows={3}
+                            />
+                            <div className="flex gap-2 justify-end">
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => {
+                                        setReplyingToTicketId(null)
+                                        setReplyText('')
+                                    }}
+                                >
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={handleSendReply}
+                                    loading={replyToTicketLoading}
+                                    disabledReason={!replyText.trim() ? 'Please enter a reply' : undefined}
+                                >
+                                    Send reply
+                                </LemonButton>
+                            </div>
+                        </div>
+                    ) : (
+                        <LemonButton type="primary" onClick={() => setReplyingToTicketId(ticket.id)} fullWidth center>
+                            Reply to ticket
+                        </LemonButton>
+                    )}
+                </div>
+            )}
 
             {/* Comments */}
             {isExpanded && ticket.comments && ticket.comments.length > 0 && (

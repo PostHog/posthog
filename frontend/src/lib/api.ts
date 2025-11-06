@@ -3540,6 +3540,18 @@ const api = {
                 .addPathComponent('zendesk_tickets')
                 .get()
         },
+        async replyToZendeskTicket(
+            ticketId: number,
+            body: string
+        ): Promise<{ success: boolean; ticket_id?: number; error?: string }> {
+            return await new ApiRequest()
+                .addPathComponent('users')
+                .addPathComponent('@me')
+                .addPathComponent('zendesk_tickets')
+                .addPathComponent(String(ticketId))
+                .addPathComponent('reply')
+                .create({ data: { body } })
+        },
     },
 
     tasks: {

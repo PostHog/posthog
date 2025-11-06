@@ -110,8 +110,10 @@ target/*
 # Ignore file for clearing demo data on local
 posthog/management/commands/clear_demo_data.py
 
-# Ignore Claude Code settings
+# Ignore Claude Code settings and branch-specific files
 .claude/settings.local.json
+CLAUDE.md
+.claude/skills/
 
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml
