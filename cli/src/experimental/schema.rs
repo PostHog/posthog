@@ -131,9 +131,7 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
         language.display_name()
     );
 
-    // Load credentials
-    // let token = context().token.clone();
-    // let host = token.get_host();
+    // Get PH client
     let client = &context().client;
 
     // Determine output path

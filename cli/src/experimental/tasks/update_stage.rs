@@ -118,7 +118,7 @@ fn update_task_stage(client: &PHClient, task_id: &Uuid, stage_id: &Uuid) -> Resu
         .patch(&url)
         .json(&request_body)
         .send()
-        .context("Failed to send request")?;
+        .context("Failed to update task stage")?;
 
     raise_for_err(response)?;
 
