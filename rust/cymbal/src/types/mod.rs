@@ -446,7 +446,7 @@ impl Stacktrace {
     }
 
     // These two fn's are used for java, which mangles top level exception types. When
-    // we receive an exception, we push it's type into the top frame, so when that frames
+    // we receive an exception, we push its type into the top frame, so when that frame's
     // resolved, we can pop it
     pub fn push_exception_type(&mut self, exception_type: String) {
         let Self::Raw { frames } = self else {
