@@ -2,6 +2,7 @@
 
 import uuid
 import datetime as dt
+import collections.abc
 
 import pytest
 import unittest.mock
@@ -69,6 +70,7 @@ async def _run_activity(
     expected_fields=None,
     expect_duplicates: bool = False,
     min_ingested_timestamp: dt.datetime = TEST_TIME,
+    timestamp_columns: collections.abc.Sequence[str] = (),
 ):
     """Helper function to run BigQuery main activity and assert records are exported."""
     insert_inputs = BigQueryInsertInputs(
@@ -121,6 +123,7 @@ async def _run_activity(
         sort_key=sort_key,
         expected_fields=expected_fields,
         expect_duplicates=expect_duplicates,
+        timestamp_columns=timestamp_columns,
     )
 
     return result
@@ -599,7 +602,7 @@ def drop_column_from_bigquery_table(
     _ = query_job.result()
 
 
-async def test_insert_into_bigquery_activity_from_stage_handles_person_schema_changes(
+async def test_insert_into_bigquery_activity_from_stage_handles_person_new_columns(
     clickhouse_client,
     activity_environment,
     bigquery_client,
@@ -638,7 +641,6 @@ async def test_insert_into_bigquery_activity_from_stage_handles_person_schema_ch
         sort_key="person_id",
     )
 
-    # drop the created_at column from the BigQuery table
     drop_column_from_bigquery_table(
         bigquery_client=bigquery_client,
         dataset_id=bigquery_dataset.dataset_id,
@@ -684,4 +686,79 @@ async def test_insert_into_bigquery_activity_from_stage_handles_person_schema_ch
         bigquery_config=bigquery_config,
         sort_key="person_id",
         expected_fields=expected_fields,
+    )
+
+
+async def test_insert_into_bigquery_activity_from_stage_handles_datetime_to_int(
+    clickhouse_client,
+    activity_environment,
+    bigquery_client,
+    bigquery_config,
+    bigquery_dataset,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_bigquery_activity_from_stage` handles columns in the
+    destination having INT64 type for DateTime64 columns.
+
+    ClickHouse exports DateTime columns as uint32. Not to be confused with DateTime64
+    columns which are exported as Arrow's native timestamp type.
+
+    This can lead to fields in destination tables corresponding to DateTime types being
+    created as BigQuery's INT64, as that's how we resolve Arrow's uint32.
+
+    If the ClickHouse type ever changes from DateTime to DateTime64, for example, if the
+    query is updated, we want to ensure we can continue exporting to an INT64 field,
+    even if the field is now DateTime64.
+
+    To replicate this situation we first export the data to create the table, then alter
+    'created_at' to be of type INT64, and then rerun the export.
+    """
+    model = BatchExportModel(name="persons", schema=None)
+    table_id = f"test_insert_activity_migration_table_{ateam.pk}"
+
+    await _run_activity(
+        activity_environment,
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_id=table_id,
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        bigquery_config=bigquery_config,
+        sort_key="person_id",
+    )
+
+    query_job = bigquery_client.query(f"TRUNCATE TABLE {bigquery_dataset.dataset_id}.{table_id}")
+    _ = query_job.result()
+
+    # It's easier to drop the column and re-add it as a different type than altering it.
+    drop_column_from_bigquery_table(
+        bigquery_client=bigquery_client,
+        dataset_id=bigquery_dataset.dataset_id,
+        table_id=table_id,
+        column_name="created_at",
+    )
+    query_job = bigquery_client.query(
+        f"ALTER TABLE {bigquery_dataset.dataset_id}.{table_id} ADD COLUMN created_at INT64"
+    )
+    _ = query_job.result()
+
+    await _run_activity(
+        activity_environment,
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_id=table_id,
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        bigquery_config=bigquery_config,
+        sort_key="person_id",
+        timestamp_columns=("created_at",),
     )

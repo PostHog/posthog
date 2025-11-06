@@ -14,7 +14,6 @@ _T = typing.TypeVar("_T")
 EPOCH = dt.datetime(1970, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 EPOCH_SECONDS = pa.scalar(EPOCH, type=pa.timestamp("s", tz="UTC"))
 EPOCH_MILLISECONDS = pa.scalar(EPOCH, type=pa.timestamp("ms", tz="UTC"))
-EPOCH_MICROSECONDS = pa.scalar(EPOCH, type=pa.timestamp("us", tz="UTC"))
 
 
 def _noop_cast(arr: pa.Array) -> pa.Array:
@@ -50,6 +49,14 @@ def _make_ensure_array(
     return f
 
 
+TIMESTAMP_S_TO_SECONDS_SINCE_EPOCH = _make_ensure_array(functools.partial(pa.compute.seconds_between, EPOCH_SECONDS))
+# Not offering this one as a default compatible type as it can result in data loss
+# (truncation of the microsecond part). Leaving it up to specific destinations to decide
+# whether to use it.
+TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH = _make_ensure_array(
+    functools.partial(pa.compute.seconds_between, EPOCH_MILLISECONDS)
+)
+
 TypeTupleToCastMapping = dict[tuple[pa.DataType, pa.DataType], collections.abc.Callable[[pa.Array], pa.Array]]
 
 # I played around with the idea of making this a proper graph and then using DFS/BFS to
@@ -59,12 +66,6 @@ TypeTupleToCastMapping = dict[tuple[pa.DataType, pa.DataType], collections.abc.C
 COMPATIBLE_TYPES: TypeTupleToCastMapping = {
     (pa.timestamp("s", tz="UTC"), pa.int64()): _make_ensure_array(
         functools.partial(pa.compute.seconds_between, EPOCH_SECONDS)
-    ),
-    (pa.timestamp("ms", tz="UTC"), pa.int64()): _make_ensure_array(
-        functools.partial(pa.compute.milliseconds_between, EPOCH_MILLISECONDS)
-    ),
-    (pa.timestamp("us", tz="UTC"), pa.int64()): _make_ensure_array(
-        functools.partial(pa.compute.microseconds_between, EPOCH_MICROSECONDS)
     ),
     (pa.string(), JsonType()): _make_ensure_array(functools.partial(pa.compute.cast, target_type=JsonType())),
 }

@@ -348,7 +348,7 @@ async def test_bigquery_export_workflow_backfill_earliest_persons(
 
 
 async def test_bigquery_export_workflow_handles_unexpected_insert_activity_errors(
-    ateam, bigquery_batch_export, interval, use_internal_stage
+    ateam, bigquery_batch_export, interval
 ):
     """Test that BigQuery Export Workflow can gracefully handle unexpected errors when inserting BigQuery data.
 

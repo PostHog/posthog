@@ -39,7 +39,13 @@ from products.batch_exports.backend.temporal.heartbeat import BatchExportRangeHe
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
-from products.batch_exports.backend.temporal.pipeline.table import Field, Table, TableReference, _noop_cast
+from products.batch_exports.backend.temporal.pipeline.table import (
+    TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
+    Field,
+    Table,
+    TableReference,
+    _noop_cast,
+)
 from products.batch_exports.backend.temporal.pipeline.transformer import (
     ChunkTransformerProtocol,
     JSONLStreamTransformer,
@@ -82,6 +88,14 @@ COMPATIBLE_TYPES = {
     # BigQuery deals with timestamps in microseconds, but it does interpret timestamps
     # in milliseconds correctly, so we don't need to cast.
     (pa.timestamp("ms", tz="UTC"), pa.timestamp("us", tz="UTC")): _noop_cast,
+    # We assume this is a destination field created from a ClickHouse `DateTime` that
+    # has  been updated to `DateTime64(3)`.
+    # This would mean the field would have been created as a BigQuery 'INT64', but we
+    # are now receiving a `pa.timestamp("ms", tz="UTC")`.
+    # So, since `DateTime` is seconds since the EPOCH, we maintain that here.
+    # This technically truncates the millisecond part of the value, but if it came from
+    # a `DateTime` then we assume it is empty (as it would have been empty before).
+    (pa.timestamp("ms", tz="UTC"), pa.int64()): TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
 }
 
 FileFormat = typing.Literal["Parquet", "JSONLines"]
@@ -112,6 +126,7 @@ class BigQueryType(typing.NamedTuple):
 
 
 def bigquery_type_to_data_type(type: BigQueryType) -> pa.DataType:
+    """Mapping of `BigQueryType` to corresponding `pa.DataType`."""
     match type.name:
         case "STRING":
             base_type = pa.string()
@@ -142,6 +157,7 @@ def bigquery_type_to_data_type(type: BigQueryType) -> pa.DataType:
 
 
 def data_type_to_bigquery_type(data_type: pa.DataType) -> BigQueryType:
+    """Mapping of `pa.DataType` to corresponding `BigQueryType`."""
     repeated = False
 
     if pa.types.is_string(data_type):
@@ -176,6 +192,8 @@ def data_type_to_bigquery_type(data_type: pa.DataType) -> BigQueryType:
 
 
 class BigQueryField(Field):
+    """A field of a BigQueryTable."""
+
     def __init__(self, name: str, type: BigQueryType, nullable: bool):
         self.name = name
         self.bigquery_type = type
@@ -218,6 +236,8 @@ class BigQueryField(Field):
 
 
 class BigQueryTable(Table[BigQueryField]):
+    """A table in BigQuery."""
+
     def __init__(
         self,
         name: str,
@@ -241,6 +261,7 @@ class BigQueryTable(Table[BigQueryField]):
         parents = (table.project, table.dataset_id)
         fields = tuple(BigQueryField.from_destination_field(field) for field in table.schema)
         time_partitioning = table.time_partitioning
+
         return cls(name, fields, parents, primary_key, version_key, time_partitioning=time_partitioning)
 
     @classmethod
@@ -817,98 +838,9 @@ class BigQueryConsumer(Consumer):
         self.current_buffer = io.BytesIO()
 
 
-class TableSchemas(typing.NamedTuple):
-    table_schema: collections.abc.Sequence[bigquery.SchemaField]
-    stage_table_schema: collections.abc.Sequence[bigquery.SchemaField]
-    json_columns: collections.abc.Sequence[str]
-
-
-def _get_table_schemas(
-    model: BatchExportModel | BatchExportSchema | None, record_batch_schema: pa.Schema, use_json_type: bool
-) -> TableSchemas:
-    """Return the schemas used for main and stage tables."""
-    if use_json_type is True:
-        json_type = "JSON"
-        json_columns = ["properties", "set", "set_once", "person_properties"]
-    else:
-        json_type = "STRING"
-        json_columns = []
-
-    if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
-        table_schema = [
-            bigquery.SchemaField("uuid", "STRING"),
-            bigquery.SchemaField("event", "STRING"),
-            bigquery.SchemaField("properties", json_type),
-            bigquery.SchemaField("elements", "STRING"),
-            bigquery.SchemaField("set", json_type),
-            bigquery.SchemaField("set_once", json_type),
-            bigquery.SchemaField("distinct_id", "STRING"),
-            bigquery.SchemaField("team_id", "INT64"),
-            bigquery.SchemaField("ip", "STRING"),
-            bigquery.SchemaField("site_url", "STRING"),
-            bigquery.SchemaField("timestamp", "TIMESTAMP"),
-            bigquery.SchemaField("bq_ingested_timestamp", "TIMESTAMP"),
-        ]
-
-    else:
-        table_schema = get_bigquery_fields_from_record_schema(record_batch_schema, known_json_columns=json_columns)
-
-    stage_table_schema = [
-        bigquery.SchemaField(field.name, "STRING") if field.name in json_columns else field for field in table_schema
-    ]
-
-    return TableSchemas(table_schema, stage_table_schema, json_columns)
-
-
-class Tables(typing.NamedTuple):
-    stage_table: BigQueryTable
-    target_table: BigQueryTable
-
-
-def _get_tables(
-    table_id: str,
-    stage_table_id: str,
-    project_id: str,
-    dataset_id: str,
-    record_batch_schema: pa.Schema,
-    model: BatchExportModel | BatchExportSchema | None,
-    use_json_type: bool,
-) -> Tables:
-    json_fields = {}
-
-    if use_json_type:
-        json_fields = {"properties", "set", "set_once", "person_properties"}
-        record_batch_schema = pa.schema(
-            field.with_type(JsonType()) if field.name in json_fields else field for field in record_batch_schema
-        )
-    else:
-        record_batch_schema = record_batch_schema
-
-    target_table = BigQueryTable.from_arrow_schema(
-        record_batch_schema, table_id=table_id, project_id=project_id, dataset_id=dataset_id
-    )
-    stage_table = BigQueryTable(stage_table_id, target_table.fields, target_table.parents)
-
-    if use_json_type:
-        for field_name in json_fields:
-            if field_name not in stage_table:
-                continue
-
-            field = stage_table[field_name]
-            stage_table[field_name] = field.with_new_arrow_type(pa.string())
-
-    merge_settings = _get_merge_settings(model)
-
-    if merge_settings:
-        target_table.primary_key = merge_settings.merge_key
-        target_table.version_key = merge_settings.update_key
-
-    return Tables(stage_table, target_table)
-
-
 class MergeSettings(typing.NamedTuple):
-    merge_key: collections.abc.Sequence[str]
-    update_key: collections.abc.Sequence[str]
+    primary_key: collections.abc.Sequence[str]
+    version_key: collections.abc.Sequence[str]
 
 
 def _get_merge_settings(
@@ -917,18 +849,18 @@ def _get_merge_settings(
     """Return merge settings for models that require merging."""
     if isinstance(model, BatchExportModel):
         if model.name == "persons":
-            merge_key = ("team_id", "distinct_id")
-            update_key = ("person_version", "person_distinct_id_version")
+            primary_key = ("team_id", "distinct_id")
+            version_key = ("person_version", "person_distinct_id_version")
         elif model.name == "sessions":
-            merge_key = ("team_id", "session_id")
-            update_key = ("end_timestamp",)
+            primary_key = ("team_id", "session_id")
+            version_key = ("end_timestamp",)
         # TODO: Support merges in 'events'?
         else:
             return None
     else:
         return None
 
-    return MergeSettings(merge_key, update_key)
+    return MergeSettings(primary_key, version_key)
 
 
 @activity.defn
@@ -992,24 +924,33 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             # between batches.
             [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
         )
+        if inputs.use_json_type:
+            # TODO: Figure out which fields are JSON without hard-coding them here.
+            json_fields = {"properties", "set", "set_once", "person_properties"}
+            record_batch_schema = pa.schema(
+                field.with_type(JsonType()) if field.name in json_fields else field for field in record_batch_schema
+            )
+        else:
+            json_fields = set()
+
+        merge_settings = _get_merge_settings(model)
+        target_table = BigQueryTable.from_arrow_schema(
+            record_batch_schema,
+            table_id=inputs.table_id,
+            project_id=inputs.project_id,
+            dataset_id=inputs.dataset_id,
+            primary_key=merge_settings.primary_key,
+            version_key=merge_settings.version_key,
+        )
+
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         attempt = activity.info().attempt
         stage_table_id = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
 
-        tables = _get_tables(
-            inputs.table_id,
-            stage_table_id,
-            inputs.project_id,
-            inputs.dataset_id,
-            record_batch_schema,
-            model,
-            inputs.use_json_type,
-        )
-
         async with BigQueryClient.from_service_account_inputs(
             inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, inputs.project_id
         ) as bq_client:
-            bigquery_target_table = await bq_client.get_or_create_table(tables.target_table)
+            bigquery_target_table = await bq_client.get_or_create_table(target_table)
 
             can_perform_merge = await bq_client.check_for_query_permissions(bigquery_target_table)
             if not can_perform_merge:
@@ -1019,12 +960,26 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                 external_logger.warning(
                     "Missing query permissions on BigQuery table required for merging, will attempt direct load into final table"
                 )
-                stage_table = bigquery_target_table
+                consumer_table = bigquery_target_table
             else:
-                stage_table = tables.stage_table
+                consumer_table = BigQueryTable(
+                    stage_table_id,
+                    bigquery_target_table.fields,
+                    bigquery_target_table.parents,
+                    primary_key=bigquery_target_table.primary_key,
+                    version_key=bigquery_target_table.version_key,
+                )
+
+                if inputs.use_json_type:
+                    for field_name in json_fields:
+                        if field_name not in consumer_table:
+                            continue
+
+                        field = consumer_table[field_name]
+                        consumer_table[field_name] = field.with_new_arrow_type(pa.string())
 
             async with bq_client.managed_table(
-                table=stage_table,
+                table=consumer_table,
                 create=can_perform_merge,
                 delete=can_perform_merge,
             ) as bigquery_consumer_table:
@@ -1072,7 +1027,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                 if can_perform_merge:
                     _ = await bq_client.merge_tables(
                         final=bigquery_target_table,
-                        stage=tables.stage_table,
+                        stage=bigquery_consumer_table,
                     )
 
                 return result
