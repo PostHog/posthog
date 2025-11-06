@@ -43,7 +43,7 @@ class TestUniqueMigrationPrefixes(TestCase):
 
     def test_max_migration_txt_is_valid(self):
         """Test that max_migration.txt exists and points to the latest migration."""
-        migrations_dir = Path(__file__).parent.parent
+        migrations_dir = Path(__file__).parent.parent / "migrations"
         max_migration_txt = migrations_dir / "max_migration.txt"
 
         # Check that max_migration.txt exists
