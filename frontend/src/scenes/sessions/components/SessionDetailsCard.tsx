@@ -74,7 +74,7 @@ export function SessionDetailsCard({ sessionData, isLoading }: SessionDetailsCar
         (sessionData.urls && sessionData.urls.length > 0)
 
     return (
-        <LemonCard className="overflow-hidden">
+        <LemonCard className="overflow-hidden" hoverEffect={false}>
             <DetailSection title="Session Properties" defaultExpanded={true}>
                 {sessionData.channel_type && (
                     <DetailRow label="Channel type" value={<LemonTag>{sessionData.channel_type}</LemonTag>} />
