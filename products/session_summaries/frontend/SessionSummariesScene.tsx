@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { IconDownload, IconSearch, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -508,13 +508,13 @@ function SessionExampleCard({ event }: { event: SessionEvent }): JSX.Element {
     return (
         <div className="flex flex-col gap-2 rounded border p-3 bg-bg-light">
             <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold">{target_event.description}</p>
+                <h3 className="mb-0">{target_event.description}</h3>
                 <Link to="#" className="text-sm font-medium whitespace-nowrap">
                     View details
                 </Link>
             </div>
-            <p className="text-xs text-muted">Session {target_event.session_id}</p>
-            <p className="text-sm text-muted-alt">{segment_outcome}</p>
+            <p className="text-xs text-muted mb-1">Session {target_event.session_id}</p>
+            <p className="text-sm font-normal text-muted-alt mb-0">{segment_outcome}</p>
         </div>
     )
 }
@@ -545,17 +545,15 @@ function PatternCard({ pattern }: { pattern: Pattern }): JSX.Element {
     const severityConfig = getSeverityConfig(pattern.severity)
 
     const header = (
-        <div className="flex flex-1 flex-col gap-2 py-2">
-            <div className="flex flex-col sm:flex-row sm:items-start gap-x-4 gap-y-2">
-                <h3 className="text-base font-medium flex-1">{pattern.pattern_name}</h3>
-                <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
+        <div className="py-3 px-1">
+            <div>
+                <h3 className="text-base font-medium mb-0">{pattern.pattern_name}</h3>
+                <div className="flex flex-wrap items-center gap-3 text-sm text-muted mb-2">
                     <span>{pattern.stats.sessions_affected} sessions</span>
                     <span className="hidden sm:inline">·</span>
                     <div className="flex items-center gap-1.5">
                         <div className={`size-2 rounded-full ${severityConfig.color}`} />
-                        <LemonTag type={severityConfig.type} size="small">
-                            {capitalizeFirst(pattern.severity)}
-                        </LemonTag>
+                        <div className="text-sm font-normal mb-0">{capitalizeFirst(pattern.severity)}</div>
                     </div>
                     <span className="hidden sm:inline">·</span>
                     <div className="hidden sm:flex items-center gap-2">
@@ -564,13 +562,13 @@ function PatternCard({ pattern }: { pattern: Pattern }): JSX.Element {
                     </div>
                 </div>
             </div>
-            <p className="text-sm text-muted-alt">{pattern.pattern_description}</p>
+            <p className="text-sm text-muted-alt mb-0">{pattern.pattern_description}</p>
         </div>
     )
 
     const content = (
         <div className="p-4 bg-bg-3000">
-            <p className="mb-3 text-sm font-medium">Top examples</p>
+            <p className="mb-3 text-sm font-medium">Examples from sessions:</p>
             <div className="flex flex-col gap-3">
                 {pattern.events.map((event, index) => (
                     <SessionExampleCard key={`${pattern.pattern_id}-${index}`} event={event} />
