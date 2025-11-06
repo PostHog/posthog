@@ -1,16 +1,16 @@
 .RetentionTable {
     width: 100%;
     font-weight: 500;
-    border-collapse: separate;
     border-spacing: 0;
+    border-collapse: separate;
 
     th {
         padding: 0 0.5rem;
         font-weight: 500;
         text-align: left;
-        white-space: nowrap;
         padding-top: 10px;
         padding-bottom: 10px;
+        white-space: nowrap;
 
         &:nth-of-type(-n + 2) {
             padding-left: 1px solid var(--color-border-primary);
