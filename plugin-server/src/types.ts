@@ -829,6 +829,7 @@ export interface Team {
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
     drop_events_older_than_seconds: number | null
+    verify_events?: 'accept_all' | 'reject_invalid' | 'reject_unverified'
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

@@ -3,7 +3,7 @@ import * as jwt from 'jsonwebtoken'
 import { EventHeaders, IncomingEventWithTeam, JwtVerificationStatus } from '../../types'
 import { logger } from '../../utils/logger'
 import { TeamSecretKeysManager } from '../../utils/team-secret-keys-manager'
-import { ok } from '../pipelines/results'
+import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 type JwtVerificationResult = {
@@ -68,6 +68,23 @@ export function createValidateJwtStep<T extends { headers: EventHeaders; eventWi
         const { headers, eventWithTeam } = input
 
         const result = await validateJwt(teamSecretKeysManager, headers, eventWithTeam)
+
+        // Check if the event should be rejected based on the team's verification mode
+        const verifyEventsMode = eventWithTeam.team.verify_events || 'accept_all'
+
+        if (verifyEventsMode === 'reject_invalid' && result.verified === JwtVerificationStatus.Invalid) {
+            logger.info(
+                `Dropping event with invalid JWT for team ${eventWithTeam.team.id} (verify_events: reject_invalid)`
+            )
+            return drop('jwt_invalid')
+        }
+
+        if (verifyEventsMode === 'reject_unverified' && result.verified !== JwtVerificationStatus.Verified) {
+            logger.info(
+                `Dropping unverified event for team ${eventWithTeam.team.id} (verify_events: reject_unverified, status: ${result.verified})`
+            )
+            return drop('jwt_not_verified')
+        }
 
         return ok({ ...input, verified: result.verified })
     }

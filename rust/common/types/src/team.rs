@@ -5,6 +5,14 @@ use uuid::Uuid;
 pub type TeamId = i32;
 pub type ProjectId = i64;
 
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "VARCHAR", rename_all = "snake_case")]
+pub enum EventVerificationMode {
+    AcceptAll,
+    RejectInvalid,
+    RejectUnverified,
+}
+
 /// Trait for types that can provide team identification for caching purposes
 pub trait TeamIdentifier: std::fmt::Debug + Send + Sync {
     /// Returns the team ID
@@ -26,6 +34,7 @@ pub struct Team {
     pub updated_at: DateTime<Utc>,
     pub anonymize_ips: bool,
     pub person_processing_opt_out: Option<bool>,
+    pub verify_events: EventVerificationMode,
 }
 
 impl Team {
@@ -46,7 +55,8 @@ impl Team {
                     created_at,
                     updated_at,
                     anonymize_ips,
-                    person_processing_opt_out
+                    person_processing_opt_out,
+                    verify_events as "verify_events: EventVerificationMode"
                 FROM posthog_team
                 WHERE id = $1
                 LIMIT 1
@@ -74,7 +84,8 @@ impl Team {
                     created_at,
                     updated_at,
                     anonymize_ips,
-                    person_processing_opt_out
+                    person_processing_opt_out,
+                    verify_events as "verify_events: EventVerificationMode"
                 FROM posthog_team
                 WHERE api_token = $1
                 LIMIT 1
