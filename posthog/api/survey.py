@@ -22,7 +22,6 @@ from axes.decorators import axes_dispatch
 from loginas.utils import is_impersonated_session
 from nanoid import generate
 from posthoganalytics import capture_exception
-from prometheus_client import Counter
 from rest_framework import exceptions, filters, request, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -1588,6 +1587,7 @@ def get_surveys_count(team: Team) -> int:
     )
 
 
+# NOTE: This should not be used directly, rather the hypercache should be used instead which in turn calls this
 def get_surveys_response(team: Team):
     surveys = SurveyAPISerializer(
         Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
