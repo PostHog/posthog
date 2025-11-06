@@ -1,5 +1,5 @@
-import { useActions, useValues } from 'kea'
-import { useCallback, useEffect } from 'react'
+import { useValues } from 'kea'
+import { useCallback } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
@@ -85,11 +85,9 @@ function ExceptionTextDisplay({ exception }: { exception: ErrorTrackingException
 
 function StackframeTextDisplay({ frame }: { frame: ErrorTrackingStackFrame }): JSX.Element {
     const { stackFrameRecords } = useValues(stackFrameLogic)
-    const { loadFromRawIds } = useActions(stackFrameLogic)
-    useEffect(() => {
-        loadFromRawIds([frame.raw_id])
-    }, [loadFromRawIds, frame.raw_id])
+
     const resolvedName = formatResolvedName(frame)
+
     return (
         <>
             <p className="font-mono indent-[1rem] whitespace-no-wrap mb-0 line-clamp-1">
