@@ -61,6 +61,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         const trimmed = path.replace(/^\/+/, '').replace(/\/+$/, '')
         const projectUri = trimmed ? `project://${trimmed}/` : 'project://'
         setProjectPath(projectUri)
+        setSearch('')
     }
 
     const handleSearchChange = (value: string): void => {
@@ -68,7 +69,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
             const folderMatch = fileBrowserFirstFolderMatch
             if (folderMatch) {
                 navigateToFolder(folderMatch.path || '')
-                setSearch('')
                 return
             }
         }
@@ -78,8 +78,14 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         }
     }
 
-    const handleFileBrowserFolderOpen = (path: string, options?: { focusPath?: string | null }): void => {
+    const handleFileBrowserFolderOpen = (path: string | null, options?: { focusPath?: string | null }): void => {
         pendingFocusPathRef.current = options?.focusPath ?? null
+        if (path === null) {
+            setProjectPath(null)
+            setSearch('')
+            return
+        }
+
         navigateToFolder(path)
     }
 
