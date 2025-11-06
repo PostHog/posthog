@@ -21,14 +21,14 @@ PERSONS_DB_MODELS = {
 }
 
 
-def get_persons_db_url() -> str:
+def get_persons_writer_db_url() -> str:
     """Get the database URL for person data writes.
 
     Uses PERSONS_DB_WRITER_URL if available, otherwise falls back to DATABASE_URL.
     This is useful for direct database connections (e.g., psycopg) outside of Django ORM.
 
     Returns:
-        str: The database URL to use for person data operations
+        str: The database URL to use for person write operations
     """
     return os.getenv("PERSONS_DB_WRITER_URL") or settings.DATABASE_URL
 
