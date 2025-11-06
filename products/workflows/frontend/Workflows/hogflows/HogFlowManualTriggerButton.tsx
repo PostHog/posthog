@@ -112,6 +112,7 @@ export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.
     const triggerButton = (
         <LemonButton
             type="primary"
+            size="small"
             disabledReason={
                 workflow?.status !== 'active'
                     ? 'Must enable workflow to use trigger'
