@@ -94,8 +94,15 @@ def _restore_soft_delete(
     return instance
 
 
+def _require_entry_ref(entry: FileSystem) -> str:
+    ref = entry.ref
+    if ref is None:
+        raise serializers.ValidationError({"detail": f"Cannot delete type '{entry.type}' without a reference."})
+    return ref
+
+
 def _delete_action(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
-    action = Action.objects.get(team=entry.team, id=entry.ref)
+    action = Action.objects.get(team=entry.team, id=_require_entry_ref(entry))
     _soft_delete(action)
 
 
@@ -105,7 +112,7 @@ def _restore_action(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Ac
 
 
 def _delete_dashboard(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
-    dashboard = Dashboard.objects_including_soft_deleted.get(team=entry.team, id=entry.ref)
+    dashboard = Dashboard.objects_including_soft_deleted.get(team=entry.team, id=_require_entry_ref(entry))
     if dashboard.deleted:
         dashboard.save(update_fields=["deleted"])
     else:
@@ -119,7 +126,7 @@ def _restore_dashboard(viewset: "FileSystemViewSet", payload: dict[str, Any]) ->
 
 
 def _delete_feature_flag(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
-    flag = FeatureFlag.objects.get(team=entry.team, id=entry.ref)
+    flag = FeatureFlag.objects.get(team=entry.team, id=_require_entry_ref(entry))
     _soft_delete(flag, extra_updates={"active": False})
 
 
@@ -132,7 +139,7 @@ def _restore_feature_flag(viewset: "FileSystemViewSet", payload: dict[str, Any])
 
 
 def _delete_experiment(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
-    experiment = Experiment.objects.get(team=entry.team, id=entry.ref)
+    experiment = Experiment.objects.get(team=entry.team, id=_require_entry_ref(entry))
     _soft_delete(experiment)
 
 
@@ -152,12 +159,12 @@ def _restore_insight(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> I
 
 
 def _delete_link(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
-    link = Link.objects.get(team=entry.team, id=entry.ref)
+    link = Link.objects.get(team=entry.team, id=_require_entry_ref(entry))
     link.delete()
 
 
 def _delete_notebook(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
-    notebook = Notebook.objects.get(team=entry.team, short_id=entry.ref)
+    notebook = Notebook.objects.get(team=entry.team, short_id=_require_entry_ref(entry))
     _soft_delete(notebook)
 
 
@@ -167,7 +174,7 @@ def _restore_notebook(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> 
 
 
 def _delete_session_recording_playlist(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
-    playlist = SessionRecordingPlaylist.objects.get(team=entry.team, short_id=entry.ref)
+    playlist = SessionRecordingPlaylist.objects.get(team=entry.team, short_id=_require_entry_ref(entry))
     _soft_delete(playlist)
 
 
@@ -182,7 +189,7 @@ def _restore_session_recording_playlist(
 
 
 def _delete_cohort(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
-    cohort = Cohort.objects.get(team=entry.team, id=entry.ref)
+    cohort = Cohort.objects.get(team=entry.team, id=_require_entry_ref(entry))
     _soft_delete(cohort)
 
 
@@ -192,7 +199,7 @@ def _restore_cohort(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Co
 
 
 def _delete_hog_function(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
-    hog_function = HogFunction.objects.get(team=entry.team, id=entry.ref)
+    hog_function = HogFunction.objects.get(team=entry.team, id=_require_entry_ref(entry))
     _soft_delete(hog_function, extra_updates={"enabled": False})
 
 
@@ -206,7 +213,7 @@ def _restore_hog_function(viewset: "FileSystemViewSet", payload: dict[str, Any])
 
 def _delete_survey(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     survey = Survey.objects.select_related("targeting_flag", "internal_targeting_flag").get(
-        team=entry.team, id=entry.ref
+        team=entry.team, id=_require_entry_ref(entry)
     )
     if survey.targeting_flag:
         survey.targeting_flag.delete()
@@ -229,7 +236,9 @@ def _delete_survey(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
 
 
 def _delete_early_access_feature(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
-    feature = EarlyAccessFeature.objects.select_related("feature_flag").get(team=entry.team, id=entry.ref)
+    feature = EarlyAccessFeature.objects.select_related("feature_flag").get(
+        team=entry.team, id=_require_entry_ref(entry)
+    )
     if feature.feature_flag:
         feature.feature_flag.filters = {
             **feature.feature_flag.filters,
@@ -721,14 +730,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
             if remaining == 0:
+                handler = _get_delete_handler(current.type)
+                if handler is None:
+                    if current.ref:
+                        raise serializers.ValidationError(
+                            {"detail": f"Deletion for type '{current.type}' is not supported."}
+                        )
+                    continue
                 if not current.ref:
                     raise serializers.ValidationError(
                         {"detail": f"Cannot delete type '{current.type}' without a reference."}
-                    )
-                handler = _get_delete_handler(current.type)
-                if handler is None:
-                    raise serializers.ValidationError(
-                        {"detail": f"Deletion for type '{current.type}' is not supported."}
                     )
 
         return None
@@ -762,7 +773,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         handler = _get_delete_handler(entry.type)
         if handler is None:
-            raise serializers.ValidationError({"detail": f"Deletion for type '{entry.type}' is not supported."})
+            if entry.ref:
+                raise serializers.ValidationError({"detail": f"Deletion for type '{entry.type}' is not supported."})
+            entry.delete()
+            return deleted_objects
 
         if not entry.ref:
             raise serializers.ValidationError({"detail": f"Cannot delete type '{entry.type}' without a reference."})
@@ -770,7 +784,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         handler.delete(self, entry)
 
         # Ensure the original FileSystem entry is gone even if signals haven't run yet
-        FileSystem.objects.filter(id=entry.id).delete()
+        entry_id = entry.id
+        if entry_id is not None:
+            FileSystem.objects.filter(id=entry_id).delete()
 
         deleted_objects.append(
             {

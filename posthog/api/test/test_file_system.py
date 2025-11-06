@@ -376,12 +376,9 @@ class TestFileSystemDeletion(APIBaseTest):
         assert FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).exists()
 
     def test_undo_delete_restores_original_path(self) -> None:
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="undo-path-flag",
-            created_by=self.user,
-            _create_in_folder="Restored/Flags",
-        )
+        flag = FeatureFlag(team=self.team, key="undo-path-flag", created_by=self.user)
+        flag._create_in_folder = "Restored/Flags"
+        flag.save()
         file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
         original_path = file_entry.path
 
