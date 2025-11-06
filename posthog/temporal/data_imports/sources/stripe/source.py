@@ -7,8 +7,8 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.pipelines.pipeline.typings import ResumableSourceResponse, SourceInputs
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource, ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
@@ -18,6 +18,7 @@ from posthog.temporal.data_imports.sources.stripe.settings import (
 )
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripePermissionError,
+    StripeResumeConfig,
     stripe_source,
     validate_credentials as validate_stripe_credentials,
 )
@@ -26,7 +27,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class StripeSource(BaseSource[StripeSourceConfig]):
+class StripeSource(ResumableSource[StripeSourceConfig, StripeResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.STRIPE
@@ -94,7 +95,12 @@ You can also simplify the setup by selecting **read** for the **entire resource*
         except Exception as e:
             return False, str(e)
 
-    def source_for_pipeline(self, config: StripeSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def source_for_pipeline(
+        self,
+        config: StripeSourceConfig,
+        resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
+        inputs: SourceInputs,
+    ) -> ResumableSourceResponse:
         return stripe_source(
             api_key=config.stripe_secret_key,
             account_id=config.stripe_account_id,

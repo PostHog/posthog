@@ -46,6 +46,11 @@ class StripeNestedResource:
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
+@dataclasses.dataclass
+class StripeResumeConfig:
+    starting_after: str
+
+
 def stripe_source(
     api_key: str,
     account_id: Optional[str],
@@ -54,6 +59,7 @@ def stripe_source(
     db_incremental_field_earliest_value: Optional[Any],
     logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
+    resume_config: Optional[StripeResumeConfig] = None,
 ):
     def get_rows():
         client = StripeClient(
@@ -104,11 +110,18 @@ def stripe_source(
             not should_use_incremental_field
             or (db_incremental_field_last_value is None and db_incremental_field_earliest_value is None)
             or isinstance(resource, StripeNestedResource)
+            or resume_config is not None
         ):
             logger.debug(f"Stripe: iterating all objects from resource")
+            resume_params = {}
+            if resume_config is not None:
+                resume_params = {"starting_after": resume_config.starting_after}
+                logger.debug(f"Stripe: resuming from object id: {resume_config.starting_after}")
 
             if isinstance(resource, StripeNestedResource):
-                stripe_parent_objects = resource.parent.method(params={**default_params, **resource.parent.params})
+                stripe_parent_objects = resource.parent.method(
+                    params={**default_params, **resource.parent.params, **resume_params}
+                )
                 for obj in stripe_parent_objects.auto_paging_iter():
                     stripe_nested_objects = resource.method(
                         **{resource.nested_parent_param: obj[resource.parent_id]},
@@ -120,7 +133,7 @@ def stripe_source(
                             **{resource.nested_parent_param: obj[resource.parent_id]},
                         }
             else:
-                stripe_objects = resource.method(params={**default_params, **resource.params})
+                stripe_objects = resource.method(params={**default_params, **resource.params, **resume_params})
 
                 yield from stripe_objects.auto_paging_iter()
             return
