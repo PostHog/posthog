@@ -50,6 +50,10 @@ use tracing::debug;
 /// Metric name for tracking hypercache operations in Prometheus (same one used in Django's HyperCache)
 const HYPERCACHE_COUNTER_NAME: &str = "posthog_hypercache_get_from_cache";
 
+/// Tombstone metric for tracking "impossible" failures that should never happen in production
+/// Note this is a duplicate of the const in feature_flags::metrics::consts::TOMBSTONE_COUNTER
+const TOMBSTONE_COUNTER_NAME: &str = "posthog_tombstone_total";
+
 /// Sentinel value used in Redis to indicate that a cache key exists but has no data
 const HYPER_CACHE_EMPTY_VALUE: &str = "__missing__";
 
@@ -347,7 +351,7 @@ impl HyperCacheReader {
 
         // Also increment the tombstone counter for hypercache misses - this should never happen
         inc(
-            "posthog_tombstone_total",
+            TOMBSTONE_COUNTER_NAME,
             &[
                 ("failure_type".to_string(), "hypercache_miss".to_string()),
                 ("namespace".to_string(), self.config.namespace.clone()),
@@ -416,28 +420,20 @@ impl HyperCacheReader {
                         Ok((value, CacheSource::Fallback))
                     }
                     None => {
-                        // Fallback also returned no data
-                        inc(
-                            HYPERCACHE_COUNTER_NAME,
-                            &[
-                                ("result".to_string(), "missing_with_fallback".to_string()),
-                                ("namespace".to_string(), self.config.namespace.clone()),
-                                ("value".to_string(), self.config.value.clone()),
-                            ],
-                            1,
-                        );
-                        
                         // Tombstone metric - cache and database both miss is really unusual
                         inc(
-                            "posthog_tombstone_total",
+                            TOMBSTONE_COUNTER_NAME,
                             &[
-                                ("failure_type".to_string(), "hypercache_fallback_miss".to_string()),
+                                (
+                                    "failure_type".to_string(),
+                                    "hypercache_fallback_miss".to_string(),
+                                ),
                                 ("namespace".to_string(), self.config.namespace.clone()),
                                 ("value".to_string(), self.config.value.clone()),
                             ],
                             1,
                         );
-                        
+
                         Err(HyperCacheError::CacheMiss.into())
                     }
                 }
