@@ -8,6 +8,8 @@ Endpoint:
 - POST /api/projects/:id/llm_analytics/summarize/ - Summarize trace or event
 """
 
+from django.core.cache import cache
+
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
@@ -41,6 +43,11 @@ class SummarizeRequestSerializer(serializers.Serializer):
     )
     data = serializers.JSONField(
         help_text="Data to summarize. For traces: {trace, hierarchy}. For events: {event}.",
+    )
+    force_refresh = serializers.BooleanField(
+        default=False,
+        required=False,
+        help_text="Force regenerate summary, bypassing cache",
     )
 
 
@@ -107,6 +114,10 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
             groups={"team": str(self.team.uuid)},
         ):
             raise exceptions.PermissionDenied("LLM trace summarization is not enabled for this team")
+
+    def _get_cache_key(self, trace_id: str, mode: str) -> str:
+        """Generate cache key for summary results."""
+        return f"llm_trace_summary:{self.team_id}:{trace_id}:{mode}"
 
     @extend_schema(
         request=SummarizeRequestSerializer,
@@ -222,7 +233,36 @@ The response includes the summary text and optional metadata.
             summarize_type = serializer.validated_data["summarize_type"]
             mode = serializer.validated_data.get("mode", "detailed")
             data = serializer.validated_data["data"]
+            force_refresh = serializer.validated_data.get("force_refresh", False)
 
+            # Extract trace_id early for cache key generation
+            if summarize_type == "trace":
+                if not data.get("trace") or not isinstance(data.get("hierarchy"), list):
+                    raise exceptions.ValidationError("Trace summarization requires 'trace' and 'hierarchy' fields")
+                trace = data["trace"]
+                trace_id = trace.get("properties", {}).get("$ai_trace_id") or trace.get("id")
+            elif summarize_type == "event":
+                if not data.get("event"):
+                    raise exceptions.ValidationError("Event summarization requires 'event' field")
+                event = data["event"]
+                trace_id = event.get("properties", {}).get("$ai_trace_id") or event.get("id")
+            else:
+                raise exceptions.ValidationError(f"Invalid summarize_type: {summarize_type}")
+
+            # Check cache unless force_refresh is requested
+            cache_key = self._get_cache_key(trace_id, mode)
+            if not force_refresh:
+                cached_result = cache.get(cache_key)
+                if cached_result is not None:
+                    logger.info(
+                        "Returning cached summary",
+                        trace_id=trace_id,
+                        mode=mode,
+                        team_id=self.team_id,
+                    )
+                    return Response(cached_result, status=status.HTTP_200_OK)
+
+            # Cache miss or force_refresh - generate summary
             # Generate line-numbered text representation
             options = {
                 "include_line_numbers": True,
@@ -232,50 +272,18 @@ The response includes the summary text and optional metadata.
             }
 
             if summarize_type == "trace":
-                # Validate trace data
-                if not data.get("trace") or not isinstance(data.get("hierarchy"), list):
-                    raise exceptions.ValidationError("Trace summarization requires 'trace' and 'hierarchy' fields")
-
-                trace = data["trace"]
                 hierarchy = data["hierarchy"]
-
-                # Generate text representation
                 text_repr = format_trace_text_repr(trace=trace, hierarchy=hierarchy, options=options)
-
-                # Extract trace_id for linking LLM call to source trace
-                trace_id = trace.get("properties", {}).get("$ai_trace_id") or trace.get("id")
-
-                # Call summarization
-                summary = async_to_sync(summarize)(
-                    text_repr=text_repr,
-                    team_id=self.team_id,
-                    trace_id=trace_id,
-                    mode=mode,
-                )
-
-            elif summarize_type == "event":
-                # Validate event data
-                if not data.get("event"):
-                    raise exceptions.ValidationError("Event summarization requires 'event' field")
-
-                event = data["event"]
-
-                # Generate text representation
+            else:  # event
                 text_repr = format_event_text_repr(event=event, options=options)
 
-                # Extract trace_id for linking LLM call to source event
-                trace_id = event.get("properties", {}).get("$ai_trace_id") or event.get("id")
-
-                # Call summarization
-                summary = async_to_sync(summarize)(
-                    text_repr=text_repr,
-                    team_id=self.team_id,
-                    trace_id=trace_id,
-                    mode=mode,
-                )
-
-            else:
-                raise exceptions.ValidationError(f"Invalid summarize_type: {summarize_type}")
+            # Call summarization
+            summary = async_to_sync(summarize)(
+                text_repr=text_repr,
+                team_id=self.team_id,
+                trace_id=trace_id,
+                mode=mode,
+            )
 
             # Build response - convert Pydantic model to dict
             result = {
@@ -286,6 +294,16 @@ The response includes the summary text and optional metadata.
                     "summarize_type": summarize_type,
                 },
             }
+
+            # Cache the result for 1 hour (3600 seconds)
+            cache.set(cache_key, result, timeout=3600)
+            logger.info(
+                "Generated and cached new summary",
+                trace_id=trace_id,
+                mode=mode,
+                team_id=self.team_id,
+                force_refresh=force_refresh,
+            )
 
             return Response(result, status=status.HTTP_200_OK)
 
