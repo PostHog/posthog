@@ -1,5 +1,6 @@
 import re
 import shlex
+import builtins
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, Optional, cast
@@ -714,7 +715,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return None
 
-    def _delete_file_system_entry(self, entry: FileSystem) -> list[dict[str, Any]]:
+    def _delete_file_system_entry(self, entry: FileSystem) -> builtins.list[dict[str, Any]]:
         deleted_objects: list[dict[str, Any]] = []
 
         if entry.shortcut:
