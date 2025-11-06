@@ -67,6 +67,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-synthetic-monitoring-dark)',
             ] as FileSystemIconColor,
             flag: FEATURE_FLAGS.SYNTHETIC_MONITORING,
+            tags: ['alpha'],
             sceneKey: 'SyntheticMonitoring',
         },
     ],
