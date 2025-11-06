@@ -94,21 +94,27 @@ async def summarize(
 
     # Use structured outputs with JSON schema
     # Pass posthog_trace_id for linking this LLM call to the source trace
-    response = await client.chat.completions.create(  # type: ignore[call-overload]
-        model=SUMMARIZATION_MODEL,
-        messages=messages,
-        user=user_param,
-        posthog_trace_id=trace_id,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "summarization_response",
-                "strict": True,
-                "schema": SummarizationResponse.model_json_schema(),
+    try:
+        response = await client.chat.completions.create(  # type: ignore[call-overload]
+            model=SUMMARIZATION_MODEL,
+            messages=messages,
+            user=user_param,
+            posthog_trace_id=trace_id,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "summarization_response",
+                    "strict": True,
+                    "schema": SummarizationResponse.model_json_schema(),
+                },
             },
-        },
-    )
+        )
 
-    # Parse the JSON response into our Pydantic model
-    content = response.choices[0].message.content or "{}"
-    return SummarizationResponse.model_validate_json(content)
+        # Parse the JSON response into our Pydantic model
+        content = response.choices[0].message.content
+        if not content:
+            raise exceptions.ValidationError("OpenAI returned empty response")
+        return SummarizationResponse.model_validate_json(content)
+    except Exception as e:
+        logger.exception("OpenAI API call failed", error=str(e), team_id=team_id)
+        raise exceptions.APIException(f"Failed to generate summary: {str(e)}")
