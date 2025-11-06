@@ -20,7 +20,7 @@ export function SessionEventDetails({ event }: SessionEventDetailsProps): JSX.El
     }
 
     return (
-        <div className="px-2 py-1">
+        <div className="mx-2">
             <EventPropertyTabs
                 size="small"
                 event={event}

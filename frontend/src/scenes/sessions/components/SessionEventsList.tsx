@@ -94,10 +94,10 @@ export function SessionEventsList(): JSX.Element {
     const durationSeconds = startTime && endTime ? endTime.diff(startTime, 'second') : 0
 
     return (
-        <LemonCard className="overflow-hidden" hoverEffect={false}>
+        <LemonCard className="overflow-hidden p-0" hoverEffect={false}>
             {/* Header */}
-            <div className="flex items-center justify-between bg-surface-primary p-3 border-b border-border">
-                <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between bg-surface-primary p-3">
+                <div className="flex items-center gap-2">
                     <LemonButton
                         size="small"
                         icon={eventsListFolded ? <IconExpand /> : <IconCollapse />}
@@ -138,7 +138,10 @@ export function SessionEventsList(): JSX.Element {
 
             {/* Events List */}
             {!eventsListFolded && (
-                <div className="p-4 space-y-2 max-h-[600px] overflow-y-auto" onScroll={handleScroll}>
+                <div
+                    className="p-2 space-y-1 max-h-[600px] overflow-y-auto bg-primary border-t border-border"
+                    onScroll={handleScroll}
+                >
                     {sessionEvents?.map((event, index) => (
                         <SessionEventItem
                             key={event.id}
