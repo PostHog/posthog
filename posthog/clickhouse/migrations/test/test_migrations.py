@@ -98,7 +98,7 @@ class TestUniqueMigrationPrefixes(TestCase):
         )
 
     def check_alter_table(
-        self, sql: str, node_roles: list[NodeRole], sharded: bool, is_alter_on_replicated_table: bool
+        self, sql: str, node_roles: list[NodeRole], sharded: bool | None, is_alter_on_replicated_table: bool | None
     ):
         # Check if this is an ALTER TABLE statement
         if not re.search(r"\bALTER\s+TABLE\b", sql, re.IGNORECASE):
