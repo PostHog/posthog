@@ -24,7 +24,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.file_system.file_system import FileSystem, join_path, split_path
+from posthog.models.file_system.file_system import FileSystem, create_or_update_file, join_path, split_path
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog, annotate_file_system_with_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
@@ -47,7 +47,7 @@ class DeleteHandler:
     delete: Callable[["FileSystemViewSet", FileSystem], None]
     mode: Literal["soft", "hard"]
     undo: str
-    restore: Optional[Callable[["FileSystemViewSet", dict[str, Any]], None]] = None
+    restore: Optional[Callable[["FileSystemViewSet", dict[str, Any]], Any]] = None
 
 
 def _soft_delete(instance: Any, *, field: str = "deleted", extra_updates: Optional[dict[str, Any]] = None) -> None:
@@ -72,7 +72,12 @@ def _restore_soft_delete(
     *,
     field: str = "deleted",
     extra_updates: Optional[dict[str, Any]] = None,
-) -> None:
+    restore_path: Optional[str] = None,
+) -> Any:
+    if restore_path is not None and hasattr(instance, "_create_in_folder"):
+        segments = split_path(restore_path)
+        folder_path = "/".join(segments[:-1]) if len(segments) > 1 else ""
+        instance._create_in_folder = folder_path or None
     update_fields: list[str] = []
     if getattr(instance, field) is not False:
         setattr(instance, field, False)
@@ -86,6 +91,7 @@ def _restore_soft_delete(
         instance.save(update_fields=update_fields)
     else:
         instance.save()
+    return instance
 
 
 def _delete_action(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
@@ -93,9 +99,9 @@ def _delete_action(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     _soft_delete(action)
 
 
-def _restore_action(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+def _restore_action(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Action:
     action = Action.objects.get(team=viewset.team, id=payload["ref"])
-    _restore_soft_delete(action)
+    return cast(Action, _restore_soft_delete(action, restore_path=payload.get("path")))
 
 
 def _delete_dashboard(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
@@ -107,9 +113,9 @@ def _delete_dashboard(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
         dashboard.save(update_fields=["deleted"])
 
 
-def _restore_dashboard(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+def _restore_dashboard(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Dashboard:
     dashboard = Dashboard.objects_including_soft_deleted.get(team=viewset.team, id=payload["ref"])
-    _restore_soft_delete(dashboard)
+    return cast(Dashboard, _restore_soft_delete(dashboard, restore_path=payload.get("path")))
 
 
 def _delete_feature_flag(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
@@ -117,9 +123,12 @@ def _delete_feature_flag(viewset: "FileSystemViewSet", entry: FileSystem) -> Non
     _soft_delete(flag, extra_updates={"active": False})
 
 
-def _restore_feature_flag(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+def _restore_feature_flag(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> FeatureFlag:
     flag = FeatureFlag.objects.get(team=viewset.team, id=payload["ref"])
-    _restore_soft_delete(flag, extra_updates={"active": True})
+    return cast(
+        FeatureFlag,
+        _restore_soft_delete(flag, extra_updates={"active": True}, restore_path=payload.get("path")),
+    )
 
 
 def _delete_experiment(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
@@ -127,9 +136,9 @@ def _delete_experiment(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     _soft_delete(experiment)
 
 
-def _restore_experiment(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+def _restore_experiment(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Experiment:
     experiment = Experiment.objects.get(team=viewset.team, id=payload["ref"])
-    _restore_soft_delete(experiment)
+    return cast(Experiment, _restore_soft_delete(experiment, restore_path=payload.get("path")))
 
 
 def _delete_insight(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
@@ -137,9 +146,9 @@ def _delete_insight(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     _soft_delete(insight)
 
 
-def _restore_insight(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+def _restore_insight(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Insight:
     insight = Insight.objects_including_soft_deleted.get(team=viewset.team, short_id=payload["ref"])
-    _restore_soft_delete(insight)
+    return cast(Insight, _restore_soft_delete(insight, restore_path=payload.get("path")))
 
 
 def _delete_link(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
@@ -152,9 +161,9 @@ def _delete_notebook(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     _soft_delete(notebook)
 
 
-def _restore_notebook(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+def _restore_notebook(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Notebook:
     notebook = Notebook.objects.get(team=viewset.team, short_id=payload["ref"])
-    _restore_soft_delete(notebook)
+    return cast(Notebook, _restore_soft_delete(notebook, restore_path=payload.get("path")))
 
 
 def _delete_session_recording_playlist(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
@@ -162,9 +171,14 @@ def _delete_session_recording_playlist(viewset: "FileSystemViewSet", entry: File
     _soft_delete(playlist)
 
 
-def _restore_session_recording_playlist(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+def _restore_session_recording_playlist(
+    viewset: "FileSystemViewSet", payload: dict[str, Any]
+) -> SessionRecordingPlaylist:
     playlist = SessionRecordingPlaylist.objects.get(team=viewset.team, short_id=payload["ref"])
-    _restore_soft_delete(playlist)
+    return cast(
+        SessionRecordingPlaylist,
+        _restore_soft_delete(playlist, restore_path=payload.get("path")),
+    )
 
 
 def _delete_cohort(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
@@ -172,9 +186,9 @@ def _delete_cohort(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     _soft_delete(cohort)
 
 
-def _restore_cohort(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+def _restore_cohort(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Cohort:
     cohort = Cohort.objects.get(team=viewset.team, id=payload["ref"])
-    _restore_soft_delete(cohort)
+    return cast(Cohort, _restore_soft_delete(cohort, restore_path=payload.get("path")))
 
 
 def _delete_hog_function(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
@@ -182,9 +196,12 @@ def _delete_hog_function(viewset: "FileSystemViewSet", entry: FileSystem) -> Non
     _soft_delete(hog_function, extra_updates={"enabled": False})
 
 
-def _restore_hog_function(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> None:
+def _restore_hog_function(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> HogFunction:
     hog_function = HogFunction.objects.get(team=viewset.team, id=payload["ref"])
-    _restore_soft_delete(hog_function, extra_updates={"enabled": True})
+    return cast(
+        HogFunction,
+        _restore_soft_delete(hog_function, extra_updates={"enabled": True}, restore_path=payload.get("path")),
+    )
 
 
 def _delete_survey(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
@@ -399,6 +416,7 @@ class FileSystemViewLogListQuerySerializer(serializers.Serializer):
 class UndoDeleteItemSerializer(serializers.Serializer):
     type = serializers.CharField()
     ref = serializers.CharField()
+    path = serializers.CharField(required=False, allow_blank=True)
 
 
 class UndoDeleteRequestSerializer(serializers.Serializer):
@@ -801,7 +819,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 handler = _get_delete_handler(item["type"])
                 if handler is None or handler.restore is None:
                     raise serializers.ValidationError({"detail": f"Undo for type '{item['type']}' is not supported."})
-                handler.restore(self, item)
+                restored_instance = handler.restore(self, item)
+                self._restore_file_system_path(restored_instance, item)
                 undo_results.append({"type": item["type"], "ref": item["ref"]})
 
         return Response({"undone": undo_results}, status=status.HTTP_200_OK)
@@ -1033,6 +1052,44 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     type="folder",
                     created_by=created_by,
                 )
+
+    def _restore_file_system_path(self, instance: Any, payload: dict[str, Any]) -> None:
+        restore_path = payload.get("path")
+        if restore_path is None:
+            return
+
+        team = getattr(instance, "team", None) if instance is not None else None
+        team = team or self.team
+
+        created_by = getattr(instance, "created_by", None) if instance is not None else None
+        request_user = self.request.user if isinstance(self.request.user, User) else None
+        created_by_user = created_by if isinstance(created_by, User) else request_user
+        if created_by_user is None:
+            return
+
+        self._assure_parent_folders(restore_path, created_by_user, team)
+
+        update_count = FileSystem.objects.filter(team=team, type=payload["type"], ref=payload["ref"]).update(
+            path=restore_path,
+            depth=len(split_path(restore_path)),
+        )
+
+        if update_count == 0 and hasattr(instance, "get_file_system_representation"):
+            fs_data: FileSystemRepresentation = instance.get_file_system_representation()
+            segments = split_path(restore_path)
+            folder_path = "/".join(segments[:-1]) if len(segments) > 1 else ""
+            name = segments[-1] if segments else fs_data.name
+            create_or_update_file(
+                team=team,
+                base_folder=folder_path or fs_data.base_folder,
+                name=name,
+                file_type=fs_data.type,
+                ref=fs_data.ref,
+                href=fs_data.href,
+                meta=fs_data.meta,
+                created_at=fs_data.meta.get("created_at"),
+                created_by_id=fs_data.meta.get("created_by"),
+            )
 
     def _retroactively_fix_folders_and_depth(self, user: User) -> None:
         """

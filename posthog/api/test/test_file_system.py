@@ -374,3 +374,29 @@ class TestFileSystemDeletion(APIBaseTest):
         assert flag.deleted is False
         assert flag.active is True
         assert FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).exists()
+
+    def test_undo_delete_restores_original_path(self) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="undo-path-flag",
+            created_by=self.user,
+            _create_in_folder="Restored/Flags",
+        )
+        file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
+        original_path = file_entry.path
+
+        delete_response = self.client.delete(
+            f"/api/environments/{self.team.id}/file_system/{file_entry.id}/",
+        )
+
+        assert delete_response.status_code == status.HTTP_200_OK
+        assert not FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).exists()
+
+        undo_response = self.client.post(
+            f"/api/environments/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "feature_flag", "ref": str(flag.id), "path": original_path}]},
+        )
+
+        assert undo_response.status_code == status.HTTP_200_OK
+        restored_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
+        assert restored_entry.path == original_path

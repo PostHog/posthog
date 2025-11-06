@@ -1863,7 +1863,7 @@ const api = {
         async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
             return await new ApiRequest().fileSystemCount(id).create()
         },
-        async undoDelete(items: { type: string; ref: string }[]): Promise<void> {
+        async undoDelete(items: { type: string; ref: string; path?: string }[]): Promise<void> {
             await new ApiRequest().fileSystemUndoDelete().create({ data: { items } })
         },
     },

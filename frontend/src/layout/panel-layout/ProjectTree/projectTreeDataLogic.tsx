@@ -272,6 +272,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                                       undoableEntries.map((entry) => ({
                                                           type: entry.type,
                                                           ref: entry.ref as string,
+                                                          ...(entry.path !== undefined ? { path: entry.path } : {}),
                                                       }))
                                                   )
                                                   const foldersToReload = new Set(
