@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -48,21 +48,13 @@ export const syntheticMonitorLogic = kea<syntheticMonitorLogicType>([
                 expected_status_code: 200,
                 timeout_seconds: 30,
             } as Partial<SyntheticMonitor>,
-            errors: ({ name, url, expected_status_code, timeout_seconds }) => ({
+            errors: ({ name, url }) => ({
                 name: !name ? 'Name is required' : undefined,
                 url: !url
                     ? 'URL is required'
                     : !url.startsWith('http://') && !url.startsWith('https://')
                       ? 'URL must start with http:// or https://'
                       : undefined,
-                expected_status_code:
-                    expected_status_code && (expected_status_code < 100 || expected_status_code >= 600)
-                        ? 'Status code must be between 100 and 599'
-                        : undefined,
-                timeout_seconds:
-                    timeout_seconds && (timeout_seconds < 1 || timeout_seconds > 300)
-                        ? 'Timeout must be between 1 and 300 seconds'
-                        : undefined,
             }),
             submit: async (monitor) => {
                 try {
@@ -83,20 +75,12 @@ export const syntheticMonitorLogic = kea<syntheticMonitorLogicType>([
             },
         },
     })),
-    reducers({
-        isNew: [
-            (_, props: SyntheticMonitorLogicProps) => !props.id || props.id === 'new',
-            {
-                loadMonitorSuccess: (_, { monitor }) => !monitor,
-            },
-        ],
-    }),
     selectors({
         breadcrumbs: [
-            (s) => [s.monitor, s.isNew],
-            (monitor, isNew) => [
+            (s) => [s.monitor],
+            (monitor) => [
                 { name: 'Synthetic monitoring', path: urls.syntheticMonitoring() },
-                { name: isNew ? 'New monitor' : monitor?.name || 'Monitor' },
+                { name: monitor?.name || 'New monitor' },
             ],
         ],
     }),

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPulse } from '@posthog/icons'
+import { IconTrending } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -22,7 +22,7 @@ export function MetalyticsSummary(): JSX.Element | null {
         <span className="relative inline-flex">
             <LemonButton
                 loading={viewCountLoading}
-                icon={<IconPulse />}
+                icon={<IconTrending />}
                 size="small"
                 onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
                 tooltip={`${safeUniqueUsers} PostHog members have viewed this a total of ${safeViewCount} times. Click to see more.`}

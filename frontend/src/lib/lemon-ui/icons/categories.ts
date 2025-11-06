@@ -4,7 +4,6 @@ export const UNUSED_ICONS = [
     'IconGridMasonry',
     'IconApps',
     'IconRibbon',
-    'IconPulse',
     'IconPineapple',
     'IconPizza',
     'IconTarget',
@@ -307,6 +306,7 @@ export const TEAMS_AND_COMPANIES = {
         'IconLive',
         'IconRefresh',
         'IconBadge',
+        'IconPulse',
     ],
     Replay: [
         'IconPlay',

@@ -115,11 +115,9 @@ export function MonitorsTable(): JSX.Element {
                     <p className="text-muted mb-4">
                         Create your first monitor to start tracking uptime and performance
                     </p>
-                    <LemonButton type="primary" onClick={() => router.actions.push(urls.syntheticMonitor('new'))}>
-                        Create monitor
-                    </LemonButton>
                 </div>
             }
+            nouns={['monitor', 'monitors']}
         />
     )
 }

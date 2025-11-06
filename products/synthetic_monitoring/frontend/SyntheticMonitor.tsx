@@ -8,9 +8,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SyntheticMonitoringRegion } from '~/types'
-
 import { syntheticMonitorLogic } from './syntheticMonitorLogic'
+import { SyntheticMonitoringRegion } from './types'
 
 export const scene: SceneExport = {
     component: SyntheticMonitor,

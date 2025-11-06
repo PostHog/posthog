@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPulse } from '@posthog/icons'
+import { IconTrending } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -31,7 +31,7 @@ export function SceneMetalyticsSummaryButton({ dataAttrKey }: SceneDataAttrKeyPr
                 disabled={viewCountLoading}
                 data-attr={`${dataAttrKey}-metalytics-summary-button`}
             >
-                {viewCountLoading ? <Spinner textColored /> : <IconPulse />}
+                {viewCountLoading ? <Spinner textColored /> : <IconTrending />}
                 Metalytics
             </ButtonPrimitive>
         </FlaggedFeature>

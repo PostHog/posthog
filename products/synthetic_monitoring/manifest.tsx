@@ -12,6 +12,7 @@ export const manifest: ProductManifest = {
             name: 'Synthetic Monitoring',
             import: () => import('./frontend/SyntheticMonitoring'),
             projectBased: true,
+            iconType: 'synthetic_monitoring',
             description: 'Monitor your endpoints and track uptime, latency, and performance from multiple regions',
         },
         SyntheticMonitor: {
