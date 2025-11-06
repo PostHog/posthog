@@ -39,7 +39,7 @@ def snowflake_config(database, schema) -> dict[str, str]:
     """
     warehouse = os.getenv("SNOWFLAKE_WAREHOUSE", "warehouse")
     account = os.getenv("SNOWFLAKE_ACCOUNT", "account")
-    role = os.getenv("SNOWFLAKE_ROLE", "role")
+    role = os.getenv("SNOWFLAKE_ROLE", None)
     username = os.getenv("SNOWFLAKE_USERNAME", "username")
     password = os.getenv("SNOWFLAKE_PASSWORD", "password")
     private_key = os.getenv("SNOWFLAKE_PRIVATE_KEY")
@@ -106,11 +106,11 @@ def snowflake_cursor(snowflake_config: dict[str, str]):
         password = snowflake_config["password"]
 
     with snowflake.connector.connect(
-        user=snowflake_config["user"],
+        user=f'"{snowflake_config["user"]}"',
         password=password,
-        role=snowflake_config["role"],
         account=snowflake_config["account"],
-        warehouse=snowflake_config["warehouse"],
+        role=f'"{snowflake_config["role"]}"',
+        warehouse=f'"{snowflake_config["warehouse"]}"',
         private_key=private_key,
     ) as connection:
         connection.telemetry_enabled = False
