@@ -368,37 +368,37 @@ SELECT
     team_id,
     session_id_v7,
 
-    min(min_timestamp) as min_timestamp,
-    max(max_timestamp) as max_timestamp,
-    max(max_inserted_at) as _max_inserted_at,
-    min(pageview_prio_timestamp_min) as pageview_prio_timestamp_min,
-    max(pageview_prio_timestamp_max) as pageview_prio_timestamp_max,
+    min(s.min_timestamp) as min_timestamp,
+    max(s.max_timestamp) as max_timestamp,
+    max(s.max_inserted_at) as max_inserted_at,
+    min(s.pageview_prio_timestamp_min) as pageview_prio_timestamp_min,
+    max(s.pageview_prio_timestamp_max) as pageview_prio_timestamp_max,
 
-    max(has_pageview_or_screen) as has_pageview_or_screen,
-    argMinMerge(entry_url) as entry_url,
-    argMaxMerge(end_url) as end_url,
-    argMaxMerge(last_external_click_url) as last_external_click_url,
+    max(s.has_pageview_or_screen) as has_pageview_or_screen,
+    argMinMerge(s.entry_url) as entry_url,
+    argMaxMerge(s.end_url) as end_url,
+    argMaxMerge(s.last_external_click_url) as last_external_click_url,
 
-    argMinMerge(entry_utm_source) as entry_utm_source,
-    argMinMerge(entry_utm_campaign) as entry_utm_campaign,
-    argMinMerge(entry_utm_medium) as entry_utm_medium,
-    argMinMerge(entry_utm_term) as entry_utm_term,
-    argMinMerge(entry_utm_content) as entry_utm_content,
-    argMinMerge(entry_referring_domain) as entry_referring_domain,
-    argMinMerge(entry_gclid) as entry_gclid,
-    argMinMerge(entry_gad_source) as entry_gad_source,
-    argMinMerge(entry_fbclid) as entry_fbclid,
+    argMinMerge(s.entry_utm_source) as entry_utm_source,
+    argMinMerge(s.entry_utm_campaign) as entry_utm_campaign,
+    argMinMerge(s.entry_utm_medium) as entry_utm_medium,
+    argMinMerge(s.entry_utm_term) as entry_utm_term,
+    argMinMerge(s.entry_utm_content) as entry_utm_content,
+    argMinMerge(s.entry_referring_domain) as entry_referring_domain,
+    argMinMerge(s.entry_gclid) as entry_gclid,
+    argMinMerge(s.entry_gad_source) as entry_gad_source,
+    argMinMerge(s.entry_fbclid) as entry_fbclid,
 
-    argMinMerge(entry_has_gclid) as entry_has_gclid,
-    argMinMerge(entry_has_fbclid) as entry_has_fbclid,
+    argMinMerge(s.entry_has_gclid) as entry_has_gclid,
+    argMinMerge(s.entry_has_fbclid) as entry_has_fbclid,
 
     mapKeys(argMinMerge(entry_ad_ids_map)) as entry_ad_ids_map_keys,
     mapValues(argMinMerge(entry_ad_ids_map)) as entry_ad_ids_map_values,
     argMinMerge(entry_ad_ids_set) as entry_ad_ids_set,
 
     groupUniqArrayMerge(2)(page_screen_autocapture_uniq_up_to) as page_screen_autocapture_uniq_up_to
-FROM {settings.CLICKHOUSE_DATABASE}.{SHARDED_RAW_SESSIONS_OVERRIDES_TABLE_V3()}
-WHERE max_inserted_at < %(timestamp)s
+FROM {settings.CLICKHOUSE_DATABASE}.{SHARDED_RAW_SESSIONS_OVERRIDES_TABLE_V3()} as s
+WHERE s.max_inserted_at < %(timestamp)s
 AND {where_clause}
 GROUP BY team_id, session_id_v7
 {limit_clause}
