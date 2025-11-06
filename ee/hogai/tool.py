@@ -57,6 +57,9 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     # - it becomes the `ui_payload`
     response_format: Literal["content_and_artifact"] = "content_and_artifact"
 
+    billable: bool = False
+    """Whether LLM generations triggered by this tool should count toward billing."""
+
     context_prompt_template: str = "No context provided for this tool."
     """The template for context associated with this tool, that will be injected into the root node's context messages.
     Use this if you need to strongly steer the root node in deciding _when_ and _whether_ to use the tool.

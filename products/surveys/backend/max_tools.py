@@ -44,6 +44,7 @@ def get_team_survey_config(team: Team) -> dict[str, Any]:
 class CreateSurveyTool(MaxTool):
     name: str = "create_survey"
     description: str = "Create and optionally launch a survey based on natural language instructions"
+    billable: bool = True
 
     args_schema: type[BaseModel] = SurveyCreatorArgs
 
@@ -58,6 +59,7 @@ class CreateSurveyTool(MaxTool):
             "change": f"Create a survey based on these instructions: {instructions}",
             "output": None,
             "tool_progress_messages": [],
+            "billable": self.billable,
             **self.context,
         }
 
@@ -344,6 +346,7 @@ class SurveyAnalysisTool(MaxTool):
         "When users ask about analyzing survey responses, summarizing feedback, finding patterns in responses, or extracting insights from survey data, "
         "use the analyze_survey_responses tool. Survey data includes: {formatted_responses}"
     )
+    billable: bool = True
 
     args_schema: type[BaseModel] = SurveyAnalysisArgs
 
@@ -417,6 +420,7 @@ class SurveyAnalysisTool(MaxTool):
                 team=self._team,
                 model="gpt-4.1",
                 temperature=0.1,  # Lower temperature for consistent analysis
+                billable=self.billable,
             ).with_structured_output(SurveyAnalysisOutput)
 
             # Create the analysis prompt by directly substituting the data

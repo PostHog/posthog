@@ -128,6 +128,7 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
     description: str = "Write or edit an SQL query to answer the user's question, and apply it to the current SQL editor only include the current change the user requested"
     args_schema: type[BaseModel] = HogQLGeneratorArgs
     context_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
+    billable: bool = True
 
     async def _arun_impl(self, instructions: str) -> tuple[str, str]:
         current_query: str | None = self.context.get("current_query", "")
@@ -139,6 +140,7 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
             "change": user_prompt,
             "output": None,
             "tool_progress_messages": [],
+            "billable": self.billable,
             **self.context,
         }
 

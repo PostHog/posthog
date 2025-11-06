@@ -1,7 +1,7 @@
 import classNames from 'classnames'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconAIText, IconChat, IconCopy, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
@@ -69,6 +69,24 @@ enum TraceViewMode {
     Evals = 'evals',
 }
 
+// AI billing markup: 20% markup on top of cost
+const AI_COST_MARKUP_PERCENT = 0.2
+
+// Banker's rounding
+function roundBankers(value: number): number {
+    const rounded = Math.round(value)
+    const diff = Math.abs(value - rounded + 0.5)
+
+    // If not exactly X.5 (accounting for floating-point precision), use standard rounding
+    if (diff > Number.EPSILON) {
+        return Math.round(value)
+    }
+
+    // For X.5, round to nearest even
+    const lower = Math.floor(value)
+    return lower % 2 === 0 ? lower : lower + 1
+}
+
 export const scene: SceneExport = {
     component: LLMAnalyticsTraceScene,
     logic: llmAnalyticsTraceLogic,
@@ -97,6 +115,36 @@ function TraceSceneWrapper(): JSX.Element {
         searchQuery,
         eventMetadata,
     } = useValues(llmAnalyticsTraceDataLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const showBillingInfo = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_BILLING_DISPLAY]
+
+    // Compute total billed USD across billed generations in the tree
+    const totalCostUsd = useMemo(() => {
+        if (!showBillingInfo || !enrichedTree) {
+            return 0
+        }
+
+        const sumBilled = (node: EnrichedTraceTreeNode): number => {
+            const ev = node.event
+            let total = 0
+            if (isLLMEvent(ev) && ev.event === '$ai_generation' && !!ev.properties?.$ai_billable) {
+                const cost = Number(ev.properties.$ai_total_cost_usd ?? 0)
+                total += isNaN(cost) ? 0 : cost
+            }
+            if (node.children) {
+                for (const child of node.children) {
+                    total += sumBilled(child)
+                }
+            }
+            return total
+        }
+
+        return enrichedTree.reduce((acc, n) => acc + sumBilled(n), 0)
+    }, [enrichedTree, showBillingInfo])
+    const markupUsd = showBillingInfo ? totalCostUsd * AI_COST_MARKUP_PERCENT : 0
+    const billedTotalUsd = showBillingInfo ? totalCostUsd + markupUsd : 0 // Total cost + markup
+    const billedCredits = showBillingInfo ? roundBankers(billedTotalUsd * 100) : 0
 
     return (
         <>
@@ -114,6 +162,10 @@ function TraceSceneWrapper(): JSX.Element {
                             trace={trace}
                             metricEvents={metricEvents as LLMTraceEvent[]}
                             feedbackEvents={feedbackEvents as LLMTraceEvent[]}
+                            billedTotalUsd={billedTotalUsd}
+                            billedCredits={billedCredits}
+                            markupUsd={markupUsd}
+                            showBillingInfo={showBillingInfo}
                         />
                         <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
                             <DisplayOptionsSelect />
@@ -121,13 +173,19 @@ function TraceSceneWrapper(): JSX.Element {
                         </div>
                     </div>
                     <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
-                        <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
+                        <TraceSidebar
+                            trace={trace}
+                            eventId={eventId}
+                            tree={enrichedTree}
+                            showBillingInfo={showBillingInfo}
+                        />
                         <EventContent
                             trace={trace}
                             event={event}
                             tree={enrichedTree}
                             searchQuery={searchQuery}
                             eventMetadata={eventMetadata}
+                            showBillingInfo={showBillingInfo}
                         />
                     </div>
                 </div>
@@ -168,10 +226,18 @@ function TraceMetadata({
     trace,
     metricEvents,
     feedbackEvents,
+    billedTotalUsd,
+    billedCredits,
+    markupUsd,
+    showBillingInfo,
 }: {
     trace: LLMTrace
     metricEvents: LLMTraceEvent[]
     feedbackEvents: LLMTraceEvent[]
+    billedTotalUsd?: number
+    billedCredits?: number
+    markupUsd?: number
+    showBillingInfo?: boolean
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -229,6 +295,21 @@ function TraceMetadata({
                     {formatLLMCost(trace.totalCost)}
                 </Chip>
             )}
+            {showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0 && (
+                <Chip title="Billed total" icon={<span className="text-base">💰</span>}>
+                    billed: {formatLLMCost(billedTotalUsd)}
+                </Chip>
+            )}
+            {showBillingInfo && typeof markupUsd === 'number' && markupUsd > 0 && (
+                <Chip title="Markup (20%)" icon={<span className="text-base">➕</span>}>
+                    markup: {formatLLMCost(markupUsd)}
+                </Chip>
+            )}
+            {showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0 && (
+                <Chip title="Credits spent" icon={<span className="text-base">💳</span>}>
+                    credits: {billedCredits}
+                </Chip>
+            )}
             {metricEvents.map((metric) => (
                 <MetricTag key={metric.id} properties={metric.properties} />
             ))}
@@ -243,10 +324,12 @@ function TraceSidebar({
     trace,
     eventId,
     tree,
+    showBillingInfo,
 }: {
     trace: LLMTrace
     eventId?: string | null
     tree: EnrichedTraceTreeNode[]
+    showBillingInfo?: boolean
 }): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const { mostRelevantEvent, searchOccurrences } = useValues(llmAnalyticsTraceDataLogic)
@@ -326,8 +409,15 @@ function TraceSidebar({
                     }}
                     isSelected={!eventId || eventId === trace.id}
                     searchQuery={searchQuery}
+                    showBillingInfo={showBillingInfo}
                 />
-                <TreeNodeChildren tree={tree} trace={trace} selectedEventId={eventId} searchQuery={searchQuery} />
+                <TreeNodeChildren
+                    tree={tree}
+                    trace={trace}
+                    selectedEventId={eventId}
+                    searchQuery={searchQuery}
+                    showBillingInfo={showBillingInfo}
+                />
             </ul>
         </aside>
     )
@@ -365,6 +455,7 @@ const TreeNode = React.memo(function TraceNode({
     node,
     isSelected,
     searchQuery,
+    showBillingInfo,
 }: {
     topLevelTrace: LLMTrace
     node:
@@ -372,6 +463,7 @@ const TreeNode = React.memo(function TraceNode({
         | { event: LLMTrace; displayTotalCost: number; displayLatency: number; displayUsage: string | null }
     isSelected: boolean
     searchQuery?: string
+    showBillingInfo?: boolean
 }): JSX.Element {
     const totalCost = node.displayTotalCost
     const latency = node.displayLatency
@@ -381,6 +473,11 @@ const TreeNode = React.memo(function TraceNode({
     const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
     const eventType = getEventType(item)
     const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
+    const isBillable =
+        showBillingInfo &&
+        isLLMEvent(item) &&
+        (item as LLMTraceEvent).event === '$ai_generation' &&
+        !!(item as LLMTraceEvent).properties?.$ai_billable
 
     const children = [
         isLLMEvent(item) && item.properties.$ai_is_error && (
@@ -420,6 +517,11 @@ const TreeNode = React.memo(function TraceNode({
             >
                 <div className="flex flex-row items-center gap-1.5">
                     <EventTypeTag event={item} size="small" />
+                    {isBillable && (
+                        <span title="Billable" aria-label="Billable" className="text-base">
+                            💰
+                        </span>
+                    )}
                     {!isCollapsedDueToFilter && (
                         <Tooltip title={formatLLMEventTitle(item)}>
                             {searchQuery?.trim() ? (
@@ -469,11 +571,13 @@ function TreeNodeChildren({
     trace,
     selectedEventId,
     searchQuery,
+    showBillingInfo,
 }: {
     tree: EnrichedTraceTreeNode[]
     trace: LLMTrace
     selectedEventId?: string | null
     searchQuery?: string
+    showBillingInfo?: boolean
 }): JSX.Element {
     const [isCollapsed, setIsCollapsed] = useState(false)
 
@@ -487,6 +591,7 @@ function TreeNodeChildren({
                             node={node}
                             isSelected={!!selectedEventId && selectedEventId === node.event.id}
                             searchQuery={searchQuery}
+                            showBillingInfo={showBillingInfo}
                         />
                         {node.children && (
                             <TreeNodeChildren
@@ -494,6 +599,7 @@ function TreeNodeChildren({
                                 trace={trace}
                                 selectedEventId={selectedEventId}
                                 searchQuery={searchQuery}
+                                showBillingInfo={showBillingInfo}
                             />
                         )}
                     </React.Fragment>
@@ -578,12 +684,14 @@ const EventContent = React.memo(
         eventMetadata,
         tree,
         searchQuery,
+        showBillingInfo,
     }: {
         trace: LLMTrace
         event: LLMTrace | LLMTraceEvent | null
         tree: EnrichedTraceTreeNode[]
         searchQuery?: string
         eventMetadata?: Record<string, unknown>
+        showBillingInfo?: boolean
     }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
@@ -633,6 +741,14 @@ const EventContent = React.memo(
                         <header className="deprecated-space-y-2">
                             <div className="flex-row flex items-center gap-2">
                                 <EventTypeTag event={event} />
+                                {showBillingInfo &&
+                                    isLLMEvent(event) &&
+                                    event.event === '$ai_generation' &&
+                                    !!event.properties.$ai_billable && (
+                                        <span title="Billable" aria-label="Billable" className="text-base">
+                                            💰
+                                        </span>
+                                    )}
                                 <h3 className="text-lg font-semibold p-0 m-0 truncate flex-1">
                                     {formatLLMEventTitle(event)}
                                 </h3>

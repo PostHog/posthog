@@ -52,4 +52,5 @@ class TitleGeneratorNode(AssistantNode):
             streaming=False,
             stream_usage=False,
             disable_streaming=True,
+            billable=True,
         )

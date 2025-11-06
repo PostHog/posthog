@@ -2,7 +2,6 @@ from typing import Any
 
 from langchain.schema import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -15,6 +14,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
 _hogql_functions: str | None = None
@@ -234,7 +234,14 @@ The newly updated query gave us this error:
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0, disable_streaming=True).with_structured_output(
+        return MaxChatOpenAI(
+            model="gpt-4.1",
+            temperature=0,
+            disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
+        ).with_structured_output(
             SQL_SCHEMA,
             method="function_calling",
             include_raw=False,

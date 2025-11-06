@@ -496,6 +496,7 @@ The tool will automatically:
     context_system_prompt_template: str = (
         "Creates a new feature flag in the project with optional property-based targeting"
     )
+    billable: bool = True
     args_schema: type[BaseModel] = CreateFeatureFlagArgs
 
     async def _create_flag_from_instructions(self, instructions: str) -> FeatureFlagCreationSchema:
@@ -506,6 +507,7 @@ The tool will automatically:
             "change": f"Create a feature flag based on these instructions: {instructions}",
             "output": None,
             "tool_progress_messages": [],
+            "billable": self.billable,
             **self.context,
         }
 

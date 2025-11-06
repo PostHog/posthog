@@ -73,8 +73,16 @@ class TaxonomyAgentNode(
         return EntityType.values() + self._team_group_types
 
     def _get_model(self, state: TaxonomyStateType):
+        # Check if this invocation should be billable (set by the calling tool)
+        billable = getattr(state, "billable", False)
         return MaxChatOpenAI(
-            model="gpt-4.1", streaming=False, temperature=0.3, user=self._user, team=self._team, disable_streaming=True
+            model="gpt-4.1",
+            streaming=False,
+            temperature=0.3,
+            user=self._user,
+            team=self._team,
+            disable_streaming=True,
+            billable=billable,
         ).bind_tools(
             self._toolkit.get_tools(),
             tool_choice="required",
@@ -151,6 +159,7 @@ class TaxonomyAgentNode(
             intermediate_steps=intermediate_steps,
             output=state.output,
             iteration_count=state.iteration_count + 1 if state.iteration_count is not None else 1,
+            billable=state.billable,
         )
 
 
@@ -207,6 +216,7 @@ class TaxonomyAgentToolsNode(
                     return self._partial_state_class(
                         output=tool_input.arguments.answer,  # type: ignore
                         intermediate_steps=None,
+                        billable=state.billable,
                     )
 
                 if tool_input.name == "ask_user_for_help":
@@ -246,6 +256,7 @@ class TaxonomyAgentToolsNode(
             tool_progress_messages=[*old_msg, *tool_msgs],
             intermediate_steps=steps,
             iteration_count=state.iteration_count,
+            billable=state.billable,
         )
 
     def router(self, state: TaxonomyStateType) -> str:
@@ -266,4 +277,5 @@ class TaxonomyAgentToolsNode(
             )
         ]
         reset_state.output = output
+        reset_state.billable = state.billable
         return reset_state  # type: ignore[return-value]

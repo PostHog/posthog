@@ -5,7 +5,6 @@ from django.db import transaction
 
 import structlog
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from posthog.schema import (
@@ -28,6 +27,7 @@ from ee.hogai.graph.parallel_task_execution.mixins import (
 )
 from ee.hogai.graph.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url, cast_assistant_query
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import BaseStateWithTasks, InsightArtifact, InsightQuery, TaskResult
@@ -426,10 +426,13 @@ class DashboardCreationNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(
+        return MaxChatOpenAI(
             model="gpt-4.1-mini",
             temperature=0.3,
             max_completion_tokens=500,
             max_retries=3,
             disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
         )

@@ -36,6 +36,7 @@ class MaxChatMixin(BaseModel):
     max_retries: int | None = None
     stream_usage: bool | None = None
     conversation_start_dt: datetime.datetime | None = None
+    billable: bool = False
     """
     The datetime of the start of the conversation. If not provided, the current time will be used.
     """
@@ -94,6 +95,14 @@ class MaxChatMixin(BaseModel):
                     break
         return messages
 
+    def _with_billing_metadata(self, kwargs: dict | None) -> dict:
+        """Return a copy of kwargs with posthog_ai_billable injected into metadata."""
+        new_kwargs = dict(kwargs or {})
+        metadata = dict(new_kwargs.get("metadata") or {})
+        metadata["posthog_ai_billable"] = self.billable
+        new_kwargs["metadata"] = metadata
+        return new_kwargs
+
 
 class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
     """PostHog-tuned subclass of ChatOpenAI.
@@ -134,6 +143,9 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
             self._enrich_responses_api_model_kwargs(project_org_user_variables)
         else:
             messages = self._enrich_messages(messages, project_org_user_variables)
+
+        kwargs = self._with_billing_metadata(kwargs)
+
         return super().generate(messages, *args, **kwargs)
 
     async def agenerate(
@@ -147,6 +159,9 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
             self._enrich_responses_api_model_kwargs(project_org_user_variables)
         else:
             messages = self._enrich_messages(messages, project_org_user_variables)
+
+        kwargs = self._with_billing_metadata(kwargs)
+
         return await super().agenerate(messages, *args, **kwargs)
 
 
@@ -165,6 +180,9 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
     ) -> LLMResult:
         project_org_user_variables = self._get_project_org_user_variables()
         messages = self._enrich_messages(messages, project_org_user_variables)
+
+        kwargs = self._with_billing_metadata(kwargs)
+
         return super().generate(messages, *args, **kwargs)
 
     async def agenerate(
@@ -175,4 +193,7 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
     ) -> LLMResult:
         project_org_user_variables = await self._aget_project_org_user_variables()
         messages = self._enrich_messages(messages, project_org_user_variables)
+
+        kwargs = self._with_billing_metadata(kwargs)
+
         return await super().agenerate(messages, *args, **kwargs)

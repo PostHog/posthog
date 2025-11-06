@@ -14,7 +14,6 @@ import structlog
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 
 from posthog.schema import AssistantToolCallMessage, VisualizationMessage
 
@@ -25,6 +24,7 @@ from ee.hogai.context import SUPPORTED_QUERY_MODEL_BY_KIND
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
@@ -865,7 +865,7 @@ class InsightSearchNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(
+        return MaxChatOpenAI(
             model="gpt-4.1-mini",
             temperature=0.7,
             max_completion_tokens=1000,
@@ -873,4 +873,7 @@ class InsightSearchNode(AssistantNode):
             stream_usage=False,
             max_retries=3,
             disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
         )

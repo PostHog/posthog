@@ -3,7 +3,6 @@ import json
 from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from posthog.hogql.ai import (
@@ -30,6 +29,7 @@ from products.cdp.backend.prompts import (
 )
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
 
@@ -100,7 +100,9 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True)
+        return MaxChatOpenAI(
+            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team, billable=True
+        )
 
     def _parse_output(self, output: str) -> HogTransformationOutput:
         match = re.search(r"<hog_code>(.*?)</hog_code>", output, re.DOTALL)
@@ -179,7 +181,9 @@ class CreateHogFunctionFiltersTool(MaxTool):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True)
+        return MaxChatOpenAI(
+            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team, billable=True
+        )
 
     def _parse_output(self, output: str) -> HogFunctionFiltersOutput:
         match = re.search(r"<filters>(.*?)</filters>", output, re.DOTALL)
@@ -258,7 +262,9 @@ class CreateHogFunctionInputsTool(MaxTool):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True)
+        return MaxChatOpenAI(
+            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team, billable=True
+        )
 
     def _parse_output(self, output: str) -> HogFunctionInputsOutput:
         import json

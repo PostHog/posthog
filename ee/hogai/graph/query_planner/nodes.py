@@ -161,6 +161,7 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
             # Ref: https://forum.langchain.com/t/langgraph-openai-responses-api-400-error-web-search-call-was-provided-without-its-required-reasoning-item/1740/2
             output_version="responses/v1",
             disable_streaming=True,
+            billable=True,
         ).bind_tools(
             [
                 retrieve_event_properties,

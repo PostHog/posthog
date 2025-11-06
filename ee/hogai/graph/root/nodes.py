@@ -224,6 +224,7 @@ class RootNode(AssistantNode):
             max_tokens=8192,
             thinking=self.THINKING_CONFIG,
             conversation_start_dt=state.start_dt,
+            billable=True,
         )
 
         # The agent can operate in loops. Since insight building is an expensive operation, we want to limit a recursion depth.

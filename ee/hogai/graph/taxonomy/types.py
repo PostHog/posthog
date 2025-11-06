@@ -41,6 +41,12 @@ class TaxonomyAgentState(BaseStateWithIntermediateSteps, BaseStateWithMessages, 
     The number of iterations the taxonomy agent has gone through.
     """
 
+    billable: bool = Field(default=False)
+    """
+    Whether LLM generations in this taxonomy agent should count toward billing.
+    Set by the calling tool.
+    """
+
 
 class TaxonomyNodeName(StrEnum):
     """Generic node names for taxonomy agents."""
