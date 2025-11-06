@@ -155,12 +155,14 @@ describe('eventDefinitionsTableLogic', () => {
                         previous: null,
                         next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event`,
                     }),
-                    apiCache: partial({
-                        [startingUrl]: partial({
-                            count: 50,
-                        }),
-                    }),
                 })
+
+            // Check cache directly
+            expect(logic.cache.apiCache).toMatchObject({
+                [startingUrl]: expect.objectContaining({
+                    count: 50,
+                }),
+            })
 
             expect(api.get).toHaveBeenCalledTimes(1)
             expect(api.get).toHaveBeenCalledWith(startingUrl)
@@ -258,16 +260,20 @@ describe('eventDefinitionsTableLogic', () => {
                             next: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5&offset=5`,
                         }),
                     }),
-                    apiCache: partial({
-                        [startingUrl]: partial({
-                            count: 50,
-                        }),
-                        [propertiesStartingUrl]: partial({
-                            count: 5,
-                        }),
-                        [`api/environments/${MOCK_TEAM_ID}/events?event=event1&limit=1`]: partial(mockEvent.properties),
-                    }),
                 })
+
+            // Check cache directly
+            expect(logic.cache.apiCache).toMatchObject({
+                [startingUrl]: expect.objectContaining({
+                    count: 50,
+                }),
+                [propertiesStartingUrl]: expect.objectContaining({
+                    count: 5,
+                }),
+                [`api/environments/${MOCK_TEAM_ID}/events?event=event1&limit=1`]: expect.objectContaining(
+                    mockEvent.properties
+                ),
+            })
 
             expect(api.get).toHaveBeenCalledTimes(3)
             expect(api.get).toHaveBeenNthCalledWith(1, propertiesStartingUrl)

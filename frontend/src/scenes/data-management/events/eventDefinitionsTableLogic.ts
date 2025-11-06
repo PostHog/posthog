@@ -100,7 +100,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         setLocalEventDefinition: (definition: EventDefinition) => ({ definition }),
         setLocalPropertyDefinition: (event: EventDefinition, definition: PropertyDefinition) => ({ event, definition }),
         setEventDefinitionPropertiesLoading: (ids: string[]) => ({ ids }),
-        setApiCache: (cache: Record<string, any>) => ({ cache }),
     }),
     reducers({
         filters: [
@@ -117,12 +116,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             [] as string[],
             {
                 setEventDefinitionPropertiesLoading: (_, { ids }) => ids ?? [],
-            },
-        ],
-        apiCache: [
-            {} as Record<string, any>,
-            {
-                setApiCache: (_, { cache }) => cache,
             },
         ],
     }),
@@ -171,12 +164,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         [url]: result,
                     }
 
-                    // Update the apiCache reducer
-                    actions.setApiCache({
-                        ...values.apiCache,
-                        [url]: result,
-                    })
-
                     return result
                 },
                 setLocalEventDefinition: ({ definition }) => {
@@ -188,16 +175,11 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         results: values.eventDefinitions.results.map((d) => (d.id === definition.id ? definition : d)),
                     }
 
-                    // Update both caches
+                    // Update cache
                     cache.apiCache = {
                         ...cache.apiCache,
                         [values.eventDefinitions.current]: result,
                     }
-
-                    actions.setApiCache({
-                        ...values.apiCache,
-                        [values.eventDefinitions.current]: result,
-                    })
 
                     return result
                 },
@@ -241,11 +223,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             ...cache.apiCache,
                             [exampleUrl]: exampleEventProperties,
                         }
-                        // Update reducer cache for example URL
-                        actions.setApiCache({
-                            ...values.apiCache,
-                            [exampleUrl]: exampleEventProperties,
-                        })
                     }
 
                     const currentUrl = `${normalizePropertyDefinitionEndpointUrl(url)}`
@@ -268,13 +245,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         ...cache.apiCache,
                         [currentUrl]: propertyResult,
                     }
-
-                    // Update reducer cache
-                    actions.setApiCache({
-                        ...values.apiCache,
-                        [exampleUrl]: exampleEventProperties,
-                        [currentUrl]: propertyResult,
-                    })
 
                     actions.setEventDefinitionPropertiesLoading(
                         values.eventDefinitionPropertiesLoading.filter((loadingId) => loadingId != definition.id)
@@ -301,12 +271,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         ...cache.apiCache,
                         [eventCacheKey]: updatedProperties,
                     }
-
-                    // Update reducer cache
-                    actions.setApiCache({
-                        ...values.apiCache,
-                        [eventCacheKey]: updatedProperties,
-                    })
 
                     return {
                         ...values.eventPropertiesCacheMap,
