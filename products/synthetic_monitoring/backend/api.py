@@ -162,7 +162,7 @@ class SyntheticMonitorViewSet(
     AccessControlViewSetMixin,
     viewsets.ModelViewSet,
 ):
-    scope_object = "INTERNAL"
+    scope_object = "synthetic_monitoring"
     queryset = SyntheticMonitor.objects.select_related("created_by")
     serializer_class = SyntheticMonitorSerializer
     filter_backends = [filters.SearchFilter]

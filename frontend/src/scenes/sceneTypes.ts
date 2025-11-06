@@ -292,4 +292,8 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Experiments
     [Scene.Experiment]: AccessControlResourceType.Experiment,
     [Scene.Experiments]: AccessControlResourceType.Experiment,
+
+    // Synthetic Monitoring
+    [Scene.SyntheticMonitoring]: AccessControlResourceType.SyntheticMonitoring,
+    [Scene.SyntheticMonitor]: AccessControlResourceType.SyntheticMonitoring,
 }

@@ -66,6 +66,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'sharing_configuration', objectPlural: 'sharing configurations' },
     { key: 'subscription', objectPlural: 'subscriptions' },
     { key: 'survey', objectPlural: 'surveys' },
+    { key: 'synthetic_monitoring', objectPlural: 'synthetic monitors' },
     {
         key: 'user',
         objectPlural: 'users',

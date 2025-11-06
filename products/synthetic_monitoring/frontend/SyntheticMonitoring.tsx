@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -11,6 +13,8 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { userHasAccess } from '~/lib/utils/accessControlUtils'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { MonitorsTable } from './MonitorsTable'
 import { syntheticMonitoringLogic } from './syntheticMonitoringLogic'
@@ -26,6 +30,10 @@ export const scene: SceneExport = {
 export function SyntheticMonitoring(): JSX.Element {
     const { monitors, monitorsLoading } = useValues(syntheticMonitoringLogic)
 
+    if (!userHasAccess(AccessControlResourceType.SyntheticMonitoring, AccessControlLevel.Viewer)) {
+        return <AccessDenied object="synthetic monitoring" />
+    }
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -35,14 +43,19 @@ export function SyntheticMonitoring(): JSX.Element {
                     type: sceneConfigurations[Scene.SyntheticMonitoring].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <LemonButton
-                        size="small"
-                        data-attr="new-monitor"
-                        onClick={() => router.actions.push(urls.syntheticMonitor('new'))}
-                        type="primary"
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.SyntheticMonitoring}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        New monitor
-                    </LemonButton>
+                        <LemonButton
+                            size="small"
+                            data-attr="new-monitor"
+                            onClick={() => router.actions.push(urls.syntheticMonitor('new'))}
+                            type="primary"
+                        >
+                            New monitor
+                        </LemonButton>
+                    </AccessControlAction>
                 }
             />
             <SceneDivider />

@@ -1,3 +1,5 @@
+import { WithAccessControl } from '~/types'
+
 export enum SyntheticMonitoringRegion {
     US_EAST_1 = 'us-east-1', // US East (N. Virginia)
     US_WEST_2 = 'us-west-2', // US West (Oregon)
@@ -14,7 +16,7 @@ export enum MonitorState {
     Disabled = 'disabled',
 }
 
-export interface SyntheticMonitor {
+export interface SyntheticMonitor extends WithAccessControl {
     id: string
     name: string
     url: string

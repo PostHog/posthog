@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 
 import { LemonButton, LemonCheckbox, LemonInput, LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -12,6 +14,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { userHasAccess } from '~/lib/utils/accessControlUtils'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { syntheticMonitorLogic } from './syntheticMonitorLogic'
 import { SyntheticMonitoringRegion } from './types'
@@ -36,6 +40,10 @@ export function SyntheticMonitor(): JSX.Element {
 
     const isNew = !monitor?.id
 
+    if (!userHasAccess(AccessControlResourceType.SyntheticMonitoring, AccessControlLevel.Viewer)) {
+        return <AccessDenied object="synthetic monitor" />
+    }
+
     return (
         <Form logic={syntheticMonitorLogic} formKey="monitorForm" enableFormOnSubmit>
             <SceneContent>
@@ -57,14 +65,20 @@ export function SyntheticMonitor(): JSX.Element {
                             >
                                 Cancel
                             </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                htmlType="submit"
-                                loading={isMonitorFormSubmitting}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.SyntheticMonitoring}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={monitor?.user_access_level}
                             >
-                                {isNew ? 'Create monitor' : 'Save'}
-                            </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    htmlType="submit"
+                                    loading={isMonitorFormSubmitting}
+                                >
+                                    {isNew ? 'Create monitor' : 'Save'}
+                                </LemonButton>
+                            </AccessControlAction>
                         </>
                     }
                     forceBackTo={{

@@ -3,9 +3,12 @@ import { router } from 'kea-router'
 
 import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { syntheticMonitoringLogic } from './syntheticMonitoringLogic'
 import { SyntheticMonitor } from './types'
@@ -65,41 +68,71 @@ export function MonitorsTable(): JSX.Element {
         {
             width: 0,
             render: (_, monitor) => (
-                <More
-                    overlay={
-                        <>
-                            <LemonButton
-                                fullWidth
-                                onClick={() => router.actions.push(urls.syntheticMonitor(monitor.id))}
-                            >
-                                Edit
-                            </LemonButton>
-                            <LemonButton fullWidth onClick={() => createAlertWorkflow(monitor.id)}>
-                                Create alert workflow
-                            </LemonButton>
-                            {monitor.enabled ? (
-                                <LemonButton fullWidth onClick={() => pauseMonitor(monitor.id)}>
-                                    Pause
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.SyntheticMonitoring}
+                    minAccessLevel={AccessControlLevel.Editor}
+                    userAccessLevel={monitor.user_access_level}
+                >
+                    <More
+                        overlay={
+                            <>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.SyntheticMonitoring}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={monitor.user_access_level}
+                                >
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() => router.actions.push(urls.syntheticMonitor(monitor.id))}
+                                    >
+                                        Edit
+                                    </LemonButton>
+                                </AccessControlAction>
+                                <LemonButton fullWidth onClick={() => createAlertWorkflow(monitor.id)}>
+                                    Create alert workflow
                                 </LemonButton>
-                            ) : (
-                                <LemonButton fullWidth onClick={() => resumeMonitor(monitor.id)}>
-                                    Resume
-                                </LemonButton>
-                            )}
-                            <LemonButton
-                                fullWidth
-                                status="danger"
-                                onClick={() => {
-                                    if (confirm(`Are you sure you want to delete "${monitor.name}"?`)) {
-                                        deleteMonitor(monitor.id)
-                                    }
-                                }}
-                            >
-                                Delete
-                            </LemonButton>
-                        </>
-                    }
-                />
+                                {monitor.enabled ? (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.SyntheticMonitoring}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={monitor.user_access_level}
+                                    >
+                                        <LemonButton fullWidth onClick={() => pauseMonitor(monitor.id)}>
+                                            Pause
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                ) : (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.SyntheticMonitoring}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={monitor.user_access_level}
+                                    >
+                                        <LemonButton fullWidth onClick={() => resumeMonitor(monitor.id)}>
+                                            Resume
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                )}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.SyntheticMonitoring}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={monitor.user_access_level}
+                                >
+                                    <LemonButton
+                                        fullWidth
+                                        status="danger"
+                                        onClick={() => {
+                                            if (confirm(`Are you sure you want to delete "${monitor.name}"?`)) {
+                                                deleteMonitor(monitor.id)
+                                            }
+                                        }}
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                </AccessControlAction>
+                            </>
+                        }
+                    />
+                </AccessControlAction>
             ),
         },
     ]
