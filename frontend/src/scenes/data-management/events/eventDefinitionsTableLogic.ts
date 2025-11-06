@@ -273,9 +273,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             },
         ],
     })),
-    selectors(({ cache }) => ({
-        // Expose for testing
-        apiCache: [() => [], () => cache.apiCache],
+    selectors(() => ({
         // Convert filters to API params
         paramsFromFilters: [
             (s) => [s.filters],
