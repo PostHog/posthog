@@ -17,7 +17,13 @@ import { retentionModalLogic } from './retentionModalLogic'
 import { retentionTableLogic } from './retentionTableLogic'
 import { NO_BREAKDOWN_VALUE } from './types'
 
-export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolean }): JSX.Element | null {
+export function RetentionTable({
+    inSharedMode = false,
+    embedded = false,
+}: {
+    inSharedMode?: boolean
+    embedded?: boolean
+}): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const {
         tableRowsSplitByBreakdownValue,
@@ -34,7 +40,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
     const selectedInterval = retentionFilter?.selectedInterval ?? null
-    const allowSelectingColumns = !insightProps.dashboardId
+    const allowSelectingColumns = !insightProps.dashboardId && !inSharedMode && !embedded
 
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found
