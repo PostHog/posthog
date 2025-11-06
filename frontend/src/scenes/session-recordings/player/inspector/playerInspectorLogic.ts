@@ -1080,9 +1080,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             continue
                         }
 
-                        // Apply mini-filters for events
-                        const eventKey = `events-${item.data.event}` as keyof typeof miniFiltersByKey
-                        const eventFilter = miniFiltersByKey[eventKey] || miniFiltersByKey['events-custom']
+                        // Apply mini-filters for events using proper categorization
+                        const eventFilter = itemToMiniFilter(item, miniFiltersByKey)
                         if (eventFilter && !eventFilter.enabled) {
                             continue
                         }
