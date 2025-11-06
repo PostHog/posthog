@@ -2357,6 +2357,7 @@ export type SimilarIssue = {
     library: string | null
     status: string
     first_seen: string
+    distance: number
 }
 
 export interface ErrorTrackingSimilarIssuesQueryResponse extends AnalyticsQueryResponseBase {

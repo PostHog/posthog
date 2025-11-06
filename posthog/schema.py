@@ -2640,6 +2640,7 @@ class SimilarIssue(BaseModel):
         extra="forbid",
     )
     description: str
+    distance: float
     first_seen: str
     id: str
     library: Optional[str] = None
