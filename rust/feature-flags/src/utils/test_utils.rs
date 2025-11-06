@@ -1213,7 +1213,7 @@ impl TestContext {
         redis
             .set(cache_key, payload)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to set cache: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to set cache: {e}"))?;
 
         Ok(())
     }

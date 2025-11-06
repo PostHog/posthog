@@ -229,7 +229,7 @@ impl KafkaSink {
                     }),
             ),
         }) {
-            Err((err, _)) => Err(anyhow!(format!("kafka error: {}", err))),
+            Err((err, _)) => Err(anyhow!(format!("kafka error: {err}"))),
             Ok(delivery_future) => Ok(delivery_future),
         }?;
 
