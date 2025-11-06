@@ -59,20 +59,14 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_no_person_on_events(self):
-        import time
-
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
             database = Database.create_for(team=self.team)
             serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
-
-            # Add timestamp to make this test flaky and demonstrate verification catches it
-            flaky_timestamp = int(time.time() * 1000000)
 
             assert (
                 json.dumps(
                     {table_name: table.model_dump() for table_name, table in serialized_database.items()}, indent=4
                 )
-                + f"\n# Generated at: {flaky_timestamp}"
                 == self.snapshot
             )
 
