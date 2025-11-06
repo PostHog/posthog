@@ -449,6 +449,40 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                     temp = popStack()
                     pushStack(!popStack().includes(temp))
                     break
+                case Operation.IN_COHORT: {
+                    // Stack: [cohort_id, cohort_ids_list]
+                    const cohortIds = popStack()
+                    const cohortId = popStack()
+                    // Handle various cohort ID formats and check membership
+                    if (cohortIds == null || cohortId == null) {
+                        pushStack(false)
+                    } else if (Array.isArray(cohortIds)) {
+                        // Convert cohort_id to number if it's numeric string
+                        const id =
+                            typeof cohortId === 'string' && /^\d+$/.test(cohortId) ? parseInt(cohortId) : cohortId
+                        pushStack(cohortIds.includes(id))
+                    } else {
+                        pushStack(false)
+                    }
+                    break
+                }
+                case Operation.NOT_IN_COHORT: {
+                    // Stack: [cohort_id, cohort_ids_list]
+                    const cohortIds = popStack()
+                    const cohortId = popStack()
+                    // Handle various cohort ID formats and check non-membership
+                    if (cohortIds == null || cohortId == null) {
+                        pushStack(true)
+                    } else if (Array.isArray(cohortIds)) {
+                        // Convert cohort_id to number if it's numeric string
+                        const id =
+                            typeof cohortId === 'string' && /^\d+$/.test(cohortId) ? parseInt(cohortId) : cohortId
+                        pushStack(!cohortIds.includes(id))
+                    } else {
+                        pushStack(true)
+                    }
+                    break
+                }
                 case Operation.REGEX:
                     temp = popStack()
                     pushStack(regexMatch()(popStack(), temp))

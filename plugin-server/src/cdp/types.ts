@@ -178,6 +178,12 @@ export type HogFunctionFilterGlobals = {
     }
 }
 
+// Explicit wrapper to indicate when realtime cohort ids are provided for filtering
+// Similar to HogFunctionInvocationGlobalsWithInputs
+export type HogFunctionFilterGlobalsWithRealtimeCohortIds = HogFunctionFilterGlobals & {
+    cohort_ids: number[]
+}
+
 export type MetricLogSource = 'hog_function' | 'hog_flow'
 
 export type LogEntryLevel = 'debug' | 'info' | 'warn' | 'error'

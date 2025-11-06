@@ -198,10 +198,17 @@ class BytecodeCompiler(Visitor):
         operation = COMPARE_OPERATIONS[node.op]
         if operation in [Operation.IN_COHORT, Operation.NOT_IN_COHORT]:
             if self.cohort_membership_supported:
-                if operation == Operation.IN_COHORT:
-                    return self.visit(ast.Call(name="inCohort", args=[node.right]))
-                else:
-                    return self.visit(ast.Call(name="notInCohort", args=[node.right]))
+                # Generate bytecode that:
+                # 1. Pushes cohort ID onto stack
+                # 2. Gets cohort_ids from globals (top-level field)
+                # 3. Executes the IN_COHORT or NOT_IN_COHORT operation
+                return [
+                    *self.visit(node.right),  # Push cohort ID
+                    "cohort_ids",  # Global variable name
+                    Operation.GET_GLOBAL,  # Get cohort_ids from globals
+                    1,  # Arg count for GET_GLOBAL (just the name)
+                    operation,  # IN_COHORT or NOT_IN_COHORT
+                ]
             else:
                 cohort_name = ""
                 if isinstance(node.right, ast.Constant):

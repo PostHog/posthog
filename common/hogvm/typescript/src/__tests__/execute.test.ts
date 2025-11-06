@@ -2610,4 +2610,79 @@ describe('hogvm execute', () => {
         const result = exec(bytecode).result
         expect(result).toEqual("sql(SELECT * FROM events WHERE equals(event, '$pageview'))")
     })
+
+    test('IN_COHORT operation', () => {
+        // Test IN_COHORT with cohort_ids from globals
+        let bytecode = [
+            '_H',
+            1,
+            op.INTEGER,
+            123, // cohort ID to check
+            op.STRING,
+            'cohort_ids', // Global variable name
+            op.GET_GLOBAL, // Get cohort_ids from globals
+            1, // Arg count for GET_GLOBAL
+            op.IN_COHORT, // Check membership
+        ]
+
+        // Person is in cohort 123
+        let result = exec(bytecode, { globals: { cohort_ids: [45, 123, 789] } })
+        expect(result.result).toBe(true)
+
+        // Person is not in cohort 999
+        bytecode = [
+            '_H',
+            1,
+            op.INTEGER,
+            999, // cohort ID to check
+            op.STRING,
+            'cohort_ids',
+            op.GET_GLOBAL,
+            1,
+            op.IN_COHORT,
+        ]
+        result = exec(bytecode, { globals: { cohort_ids: [45, 123, 789] } })
+        expect(result.result).toBe(false)
+
+        // Test NOT_IN_COHORT
+        bytecode = [
+            '_H',
+            1,
+            op.INTEGER,
+            999, // cohort ID to check
+            op.STRING,
+            'cohort_ids',
+            op.GET_GLOBAL,
+            1,
+            op.NOT_IN_COHORT,
+        ]
+        result = exec(bytecode, { globals: { cohort_ids: [45, 123, 789] } })
+        expect(result.result).toBe(true)
+
+        // Test with empty cohort list
+        bytecode = ['_H', 1, op.INTEGER, 123, op.STRING, 'cohort_ids', op.GET_GLOBAL, 1, op.IN_COHORT]
+        result = exec(bytecode, { globals: { cohort_ids: [] } })
+        expect(result.result).toBe(false)
+
+        // Test with missing cohort_ids in globals - GET_GLOBAL will throw an exception
+        // This is expected behavior as globals that don't exist raise an error
+        bytecode = ['_H', 1, op.INTEGER, 123, op.STRING, 'cohort_ids', op.GET_GLOBAL, 1, op.IN_COHORT]
+        result = exec(bytecode, { globals: {} })
+        expect(result.error?.message).toContain('Global variable not found: cohort_ids')
+
+        // Test with string cohort ID that should be converted to int
+        bytecode = [
+            '_H',
+            1,
+            op.STRING,
+            '123', // String cohort ID
+            op.STRING,
+            'cohort_ids',
+            op.GET_GLOBAL,
+            1,
+            op.IN_COHORT,
+        ]
+        result = exec(bytecode, { globals: { cohort_ids: [45, 123, 789] } })
+        expect(result.result).toBe(true)
+    })
 })

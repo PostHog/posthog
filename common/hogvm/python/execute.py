@@ -273,6 +273,34 @@ def execute_bytecode(
                 push_stack(pop_stack() in pop_stack())
             case Operation.NOT_IN:
                 push_stack(pop_stack() not in pop_stack())
+            case Operation.IN_COHORT:
+                # Stack: [cohort_id, cohort_ids_list]
+                cohort_ids = pop_stack()
+                cohort_id = pop_stack()
+                # Handle various cohort ID formats and check membership
+                if cohort_ids is None or cohort_id is None:
+                    push_stack(False)
+                elif isinstance(cohort_ids, list):
+                    # Convert cohort_id to int if it's numeric string
+                    if isinstance(cohort_id, str) and cohort_id.isdigit():
+                        cohort_id = int(cohort_id)
+                    push_stack(cohort_id in cohort_ids)
+                else:
+                    push_stack(False)
+            case Operation.NOT_IN_COHORT:
+                # Stack: [cohort_id, cohort_ids_list]
+                cohort_ids = pop_stack()
+                cohort_id = pop_stack()
+                # Handle various cohort ID formats and check non-membership
+                if cohort_ids is None or cohort_id is None:
+                    push_stack(True)
+                elif isinstance(cohort_ids, list):
+                    # Convert cohort_id to int if it's numeric string
+                    if isinstance(cohort_id, str) and cohort_id.isdigit():
+                        cohort_id = int(cohort_id)
+                    push_stack(cohort_id not in cohort_ids)
+                else:
+                    push_stack(True)
             case Operation.REGEX:
                 args = [pop_stack(), pop_stack()]
                 # TODO: swap this for re2, as used in HogQL/ClickHouse and in the NodeJS VM

@@ -1033,3 +1033,100 @@ class TestBytecodeExecute:
             }
         )
         assert res.result == "tomato"
+
+    def test_in_cohort_operation(self):
+        # Test IN_COHORT with cohort_ids from globals
+        bytecode = [
+            _H,
+            VERSION,
+            op.INTEGER,
+            123,  # cohort ID to check
+            op.STRING,
+            "cohort_ids",  # Global variable name
+            op.GET_GLOBAL,  # Get cohort_ids from globals
+            1,  # Arg count for GET_GLOBAL
+            op.IN_COHORT,  # Check membership
+        ]
+
+        # Person is in cohort 123
+        result = execute_bytecode(bytecode, {"cohort_ids": [45, 123, 789]})
+        assert result.result is True
+
+        # Person is not in cohort 999
+        bytecode = [
+            _H,
+            VERSION,
+            op.INTEGER,
+            999,  # cohort ID to check
+            op.STRING,
+            "cohort_ids",
+            op.GET_GLOBAL,
+            1,
+            op.IN_COHORT,
+        ]
+        result = execute_bytecode(bytecode, {"cohort_ids": [45, 123, 789]})
+        assert result.result is False
+
+        # Test NOT_IN_COHORT
+        bytecode = [
+            _H,
+            VERSION,
+            op.INTEGER,
+            999,  # cohort ID to check
+            op.STRING,
+            "cohort_ids",
+            op.GET_GLOBAL,
+            1,
+            op.NOT_IN_COHORT,
+        ]
+        result = execute_bytecode(bytecode, {"cohort_ids": [45, 123, 789]})
+        assert result.result is True
+
+        # Test with empty cohort list
+        bytecode = [
+            _H,
+            VERSION,
+            op.INTEGER,
+            123,
+            op.STRING,
+            "cohort_ids",
+            op.GET_GLOBAL,
+            1,
+            op.IN_COHORT,
+        ]
+        result = execute_bytecode(bytecode, {"cohort_ids": []})
+        assert result.result is False
+
+        # Test with missing cohort_ids in globals - GET_GLOBAL will throw an exception
+        # This is expected behavior as globals that don't exist raise an error
+        bytecode = [
+            _H,
+            VERSION,
+            op.INTEGER,
+            123,
+            op.STRING,
+            "cohort_ids",
+            op.GET_GLOBAL,
+            1,
+            op.IN_COHORT,
+        ]
+        try:
+            result = execute_bytecode(bytecode, {})
+            raise AssertionError("Should have raised an exception")
+        except Exception as e:
+            assert "Global variable not found: cohort_ids" in str(e)
+
+        # Test with string cohort ID that should be converted to int
+        bytecode = [
+            _H,
+            VERSION,
+            op.STRING,
+            "123",  # String cohort ID
+            op.STRING,
+            "cohort_ids",
+            op.GET_GLOBAL,
+            1,
+            op.IN_COHORT,
+        ]
+        result = execute_bytecode(bytecode, {"cohort_ids": [45, 123, 789]})
+        assert result.result is True
