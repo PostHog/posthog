@@ -1,11 +1,12 @@
 import equal from 'fast-deep-equal'
-import { actions, kea, key, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 import { syncSearchParams, updateSearchParams } from '../../utils'
 import type { issueFiltersLogicType } from './issueFiltersLogicType'
@@ -62,6 +63,66 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
             },
         ],
     }),
+
+    listeners(({ values }) => ({
+        setFilterGroup: ({ filterGroup }) => {
+            // Analyze filter categories used
+            const filterCategories: string[] = []
+            let filterCount = 0
+
+            filterGroup.values.forEach((group) => {
+                if (group.values) {
+                    group.values.forEach((filter: PropertyGroupFilter) => {
+                        filterCount++
+                        const type = filter.type
+                        if (type === PropertyFilterType.Person && !filterCategories.includes('person_properties')) {
+                            filterCategories.push('person_properties')
+                        } else if (
+                            type === PropertyFilterType.Event &&
+                            !filterCategories.includes('event_properties')
+                        ) {
+                            filterCategories.push('event_properties')
+                        } else if (type === PropertyFilterType.Cohort && !filterCategories.includes('cohorts')) {
+                            filterCategories.push('cohorts')
+                        } else if (type === PropertyFilterType.HogQL && !filterCategories.includes('sql_expression')) {
+                            filterCategories.push('sql_expression')
+                        }
+                    })
+                }
+            })
+
+            posthog.capture('error_tracking_filter_applied', {
+                filter_categories_used: filterCategories,
+                filter_count: filterCount,
+                has_search_query: !!values.searchQuery,
+                filter_test_accounts: values.filterTestAccounts,
+            })
+        },
+        setSearchQuery: ({ searchQuery }) => {
+            const filterGroup = values.filterGroup
+
+            const filterCount = filterGroup.values.reduce((count, group) => count + (group.values?.length || 0), 0)
+
+            posthog.capture('error_tracking_filter_applied', {
+                filter_categories_used: [], // Search doesn't use categories
+                filter_count: filterCount,
+                has_search_query: !!searchQuery,
+                filter_test_accounts: values.filterTestAccounts,
+            })
+        },
+        setFilterTestAccounts: ({ filterTestAccounts }) => {
+            const filterGroup = values.filterGroup
+
+            const filterCount = filterGroup.values.reduce((count, group) => count + (group.values?.length || 0), 0)
+
+            posthog.capture('error_tracking_filter_applied', {
+                filter_categories_used: [],
+                filter_count: filterCount,
+                has_search_query: !!values.searchQuery,
+                filter_test_accounts: filterTestAccounts,
+            })
+        },
+    })),
 
     urlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {

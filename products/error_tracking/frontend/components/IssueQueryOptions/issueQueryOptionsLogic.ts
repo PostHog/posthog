@@ -1,6 +1,7 @@
 import equal from 'fast-deep-equal'
-import { actions, kea, key, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { Params } from 'scenes/sceneTypes'
 
@@ -85,6 +86,23 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             },
         ],
     }),
+
+    listeners(({ values }) => ({
+        setOrderBy: ({ orderBy }) => {
+            posthog.capture('error_tracking_issues_sorted', {
+                sort_by: orderBy,
+                sort_direction: values.orderDirection,
+                revenue_entity: orderBy === 'revenue' ? values.revenueEntity : undefined,
+            })
+        },
+        setOrderDirection: ({ orderDirection }) => {
+            posthog.capture('error_tracking_issues_sorted', {
+                sort_by: values.orderBy,
+                sort_direction: orderDirection,
+                revenue_entity: values.orderBy === 'revenue' ? values.revenueEntity : undefined,
+            })
+        },
+    })),
 
     actionToUrl(({ values }) => {
         const buildURL = (): [

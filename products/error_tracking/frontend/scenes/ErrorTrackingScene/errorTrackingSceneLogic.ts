@@ -1,7 +1,8 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { Params } from 'scenes/sceneTypes'
 
@@ -143,4 +144,30 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             '*': urlToAction,
         }
     }),
+
+    events(({ values }) => ({
+        afterMount: () => {
+            // Calculate filter properties
+            const filterGroup = values.filterGroup
+            const hasFilters =
+                filterGroup.values.length > 0 &&
+                filterGroup.values.some((group) => group.values && group.values.length > 0)
+            const filterCount = filterGroup.values.reduce((count, group) => count + (group.values?.length || 0), 0)
+
+            // Calculate date range in days
+            const dateRange = values.dateRange.date_from || '-7d'
+            const dateRangeDays = dateRange.startsWith('-') ? parseInt(dateRange.slice(1, -1)) : null
+
+            posthog.capture('error_tracking_issues_list_viewed', {
+                has_filters: hasFilters,
+                filter_count: filterCount,
+                has_search_query: !!values.searchQuery,
+                filter_test_accounts: values.filterTestAccounts,
+                sort_by: values.orderBy,
+                sort_direction: values.orderDirection,
+                date_range_days: dateRangeDays,
+                active_tab: values.activeTab,
+            })
+        },
+    })),
 ])
