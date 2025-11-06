@@ -41,6 +41,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpBehaviouralEvents: true,
                 cdpCohortMembership: true,
                 cdpApi: true,
+                hypercacheApi: true,
             }
 
         case PluginServerMode.ingestion_v2:

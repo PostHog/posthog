@@ -78,15 +78,17 @@ export class HypercacheService {
             }
         }
 
-        const s3Response = await this.objectStorage.s3.send(
-            new GetObjectCommand({
-                Bucket: this.hub.OBJECT_STORAGE_BUCKET,
-                Key: cacheKey,
-            })
-        )
+        const s3Response = await this.objectStorage.s3
+            .send(
+                new GetObjectCommand({
+                    Bucket: this.hub.OBJECT_STORAGE_BUCKET,
+                    Key: cacheKey,
+                })
+            )
+            .catch(() => null)
 
-        if (s3Response.Body) {
-            const s3String = await s3Response.Body.transformToString()
+        if (s3Response && s3Response.Body) {
+            const s3String = await s3Response.Body.transformToString().catch(() => null)
 
             if (s3String === _HYPER_CACHE_EMPTY_VALUE) {
                 return {
