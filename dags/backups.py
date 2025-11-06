@@ -448,17 +448,13 @@ def wait_for_backup(
             most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
             if most_recent_status and most_recent_status.status == "CREATING_BACKUP":
                 continue
-            if most_recent_status and most_recent_status.status == "BACKUP_CREATD":
+            if most_recent_status and most_recent_status.is_success():
                 context.log.info(f"Backup for table {backup.table} in path {backup.path} finished successfully")
                 done = True
-            if (most_recent_status and most_recent_status.status != "BACKUP_CREATED") or (
-                most_recent_status and tries >= 5
-            ):
+            if (most_recent_status and not most_recent_status.is_success()) or (most_recent_status and tries >= 5):
                 raise ValueError(
                     f"Backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}."
                 )
-    else:
-        context.log.info("No backup to wait for")
 
     context.add_output_metadata(
         {
