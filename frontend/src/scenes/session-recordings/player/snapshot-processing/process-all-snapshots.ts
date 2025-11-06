@@ -1,4 +1,4 @@
-import posthog from 'posthog-js'
+import posthog, { PostHog } from 'posthog-js'
 
 import posthogEE from '@posthog/ee/exports'
 import { EventType, eventWithTime, fullSnapshotEvent } from '@posthog/rrweb-types'
@@ -373,8 +373,12 @@ function isLengthPrefixedSnappy(uint8Data: Uint8Array): boolean {
     return true
 }
 
-const lengthPrefixedSnappyDecompress = async (uint8Data: Uint8Array): Promise<string> => {
-    const workerManager = getDecompressionWorkerManager()
+const lengthPrefixedSnappyDecompress = async (
+    uint8Data: Uint8Array,
+    useWorker?: boolean,
+    posthogInstance?: PostHog
+): Promise<string> => {
+    const workerManager = getDecompressionWorkerManager(useWorker, posthogInstance)
     const decompressedParts: string[] = []
     let offset = 0
 
@@ -402,7 +406,7 @@ const lengthPrefixedSnappyDecompress = async (uint8Data: Uint8Array): Promise<st
             break
         }
 
-        const compressedBlock = uint8Data.slice(offset, offset + length)
+        const compressedBlock = uint8Data.subarray(offset, offset + length)
         offset += length
 
         const decompressedData = await workerManager.decompress(compressedBlock)
@@ -416,8 +420,12 @@ const lengthPrefixedSnappyDecompress = async (uint8Data: Uint8Array): Promise<st
     return decompressedParts.join('\n')
 }
 
-const rawSnappyDecompress = async (uint8Data: Uint8Array): Promise<string> => {
-    const workerManager = getDecompressionWorkerManager()
+const rawSnappyDecompress = async (
+    uint8Data: Uint8Array,
+    useWorker?: boolean,
+    posthogInstance?: PostHog
+): Promise<string> => {
+    const workerManager = getDecompressionWorkerManager(useWorker, posthogInstance)
 
     const decompressedData = await workerManager.decompress(uint8Data)
 
@@ -427,7 +435,9 @@ const rawSnappyDecompress = async (uint8Data: Uint8Array): Promise<string> => {
 
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[] | ArrayBuffer | Uint8Array,
-    sessionId: string
+    sessionId: string,
+    useWorker?: boolean,
+    posthogInstance?: PostHog
 ): Promise<RecordingSnapshot[]> => {
     if (!postHogEEModule) {
         postHogEEModule = await posthogEE()
@@ -439,10 +449,10 @@ export const parseEncodedSnapshots = async (
 
         if (isLengthPrefixedSnappy(uint8Data)) {
             try {
-                const combinedText = await lengthPrefixedSnappyDecompress(uint8Data)
+                const combinedText = await lengthPrefixedSnappyDecompress(uint8Data, useWorker, posthogInstance)
 
                 const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-                return parseEncodedSnapshots(lines, sessionId)
+                return parseEncodedSnapshots(lines, sessionId, useWorker, posthogInstance)
             } catch (error) {
                 console.error('Length-prefixed Snappy decompression failed:', error)
                 posthog.captureException(new Error('Failed to decompress length-prefixed snapshot data'), {
@@ -455,17 +465,17 @@ export const parseEncodedSnapshots = async (
         }
 
         try {
-            const combinedText = await rawSnappyDecompress(uint8Data)
+            const combinedText = await rawSnappyDecompress(uint8Data, useWorker, posthogInstance)
 
             const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-            return parseEncodedSnapshots(lines, sessionId)
+            return parseEncodedSnapshots(lines, sessionId, useWorker, posthogInstance)
         } catch (error) {
             try {
                 const textDecoder = new TextDecoder('utf-8')
                 const combinedText = textDecoder.decode(uint8Data)
 
                 const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-                return parseEncodedSnapshots(lines, sessionId)
+                return parseEncodedSnapshots(lines, sessionId, useWorker, posthogInstance)
             } catch (decodeError) {
                 console.error('Failed to decompress or decode binary data:', error, decodeError)
                 posthog.captureException(new Error('Failed to process snapshot data'), {

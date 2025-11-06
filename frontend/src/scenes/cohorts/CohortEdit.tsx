@@ -261,7 +261,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
 
                 <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
                     <SceneContent>
-                        <LemonField name="name">
+                        <LemonField name="name" className="contents">
                             <SceneTitleSection
                                 name={cohort.name}
                                 description={cohort.description || ''}
@@ -307,8 +307,6 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                 }
                             />
                         </LemonField>
-
-                        <SceneDivider />
 
                         <SceneSection
                             title="Type"
