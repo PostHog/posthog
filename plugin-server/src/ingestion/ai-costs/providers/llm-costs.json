@@ -110,7 +110,7 @@
                 "prompt_token": 9e-8,
                 "completion_token": 4e-7
             },
-            "atlas-cloud-bf16": {
+            "atlas-cloud-fp8": {
                 "prompt_token": 9e-8,
                 "completion_token": 4.5e-7
             },
@@ -1249,12 +1249,12 @@
         "model": "deepseek/deepseek-r1-0528-qwen3-8b",
         "cost": {
             "default": {
-                "prompt_token": 3e-8,
-                "completion_token": 1.1e-7
+                "prompt_token": 2e-8,
+                "completion_token": 1e-7
             },
             "chutes-bf16": {
-                "prompt_token": 3e-8,
-                "completion_token": 1.1e-7
+                "prompt_token": 2e-8,
+                "completion_token": 1e-7
             },
             "novita-bf16": {
                 "prompt_token": 6e-8,
@@ -2310,10 +2310,6 @@
                 "prompt_token": 4e-7,
                 "completion_token": 4e-7
             },
-            "fireworks": {
-                "prompt_token": 9.000000000000001e-7,
-                "completion_token": 9.000000000000001e-7
-            },
             "hyperbolic-fp8": {
                 "prompt_token": 4e-7,
                 "completion_token": 4e-7
@@ -2346,10 +2342,6 @@
             "deepinfra-turbo": {
                 "prompt_token": 2e-8,
                 "completion_token": 3e-8
-            },
-            "fireworks": {
-                "prompt_token": 2.0000000000000002e-7,
-                "completion_token": 2.0000000000000002e-7
             },
             "friendli": {
                 "prompt_token": 1e-7,
@@ -2995,6 +2987,10 @@
             "parasail-fp8": {
                 "prompt_token": 2.5e-7,
                 "completion_token": 0.000001
+            },
+            "siliconflow-fp8": {
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000012
             }
         }
     },
@@ -5918,10 +5914,6 @@
                 "prompt_token": 3.8e-7,
                 "completion_token": 0.00000153
             },
-            "cerebras-fp8": {
-                "prompt_token": 0.000002,
-                "completion_token": 0.000002
-            },
             "google-vertex": {
                 "prompt_token": 0.000001,
                 "completion_token": 0.000004
@@ -6159,19 +6151,6 @@
             "siliconflow-fp8": {
                 "prompt_token": 2.9e-7,
                 "completion_token": 0.000001
-            }
-        }
-    },
-    {
-        "model": "qwen/qwen3-vl-32b-instruct",
-        "cost": {
-            "default": {
-                "prompt_token": 3.5e-7,
-                "completion_token": 0.0000011
-            },
-            "parasail-fp8": {
-                "prompt_token": 3.5e-7,
-                "completion_token": 0.0000011
             }
         }
     },
