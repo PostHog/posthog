@@ -9,7 +9,6 @@ from dateutil.relativedelta import relativedelta
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
-    ChartDisplayType,
     Compare,
     CompareFilter,
     DataWarehouseNode,
@@ -94,9 +93,7 @@ class TrendsActorsQueryBuilder:
 
     @property
     def exact_timerange(self):
-        return (self.trends_query.dateRange and self.trends_query.dateRange.explicitDate) or (
-            self.trends_query.trendsFilter and self.trends_query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
-        )
+        return self.trends_query.dateRange and self.trends_query.dateRange.explicitDate
 
     @cached_property
     def trends_date_range(self) -> QueryDateRange:
