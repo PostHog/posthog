@@ -26,6 +26,7 @@ export enum QueryFeature {
     eventPropertyFilters,
     personPropertyFilters,
     groupPropertyFilters,
+    sessionPropertyFilters,
     linkDataButton,
     personsSearch,
     groupsSearch,
@@ -46,8 +47,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         isHogQLQuery(query) ||
         isEventsQuery(query) ||
         isSessionAttributionExplorerQuery(query) ||
-        isRevenueExampleEventsQuery(query) ||
-        isSessionsQuery(query)
+        isRevenueExampleEventsQuery(query)
     ) {
         features.add(QueryFeature.dateRangePicker)
         features.add(QueryFeature.columnsInResponse)
@@ -58,6 +58,12 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     }
 
     if (isSessionsQuery(query)) {
+        features.add(QueryFeature.dateRangePicker)
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.sessionPropertyFilters)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
+        features.add(QueryFeature.testAccountFilters)
         features.add(QueryFeature.columnConfigurator)
         features.add(QueryFeature.selectAndOrderByColumns)
     }

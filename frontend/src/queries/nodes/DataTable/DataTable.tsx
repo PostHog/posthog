@@ -50,6 +50,7 @@ import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
+import { SessionPropertyFilters } from '~/queries/nodes/SessionsNode/SessionPropertyFilters'
 import {
     ActorsQuery,
     AnyResponseType,
@@ -590,6 +591,7 @@ export function DataTable({
                 | GroupsQuery
                 | HogQLQuery
                 | SessionAttributionExplorerQuery
+                | SessionsQuery
                 | TracesQuery
                 | MarketingAnalyticsTableQuery
         ) => setQuery?.({ ...query, source }),
@@ -658,6 +660,13 @@ export function DataTable({
             <PersonPropertyFilters
                 key="person-property"
                 query={query.source as PersonsNode}
+                setQuery={setQuerySource}
+            />
+        ) : null,
+        showPropertyFilter && sourceFeatures.has(QueryFeature.sessionPropertyFilters) ? (
+            <SessionPropertyFilters
+                key="session-property"
+                query={query.source as SessionsQuery}
                 setQuery={setQuerySource}
             />
         ) : null,
