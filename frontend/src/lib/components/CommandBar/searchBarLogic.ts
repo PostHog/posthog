@@ -6,6 +6,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import { getDefaultTreeProducts, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -93,6 +94,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
         onArrowUp: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         onArrowDown: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         openResult: (index: number) => ({ index }),
+        openResultInNewTab: (index: number) => ({ index }),
         setActiveResultIndex: (index: number) => ({ index }),
     }),
     loaders(({ values, actions }) => ({
@@ -273,6 +275,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 setSearchQuery: () => 0,
                 setActiveTab: () => 0,
                 openResult: () => 0,
+                openResultInNewTab: () => 0,
                 onArrowUp: (_, { activeIndex, maxIndex }) => (activeIndex > 0 ? activeIndex - 1 : maxIndex),
                 onArrowDown: (_, { activeIndex, maxIndex }) => (activeIndex < maxIndex ? activeIndex + 1 : 0),
                 setActiveResultIndex: (_, { index }) => index,
@@ -600,6 +603,16 @@ export const searchBarLogic = kea<searchBarLogicType>([
             actions.hideCommandBar()
             actions.reportCommandBarSearchResultOpened(result.type)
         },
+        openResultInNewTab: ({ index }) => {
+            const results = values.combinedSearchResults
+            if (!results || !results[index]) {
+                return // Early exit if no valid result
+            }
+            const result = results[index]
+            newInternalTab(urlForResult(result))
+            actions.hideCommandBar()
+            actions.reportCommandBarSearchResultOpened(result.type)
+        },
     })),
     subscriptions(({ values, actions }) => ({
         barStatus: (value, oldvalue) => {
@@ -625,7 +638,11 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 if (event.key === 'Enter') {
                     // open result
                     event.preventDefault()
-                    actions.openResult(values.activeResultIndex)
+                    if (event.metaKey || event.ctrlKey) {
+                        actions.openResultInNewTab(values.activeResultIndex)
+                    } else {
+                        actions.openResult(values.activeResultIndex)
+                    }
                 } else if (event.key === 'ArrowDown') {
                     // navigate to next result
                     event.preventDefault()

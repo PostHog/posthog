@@ -11,7 +11,7 @@ import { searchBarLogic, urlForResult } from './searchBarLogic'
 
 export const SearchResultPreview = (): JSX.Element | null => {
     const { activeResultIndex, combinedSearchResults, combinedSearchLoading } = useValues(searchBarLogic)
-    const { openResult } = useActions(searchBarLogic)
+    const { openResult, openResultInNewTab } = useActions(searchBarLogic)
 
     if (combinedSearchLoading) {
         return (
@@ -49,7 +49,7 @@ export const SearchResultPreview = (): JSX.Element | null => {
                         <ResultDescription result={result} />
                     </div>
                 </div>
-                <div className="grid grid-cols-[auto_1fr] items-center gap-2">
+                <div className="flex items-center gap-2">
                     <LemonButton
                         type="secondary"
                         size="small"
@@ -59,6 +59,16 @@ export const SearchResultPreview = (): JSX.Element | null => {
                         aria-label="Open search result"
                     >
                         <span className="mr-1">Open</span> <KeyboardShortcut enter />
+                    </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => {
+                            openResultInNewTab(activeResultIndex)
+                        }}
+                        aria-label="Open search result in new tab"
+                    >
+                        <span className="mr-1">Open in new tab</span> <KeyboardShortcut command enter />
                     </LemonButton>
                 </div>
             </div>
