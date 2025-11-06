@@ -1,4 +1,3 @@
-import abc
 import typing
 import datetime as dt
 import functools
@@ -221,24 +220,7 @@ class Table(TableBase, typing.Generic[FieldType]):
         self.fields: list[FieldType] = list(fields)
 
     @classmethod
-    @abc.abstractmethod
-    def from_arrow_schema(cls, schema: pa.Schema, **kwargs) -> typing.Self:
-        """Sub-classes should implement how to create a Table from an arrow schema.
-
-        The body of this method should just be a call to from_arrow_schema_full.
-
-        This method offers a relaxed signature via kwargs to allow sub-classes some
-        flexibility in figuring out how to:
-        * Pass their concrete Field implementation as field_type.
-            * Unfortunately, generic types are not available at runtime, so we need this
-              to be passed as an argument, even if the class definition already displays
-              the concrete Field type.
-        * Obtain name and parents.
-        """
-        raise NotImplementedError()
-
-    @classmethod
-    def from_arrow_schema_full(
+    def from_arrow_schema_with_field_type(
         cls,
         schema: pa.Schema,
         field_type: type[FieldType],
@@ -247,6 +229,23 @@ class Table(TableBase, typing.Generic[FieldType]):
         primary_key: collections.abc.Iterable[str] = (),
         version_key: collections.abc.Iterable[str] = (),
     ) -> typing.Self:
+        """Sub-classes should implement how to create a Table from an arrow schema.
+
+        However, different sub-classes have different requirements, so we cannot have a
+        signature that fits all.
+
+        We offer this method as a way for sub-classes to figure out:
+        * Their concrete Field implementation.
+            * This should be known for concrete sub-classes.
+            * Unfortunately, generic types are not available at runtime, so we need this
+              to be passed as an argument, even if the class definition already displays
+              the concrete Field type.
+        * Obtain name and parents.
+        * Set anything else that they wish to set.
+
+        And then call this.
+        """
+
         return cls(
             name=name,
             fields=(field_type.from_arrow_field(field) for field in schema),

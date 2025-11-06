@@ -44,6 +44,7 @@ from products.batch_exports.backend.temporal.pipeline.table import (
     Field,
     Table,
     TableReference,
+    TypeTupleToCastMapping,
     _noop_cast,
 )
 from products.batch_exports.backend.temporal.pipeline.transformer import (
@@ -77,7 +78,7 @@ NON_RETRYABLE_ERROR_TYPES = (
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
-COMPATIBLE_TYPES = {
+COMPATIBLE_TYPES: TypeTupleToCastMapping = {
     # BigQuery doesn't have a unsigned type, so we hope we don't overflow.
     # We could cast here and fail if the value overflows, but historically this hasn't
     # come up.
@@ -129,7 +130,7 @@ def bigquery_type_to_data_type(type: BigQueryType) -> pa.DataType:
     """Mapping of `BigQueryType` to corresponding `pa.DataType`."""
     match type.name:
         case "STRING":
-            base_type = pa.string()
+            base_type: pa.DataType = pa.string()
         case "JSON":
             base_type = JsonType()
         case "INT64" | "INT" | "SMALLINT" | "INTEGER" | "BIGINT" | "TINYINT" | "BYTEINT":
@@ -161,7 +162,7 @@ def data_type_to_bigquery_type(data_type: pa.DataType) -> BigQueryType:
     repeated = False
 
     if pa.types.is_string(data_type):
-        bq_type = "STRING"
+        bq_type: BigQueryTypeName = "STRING"
     elif isinstance(data_type, JsonType):
         bq_type = "JSON"
 
@@ -181,7 +182,7 @@ def data_type_to_bigquery_type(data_type: pa.DataType) -> BigQueryType:
     elif pa.types.is_timestamp(data_type):
         bq_type = "TIMESTAMP"
 
-    elif pa.types.is_list(data_type) and pa.types.is_string(data_type.value_type):
+    elif pa.types.is_list(data_type) and pa.types.is_string(data_type):
         bq_type = "STRING"
         repeated = True
 
@@ -271,10 +272,10 @@ class BigQueryTable(Table[BigQueryField]):
         project_id: str,
         dataset_id: str,
         table_id: str,
-        primary_key: collections.abc.Iterable[str] = (),
-        version_key: collections.abc.Iterable[str] = (),
+        primary_key: collections.abc.Iterable[str],
+        version_key: collections.abc.Iterable[str],
     ) -> typing.Self:
-        return cls.from_arrow_schema_full(
+        return cls.from_arrow_schema_with_field_type(
             schema,
             BigQueryField,
             table_id,
@@ -293,8 +294,14 @@ class BigQueryTable(Table[BigQueryField]):
 
 
 class BigQueryClient:
+    """Async client to interact with BigQuery.
+
+    Wraps a non-async `bigquery.Client` and exposes async versions of some of its
+    methods.
+    """
+
     def __init__(self, client: bigquery.Client):
-        self.client = client
+        self.sync_client = client
 
         self.logger = LOGGER.bind(project_id=client.project)
         self.external_logger = EXTERNAL_LOGGER.bind(project_id=client.project)
@@ -303,7 +310,7 @@ class BigQueryClient:
         return self
 
     async def __aexit__(self, exc_type, exc_value, traceback) -> None:
-        await asyncio.to_thread(self.client.close)
+        await asyncio.to_thread(self.sync_client.close)
         return None
 
     @classmethod
@@ -346,7 +353,7 @@ class BigQueryClient:
                 type_=bigquery.TimePartitioningType.DAY, field="timestamp"
             )
 
-        created_bq_table = await asyncio.to_thread(self.client.create_table, bq_table, exists_ok=exists_ok)
+        created_bq_table = await asyncio.to_thread(self.sync_client.create_table, bq_table, exists_ok=exists_ok)
 
         if isinstance(table, BigQueryTable):
             return BigQueryTable.from_bigquery_table(created_bq_table, table.primary_key, table.version_key)
@@ -359,7 +366,7 @@ class BigQueryClient:
         not_found_ok: bool = True,
     ) -> None:
         """Delete a table in BigQuery."""
-        await asyncio.to_thread(self.client.delete_table, table.fully_qualified_name, not_found_ok=not_found_ok)
+        await asyncio.to_thread(self.sync_client.delete_table, table.fully_qualified_name, not_found_ok=not_found_ok)
 
         return None
 
@@ -368,7 +375,7 @@ class BigQueryClient:
         table: BigQueryTable | TableReference,
     ) -> BigQueryTable:
         """Get a table in BigQuery."""
-        bq_table = await asyncio.to_thread(self.client.get_table, table.fully_qualified_name)
+        bq_table = await asyncio.to_thread(self.sync_client.get_table, table.fully_qualified_name)
 
         if isinstance(table, BigQueryTable):
             return BigQueryTable.from_bigquery_table(bq_table, table.primary_key, table.version_key)
@@ -411,7 +418,7 @@ class BigQueryClient:
             """
 
         try:
-            query_job = self.client.query(query, job_config=job_config)
+            query_job = self.sync_client.query(query, job_config=job_config)
             await asyncio.to_thread(query_job.result)
         except Forbidden:
             return False
@@ -526,7 +533,7 @@ class BigQueryClient:
 
         self.logger.info("Inserting into final table", format=format, table_id=final.name, stage_table_id=stage.name)
 
-        query_job = self.client.query(query, job_config=job_config)
+        query_job = self.sync_client.query(query, job_config=job_config)
         result = await asyncio.to_thread(query_job.result)
         return result
 
@@ -627,7 +634,7 @@ class BigQueryClient:
             VALUES ({values});
         """
 
-        query_job = self.client.query(merge_query, job_config=job_config)
+        query_job = self.sync_client.query(merge_query, job_config=job_config)
         return await asyncio.to_thread(query_job.result)
 
     async def load_file(self, file, format: FileFormat, table: BigQueryTable):
@@ -649,7 +656,7 @@ class BigQueryClient:
 
         bq_table = bigquery.Table(table.fully_qualified_name, schema=schema)
         load_job = await asyncio.to_thread(
-            self.client.load_table_from_file, file, bq_table, job_config=job_config, rewind=True
+            self.sync_client.load_table_from_file, file, bq_table, job_config=job_config, rewind=True
         )
 
         self.logger.info("Waiting for BigQuery load job", format=format, table_id=table.name)
@@ -849,8 +856,8 @@ def _get_merge_settings(
     """Return merge settings for models that require merging."""
     if isinstance(model, BatchExportModel):
         if model.name == "persons":
-            primary_key = ("team_id", "distinct_id")
-            version_key = ("person_version", "person_distinct_id_version")
+            primary_key: collections.abc.Sequence[str] = ("team_id", "distinct_id")
+            version_key: collections.abc.Sequence[str] = ("person_version", "person_distinct_id_version")
         elif model.name == "sessions":
             primary_key = ("team_id", "session_id")
             version_key = ("end_timestamp",)
@@ -939,8 +946,8 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             table_id=inputs.table_id,
             project_id=inputs.project_id,
             dataset_id=inputs.dataset_id,
-            primary_key=merge_settings.primary_key,
-            version_key=merge_settings.version_key,
+            primary_key=merge_settings.primary_key if merge_settings else (),
+            version_key=merge_settings.version_key if merge_settings else (),
         )
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")

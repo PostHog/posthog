@@ -175,18 +175,21 @@ async def test_transformer_pipeline_pipes_multiple_transformers():
     """Test piping a `SchemaTransformer` into a `JSONLStreamTransformer`."""
     fibo = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
     numbers = pa.array(fibo)
-    record_batch = pa.RecordBatch.from_arrays([numbers], names=("number",))
+    record_batch = pa.RecordBatch.from_arrays(
+        [numbers],
+        names=[
+            "number",
+        ],
+    )
 
     async def record_batch_iter():
         yield record_batch
         return
 
     class TestTable(Table):
-        @classmethod
-        def from_arrow_schema(cls, schema: pa.Schema, **kwargs) -> typing.Self:
-            return cls(name="test", fields=[TestField("number", pa.string())])
+        pass
 
-    t = TestTable.from_arrow_schema(record_batch.schema)
+    t = TestTable(name="test", fields=[TestField("number", pa.string())])
     pipeline = PipelineTransformer(
         (
             SchemaTransformer(
@@ -309,11 +312,9 @@ async def test_schema_transformer(
         return
 
     class TestTable(Table):
-        @classmethod
-        def from_arrow_schema(cls, schema: pa.Schema, **kwargs) -> typing.Self:
-            return cls(name="test", fields=[TestField(record_batch[0]._name, target_type)])  # type: ignore[attr-defined]
+        pass
 
-    t = TestTable.from_arrow_schema(record_batch.schema)
+    t = TestTable(name="test", fields=[TestField(record_batch[0]._name, target_type)])  # type: ignore[attr-defined]
     transformer = SchemaTransformer(t, compatible_types)
 
     transformed_record_batches = [record_batch async for record_batch in transformer.iter(record_batch_iter())]
