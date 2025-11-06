@@ -337,7 +337,6 @@ jobs:
                   verbose: true
 
             - name: Run Playwright tests
-              continue-on-error: true
               id: playwright-tests
               shell: bash
               # we can run 10 workers because we have 16 CPU
@@ -381,8 +380,15 @@ jobs:
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
             - name: Create screenshot patch
               id: create-patch
-              if: needs.detect-snapshot-mode.outputs.mode == 'update' && (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.detect-snapshot-mode.outputs.mode == 'update' && success() && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               run: |
+                  # Verify we're in a git repository before running git commands
+                  if ! git rev-parse --git-dir > /dev/null 2>&1; then
+                    echo "Not in a git repository, skipping patch creation"
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
                   # Check if there are any changes in the playwright directory
                   if git diff --quiet playwright/; then
                     echo "No screenshot changes"
@@ -405,37 +411,22 @@ jobs:
                   if-no-files-found: ignore
 
             # ── Artifacts on failure / always ─────────────────────────────────────
-            - name: Show celery logs
-              run: cat /tmp/celery.log
-            - name: Show server logs
-              run: cat /tmp/server.log
+            - name: Capture docker logs
+              if: always()
+              run: docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
 
-            - name: Show server logs
-              run: |
-                  docker ps
-                  docker logs posthog-proxy-1
-
-            - name: Archive Playwright report on failure
-              if: needs.changes.outputs.shouldRun == 'true' && steps.playwright-tests.outcome == 'failure'
+            - name: Archive test artifacts
+              if: always()
               uses: actions/upload-artifact@v4
               with:
-                  name: playwright-report
-                  path: playwright/playwright-report/
+                  name: playwright-test-results-${{ matrix.segment }}
+                  path: |
+                      playwright/playwright-report/
+                      playwright/test-results/
+                      /tmp/celery.log
+                      /tmp/server.log
                   retention-days: 30
-
-            - name: Archive screenshots
-              uses: actions/upload-artifact@v4
-              with:
-                  name: playwright-screenshots
-                  path: playwright/test-results
-                  retention-days: 30
-
-            - name: Fail workflow if tests failed
-              if: needs.changes.outputs.shouldRun == 'true' && steps.playwright-tests.outcome == 'failure'
-              run: |
-                  echo "❌ Playwright tests failed, but screenshots were processed and committed."
-                  echo "Check the test logs above for details on which tests failed."
-                  exit 1
+                  if-no-files-found: ignore
 
     capture-run-time:
         name: Capture run time
@@ -472,26 +463,6 @@ jobs:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-running-time'
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
-
-    post-check-comment:
-        name: Post check mode comment
-        runs-on: ubuntu-latest
-        needs: [playwright, detect-snapshot-mode, changes]
-        if: always() && needs.changes.outputs.shouldRun == 'true' && needs.detect-snapshot-mode.outputs.mode == 'check' && needs.playwright.result == 'failure'
-        steps:
-            - uses: actions/checkout@v4
-
-            - name: Post check-failed comment
-              env:
-                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
-              run: |
-                  .github/scripts/post-snapshot-comment.js \
-                    "playwright" \
-                    "check-failed" \
-                    "" \
-                    "${{ github.event.pull_request.number }}" \
-                    "${{ github.repository }}" \
-                    "${{ github.event.pull_request.head.sha }}"
 
     # Aggregate all screenshot artifacts and commit once
     handle-screenshots:

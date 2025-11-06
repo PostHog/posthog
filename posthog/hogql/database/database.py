@@ -307,17 +307,17 @@ class Database(BaseModel):
 
     def _add_warehouse_tables(self, node: TableNode):
         self.tables.merge_with(node)
-        for name in node.resolve_all_table_names():
+        for name in sorted(node.resolve_all_table_names()):
             self._warehouse_table_names.append(name)
 
     def _add_warehouse_self_managed_tables(self, node: TableNode):
         self.tables.merge_with(node)
-        for name in node.resolve_all_table_names():
+        for name in sorted(node.resolve_all_table_names()):
             self._warehouse_self_managed_table_names.append(name)
 
     def _add_views(self, node: TableNode):
         self.tables.merge_with(node)
-        for name in node.resolve_all_table_names():
+        for name in sorted(node.resolve_all_table_names()):
             self._view_table_names.append(name)
 
     def serialize(
@@ -711,6 +711,7 @@ class Database(BaseModel):
                 queryset = (
                     DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
                     .exclude(deleted=True)
+                    .order_by("name")
                     .select_related("table", "table__credential", "managed_viewset")
                 )
                 if not is_managed_viewset_enabled:
