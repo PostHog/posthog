@@ -31,6 +31,7 @@ import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { projectTreeDataLogic } from '../projectTreeDataLogic'
 import { projectTreeLogic } from '../projectTreeLogic'
 import { joinPath, splitPath } from '../utils'
+import { AddShortcutMenuItem } from './AddShortcutMenuItem'
 import { BrowserLikeMenuItems } from './BrowserLikeMenuItems'
 import { DashboardsMenuItems } from './DashboardsMenuItems'
 import { ProductAnalyticsMenuItems } from './ProductAnalyticsMenuItems'
@@ -235,16 +236,13 @@ export function MenuItems({
                         </ButtonPrimitive>
                     </MenuItem>
                 ) : (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
+                    <AddShortcutMenuItem
+                        MenuItem={MenuItem}
+                        onClick={() => {
                             item.record && addShortcutItem(item.record as FileSystemEntry)
                         }}
-                        data-attr="tree-item-menu-add-to-shortcuts-button"
-                    >
-                        <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>
-                    </MenuItem>
+                        dataAttr="tree-item-menu-add-to-shortcuts-button"
+                    />
                 )
             ) : null}
 

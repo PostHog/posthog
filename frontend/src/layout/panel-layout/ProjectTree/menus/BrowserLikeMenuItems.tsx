@@ -7,7 +7,7 @@ import { CustomMenuProps } from '../types'
 
 interface BrowserLikeMenuProps extends CustomMenuProps {
     href: string
-    resetPanelLayout: (animate: boolean) => void
+    resetPanelLayout?: (animate: boolean) => void
 }
 
 export function BrowserLikeMenuItems({
@@ -22,7 +22,7 @@ export function BrowserLikeMenuItems({
                 onClick={(e) => {
                     e.stopPropagation()
                     sceneLogic.findMounted()?.actions.newTab(href)
-                    resetPanelLayout(false)
+                    resetPanelLayout?.(false)
                 }}
                 data-attr="tree-item-menu-open-link-button"
             >

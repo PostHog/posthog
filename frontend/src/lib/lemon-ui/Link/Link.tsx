@@ -7,6 +7,13 @@ import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
 
 import { useDraggableLink } from 'lib/components/DraggableLink/useDraggableLink'
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuGroup,
+    ContextMenuItem,
+    ContextMenuTrigger,
+} from 'lib/ui/ContextMenu/ContextMenu'
 import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -14,6 +21,7 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { SidePanelTab } from '~/types'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
@@ -258,7 +266,21 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             )
         }
 
+        if (to && typeof to === 'string') {
+            element = (
+                <ContextMenu>
+                    <ContextMenuTrigger asChild className="cursor-context-menu">
+                        {element}
+                    </ContextMenuTrigger>
+                    <ContextMenuContent loop className="max-w-[250px]">
+                        <ContextMenuGroup>
+                            <BrowserLikeMenuItems href={to} MenuItem={ContextMenuItem} />
+                        </ContextMenuGroup>
+                    </ContextMenuContent>
+                </ContextMenu>
+            )
+        }
+
         return element
     }
 )
-Link.displayName = 'Link'

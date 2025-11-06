@@ -401,6 +401,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
                                                 'rounded-l-[var(--radius)] justify-center [&_svg]:size-4':
                                                     size === 'narrow',
+                                                'cursor-context-menu': !!itemContextMenu?.(item),
                                             }
                                         ),
                                     }}
