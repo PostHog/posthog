@@ -82,6 +82,11 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
                             !filterCategories.includes('event_properties')
                         ) {
                             filterCategories.push('event_properties')
+                        } else if (
+                            type === PropertyFilterType.ErrorTrackingIssue &&
+                            !filterCategories.includes('error_tracking_issues')
+                        ) {
+                            filterCategories.push('error_tracking_issues')
                         } else if (type === PropertyFilterType.Cohort && !filterCategories.includes('cohorts')) {
                             filterCategories.push('cohorts')
                         } else if (type === PropertyFilterType.HogQL && !filterCategories.includes('sql_expression')) {
