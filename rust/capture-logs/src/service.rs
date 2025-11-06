@@ -1,5 +1,6 @@
 use crate::log_record::KafkaLogRow;
 use axum::{
+    extract::Query,
     extract::State,
     http::{HeaderMap, StatusCode},
     response::Json,
@@ -8,6 +9,7 @@ use bytes::Bytes;
 use limiters::token_dropper::TokenDropper;
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use prost::Message;
+use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -19,6 +21,11 @@ use tracing::{debug, error};
 pub struct Service {
     sink: KafkaSink,
     token_dropper: Arc<TokenDropper>,
+}
+
+#[derive(Deserialize)]
+pub struct QueryParams {
+    token: Option<String>,
 }
 
 impl Service {
@@ -35,31 +42,45 @@ impl Service {
 
 pub async fn export_logs_http(
     State(service): State<Service>,
+    Query(query_params): Query<QueryParams>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     // The Project API key must be passed in as a Bearer token in the Authorization header
-    if !headers.contains_key("Authorization") {
-        error!("No Authorization header");
+    if !headers.contains_key("Authorization") && query_params.token.is_none() {
+        error!("No token provided");
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": format!("No Authorization header")})),
+            Json(json!({"error": format!("No token provided")})),
         ));
     }
 
-    let token = match headers["Authorization"]
-        .to_str()
-        .unwrap_or("")
-        .split("Bearer ")
-        .last()
-    {
-        Some(token) if !token.is_empty() => token,
-        _ => {
-            error!("No token provided");
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": format!("No token provided")})),
-            ));
+    let token = if headers.contains_key("Authorization") {
+        match headers["Authorization"]
+            .to_str()
+            .unwrap_or("")
+            .split("Bearer ")
+            .last()
+        {
+            Some(token) if !token.is_empty() => token,
+            _ => {
+                error!("No token provided");
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"error": format!("No token provided")})),
+                ));
+            }
+        }
+    } else {
+        match query_params.token {
+            Some(ref token) if !token.is_empty() => token,
+            _ => {
+                error!("No token provided");
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"error": format!("No token provided")})),
+                ));
+            }
         }
     };
     if service.token_dropper.should_drop(token, "") {

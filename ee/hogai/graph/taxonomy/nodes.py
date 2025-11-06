@@ -40,25 +40,10 @@ TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAge
 TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]
 
 
-class ParentToolCallIdMixin(BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]):
-    _parent_tool_call_id: str | None = None
-    _toolkit: TaxonomyAgentToolkit
-
-    async def __call__(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType | None:
-        """
-        Run the assistant node and handle cancelled conversation before the node is run.
-        """
-        if self._parent_tool_call_id:
-            self._toolkit._parent_tool_call_id = self._parent_tool_call_id
-
-        return await super().__call__(state, config)
-
-
 class TaxonomyAgentNode(
     Generic[TaxonomyStateType, TaxonomyPartialStateType],
     StateClassMixin,
     TaxonomyUpdateDispatcherNodeMixin,
-    ParentToolCallIdMixin,
     TaxonomyNodeBound,
     ABC,
 ):
@@ -173,7 +158,6 @@ class TaxonomyAgentToolsNode(
     Generic[TaxonomyStateType, TaxonomyPartialStateType],
     StateClassMixin,
     TaxonomyUpdateDispatcherNodeMixin,
-    ParentToolCallIdMixin,
     TaxonomyNodeBound,
 ):
     """Base tools node for taxonomy agents."""

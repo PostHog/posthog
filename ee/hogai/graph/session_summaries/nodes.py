@@ -11,7 +11,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import (
-    AssistantMessage,
     AssistantToolCallMessage,
     MaxRecordingUniversalFilters,
     NotebookUpdateMessage,
@@ -70,11 +69,7 @@ class SessionSummarizationNode(AssistantNode):
         """Push summarization progress as reasoning messages"""
         content = prepare_reasoning_progress_message(progress_message)
         if content:
-            self.dispatcher.message(
-                AssistantMessage(
-                    content=content,
-                )
-            )
+            self.dispatcher.update(content)
 
     async def _stream_notebook_content(self, content: dict, state: AssistantState, partial: bool = True) -> None:
         """Stream TipTap content directly to a notebook if notebook_id is present in state."""
@@ -202,7 +197,7 @@ class _SessionSearch:
         tool = await SearchSessionRecordingsTool.create_tool_class(
             team=self._node._team,
             user=self._node._user,
-            tool_call_id=self._node._parent_tool_call_id or "",
+            node_path=self._node.node_path,
             state=state,
             config=config,
             context_manager=self._node.context_manager,
@@ -290,9 +285,7 @@ class _SessionSearch:
         recordings_query = convert_filters_to_recordings_query(temp_playlist)
         return recordings_query
 
-    def _get_session_ids_with_filters(
-        self, replay_filters: RecordingsQuery, limit: int = MAX_SESSIONS_TO_SUMMARIZE
-    ) -> list[str] | None:
+    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery, limit: int) -> list[str] | None:
         """Get session ids from DB with filters"""
         from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
@@ -401,8 +394,12 @@ class _SessionSearch:
                 # Use filters when generated successfully
                 replay_filters = self._convert_max_filters_to_recordings_query(filter_generation_result)
             # Query the filters to get session ids
+            query_limit = state.session_summarization_limit
+            if not query_limit or query_limit <= 0 or query_limit > MAX_SESSIONS_TO_SUMMARIZE:
+                # If no limit provided (none or negative) or too large - use the default limit
+                query_limit = MAX_SESSIONS_TO_SUMMARIZE
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
-                replay_filters
+                replay_filters, query_limit
             )
             return session_ids
         except Exception as e:

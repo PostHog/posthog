@@ -1008,9 +1008,62 @@
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
          AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+  ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.31
+  '''
+  SELECT "posthog_datawarehousesavedquery"."created_by_id",
+         "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."deleted",
+         "posthog_datawarehousesavedquery"."deleted_at",
+         "posthog_datawarehousesavedquery"."id",
+         "posthog_datawarehousesavedquery"."name",
+         "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
+         "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."external_tables",
+         "posthog_datawarehousesavedquery"."query",
+         "posthog_datawarehousesavedquery"."status",
+         "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."table_id",
+         "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."origin",
+         "posthog_datawarehousetable"."created_by_id",
+         "posthog_datawarehousetable"."created_at",
+         "posthog_datawarehousetable"."updated_at",
+         "posthog_datawarehousetable"."deleted",
+         "posthog_datawarehousetable"."deleted_at",
+         "posthog_datawarehousetable"."id",
+         "posthog_datawarehousetable"."name",
+         "posthog_datawarehousetable"."format",
+         "posthog_datawarehousetable"."team_id",
+         "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."queryable_folder",
+         "posthog_datawarehousetable"."credential_id",
+         "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
+         "posthog_datawarehousecredential"."created_by_id",
+         "posthog_datawarehousecredential"."created_at",
+         "posthog_datawarehousecredential"."id",
+         "posthog_datawarehousecredential"."access_key",
+         "posthog_datawarehousecredential"."access_secret",
+         "posthog_datawarehousecredential"."team_id"
+  FROM "posthog_datawarehousesavedquery"
+  LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
+  WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
+         AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
+         AND NOT ("posthog_datawarehousesavedquery"."deleted"
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.32
   '''
   SELECT "posthog_externaldatasource"."created_by_id",
          "posthog_externaldatasource"."created_at",
@@ -1040,7 +1093,7 @@
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.32
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.33
   '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
@@ -1089,7 +1142,7 @@
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.33
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.34
   '''
   SELECT "posthog_datawarehousejoin"."created_by_id",
          "posthog_datawarehousejoin"."created_at",
@@ -1109,7 +1162,7 @@
                   AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.34
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.35
   '''
   SELECT COUNT(*)
   FROM
@@ -1118,31 +1171,15 @@
      WHERE "ee_single_session_summary"."team_id" = 99999) subquery
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.35
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.36
   '''
   SELECT "posthog_sessionrecordingplaylistitem"."session_id"
   FROM "posthog_sessionrecordingplaylistitem"
   WHERE "posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
-  '''
-# ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.36
-  '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_sessionrecordingplaylistitem"
-  WHERE ("posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
-         AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
-                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.37
   '''
-  SELECT "posthog_sessionrecordingplaylistitem"."session_id"
-  FROM "posthog_sessionrecordingplaylistitem"
-  WHERE "posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
-  '''
-# ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.38
-  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_sessionrecordingplaylistitem"
   WHERE ("posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
@@ -1150,37 +1187,20 @@
                   AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL))
   '''
 # ---
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.38
+  '''
+  SELECT "posthog_sessionrecordingplaylistitem"."session_id"
+  FROM "posthog_sessionrecordingplaylistitem"
+  WHERE "posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
+  '''
+# ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.39
   '''
-  SELECT "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."is_active",
-         "posthog_user"."role_at_organization",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."hedgehog_config",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
-  FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_sessionrecordingplaylistitem"
+  WHERE ("posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
+         AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
+                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.4
@@ -1218,6 +1238,39 @@
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.40
   '''
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.41
+  '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1250,7 +1303,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.41
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.42
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1335,7 +1388,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.42
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.43
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -1377,7 +1430,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.43
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.44
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -1423,7 +1476,7 @@
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.44
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.45
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -1463,17 +1516,6 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.45
-  '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_sessionrecordingplaylist"
-  WHERE (NOT "posthog_sessionrecordingplaylist"."deleted"
-         AND NOT "posthog_sessionrecordingplaylist"."deleted"
-         AND "posthog_sessionrecordingplaylist"."team_id" = 99999
-         AND NOT "posthog_sessionrecordingplaylist"."deleted"
-         AND NOT "posthog_sessionrecordingplaylist"."deleted")
-  '''
-# ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.46
   '''
   SELECT COUNT(*) AS "__count"
@@ -1486,6 +1528,17 @@
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.47
+  '''
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_sessionrecordingplaylist"
+  WHERE (NOT "posthog_sessionrecordingplaylist"."deleted"
+         AND NOT "posthog_sessionrecordingplaylist"."deleted"
+         AND "posthog_sessionrecordingplaylist"."team_id" = 99999
+         AND NOT "posthog_sessionrecordingplaylist"."deleted"
+         AND NOT "posthog_sessionrecordingplaylist"."deleted")
+  '''
+# ---
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.48
   '''
   SELECT "posthog_sessionrecordingplaylist"."id",
          "posthog_sessionrecordingplaylist"."short_id",
@@ -1655,24 +1708,12 @@
   LIMIT 100
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.48
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.49
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999)
-  '''
-# ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.49
-  '''
-  SELECT COUNT(*)
-  FROM
-    (SELECT DISTINCT "posthog_comment"."item_id" AS "col1"
-     FROM "posthog_comment"
-     WHERE (NOT "posthog_comment"."deleted"
-            AND "posthog_comment"."scope" = 'Replay'
-            AND "posthog_comment"."team_id" = 99999
-            AND NOT ("posthog_comment"."item_id" IS NULL))) subquery
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.5
@@ -1713,6 +1754,18 @@
   '''
   SELECT COUNT(*)
   FROM
+    (SELECT DISTINCT "posthog_comment"."item_id" AS "col1"
+     FROM "posthog_comment"
+     WHERE (NOT "posthog_comment"."deleted"
+            AND "posthog_comment"."scope" = 'Replay'
+            AND "posthog_comment"."team_id" = 99999
+            AND NOT ("posthog_comment"."item_id" IS NULL))) subquery
+  '''
+# ---
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.51
+  '''
+  SELECT COUNT(*)
+  FROM
     (SELECT DISTINCT "posthog_sharingconfiguration"."recording_id" AS "col1"
      FROM "posthog_sharingconfiguration"
      WHERE ("posthog_sharingconfiguration"."enabled"
@@ -1720,7 +1773,7 @@
             AND NOT ("posthog_sharingconfiguration"."recording_id" IS NULL))) subquery
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.51
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.52
   '''
   SELECT COUNT(*)
   FROM
@@ -1733,22 +1786,6 @@
             AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') IS NULL)
             AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') = '""'::jsonb
                      AND "posthog_exportedasset"."export_context" IS NOT NULL))) subquery
-  '''
-# ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.52
-  '''
-  SELECT "posthog_grouptypemapping"."id",
-         "posthog_grouptypemapping"."team_id",
-         "posthog_grouptypemapping"."project_id",
-         "posthog_grouptypemapping"."group_type",
-         "posthog_grouptypemapping"."group_type_index",
-         "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural",
-         "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id",
-         "posthog_grouptypemapping"."created_at"
-  FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.53
@@ -1764,10 +1801,26 @@
          "posthog_grouptypemapping"."detail_dashboard_id",
          "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."project_id" = 99999
+  WHERE "posthog_grouptypemapping"."team_id" = 99999
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.54
+  '''
+  SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."team_id",
+         "posthog_grouptypemapping"."project_id",
+         "posthog_grouptypemapping"."group_type",
+         "posthog_grouptypemapping"."group_type_index",
+         "posthog_grouptypemapping"."name_singular",
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."default_columns",
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
+  FROM "posthog_grouptypemapping"
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
+  '''
+# ---
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.55
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
@@ -1824,9 +1877,62 @@
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
          AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+  ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.55
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.56
+  '''
+  SELECT "posthog_datawarehousesavedquery"."created_by_id",
+         "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."deleted",
+         "posthog_datawarehousesavedquery"."deleted_at",
+         "posthog_datawarehousesavedquery"."id",
+         "posthog_datawarehousesavedquery"."name",
+         "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
+         "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."external_tables",
+         "posthog_datawarehousesavedquery"."query",
+         "posthog_datawarehousesavedquery"."status",
+         "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."table_id",
+         "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."origin",
+         "posthog_datawarehousetable"."created_by_id",
+         "posthog_datawarehousetable"."created_at",
+         "posthog_datawarehousetable"."updated_at",
+         "posthog_datawarehousetable"."deleted",
+         "posthog_datawarehousetable"."deleted_at",
+         "posthog_datawarehousetable"."id",
+         "posthog_datawarehousetable"."name",
+         "posthog_datawarehousetable"."format",
+         "posthog_datawarehousetable"."team_id",
+         "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."queryable_folder",
+         "posthog_datawarehousetable"."credential_id",
+         "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
+         "posthog_datawarehousecredential"."created_by_id",
+         "posthog_datawarehousecredential"."created_at",
+         "posthog_datawarehousecredential"."id",
+         "posthog_datawarehousecredential"."access_key",
+         "posthog_datawarehousecredential"."access_secret",
+         "posthog_datawarehousecredential"."team_id"
+  FROM "posthog_datawarehousesavedquery"
+  LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
+  WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
+         AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
+         AND NOT ("posthog_datawarehousesavedquery"."deleted"
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.57
   '''
   SELECT "posthog_externaldatasource"."created_by_id",
          "posthog_externaldatasource"."created_at",
@@ -1856,7 +1962,7 @@
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.56
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.58
   '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
@@ -1905,7 +2011,7 @@
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.57
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.59
   '''
   SELECT "posthog_datawarehousejoin"."created_by_id",
          "posthog_datawarehousejoin"."created_at",
@@ -1923,22 +2029,6 @@
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
                   AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.58
-  '''
-  SELECT COUNT(*)
-  FROM
-    (SELECT DISTINCT "ee_single_session_summary"."session_id" AS "col1"
-     FROM "ee_single_session_summary"
-     WHERE "ee_single_session_summary"."team_id" = 99999) subquery
-  '''
-# ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.59
-  '''
-  SELECT "posthog_sessionrecordingplaylistitem"."session_id"
-  FROM "posthog_sessionrecordingplaylistitem"
-  WHERE "posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.6
@@ -2028,11 +2118,11 @@
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.60
   '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_sessionrecordingplaylistitem"
-  WHERE ("posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
-         AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
-                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL))
+  SELECT COUNT(*)
+  FROM
+    (SELECT DISTINCT "ee_single_session_summary"."session_id" AS "col1"
+     FROM "ee_single_session_summary"
+     WHERE "ee_single_session_summary"."team_id" = 99999) subquery
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.61
@@ -2059,6 +2149,22 @@
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.64
+  '''
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_sessionrecordingplaylistitem"
+  WHERE ("posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
+         AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
+                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.65
+  '''
+  SELECT "posthog_sessionrecordingplaylistitem"."session_id"
+  FROM "posthog_sessionrecordingplaylistitem"
+  WHERE "posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
+  '''
+# ---
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.66
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_sessionrecordingplaylistitem"
