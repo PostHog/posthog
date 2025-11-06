@@ -76,8 +76,67 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
                     })
                     break
                 }
+                case 'actions': {
+                    const actionsBefore = (change.before as any[]) || []
+                    const actionsAfter = (change.after as any[]) || []
+
+                    // Create maps by id for easier comparison
+                    const beforeMap = new Map(actionsBefore.map((a: any) => [a.id, a]))
+                    const afterMap = new Map(actionsAfter.map((a: any) => [a.id, a]))
+
+                    const added: string[] = []
+                    const removed: string[] = []
+                    const modified: string[] = []
+
+                    // Find added actions
+                    for (const action of actionsAfter) {
+                        if (!beforeMap.has(action.id)) {
+                            added.push(action.name || action.id)
+                        }
+                    }
+
+                    // Find removed actions
+                    for (const action of actionsBefore) {
+                        if (!afterMap.has(action.id)) {
+                            removed.push(action.name || action.id)
+                        }
+                    }
+
+                    // Find modified actions (same id but different content)
+                    for (const action of actionsAfter) {
+                        const beforeAction = beforeMap.get(action.id)
+                        if (beforeAction && JSON.stringify(beforeAction) !== JSON.stringify(action)) {
+                            modified.push(action.name || action.id)
+                        }
+                    }
+
+                    const changesList: string[] = []
+                    if (added.length > 0) {
+                        changesList.push(`added ${added.length === 1 ? 'action' : 'actions'}: ${added.join(', ')}`)
+                    }
+                    if (removed.length > 0) {
+                        changesList.push(
+                            `removed ${removed.length === 1 ? 'action' : 'actions'}: ${removed.join(', ')}`
+                        )
+                    }
+                    if (modified.length > 0) {
+                        changesList.push(modified.join(', '))
+                    }
+
+                    if (changesList.length > 0) {
+                        changes.push({
+                            inline: <>updated actions ({changesList.join('; ')})</>,
+                            inlist: <>updated actions ({changesList.join('; ')})</>,
+                        })
+                    } else {
+                        changes.push({
+                            inline: 'updated actions',
+                            inlist: 'updated actions',
+                        })
+                    }
+                    break
+                }
                 case 'trigger':
-                case 'actions':
                 case 'edges':
                 case 'variables': {
                     changes.push({
