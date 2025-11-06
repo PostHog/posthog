@@ -167,17 +167,45 @@ export function renderColumn(
     } else if (key === 'event' && isEventsQuery(query.source)) {
         const resultRow = record as any[]
         const eventRecord = query.source.select.includes('*') ? resultRow[query.source.select.indexOf('*')] : null
+        const verifiedIndex = query.source.select.indexOf('verified')
+        const verified = verifiedIndex >= 0 ? resultRow[verifiedIndex] : null
+
+        // Render verification status badge
+        const verificationBadge =
+            verified !== null ? (
+                <Tooltip
+                    title={
+                        verified === 1
+                            ? 'Verified - Event was authenticated with a valid JWT'
+                            : verified === 2
+                              ? 'Invalid - Event had an invalid JWT signature'
+                              : 'Not verified - Event was not authenticated'
+                    }
+                >
+                    <span style={{ marginRight: '4px', fontSize: '10px' }}>
+                        {verified === 1 ? '🟢' : verified === 2 ? '🔴' : '⚪'}
+                    </span>
+                </Tooltip>
+            ) : null
 
         if (value === '$autocapture' && eventRecord) {
             return (
-                <PropertyKeyInfo
-                    value={value}
-                    displayText={autoCaptureEventToDescription(eventRecord)}
-                    type={TaxonomicFilterGroupType.Events}
-                />
+                <span style={{ display: 'flex', alignItems: 'center' }}>
+                    {verificationBadge}
+                    <PropertyKeyInfo
+                        value={value}
+                        displayText={autoCaptureEventToDescription(eventRecord)}
+                        type={TaxonomicFilterGroupType.Events}
+                    />
+                </span>
             )
         }
-        const content = <PropertyKeyInfo value={value} type={TaxonomicFilterGroupType.Events} />
+        const content = (
+            <span style={{ display: 'flex', alignItems: 'center' }}>
+                {verificationBadge}
+                <PropertyKeyInfo value={value} type={TaxonomicFilterGroupType.Events} />
+            </span>
+        )
         const $sentry_url = eventRecord?.properties?.$sentry_url
         return $sentry_url ? (
             <Link to={$sentry_url} target="_blank">

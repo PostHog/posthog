@@ -79,7 +79,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     group2_created_at DateTime64,
     group3_created_at DateTime64,
     group4_created_at DateTime64,
-    person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+    person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+    verified {verified_type}
     {materialized_columns}
     {extra_fields}
     {indexes}
@@ -144,6 +145,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
         engine=EVENTS_DATA_TABLE_ENGINE(),
         extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
         materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
+        verified_type="UInt8",
         indexes=f"""
     , {index_by_kafka_timestamp(EVENTS_DATA_TABLE())}
     """,
@@ -182,6 +184,7 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
         extra_fields="",
         materialized_columns="",
+        verified_type="VARCHAR",
         indexes="",
     )
 
@@ -213,6 +216,7 @@ group2_created_at,
 group3_created_at,
 group4_created_at,
 person_mode,
+multiIf(verified = 'verified', 1, verified = 'invalid', 2, 0) as verified,
 _timestamp,
 _offset,
 arrayMap(
@@ -243,6 +247,7 @@ def KAFKA_EVENTS_RECENT_TABLE_JSON_SQL(on_cluster=True):
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group="group1_recent"),
         extra_fields="",
         materialized_columns="",
+        verified_type="VARCHAR",
         indexes="",
     )
 
@@ -274,6 +279,7 @@ group2_created_at,
 group3_created_at,
 group4_created_at,
 person_mode,
+multiIf(verified = 'verified', 1, verified = 'invalid', 2, 0) as verified,
 _timestamp,
 _timestamp_ms,
 _offset,
@@ -300,6 +306,7 @@ TTL toDateTime(inserted_at) + INTERVAL 7 DAY
         engine=ReplacingMergeTree(EVENTS_RECENT_DATA_TABLE(), ver="_timestamp"),
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_NOT_NULLABLE_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
         materialized_columns="",
+        verified_type="UInt8",
         indexes="",
         storage_policy=STORAGE_POLICY(),
     )
@@ -316,6 +323,7 @@ def DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
         ),
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
         materialized_columns="",
+        verified_type="UInt8",
         indexes="",
     )
 
@@ -330,6 +338,7 @@ def WRITABLE_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
         ),
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
         materialized_columns="",
+        verified_type="UInt8",
         indexes="",
     )
 
@@ -346,6 +355,7 @@ def WRITABLE_EVENTS_TABLE_SQL():
         engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
         extra_fields=KAFKA_COLUMNS + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
         materialized_columns="",
+        verified_type="UInt8",
         indexes="",
     )
 
@@ -360,6 +370,7 @@ def DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
         engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
         extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
         materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
+        verified_type="UInt8",
         indexes="",
     )
 

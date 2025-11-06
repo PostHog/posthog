@@ -6,6 +6,7 @@ import { DataNode, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from 
 export const defaultDataTableEventColumns: HogQLExpression[] = [
     '*',
     'event',
+    'verified',
     PERSON_DISPLAY_NAME_COLUMN_NAME,
     'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
     'properties.$lib',
