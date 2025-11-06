@@ -1101,10 +1101,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 if (eventAndCommentItems.length > MAX_SEEKBAR_ITEMS) {
                     // First pass: keep only high-priority items
                     let priorityItems = eventAndCommentItems.filter((item) => {
-                        const isPrimary = item.highlightColor === 'primary'
+                        const hasHighlightColor = !!item.highlightColor
                         const isPageView = item.type === 'events' && item.data.event === '$pageview'
+                        const isFeedbackEvent =
+                            item.type === 'events' &&
+                            (item.data.event === '$user_feedback_recording_started' ||
+                                item.data.event === '$user_feedback_recording_stopped')
                         const isComment = item.type === 'comment'
-                        return isPrimary || isPageView || isComment
+                        return hasHighlightColor || isPageView || isFeedbackEvent || isComment
                     })
 
                     // If still too many, sample them

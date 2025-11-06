@@ -463,6 +463,7 @@
     // Info fills
     --color-bg-fill-info-secondary: var(--color-blue-100);
     --color-bg-fill-info-tertiary: var(--color-blue-50);
+    --color-bg-fill-info-highlight: color-mix(in oklab, var(--color-blue-500) 10%, transparent);
     --color-bg-fill-warning-secondary: var(--color-yellow-100);
     --color-bg-fill-warning-tertiary: var(--color-yellow-50);
     --color-bg-fill-warning-highlight: color-mix(in oklab, var(--color-yellow-500) 15%, transparent);
@@ -733,6 +734,7 @@
     --danger-light: #df4b20;
     --danger: #db3707;
     --danger-dark: #992705;
+    --info-dark: var(--color-blue-700);
     --warning-highlight: rgb(247 165 1 / 10%);
     --warning: #f7a501;
     --warning-dark: #e09423;
@@ -949,6 +951,7 @@
     --color-bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-black) 20%, transparent);
     --color-bg-fill-info-secondary: var(--color-blue-950);
     --color-bg-fill-info-tertiary: var(--color-blue-950);
+    --color-bg-fill-info-highlight: color-mix(in oklab, var(--color-blue-950) 50%, transparent);
     --color-bg-fill-warning-secondary: var(--color-yellow-950);
     --color-bg-fill-warning-tertiary: color-mix(in oklab, var(--color-yellow-950) 10%, transparent);
     --color-bg-fill-warning-highlight: color-mix(in oklab, var(--color-yellow-950) 50%, transparent);
