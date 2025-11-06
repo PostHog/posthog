@@ -6,7 +6,7 @@ import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
@@ -170,12 +170,12 @@ class UserSerializer(serializers.ModelSerializer):
     def get_has_password(self, instance: User) -> bool:
         return bool(instance.password) and instance.has_usable_password()
 
-    def get_is_impersonated(self, _) -> Optional[bool]:
+    def get_is_impersonated(self, _) -> bool | None:
         if "request" not in self.context:
             return None
         return is_impersonated_session(self.context["request"])
 
-    def get_is_impersonated_until(self, _) -> Optional[str]:
+    def get_is_impersonated_until(self, _) -> str | None:
         if "request" not in self.context or not is_impersonated_session(self.context["request"]):
             return None
 
@@ -183,7 +183,7 @@ class UserSerializer(serializers.ModelSerializer):
 
         return expires_at_time.replace(tzinfo=UTC).isoformat() if expires_at_time else None
 
-    def get_sensitive_session_expires_at(self, instance: User) -> Optional[str]:
+    def get_sensitive_session_expires_at(self, instance: User) -> str | None:
         if "request" not in self.context:
             return None
 
@@ -276,8 +276,8 @@ class UserSerializer(serializers.ModelSerializer):
         return cast(Notifications, current_settings)
 
     def validate_password_change(
-        self, instance: User, current_password: Optional[str], password: Optional[str]
-    ) -> Optional[str]:
+        self, instance: User, current_password: str | None, password: str | None
+    ) -> str | None:
         if password:
             if instance.password and instance.has_usable_password():
                 # If user has a password set, we check it's provided to allow updating it. We need to check that is both
@@ -464,6 +464,8 @@ class UserViewSet(
     @action(methods=["GET"], detail=True)
     def zendesk_tickets(self, request, **kwargs):
         """Fetch Zendesk tickets for the current user from Zendesk API."""
+        import base64
+
         from django.conf import settings
 
         import requests
@@ -479,8 +481,6 @@ class UserViewSet(
             return Response({"tickets": [], "count": 0, "error": "Zendesk not configured"})
 
         try:
-            import base64
-
             # Create basic auth header
             credentials = f"{admin_email}/token:{api_token}"
             basic_token = base64.b64encode(credentials.encode()).decode("ascii")
@@ -563,12 +563,17 @@ class UserViewSet(
 
             return Response({"tickets": tickets, "count": len(tickets)})
 
-        except Exception as e:
-            return Response({"tickets": [], "count": 0, "error": str(e)})
+        except Exception:
+            structlog.get_logger().exception(
+                "Error fetching Zendesk tickets", user_id=user.id if "user" in locals() and user else None
+            )
+            return Response({"tickets": [], "count": 0, "error": "An internal error occurred while fetching tickets."})
 
     @action(methods=["POST"], detail=True, url_path=r"zendesk_tickets/(?P<ticket_id>[^/.]+)/reply")
     def reply_to_zendesk_ticket(self, request, ticket_id=None, **kwargs):
         """Post a reply to a Zendesk ticket."""
+        import base64
+
         from django.conf import settings
 
         import requests
@@ -589,8 +594,6 @@ class UserViewSet(
             return Response({"success": False, "error": "Zendesk not configured"}, status=500)
 
         try:
-            import base64
-
             # Create basic auth header
             credentials = f"{admin_email}/token:{api_token}"
             basic_token = base64.b64encode(credentials.encode()).decode("ascii")
@@ -629,9 +632,11 @@ class UserViewSet(
 
             return Response({"success": True, "ticket_id": ticket_id})
 
-        except Exception as e:
-            logger.exception(f"Error posting reply to Zendesk ticket {ticket_id}")
-            return Response({"success": False, "error": str(e)}, status=500)
+        except Exception:
+            structlog.get_logger().exception(
+                "Error posting reply to Zendesk ticket", ticket_id=ticket_id, user_id=user.id
+            )
+            return Response({"success": False, "error": "An internal error occurred while posting reply."}, status=500)
 
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
@@ -646,7 +651,7 @@ class UserViewSet(
             return {"success": True, "token": token}
 
         try:
-            user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
+            user: User | None = User.objects.filter(is_active=True).get(uuid=user_uuid)
         except User.DoesNotExist:
             user = None
 
