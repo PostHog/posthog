@@ -257,13 +257,15 @@ def get_shards(cluster: dagster.ResourceParam[ClickhouseCluster]):
 
 
 @dagster.op
-def get_latest_backup(
+def get_latest_backups(
     config: BackupConfig,
     s3: S3Resource,
     shard: Optional[int] = None,
-) -> Optional[Backup]:
+) -> list[Backup]:
     """
-    Get the latest backup metadata for a ClickHouse database / table from S3.
+    Get the latest 7 backups metadata for a ClickHouse database / table from S3.
+
+    They are sorted from most recent to oldest.
     """
     shard_path = shard if shard else NO_SHARD_PATH
 
@@ -273,21 +275,24 @@ def get_latest_backup(
     base_prefix = f"{base_prefix}{shard_path}/"
 
     backups = s3.get_client().list_objects_v2(
-        Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=base_prefix, Delimiter="/"
+        Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=base_prefix, Delimiter="/", MaxKeys=7
     )
 
     if "CommonPrefixes" not in backups:
         return None
 
-    latest_backup = sorted(backups["CommonPrefixes"], key=lambda x: x["Prefix"])[-1]["Prefix"]
-    return Backup.from_s3_path(latest_backup)
+    latest_backups = [
+        Backup.from_s3_path(backup["Prefix"])
+        for backup in sorted(backups["CommonPrefixes"], key=lambda x: x["Prefix"], reverse=True)
+    ]
+    return latest_backups
 
 
 @dagster.op
 def check_latest_backup_status(
     context: dagster.OpExecutionContext,
     config: BackupConfig,
-    latest_backup: Optional[Backup],
+    latest_backup: list[Backup],
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> Optional[Backup]:
     """
@@ -431,8 +436,8 @@ def sharded_backup():
     """
 
     def run_backup_for_shard(shard: int):
-        latest_backup = get_latest_backup(shard=shard)
-        checked_backup = check_latest_backup_status(latest_backup=latest_backup)
+        latest_backups = get_latest_backups(shard=shard)
+        checked_backup = check_latest_backup_status(latest_backup=latest_backups)
         new_backup = run_backup(latest_backup=checked_backup, shard=shard)
         wait_for_backup(backup=new_backup)
 
@@ -460,7 +465,7 @@ def non_sharded_backup():
     Since we don't want to keep the state about which host was selected to run the backup, we always search backups by their name in every node.
     When we find it in one of the nodes, we keep waiting on it only in that node. This is handy when we retry the job and a backup is in progress in any node, as we'll always wait for it to finish.
     """
-    latest_backup = get_latest_backup()
+    latest_backup = get_latest_backups()
     new_backup = run_backup(check_latest_backup_status(latest_backup))
     wait_for_backup(new_backup)
 
@@ -469,7 +474,7 @@ def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
     return dagster.RunConfig(
         {
             op.name: {"config": config.model_dump(mode="json")}
-            for op in [get_latest_backup, run_backup, check_latest_backup_status, wait_for_backup]
+            for op in [get_latest_backups, run_backup, check_latest_backup_status, wait_for_backup]
         }
     )
 

@@ -16,7 +16,14 @@ from posthog import settings
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 
-from dags.backups import Backup, BackupConfig, get_latest_backup, non_sharded_backup, prepare_run_config, sharded_backup
+from dags.backups import (
+    Backup,
+    BackupConfig,
+    get_latest_backups,
+    non_sharded_backup,
+    prepare_run_config,
+    sharded_backup,
+)
 
 
 @pytest.mark.parametrize("table", ["", "test"])
@@ -31,15 +38,25 @@ def test_get_latest_backup(table: str):
     }
 
     config = BackupConfig(database="posthog", table=table)
-    result = get_latest_backup(config=config, s3=mock_s3)
+    result = get_latest_backups(config=config, s3=mock_s3)
 
-    assert isinstance(result, Backup)
-    assert result.database == "posthog"
-    assert result.date == "2024-03-01T07:54:04Z"
-    assert result.base_backup is None
+    assert isinstance(result, list)
+    assert result[0].database == "posthog"
+    assert result[0].date == "2024-03-01T07:54:04Z"
+    assert result[0].base_backup is None
+
+    assert result[1].database == "posthog"
+    assert result[1].date == "2024-02-01T07:54:04Z"
+    assert result[1].base_backup is None
+
+    assert result[2].database == "posthog"
+    assert result[2].date == "2024-01-01T07:54:04Z"
+    assert result[2].base_backup is None
 
     expected_table = table if table else None
-    assert result.table == expected_table
+    assert result[0].table == expected_table
+    assert result[1].table == expected_table
+    assert result[2].table == expected_table
 
 
 def run_backup_test(
