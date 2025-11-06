@@ -283,6 +283,7 @@ describe('sceneLogic', () => {
                     search: tab.search,
                     hash: tab.hash,
                     title: tab.title,
+                    active: false,
                     iconType: tab.iconType,
                     pinned: true,
                 })),
