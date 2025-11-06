@@ -107,11 +107,11 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                 onChange={(e) => setEditValue(e.target.value)}
                                 onBlur={(e) => {
                                     e.stopPropagation()
-                                    const newName = editValue.trim() || action.name
-                                    if (newName !== action.name) {
+                                    const trimmedName = editValue.trim()
+                                    if (trimmedName && trimmedName !== action.name) {
                                         setWorkflowAction(action.id, {
                                             ...action,
-                                            name: newName,
+                                            name: trimmedName,
                                         })
                                     } else {
                                         setEditValue(action.name)
@@ -122,11 +122,11 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                     e.stopPropagation()
                                     if (e.key === 'Enter') {
                                         e.preventDefault()
-                                        const newName = editValue.trim() || action.name
-                                        if (newName !== action.name) {
+                                        const trimmedName = editValue.trim()
+                                        if (trimmedName && trimmedName !== action.name) {
                                             setWorkflowAction(action.id, {
                                                 ...action,
-                                                name: newName,
+                                                name: trimmedName,
                                             })
                                         } else {
                                             setEditValue(action.name)
