@@ -346,3 +346,121 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         self.assertEqual(cohort2.cohort_type, "realtime")
         node2 = cohort2.filters["properties"]["values"][0]["values"][0]
         self.assertEqual(node2["conditionHash"], "827d18e80726ed84")
+
+    def test_cohort_referencing_non_realtime_cohort(self):
+        # 5. Cohort referencing a non-realtime cohort should not generate bytecode
+
+        # Create a non-realtime cohort first
+        base_cohort_filters = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$groupidentify",
+                                "type": "behavioral",
+                                "value": "performed_event_regularly",
+                                "negation": False,
+                                "operator": "exact",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "min_periods": 3,
+                                "time_interval": "day",
+                                "total_periods": 5,
+                                "operator_value": 5,
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+        base_cohort = self._create_and_fetch("Non-realtime base cohort", base_cohort_filters)
+        self.assertIsNone(base_cohort.cohort_type)  # Should not be realtime
+
+        # Create a cohort that references the non-realtime cohort
+        referencing_filters = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"type": "cohort", "key": "id", "value": base_cohort.id, "negation": False},
+                            {"key": "$browser", "type": "person", "negation": False, "operator": "is_set"},
+                        ],
+                    }
+                ],
+            }
+        }
+
+        referencing_cohort = self._create_and_fetch("Cohort referencing non-realtime", referencing_filters)
+        # The cohort itself might be marked as realtime based on other filters
+        # but the cohort filter should not have bytecode
+        and_group = referencing_cohort.filters["properties"]["values"][0]["values"]
+
+        # The cohort filter should not have bytecode
+        cohort_filter = and_group[0]
+        self.assertEqual(cohort_filter["type"], "cohort")
+        self.assertIsNone(cohort_filter.get("bytecode"))
+        self.assertIsNone(cohort_filter.get("conditionHash"))
+
+        # The person property filter should still have bytecode
+        person_filter = and_group[1]
+        self.assertEqual(person_filter["type"], "person")
+        self.assertIsNotNone(person_filter.get("bytecode"))
+        self.assertIsNotNone(person_filter.get("conditionHash"))
+
+    def test_cohort_referencing_realtime_cohort(self):
+        # 6. Cohort referencing a realtime cohort should generate bytecode
+
+        # Create a realtime cohort first
+        base_cohort_filters = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$browser", "type": "person", "negation": False, "operator": "is_set"},
+                        ],
+                    }
+                ],
+            }
+        }
+        base_cohort = self._create_and_fetch("Realtime base cohort", base_cohort_filters)
+        self.assertEqual(base_cohort.cohort_type, "realtime")  # Should be realtime
+
+        # Create a cohort that references the realtime cohort
+        referencing_filters = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"type": "cohort", "key": "id", "value": base_cohort.id, "negation": False},
+                            {"key": "$country", "type": "person", "value": "US", "operator": "exact"},
+                        ],
+                    }
+                ],
+            }
+        }
+
+        referencing_cohort = self._create_and_fetch("Cohort referencing realtime", referencing_filters)
+        and_group = referencing_cohort.filters["properties"]["values"][0]["values"]
+
+        # The cohort filter should have bytecode (in_cohort operation)
+        cohort_filter = and_group[0]
+        self.assertEqual(cohort_filter["type"], "cohort")
+        self.assertIsNotNone(cohort_filter.get("bytecode"))
+        # Should contain IN_COHORT operation
+        self.assertIn("inCohort", cohort_filter["bytecode"])
+        self.assertIsNotNone(cohort_filter.get("conditionHash"))
+
+        # The person property filter should also have bytecode
+        person_filter = and_group[1]
+        self.assertEqual(person_filter["type"], "person")
+        self.assertIsNotNone(person_filter.get("bytecode"))
+        self.assertIsNotNone(person_filter.get("conditionHash"))
