@@ -375,7 +375,7 @@ class SnowflakeClient:
                     warehouse=f'"{self.warehouse}"',
                     database=f'"{self.database}"',
                     schema=f'"{self.schema}"',
-                    role=f'"{self.role}"',
+                    role=f'"{self.role}"' if self.role is not None else None,
                     private_key=self.private_key,
                     login_timeout=5,
                 )
