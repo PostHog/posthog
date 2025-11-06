@@ -58,6 +58,9 @@ export const retentionLogic = kea<retentionLogicType>([
             // This prevents the dropdown from showing invalid cohort IDs
             actions.setSelectedBreakdownValue(null)
         },
+        updateInsightFilter: () => {
+            actions.setSelectedInterval(null)
+        },
         setSelectedInterval: ({ interval }) => {
             actions.updateQuerySource({
                 retentionFilter: {
