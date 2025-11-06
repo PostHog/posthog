@@ -63,7 +63,11 @@ def DROP_RAW_SESSIONS_OVERRIDES_VIEW_SQL_V3():
     return f"DROP VIEW IF EXISTS {TABLE_BASE_NAME_V3}_v"
 
 
-# this should be a subset of sessions_v3 - with some things removed if they are not currently used, or only used in niche cases which wouldn't benefit from sessions-on-events
+# this should be a subset of sessions_v3, in general include things that are
+# * used in many queries (e.g. attribution fields or required for the bounce rate)
+# and don't include things that are
+# * too large (in terms of disk space) - this excludes the session feature flags, and session urls
+# * not currently used in queries
 RAW_SESSIONS_OVERRIDES_TABLE_BASE_SQL_V3 = """
 CREATE TABLE IF NOT EXISTS {table_name}
 (
