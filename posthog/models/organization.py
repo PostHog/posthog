@@ -65,6 +65,9 @@ class ProductFeature(TypedDict):
 
 class OrganizationManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
+        # Set default_anonymize_ips based on deployment if not explicitly provided
+        if "default_anonymize_ips" not in kwargs:
+            kwargs["default_anonymize_ips"] = default_anonymize_ips()
         return create_with_slug(super().create, *args, **kwargs)
 
     def bootstrap(
