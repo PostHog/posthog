@@ -22,7 +22,12 @@ from psycopg import sql
 from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
-from products.batch_exports.backend.temporal.pipeline.table import Table, TypeTupleToCastMapping, are_types_compatible
+from products.batch_exports.backend.temporal.pipeline.table import (
+    Field,
+    Table,
+    TypeTupleToCastMapping,
+    are_types_compatible,
+)
 
 logger = get_write_only_logger()
 
@@ -693,6 +698,21 @@ class CSVStreamTransformer:
         return buffer.getvalue()
 
 
+class IncompatibleTypesError(TypeError):
+    """Exception for incompatible types between source and destination.
+
+    We subclass `TypeError` as Temporal matches on exception name to decide whether to
+    retry or not. With a subclass this means we can decide whether this particular error
+    is retryable or not while allowing callers to still handle it with
+    `except TypeError`.
+    """
+
+    def __init__(self, field: Field, array_type: pa.DataType):
+        super().__init__(
+            f"'{field.name}' has incoming type '{array_type}' which is not compatible with destination field's type: '{field.data_type}'"
+        )
+
+
 class SchemaTransformer:
     """Transformer to cast record batches into a new schema."""
 
@@ -732,9 +752,7 @@ class SchemaTransformer:
                 assert cast is not None, "If types are compatible cast function should be defined"
                 arrays.append(cast(array))
             else:
-                raise TypeError(
-                    f"'{field_name}' has type '{array.type}' which is not compatible with field's type: '{field.data_type}'"
-                )
+                raise IncompatibleTypesError(field, array.type)
 
         return pa.RecordBatch.from_arrays(
             arrays,

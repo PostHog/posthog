@@ -220,6 +220,7 @@ FIBO = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
 NUMBERS = pa.array(FIBO)
 NUMBERS_RECORD_BATCH = pa.RecordBatch.from_arrays([NUMBERS], names=["number"])
 
+EPOCH = dt.datetime(1970, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 DATES = [dt.datetime(2025, 1, 1, 1, 1, 1, tzinfo=dt.UTC), dt.datetime(2025, 1, 2, 1, 1, 1, tzinfo=dt.UTC)]
 DATES_SECONDS_RECORD_BATCH = pa.RecordBatch.from_arrays(
     [pa.array(DATES, type=pa.timestamp("s", tz="UTC"))], names=["date"]
@@ -271,14 +272,26 @@ DATES_MICROSECONDS_RECORD_BATCH = pa.RecordBatch.from_arrays(
         (
             pa.int64(),
             DATES_MILLISECONDS_RECORD_BATCH,
-            {},
+            {
+                (pa.timestamp("ms", tz="UTC"), pa.int64()): _make_ensure_array(
+                    functools.partial(
+                        pa.compute.milliseconds_between, pa.scalar(EPOCH, type=pa.timestamp("ms", tz="UTC"))
+                    )
+                )
+            },
             [{"date": d.timestamp() * 1_000} for d in DATES],
         ),
         # timestamp("us", "UTC") -> int64
         (
             pa.int64(),
             DATES_MICROSECONDS_RECORD_BATCH,
-            {},
+            {
+                (pa.timestamp("us", tz="UTC"), pa.int64()): _make_ensure_array(
+                    functools.partial(
+                        pa.compute.microseconds_between, pa.scalar(EPOCH, type=pa.timestamp("us", tz="UTC"))
+                    )
+                )
+            },
             [{"date": d.timestamp() * 1_000_000} for d in DATES],
         ),
     ),
