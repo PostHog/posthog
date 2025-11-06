@@ -236,7 +236,7 @@ export function WorkflowsTable(): JSX.Element {
                 <ProductIntroduction
                     productName="Workflow"
                     thingName="workflow"
-                    description="Create workflows that automate actions or send messages to your users.."
+                    description="Create workflows that automate actions or send messages to your users."
                     docsURL="https://posthog.com/docs/workflows/start-here"
                     action={() => {
                         router.actions.push(urls.workflowNew())
