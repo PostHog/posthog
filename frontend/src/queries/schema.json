@@ -556,6 +556,9 @@
                     "$ref": "#/definitions/ErrorTrackingSimilarIssuesQuery"
                 },
                 {
+                    "$ref": "#/definitions/ErrorTrackingBreakdownsQuery"
+                },
+                {
                     "$ref": "#/definitions/ErrorTrackingIssueCorrelationQuery"
                 },
                 {
@@ -1825,7 +1828,6 @@
                 "create_hog_function_inputs",
                 "create_message_template",
                 "navigate",
-                "edit_current_insight",
                 "filter_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
@@ -1838,7 +1840,8 @@
                 "search",
                 "read_data",
                 "todo_write",
-                "filter_revenue_analytics"
+                "filter_revenue_analytics",
+                "create_feature_flag"
             ],
             "type": "string"
         },
@@ -2506,6 +2509,19 @@
             ],
             "type": "string"
         },
+        "BreakdownValue": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "type": "number"
+                },
+                "value": {
+                    "type": "string"
+                }
+            },
+            "required": ["value", "count"],
+            "type": "object"
+        },
         "BreakdownValueInt": {
             "$ref": "#/definitions/integer"
         },
@@ -2844,6 +2860,94 @@
                         "$ref": "#/definitions/EmbeddingDistance"
                     },
                     "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedErrorTrackingBreakdownsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "additionalProperties": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "total_count": {
+                                "type": "number"
+                            },
+                            "values": {
+                                "items": {
+                                    "$ref": "#/definitions/BreakdownValue"
+                                },
+                                "type": "array"
+                            }
+                        },
+                        "required": ["values", "total_count"],
+                        "type": "object"
+                    },
+                    "type": "object"
                 },
                 "timezone": {
                     "type": "string"
@@ -9870,6 +9974,38 @@
             "required": ["fields", "format", "id", "name", "type", "url_pattern"],
             "type": "object"
         },
+        "DatabaseSchemaEndpointTable": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "$ref": "#/definitions/HogQLQuery"
+                },
+                "row_count": {
+                    "type": "number"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "endpoint",
+                    "type": "string"
+                }
+            },
+            "required": ["fields", "id", "name", "query", "type"],
+            "type": "object"
+        },
         "DatabaseSchemaField": {
             "additionalProperties": false,
             "properties": {
@@ -10159,6 +10295,9 @@
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaMaterializedViewTable"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaEndpointTable"
                 }
             ]
         },
@@ -10195,7 +10334,8 @@
                 "view",
                 "batch_export",
                 "materialized_view",
-                "managed_view"
+                "managed_view",
+                "endpoint"
             ],
             "type": "string"
         },
@@ -10728,6 +10868,102 @@
         "EntityType": {
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
+        },
+        "ErrorTrackingBreakdownsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdownProperties": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "issueId": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ErrorTrackingBreakdownsQuery",
+                    "type": "string"
+                },
+                "maxValuesPerProperty": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ErrorTrackingBreakdownsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["breakdownProperties", "issueId", "kind"],
+            "type": "object"
+        },
+        "ErrorTrackingBreakdownsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "additionalProperties": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "total_count": {
+                                "type": "number"
+                            },
+                            "values": {
+                                "items": {
+                                    "$ref": "#/definitions/BreakdownValue"
+                                },
+                                "type": "array"
+                            }
+                        },
+                        "required": ["values", "total_count"],
+                        "type": "object"
+                    },
+                    "type": "object"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
         },
         "ErrorTrackingCorrelatedIssue": {
             "additionalProperties": false,
@@ -12496,6 +12732,69 @@
             "required": ["id", "name", "description", "filters", "created_by", "created_at", "updated_at"],
             "type": "object"
         },
+        "ExperimentIdType": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "const": "new",
+                    "type": "string"
+                },
+                {
+                    "const": "web",
+                    "type": "string"
+                }
+            ]
+        },
+        "ExperimentMaxBayesianContext": {
+            "additionalProperties": false,
+            "properties": {
+                "chance_to_win": {
+                    "type": "number"
+                },
+                "credible_interval": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "significant": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["key", "chance_to_win", "credible_interval", "significant"],
+            "type": "object"
+        },
+        "ExperimentMaxFrequentistContext": {
+            "additionalProperties": false,
+            "properties": {
+                "confidence_interval": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "p_value": {
+                    "type": "number"
+                },
+                "significant": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["key", "p_value", "confidence_interval", "significant"],
+            "type": "object"
+        },
         "ExperimentMeanMetric": {
             "additionalProperties": false,
             "properties": {
@@ -13034,6 +13333,10 @@
             "required": ["key", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
         },
+        "ExperimentStatsMethod": {
+            "enum": ["bayesian", "frequentist"],
+            "type": "string"
+        },
         "ExperimentStatsValidationFailure": {
             "enum": ["not-enough-exposures", "baseline-mean-is-zero", "not-enough-metric-data"],
             "type": "string"
@@ -13319,6 +13622,7 @@
         },
         "ExternalDataSourceType": {
             "enum": [
+                "CustomerIO",
                 "Github",
                 "Stripe",
                 "Hubspot",
@@ -16245,6 +16549,9 @@
                 "createdAt": {
                     "type": "string"
                 },
+                "errorCount": {
+                    "type": "number"
+                },
                 "events": {
                     "items": {
                         "$ref": "#/definitions/LLMTraceEvent"
@@ -17583,6 +17890,125 @@
             "required": ["type", "id"],
             "type": "object"
         },
+        "MaxExperimentMetricResult": {
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "variant_results": {
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/MaxExperimentVariantResultBayesian"
+                            },
+                            {
+                                "$ref": "#/definitions/MaxExperimentVariantResultFrequentist"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name", "variant_results"],
+            "type": "object"
+        },
+        "MaxExperimentSummaryContext": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "experiment_id": {
+                    "$ref": "#/definitions/ExperimentIdType"
+                },
+                "experiment_name": {
+                    "type": "string"
+                },
+                "metrics_results": {
+                    "items": {
+                        "$ref": "#/definitions/MaxExperimentMetricResult"
+                    },
+                    "type": "array"
+                },
+                "stats_method": {
+                    "$ref": "#/definitions/ExperimentStatsMethod"
+                },
+                "variants": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "experiment_id",
+                "experiment_name",
+                "description",
+                "variants",
+                "metrics_results",
+                "stats_method"
+            ],
+            "type": "object"
+        },
+        "MaxExperimentVariantResultBayesian": {
+            "additionalProperties": false,
+            "properties": {
+                "chance_to_win": {
+                    "type": ["number", "null"]
+                },
+                "credible_interval": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "key": {
+                    "type": "string"
+                },
+                "significant": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["key", "chance_to_win", "credible_interval", "significant"],
+            "type": "object"
+        },
+        "MaxExperimentVariantResultFrequentist": {
+            "additionalProperties": false,
+            "properties": {
+                "confidence_interval": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "key": {
+                    "type": "string"
+                },
+                "p_value": {
+                    "type": ["number", "null"]
+                },
+                "significant": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["key", "p_value", "confidence_interval", "significant"],
+            "type": "object"
+        },
         "MaxInnerUniversalFiltersGroup": {
             "additionalProperties": false,
             "properties": {
@@ -17901,6 +18327,7 @@
                 "RevenueExampleDataWarehouseTablesQuery",
                 "ErrorTrackingQuery",
                 "ErrorTrackingSimilarIssuesQuery",
+                "ErrorTrackingBreakdownsQuery",
                 "ErrorTrackingIssueCorrelationQuery",
                 "LogsQuery",
                 "SessionBatchEventsQuery",
@@ -19502,6 +19929,59 @@
                                 "$ref": "#/definitions/SimilarIssue"
                             },
                             "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "additionalProperties": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "total_count": {
+                                        "type": "number"
+                                    },
+                                    "values": {
+                                        "items": {
+                                            "$ref": "#/definitions/BreakdownValue"
+                                        },
+                                        "type": "array"
+                                    }
+                                },
+                                "required": ["values", "total_count"],
+                                "type": "object"
+                            },
+                            "type": "object"
                         },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
@@ -22578,6 +23058,9 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingSimilarIssuesQuery"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingBreakdownsQuery"
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingIssueCorrelationQuery"
@@ -26279,6 +26762,7 @@
                 "revenue_analytics_properties",
                 "resources",
                 "error_tracking_properties",
+                "activity_log_properties",
                 "max_ai_context"
             ],
             "type": "string"

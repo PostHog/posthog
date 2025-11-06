@@ -11,7 +11,6 @@ import { HeatmapsUrlsList } from 'scenes/heatmaps/components/HeatmapsInfo'
 import { HeatmapsInvalidURL } from 'scenes/heatmaps/components/HeatmapsInvalidURL'
 import { urls } from 'scenes/urls'
 
-import { ScenePanelDivider } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -54,7 +53,6 @@ export function HeatmapNewScene(): JSX.Element {
                     key: 'heatmaps',
                 }}
             />
-            <ScenePanelDivider />
             <SceneSection title="Page URL" description="URL to your website">
                 <LemonInput value={displayUrl || ''} onChange={setDisplayUrl} placeholder="https://www.example.com" />
                 {!isDisplayUrlValid ? <HeatmapsInvalidURL /> : null}

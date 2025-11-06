@@ -388,7 +388,7 @@ function PersonalAPIKeysTable(): JSX.Element {
                     key: 'mask_value',
                     render: (_, key) =>
                         key.mask_value ? (
-                            <span className="font-mono">{key.mask_value}</span>
+                            <span className="font-mono ph-no-capture">{key.mask_value}</span>
                         ) : (
                             <Tooltip title="This key was created before the introduction of previews" placement="right">
                                 <span className="inline-flex items-center gap-1 cursor-default">

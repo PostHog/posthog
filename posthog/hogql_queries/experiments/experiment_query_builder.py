@@ -1,9 +1,11 @@
-from typing import cast
+from copy import deepcopy
+from typing import Optional, Union, cast
 
 from posthog.schema import (
     ActionsNode,
     ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
@@ -28,19 +30,14 @@ from posthog.hogql_queries.experiments.base_query_utils import (
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Experiment
 from posthog.models.team.team import Team
 
 
 def get_exposure_config_params_for_builder(
-    experiment: Experiment,
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
 ) -> tuple[ExperimentEventExposureConfig | ActionsNode, MultipleVariantHandling, bool]:
-    """A helper function that takes an experiment and returns some of the required parameters for the query builder.
-
-    This is to decouple the relation a bit between experiments and the builder it self. The builder shouldn't need to know this
-    experiment specific stuff.
-    """
-    criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
+    """Returns exposure-related parameters required by the query builder."""
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     if criteria is None:
         exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
@@ -62,13 +59,13 @@ class ExperimentQueryBuilder:
         self,
         team: Team,
         feature_flag_key: str,
-        metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
         exposure_config: ExperimentEventExposureConfig | ActionsNode,
         filter_test_accounts: bool,
         multiple_variant_handling: MultipleVariantHandling,
         variants: list[str],
         date_range_query: QueryDateRange,
         entity_key: str,
+        metric: Optional[ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric] = None,
     ):
         self.team = team
         self.metric = metric
@@ -84,6 +81,7 @@ class ExperimentQueryBuilder:
         """
         Main entry point. Returns complete query built from HogQL with placeholders.
         """
+        assert self.metric is not None, "metric is required for build_query()"
         match self.metric:
             case ExperimentFunnelMetric():
                 return self._build_funnel_query()
@@ -96,11 +94,53 @@ class ExperimentQueryBuilder:
                     f"Only funnel, mean, and ratio metrics are supported. Got {type(self.metric)}"
                 )
 
+    def get_exposure_timeseries_query(self) -> ast.SelectQuery:
+        """
+        Returns a query for exposure timeseries data.
+
+        Generates daily exposure counts per variant, counting each entity
+        only once on their first exposure day.
+
+        Returns:
+            SelectQuery with columns: day, variant, exposed_count
+        """
+        query = parse_select(
+            """
+            WITH first_exposures AS (
+                SELECT
+                    {entity_key} AS entity_id,
+                    {variant_expr} AS variant,
+                    toDate(toString(min(timestamp))) AS day
+                FROM events
+                WHERE {exposure_predicate}
+                GROUP BY entity_id
+            )
+
+            SELECT
+                first_exposures.day AS day,
+                first_exposures.variant AS variant,
+                count(first_exposures.entity_id) AS exposed_count
+            FROM first_exposures
+            WHERE notEmpty(variant)
+            GROUP BY first_exposures.day, first_exposures.variant
+            ORDER BY first_exposures.day ASC
+            """,
+            placeholders={
+                "entity_key": parse_expr(self.entity_key),
+                "variant_expr": self._build_variant_expr_for_mean(),
+                "exposure_predicate": self._build_exposure_predicate(),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
     def _get_conversion_window_seconds(self) -> int:
         """
         Returns the conversion window in seconds for the current metric.
         Returns 0 if no conversion window is configured.
         """
+        assert self.metric is not None, "metric is required for _get_conversion_window_seconds()"
         if self.metric.conversion_window and self.metric.conversion_window_unit:
             return conversion_window_to_seconds(
                 self.metric.conversion_window,
@@ -115,6 +155,8 @@ class ExperimentQueryBuilder:
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
         num_steps = len(self.metric.series) + 1  #  +1 as we are including exposure criteria
+
+        exposure_predicate = self._build_exposure_predicate()
 
         query = parse_select(
             f"""
@@ -159,7 +201,7 @@ class ExperimentQueryBuilder:
             GROUP BY entity_metrics.variant
             """,
             placeholders={
-                "exposure_predicate": self._build_exposure_predicate(),
+                "exposure_predicate": deepcopy(exposure_predicate),
                 "variant_property": self._build_variant_property(),
                 "variant_expr": self._build_variant_expr_for_funnel(),
                 "entity_key": parse_expr(self.entity_key),
@@ -173,25 +215,29 @@ class ExperimentQueryBuilder:
 
         assert isinstance(query, ast.SelectQuery)
 
+        include_exposure_condition = self.metric.funnel_order_type == StepOrderValue.UNORDERED
+
         # Inject step columns into the metric_events CTE
         # Find the metric_events CTE in the query
         if query.ctes and "metric_events" in query.ctes:
             metric_events_cte = query.ctes["metric_events"]
             if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
                 # Add step columns to the SELECT
-                step_columns = self._build_funnel_step_columns()
+                step_columns = self._build_funnel_step_columns(
+                    deepcopy(exposure_predicate), include_exposure_condition=include_exposure_condition
+                )
                 metric_events_cte.expr.select.extend(step_columns)
 
                 # For unordered funnels, we need to filter out metric events that occur _before_ the exposure
                 # event. For ordered funnel metrics, the UDF does this for us.
                 # Here, we add the field we need, first_exposure_timestamp
-                if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
+                if include_exposure_condition:
                     first_exposure_timestamp_expr = parse_expr(
-                        "minIf(timestamp, step_0 = 1) OVER (PARTITION BY entity_id) AS first_exposure_timestamp"
+                        "minIf(timestamp, exposure_condition) OVER (PARTITION BY entity_id) AS first_exposure_timestamp"
                     )
                     metric_events_cte.expr.select.extend([first_exposure_timestamp_expr])
 
-        if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
+        if include_exposure_condition:
             # For unordered funnels, we need to filter out metric events that occur _before_ the exposure
             # event. For ordered funnel metrics, the UDF does this for us.
             # Here, we add the where condition to filter out those events
@@ -820,9 +866,9 @@ class ExperimentQueryBuilder:
                 SELECT
                     {entity_key} AS entity_id,
                     {variant_expr} AS variant,
-                    minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
-                    argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
-                    argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id
+                    min(timestamp) AS first_exposure_time,
+                    argMin(uuid, timestamp) AS exposure_event_uuid,
+                    argMin(`$session_id`, timestamp) AS exposure_session_id
                 FROM events
                 WHERE {exposure_predicate}
                 GROUP BY entity_id
@@ -843,36 +889,54 @@ class ExperimentQueryBuilder:
 
         if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
             return parse_expr(
-                "argMinIf({variant_property}, timestamp, {exposure_predicate})",
+                "argMin({variant_property}, timestamp)",
                 placeholders={
                     "variant_property": self._build_variant_property(),
-                    "exposure_predicate": self._build_exposure_predicate(),
                 },
             )
         else:
             return parse_expr(
-                "if(uniqExactIf({variant_property}, {exposure_predicate}) > 1, {multiple_key}, anyIf({variant_property}, {exposure_predicate}))",
+                "if(uniqExact({variant_property}) > 1, {multiple_key}, any({variant_property}))",
                 placeholders={
                     "variant_property": self._build_variant_property(),
-                    "exposure_predicate": self._build_exposure_predicate(),
                     "multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
                 },
             )
 
-    def _build_funnel_step_columns(self) -> list[ast.Alias]:
+    def _build_funnel_step_columns(
+        self, exposure_condition: ast.Expr, include_exposure_condition: bool
+    ) -> list[ast.Alias]:
         """
-        Builds list of step column AST expressions: step_0, step_1, etc.
+        Builds list of step column AST expressions: step_0, exposure_condition, step_1, etc.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
-        exposure_criteria = ast.Alias(alias="step_0", expr=self._build_exposure_predicate())
-        step_columns = [exposure_criteria]
+
+        step_columns: list[ast.Alias] = []
+
+        if include_exposure_condition:
+            step_columns.append(ast.Alias(alias="exposure_condition", expr=exposure_condition))
+            step_0_condition: ast.Expr = ast.Field(chain=["exposure_condition"])
+        else:
+            step_0_condition = deepcopy(exposure_condition)
+
+        step_columns.append(
+            ast.Alias(
+                alias="step_0",
+                expr=ast.Call(
+                    name="if",
+                    args=[step_0_condition, ast.Constant(value=1), ast.Constant(value=0)],
+                ),
+            ),
+        )
+
         for i, funnel_step in enumerate(self.metric.series):
             step_filter = event_or_action_to_filter(self.team, funnel_step)
-            step_column = ast.Alias(
-                alias=f"step_{i + 1}",
-                expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
+            step_columns.append(
+                ast.Alias(
+                    alias=f"step_{i + 1}",
+                    expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
+                )
             )
-            step_columns.append(step_column)
 
         return step_columns
 

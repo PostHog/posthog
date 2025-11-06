@@ -192,6 +192,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const replayFiltersRedesignEnabled = featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_REDESIGN] === 'test'
 
     return (
         <>
@@ -230,7 +231,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     </LemonButton>
                 </>
             </MaxTool>
-            {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_REDESIGN] && <CurrentFilterIndicator />}
+            {replayFiltersRedesignEnabled && <CurrentFilterIndicator />}
             <div className="flex gap-2 mt-2 justify-between">
                 <HideRecordingsMenu />
                 <SettingsMenu
@@ -384,12 +385,13 @@ export const RecordingsUniversalFiltersEmbed = ({
 
     const hasFilterChanges = appliedSavedFilter ? !equal(appliedSavedFilter.filters, filters) : false
     const { featureFlags } = useValues(featureFlagLogic)
+    const replayFiltersRedesignEnabled = featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_REDESIGN] === 'test'
 
     const tabs: LemonTab<string>[] = [
         {
             key: 'filters',
             label: <div className="px-2">Filters</div>,
-            content: featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_REDESIGN] ? (
+            content: replayFiltersRedesignEnabled ? (
                 <div className={clsx('relative bg-surface-primary w-full ', className)}>
                     {appliedSavedFilter && (
                         <div className="border-b px-2 py-3 flex items-center justify-between gap-2">
@@ -485,7 +487,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                         taxonomicGroupTypes={taxonomicGroupTypes}
                         onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
                     >
-                        {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_REDESIGN] && (
+                        {replayFiltersRedesignEnabled && (
                             <div className="flex items-center gap-2 px-2 mt-2">
                                 <span className="font-medium">Add filters:</span>
                                 <QuickFilterButton
@@ -516,27 +518,44 @@ export const RecordingsUniversalFiltersEmbed = ({
                                     filters={filters}
                                     setFilters={setFilters}
                                 />
-                                <Popover
-                                    overlay={
-                                        <UniversalFilters.PureTaxonomicFilter
-                                            fullWidth={false}
-                                            onChange={() => setIsPopoverVisible(false)}
-                                        />
-                                    }
-                                    placement="bottom"
-                                    visible={isPopoverVisible}
-                                    onClickOutside={() => setIsPopoverVisible(false)}
-                                >
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        data-attr="replay-filters-add-filter-button"
-                                        icon={<IconPlus />}
-                                        onClick={() => setIsPopoverVisible(!isPopoverVisible)}
-                                    >
-                                        Add filter
-                                    </LemonButton>
-                                </Popover>
+                                {/* Add filter button scoped to the first nested group */}
+                                {filters.filter_group.values.length > 0 &&
+                                    isUniversalGroupFilterLike(filters.filter_group.values[0]) && (
+                                        <UniversalFilters
+                                            rootKey="session-recordings.nested"
+                                            group={filters.filter_group.values[0]}
+                                            taxonomicGroupTypes={taxonomicGroupTypes}
+                                            onChange={(nestedGroup) => {
+                                                const newFilterGroup = {
+                                                    ...filters.filter_group,
+                                                    values: [nestedGroup, ...filters.filter_group.values.slice(1)],
+                                                }
+                                                setFilters({ filter_group: newFilterGroup })
+                                            }}
+                                        >
+                                            <Popover
+                                                overlay={
+                                                    <UniversalFilters.PureTaxonomicFilter
+                                                        fullWidth={false}
+                                                        onChange={() => setIsPopoverVisible(false)}
+                                                    />
+                                                }
+                                                placement="bottom"
+                                                visible={isPopoverVisible}
+                                                onClickOutside={() => setIsPopoverVisible(false)}
+                                            >
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    data-attr="replay-filters-add-filter-button"
+                                                    icon={<IconPlus />}
+                                                    onClick={() => setIsPopoverVisible(!isPopoverVisible)}
+                                                >
+                                                    Add filter
+                                                </LemonButton>
+                                            </Popover>
+                                        </UniversalFilters>
+                                    )}
                             </div>
                         )}
 
@@ -583,9 +602,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                                     pageKey="session-recordings"
                                     size="small"
                                 />
-                                <RecordingsUniversalFilterGroup
-                                    hideAddFilterButton={!!featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_REDESIGN]}
-                                />
+                                <RecordingsUniversalFilterGroup hideAddFilterButton={replayFiltersRedesignEnabled} />
                             </div>
                         </div>
                     </UniversalFilters>
