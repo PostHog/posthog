@@ -173,6 +173,7 @@ import {
     UserBasicType,
     UserInterviewType,
     UserType,
+    ZendeskTicket,
 } from '~/types'
 
 import {
@@ -3534,11 +3535,12 @@ const api = {
             return await new ApiRequest().users(email).get()
         },
         async zendeskTickets(): Promise<{ tickets: ZendeskTicket[]; count: number; error?: string }> {
-            return await new ApiRequest()
-                .addPathComponent('users')
-                .addPathComponent('@me')
-                .addPathComponent('zendesk_tickets')
-                .get()
+            const response = await fetch('/api/users/@me/zendesk_tickets/', {
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            })
+            return await response.json()
         },
     },
 
