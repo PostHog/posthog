@@ -67,6 +67,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
+from posthog.models.cohort.cohort import CohortPeople, CohortType
 from posthog.models.cohort.util import get_all_cohort_dependencies, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
@@ -96,8 +97,6 @@ from posthog.utils import format_query_params_absolute_url
 def validate_filters_and_compute_realtime_support(
     filters_dict: dict, team: Team, current_cohort_type: str | None = None
 ) -> tuple[dict, str | None, list | None]:
-    from posthog.models.cohort.cohort import CohortType
-
     try:
         if not filters_dict:
             return filters_dict, current_cohort_type, None
@@ -145,8 +144,6 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
             try:
                 referenced_cohort = Cohort.objects.get(team__project_id=team.project_id, id=cohort_id)
                 # Check if the referenced cohort is realtime
-                from posthog.models.cohort.cohort import CohortType
-
                 if referenced_cohort.cohort_type != CohortType.REALTIME:
                     # Don't generate bytecode for non-realtime cohort references
                     return None, None, None
@@ -974,8 +971,6 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         # For static cohorts, copy people directly instead of using the insight filter path
         if cohort.is_static:
-            from posthog.models.cohort.cohort import CohortPeople
-
             person_uuids = CohortPeople.objects.filter(cohort_id=cohort.pk).values_list("person__uuid", flat=True)
             serializer_data["_create_static_person_ids"] = [str(uuid) for uuid in person_uuids]
         else:
