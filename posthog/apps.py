@@ -64,6 +64,8 @@ class PostHogConfig(AppConfig):
                     event="development server launched",
                     properties={"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
+                logger.info(f"Development server launched", machine_id=get_machine_id())
+
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()

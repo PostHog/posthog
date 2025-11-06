@@ -546,6 +546,8 @@ async def initialize_self_capture_api_token():
 
     User = apps.get_model("posthog", "User")
     Team = apps.get_model("posthog", "Team")
+
+    logger.info("initializing self-capture api token")
     try:
         user = (
             await User.objects.filter(last_login__isnull=False)
@@ -560,7 +562,9 @@ async def initialize_self_capture_api_token():
         else:
             team = await Team.objects.only("api_token").afirst()
         local_api_key = team.api_token if team else None
-    except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
+        logger.info("Initialized self-capture api token", local_api_key=local_api_key, team=team)
+    except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError) as e:
+        logger.exception("Error initializing self-capture api token", error=e)
         local_api_key = None
 
     # This is running _after_ PostHogConfig.ready(), so we re-enable posthoganalytics while setting the params
@@ -568,6 +572,7 @@ async def initialize_self_capture_api_token():
         posthoganalytics.disabled = False
         posthoganalytics.api_key = local_api_key
         posthoganalytics.host = settings.SITE_URL
+        logger.info("Set PostHog analytics api key", api_key=posthoganalytics.api_key)
 
 
 def get_default_event_name(team: "Team"):
