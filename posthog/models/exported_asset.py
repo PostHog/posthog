@@ -25,6 +25,10 @@ logger = structlog.get_logger(__name__)
 PUBLIC_ACCESS_TOKEN_EXP_DAYS = 365
 MAX_AGE_CONTENT = 86400  # 1 day
 
+SEVEN_DAYS = timedelta(days=7)
+SIX_MONTHS = timedelta(days=180)
+TWELVE_MONTHS = timedelta(days=365)
+
 
 def get_default_access_token() -> str:
     return secrets.token_urlsafe(22)
@@ -90,6 +94,24 @@ class ExportedAsset(models.Model):
     # replace the default manager with one that filters out TTL deleted objects (before their deletion is processed)
     objects = ExportedAssetManager()
     objects_including_ttl_deleted: models.Manager["ExportedAsset"] = models.Manager()
+
+    def save(self, *args, **kwargs):
+        if not self.expires_after:
+            expiry_delta = SIX_MONTHS
+
+            if self.export_format in (self.ExportFormat.CSV, self.ExportFormat.XLSX):
+                expiry_delta = SEVEN_DAYS
+            elif self.export_format in (
+                self.ExportFormat.MP4,
+                self.ExportFormat.WEBM,
+                self.ExportFormat.GIF,
+            ):
+                expiry_delta = TWELVE_MONTHS
+
+            expiry_datetime = now() + expiry_delta
+            self.expires_after = expiry_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        super().save(*args, **kwargs)
 
     @property
     def has_content(self):
