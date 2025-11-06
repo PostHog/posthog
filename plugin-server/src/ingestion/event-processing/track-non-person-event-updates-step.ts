@@ -1,6 +1,6 @@
 import { setUsageInNonPersonEventsCounter } from '../../main/ingestion-queues/metrics'
 import { PipelineEvent } from '../../types'
-import { PerDistinctIdPipelineInput } from '../ingestion-consumer'
+import { BatchProcessingStep } from '../pipelines/base-batch-pipeline'
 import { PipelineResult, ok } from '../pipelines/results'
 
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
@@ -21,14 +21,12 @@ const trackIfNonPersonEventUpdatesPersons = (event: PipelineEvent): void => {
     }
 }
 
-export function createTrackNonPersonEventUpdatesStep() {
-    return async function trackNonPersonEventUpdatesStep(
-        events: PerDistinctIdPipelineInput[]
-    ): Promise<PipelineResult<PerDistinctIdPipelineInput>[]> {
+export function createTrackNonPersonEventUpdatesStep<T extends { event: PipelineEvent }>(): BatchProcessingStep<T, T> {
+    return async function trackNonPersonEventUpdatesStep(events: T[]): Promise<PipelineResult<T>[]> {
         for (const event of events) {
             trackIfNonPersonEventUpdatesPersons(event.event)
         }
 
-        return events.map((event) => ok(event))
+        return Promise.resolve(events.map((event) => ok(event)))
     }
 }

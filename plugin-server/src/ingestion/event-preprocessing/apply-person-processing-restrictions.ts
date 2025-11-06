@@ -1,14 +1,13 @@
-import { IncomingEventWithTeam } from '../../types'
+import { PipelineEvent, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 function applyPersonProcessingRestrictions(
-    eventWithTeam: IncomingEventWithTeam,
+    event: PipelineEvent,
+    team: Team,
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
 ): void {
-    const { event, team } = eventWithTeam
-
     const shouldSkipPersonRestriction = eventIngestionRestrictionManager.shouldSkipPerson(
         event.token,
         event.distinct_id
@@ -25,13 +24,12 @@ function applyPersonProcessingRestrictions(
     }
 }
 
-// TODO: Refactor this to use just headers and the team before parsing the event
-export function createApplyPersonProcessingRestrictionsStep<T extends { eventWithTeam: IncomingEventWithTeam }>(
+export function createApplyPersonProcessingRestrictionsStep<T extends { event: PipelineEvent; team: Team }>(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
 ): ProcessingStep<T, T> {
     return async function applyPersonProcessingRestrictionsStep(input) {
-        const { eventWithTeam } = input
-        applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager)
+        const { event, team } = input
+        applyPersonProcessingRestrictions(event, team, eventIngestionRestrictionManager)
         return Promise.resolve(ok(input))
     }
 }

@@ -1,12 +1,13 @@
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { Hub } from '../../types'
-import { PerDistinctIdPipelineInput } from '../ingestion-consumer'
+import { Hub, PipelineEvent } from '../../types'
+import { BatchProcessingStep } from '../pipelines/base-batch-pipeline'
 import { PipelineResult, ok } from '../pipelines/results'
 
-export function createPrefetchHogFunctionsStep(hub: Hub, hogTransformer: HogTransformerService) {
-    return async function prefetchHogFunctionsStep(
-        events: PerDistinctIdPipelineInput[]
-    ): Promise<PipelineResult<PerDistinctIdPipelineInput>[]> {
+export function createPrefetchHogFunctionsStep<T extends { event: PipelineEvent }>(
+    hub: Hub,
+    hogTransformer: HogTransformerService
+): BatchProcessingStep<T, T> {
+    return async function prefetchHogFunctionsStep(events: T[]): Promise<PipelineResult<T>[]> {
         // Clear cached hog function states before fetching new ones
         hogTransformer.clearHogFunctionStates()
 

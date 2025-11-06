@@ -1,10 +1,10 @@
 import { Message } from 'node-rdkafka'
 
-import { IncomingEventWithTeam } from '../../types'
+import { PipelineEvent } from '../../types'
 import { PipelineResult, ok, redirect } from '../pipelines/results'
 import { MemoryRateLimiter } from '../utils/overflow-detector'
 
-export function createRateLimitToOverflowStep<T extends { message: Message; eventWithTeam: IncomingEventWithTeam }>(
+export function createRateLimitToOverflowStep<T extends { message: Message; event: PipelineEvent }>(
     overflowRateLimiter: MemoryRateLimiter,
     overflowEnabled: boolean,
     overflowTopic: string,
@@ -20,8 +20,8 @@ export function createRateLimitToOverflowStep<T extends { message: Message; even
         const eventsByKey = new Map<string, Array<T>>()
 
         for (const input of inputs) {
-            const token = input.eventWithTeam.event.token ?? ''
-            const distinctId = input.eventWithTeam.event.distinct_id ?? ''
+            const token = input.event.token ?? ''
+            const distinctId = input.event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`
 
             if (!eventsByKey.has(eventKey)) {
@@ -42,8 +42,8 @@ export function createRateLimitToOverflowStep<T extends { message: Message; even
         // Build results in original order
         return Promise.resolve(
             inputs.map((input) => {
-                const token = input.eventWithTeam.event.token ?? ''
-                const distinctId = input.eventWithTeam.event.distinct_id ?? ''
+                const token = input.event.token ?? ''
+                const distinctId = input.event.distinct_id ?? ''
                 const eventKey = `${token}:${distinctId}`
 
                 if (shouldRedirectKey.get(eventKey)) {

@@ -1,21 +1,14 @@
-import { Message } from 'node-rdkafka'
-
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
-import { EventHeaders, Hub, IncomingEvent, IncomingEventWithTeam } from '../../types'
+import { Hub, PipelineEvent, Team } from '../../types'
 import { tokenOrTeamPresentCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 type ResolveTeamError = { error: true; cause: 'no_token' | 'invalid_token' }
-type ResolveTeamSuccess = { error: false; eventWithTeam: IncomingEventWithTeam }
+type ResolveTeamSuccess = { error: false; team: Team }
 type ResolveTeamResult = ResolveTeamSuccess | ResolveTeamError
 
-async function resolveTeam(
-    hub: Pick<Hub, 'teamManager'>,
-    message: Message,
-    headers: EventHeaders,
-    event: IncomingEvent['event']
-): Promise<ResolveTeamResult> {
+async function resolveTeam(hub: Pick<Hub, 'teamManager'>, event: PipelineEvent): Promise<ResolveTeamResult> {
     tokenOrTeamPresentCounter
         .labels({
             team_id_present: event.team_id ? 'true' : 'false',
@@ -47,27 +40,22 @@ async function resolveTeam(
 
     return {
         error: false,
-        eventWithTeam: {
-            event,
-            team,
-            message,
-            headers,
-        },
+        team,
     }
 }
 
-export function createResolveTeamStep<T extends { message: Message; headers: EventHeaders; event: IncomingEvent }>(
+export function createResolveTeamStep<T extends { event: PipelineEvent }>(
     hub: Hub
-): ProcessingStep<T, T & { eventWithTeam: IncomingEventWithTeam }> {
+): ProcessingStep<T, T & { team: Team }> {
     return async function resolveTeamStep(input) {
-        const { message, headers, event } = input
+        const { event } = input
 
-        const result = await resolveTeam(hub, message, headers, event.event)
+        const result = await resolveTeam(hub, event)
 
         if (result.error) {
             return drop(result.cause)
         }
 
-        return ok({ ...input, eventWithTeam: result.eventWithTeam })
+        return ok({ ...input, team: result.team })
     }
 }

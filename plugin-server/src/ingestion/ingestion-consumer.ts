@@ -9,11 +9,9 @@ import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { latestOffsetTimestampGauge } from '../main/ingestion-queues/metrics'
 import {
-    EventHeaders,
     HealthCheckResult,
     HealthCheckResultError,
     Hub,
-    IncomingEvent,
     IncomingEventWithTeam,
     PluginServerService,
     PluginsServerConfig,
@@ -55,17 +53,9 @@ import { createTrackNonPersonEventUpdatesStep } from './event-processing/track-n
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
-import { createBatch, createContext, createUnwrapper } from './pipelines/helpers'
+import { createBatch, createUnwrapper } from './pipelines/helpers'
 import { PipelineConfig } from './pipelines/result-handling-pipeline'
-import { ok } from './pipelines/results'
 import { MemoryRateLimiter } from './utils/overflow-detector'
-
-type PreprocessedEvent = {
-    message: Message
-    headers: EventHeaders
-    event: IncomingEvent
-    eventWithTeam: IncomingEventWithTeam
-}
 
 export interface PerDistinctIdPipelineInput extends IncomingEventWithTeam {
     personsStoreForBatch: PersonsStoreForBatch
@@ -94,9 +84,9 @@ export class IngestionConsumer {
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     public readonly promiseScheduler = new PromiseScheduler()
 
-    private preprocessingPipeline!: BatchPipelineUnwrapper<
-        { message: Message },
-        PreprocessedEvent,
+    private pipeline!: BatchPipelineUnwrapper<
+        { message: Message; personsStoreForBatch: PersonsStoreForBatch; groupStoreForBatch: GroupStoreForBatch },
+        void,
         { message: Message }
     >
     private perDistinctIdPipeline!: BatchPipeline<PerDistinctIdPipelineInput, void, { message: Message; team: Team }>
@@ -183,10 +173,7 @@ export class IngestionConsumer {
         ])
 
         // Initialize batch preprocessing pipeline after kafka producer is available
-        this.initializePreprocessingPipeline()
-
-        // Initialize main event pipeline
-        this.initializePerDistinctIdPipeline()
+        this.initializePipeline()
 
         await this.kafkaConsumer.connect(async (messages) => {
             return await instrumentFn(
@@ -199,14 +186,17 @@ export class IngestionConsumer {
         })
     }
 
-    private initializePreprocessingPipeline(): void {
+    private initializePipeline(): void {
         const pipelineConfig: PipelineConfig = {
             kafkaProducer: this.kafkaProducer!,
             dlqTopic: this.dlqTopic,
             promiseScheduler: this.promiseScheduler,
         }
 
-        const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+        const pipeline = newBatchPipelineBuilder<
+            { message: Message; personsStoreForBatch: PersonsStoreForBatch; groupStoreForBatch: GroupStoreForBatch },
+            { message: Message }
+        >()
             .messageAware((builder) =>
                 // All of these steps are synchronous, so we can process the messages sequentially
                 // to avoid buffering due to reordering.
@@ -242,7 +232,7 @@ export class IngestionConsumer {
                 result: element.result,
                 context: {
                     ...element.context,
-                    team: element.result.value.eventWithTeam.team,
+                    team: element.result.value.team,
                 },
             }))
             .messageAware((builder) =>
@@ -278,22 +268,6 @@ export class IngestionConsumer {
             .handleSideEffects(this.promiseScheduler, { await: false })
             // We synchronize once again to ensure we return all events in one batch.
             .gather()
-            .build()
-
-        this.preprocessingPipeline = createUnwrapper(pipeline)
-    }
-
-    private initializePerDistinctIdPipeline(): void {
-        const pipelineConfig: PipelineConfig = {
-            kafkaProducer: this.kafkaProducer!,
-            dlqTopic: this.dlqTopic,
-            promiseScheduler: this.promiseScheduler,
-        }
-
-        this.perDistinctIdPipeline = newBatchPipelineBuilder<
-            PerDistinctIdPipelineInput,
-            { message: Message; team: Team }
-        >()
             // Shard events by distinct_id to ensure ordering guarantees per distinct_id
             .sharding(
                 (resultWithContext) => {
@@ -401,6 +375,8 @@ export class IngestionConsumer {
                         .gather()
             )
             .build()
+
+        this.pipeline = createUnwrapper(pipeline)
     }
 
     private hashString(str: string): number {
@@ -473,15 +449,12 @@ export class IngestionConsumer {
             this.logBatchStart(messages)
         }
 
-        const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
-
         const personsStoreForBatch = this.personStore.forBatch()
         const groupStoreForBatch = this.groupStore.forBatch()
 
-        await this.runInstrumented('processBatch', async () => {
-            // Process all events through the sharded pipeline
-            await this.processEventsBatch(preprocessedEvents, personsStoreForBatch, groupStoreForBatch)
-        })
+        await this.runInstrumented('processEvents', () =>
+            this.processEvents(messages, personsStoreForBatch, groupStoreForBatch)
+        )
 
         const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
 
@@ -546,50 +519,22 @@ export class IngestionConsumer {
         await this.kafkaProducer!.flush()
     }
 
-    private async processEventsBatch(
-        preprocessedEvents: PreprocessedEvent[],
+    private async processEvents(
+        messages: Message[],
         personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch
     ): Promise<void> {
-        const preprocessedEventsWithStores: PerDistinctIdPipelineInput[] = preprocessedEvents.map(
-            (preprocessedEvent) => {
-                return {
-                    ...preprocessedEvent.eventWithTeam,
-                    personsStoreForBatch,
-                    groupStoreForBatch,
-                }
-            }
-        )
-
-        // Feed the batch to the sharded pipeline
-        const eventsSequence = preprocessedEventsWithStores.map((event) =>
-            createContext(ok(event), { message: event.message, team: event.team })
-        )
-        this.perDistinctIdPipeline.feed(eventsSequence)
-
-        // Process all events through the sharded pipeline
-        let result = await this.perDistinctIdPipeline.next()
-        while (result !== null) {
-            result = await this.perDistinctIdPipeline.next()
-        }
-    }
-
-    private async preprocessEvents(messages: Message[]): Promise<PreprocessedEvent[]> {
         // Create batch using the helper function
-        const batch = createBatch(messages.map((message) => ({ message })))
+        const batch = createBatch(messages.map((message) => ({ message, personsStoreForBatch, groupStoreForBatch })))
 
         // Feed batch to the pipeline
-        this.preprocessingPipeline.feed(batch)
+        this.pipeline.feed(batch)
 
-        // Get all results from the gather pipeline (should return all results in one call)
-        const result = await this.preprocessingPipeline.next()
-
-        if (result === null) {
-            return []
+        // Process all events through the pipeline
+        let result = await this.pipeline.next()
+        while (result !== null) {
+            result = await this.pipeline.next()
         }
-
-        // Return the results (already filtered to successful ones by ResultHandlingPipeline)
-        return result
     }
 
     private overflowEnabled(): boolean {

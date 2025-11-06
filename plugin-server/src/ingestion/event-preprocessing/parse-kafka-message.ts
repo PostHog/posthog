@@ -1,20 +1,20 @@
 import { Message } from 'node-rdkafka'
 
-import { IncomingEvent, PipelineEvent } from '../../types'
+import { PipelineEvent } from '../../types'
 import { normalizeEvent } from '../../utils/event'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-function parseKafkaMessage(message: Message): IncomingEvent | null {
+function parseKafkaMessage(message: Message): PipelineEvent | null {
     try {
         // Parse the message payload into the event object
         const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
         const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
         const event: PipelineEvent = normalizeEvent(combinedEvent)
 
-        return { event }
+        return event
     } catch (error) {
         logger.warn('Failed to parse Kafka message', { error })
         return null
@@ -23,7 +23,7 @@ function parseKafkaMessage(message: Message): IncomingEvent | null {
 
 export function createParseKafkaMessageStep<T extends { message: Message }>(): ProcessingStep<
     T,
-    T & { event: IncomingEvent }
+    T & { event: PipelineEvent }
 > {
     return async function parseKafkaMessageStep(input) {
         const { message } = input
