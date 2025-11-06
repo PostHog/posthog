@@ -173,7 +173,7 @@ impl FeatureFlagList {
                             "flag_key" => row.key.clone(),
                         )
                         .increment(1);
-                        
+
                         // Also track as a tombstone - invalid data in postgres should never happen
                         counter!(
                             TOMBSTONE_COUNTER,
@@ -182,7 +182,7 @@ impl FeatureFlagList {
                             "flag_key" => row.key.clone(),
                         )
                         .increment(1);
-                        
+
                         None // Skip this flag, continue with others
                     }
                 }
