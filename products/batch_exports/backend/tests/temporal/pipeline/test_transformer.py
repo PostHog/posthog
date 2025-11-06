@@ -175,12 +175,7 @@ async def test_transformer_pipeline_pipes_multiple_transformers():
     """Test piping a `SchemaTransformer` into a `JSONLStreamTransformer`."""
     fibo = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
     numbers = pa.array(fibo)
-    record_batch = pa.RecordBatch.from_arrays(
-        [numbers],
-        names=[
-            "number",
-        ],
-    )
+    record_batch = pa.RecordBatch.from_arrays([numbers], names=("number",))
 
     async def record_batch_iter():
         yield record_batch

@@ -129,7 +129,8 @@ class Consumer:
 
             self.logger.debug(f"Consuming batch number {self.total_record_batches_count}")
 
-            record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
+            if json_columns:
+                record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
 
             yield record_batch
 

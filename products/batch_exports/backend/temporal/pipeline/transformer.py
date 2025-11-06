@@ -730,7 +730,6 @@ class SchemaTransformer:
 
             if compatible:
                 assert cast is not None, "If types are compatible cast function should be defined"
-
                 arrays.append(cast(array))
             else:
                 raise TypeError(
