@@ -729,18 +729,19 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 .count()
             )
 
-            if remaining == 0:
-                handler = _get_delete_handler(current.type)
-                if handler is None:
-                    if current.ref:
-                        raise serializers.ValidationError(
-                            {"detail": f"Deletion for type '{current.type}' is not supported."}
-                        )
-                    continue
-                if not current.ref:
+            handler = _get_delete_handler(current.type)
+
+            if handler is None:
+                if current.ref and remaining == 0:
                     raise serializers.ValidationError(
-                        {"detail": f"Cannot delete type '{current.type}' without a reference."}
+                        {"detail": f"Deletion for type '{current.type}' is not supported."}
                     )
+                continue
+
+            if remaining == 0 and not current.ref:
+                raise serializers.ValidationError(
+                    {"detail": f"Cannot delete type '{current.type}' without a reference."}
+                )
 
         return None
 
@@ -767,14 +768,14 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .count()
         )
 
-        if remaining > 0:
+        handler = _get_delete_handler(entry.type)
+        if handler is None:
+            if entry.ref and remaining == 0:
+                raise serializers.ValidationError({"detail": f"Deletion for type '{entry.type}' is not supported."})
             entry.delete()
             return deleted_objects
 
-        handler = _get_delete_handler(entry.type)
-        if handler is None:
-            if entry.ref:
-                raise serializers.ValidationError({"detail": f"Deletion for type '{entry.type}' is not supported."})
+        if remaining > 0:
             entry.delete()
             return deleted_objects
 
