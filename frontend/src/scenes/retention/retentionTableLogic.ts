@@ -22,12 +22,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             retentionLogic(props),
             ['results', 'filteredResults', 'selectedBreakdownValue', 'retentionMeans', 'breakdownDisplayNames'],
         ],
-        actions: [
-            retentionLogic(props),
-            ['setSelectedBreakdownValue', 'setSelectedInterval'],
-            insightVizDataLogic(props),
-            ['updateQuerySource'],
-        ],
+        actions: [retentionLogic(props), ['setSelectedBreakdownValue', 'setSelectedInterval']],
     })),
 
     actions({
