@@ -2,7 +2,6 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 
 import { InsightType, TrendExperimentVariant } from '~/types'
-import { ExperimentIdType } from '~/types'
 
 import { VariantTag } from '../../ExperimentView/components'
 import { calculateDelta } from '../../legacyExperimentCalculations'
@@ -13,7 +12,6 @@ interface VariantTooltipProps {
         y: number
         variant: string
     }
-    experimentId: ExperimentIdType
     result: any
     metricType: InsightType
     conversionRateForVariant: (result: any, variant: string) => any
@@ -24,7 +22,6 @@ interface VariantTooltipProps {
 
 export function VariantTooltip({
     tooltipData,
-    experimentId,
     result,
     metricType,
     conversionRateForVariant,
@@ -42,7 +39,7 @@ export function VariantTooltip({
             }} // Dynamic positioning based on mouse hover position
         >
             <div className="flex flex-col gap-1">
-                <VariantTag experimentId={experimentId} variantKey={tooltipData.variant} />
+                <VariantTag variantKey={tooltipData.variant} />
                 <div className="inline-flex">
                     <span className="text-secondary font-semibold mb-1">Win probability:</span>
                     {result?.probability?.[tooltipData.variant] !== undefined ? (

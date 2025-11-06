@@ -12,7 +12,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/types'
 
@@ -85,7 +84,6 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                             see here and/or report any issues directly to us!
                         </p>
                     </LemonBanner>
-                    <SceneDivider />
                     <ProductIntroduction
                         productName="endpoints"
                         productKey={ProductKey.ENDPOINTS}
