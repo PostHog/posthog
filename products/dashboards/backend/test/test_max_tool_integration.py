@@ -96,7 +96,6 @@ async def test_dashboard_metadata_update(dashboard_setup):
     tool = EditCurrentDashboardTool(
         team=dashboard.team,
         user=conversation.user,
-        tool_call_id="test-tool-call-id",
         config=RunnableConfig(
             configurable={
                 "thread_id": conversation.id,
@@ -133,7 +132,6 @@ async def test_dashboard_metadata_update_no_permissions(dashboard_setup_no_perms
     tool = EditCurrentDashboardTool(
         team=dashboard.team,
         user=conversation.user,
-        tool_call_id="test-tool-call-id",
         config=RunnableConfig(
             configurable={
                 "thread_id": conversation.id,
@@ -155,7 +153,6 @@ async def test_dashboard_add_insights(dashboard_setup):
     tool = EditCurrentDashboardTool(
         team=dashboard.team,
         user=conversation.user,
-        tool_call_id="test-tool-call-id",
         config=RunnableConfig(
             configurable={
                 "thread_id": conversation.id,

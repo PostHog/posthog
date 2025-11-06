@@ -20,6 +20,7 @@ import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/Sea
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
+import { OutputTab } from '../outputPaneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export const QueryDatabase = (): JSX.Element => {
@@ -103,9 +104,14 @@ export const QueryDatabase = (): JSX.Element => {
                             <div className="flex flex-row gap-1 justify-between">
                                 <span
                                     className={cn(
-                                        ['managed-views', 'views', 'sources', 'drafts', 'unsaved-folder'].includes(
-                                            item.record?.type
-                                        ) && 'font-bold',
+                                        [
+                                            'managed-views',
+                                            'views',
+                                            'sources',
+                                            'drafts',
+                                            'unsaved-folder',
+                                            'endpoints',
+                                        ].includes(item.record?.type) && 'font-bold',
                                         item.record?.type === 'column' && 'font-mono text-xs',
                                         'truncate'
                                     )}
@@ -349,7 +355,41 @@ export const QueryDatabase = (): JSX.Element => {
                     )
                 }
 
-                if (item.record?.type === 'sources') {
+                // Show menu for endpoints
+                if (item.record?.type === 'endpoint') {
+                    return (
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    sceneLogic.actions.newTab(urls.endpoint(item.name))
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>View endpoint</ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    sceneLogic.actions.newTab(
+                                        urls.sqlEditor(
+                                            item.record?.endpoint?.query.query,
+                                            undefined,
+                                            undefined,
+                                            undefined,
+                                            OutputTab.Endpoint
+                                        )
+                                    )
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Edit endpoint query</ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
+                }
+
+                if (['sources', 'endpoints'].includes(item.record?.type)) {
                     // used to override default icon behavior
                     return null
                 }
@@ -368,6 +408,25 @@ export const QueryDatabase = (): JSX.Element => {
                                 router.actions.push(urls.dataWarehouseSourceNew())
                             }}
                             data-attr="sql-editor-add-source"
+                        >
+                            <IconPlusSmall className="text-tertiary" />
+                        </ButtonPrimitive>
+                    )
+                }
+
+                if (item.record?.type === 'endpoints') {
+                    return (
+                        <ButtonPrimitive
+                            iconOnly
+                            isSideActionRight
+                            className="z-2"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                sceneLogic.actions.newTab(
+                                    urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.Endpoint)
+                                )
+                            }}
+                            data-attr="sql-editor-add-endpoint"
                         >
                             <IconPlusSmall className="text-tertiary" />
                         </ButtonPrimitive>
