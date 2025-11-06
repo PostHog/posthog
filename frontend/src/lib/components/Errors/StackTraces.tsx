@@ -258,7 +258,7 @@ function FrameContextLine({
     )
 }
 
-function FrameVariables({ variables }: { variables: Record<string, string> }): JSX.Element {
+function FrameVariables({ variables }: { variables: Record<string, unknown> }): JSX.Element {
     const entries = Object.entries(variables) as [string, unknown][]
 
     return (
