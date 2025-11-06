@@ -9,7 +9,6 @@ import { IconCopy, IconExternal } from '@posthog/icons'
 import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -426,8 +425,7 @@ function renderTextWithLinks(text: string, traceId?: string): JSX.Element[] {
                                     onClick={() => {
                                         const url = new URL(window.location.href)
                                         url.searchParams.set('line', lineNumber.toString())
-                                        copyToClipboard(url.toString(), 'line')
-                                        lemonToast.success('Permalink copied to clipboard')
+                                        copyToClipboard(url.toString(), 'permalink')
                                     }}
                                 >
                                     {linePrefix}
