@@ -96,7 +96,9 @@ class ExportedAsset(models.Model):
     objects_including_ttl_deleted: models.Manager["ExportedAsset"] = models.Manager()
 
     def save(self, *args, **kwargs):
-        if not self.expires_after:
+        # Only set expires_after on initial creation or when it's explicitly being updated
+        update_fields = kwargs.get("update_fields")
+        if not self.expires_after and (update_fields is None or "expires_after" in update_fields):
             expiry_delta = SIX_MONTHS
 
             if self.export_format in (self.ExportFormat.CSV, self.ExportFormat.XLSX):
@@ -110,6 +112,10 @@ class ExportedAsset(models.Model):
 
             expiry_datetime = now() + expiry_delta
             self.expires_after = expiry_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
+
+            # Add expires_after to update_fields if it's being used
+            if update_fields is not None:
+                kwargs["update_fields"] = set(update_fields) | {"expires_after"}
 
         super().save(*args, **kwargs)
 
