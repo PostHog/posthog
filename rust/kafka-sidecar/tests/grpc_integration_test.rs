@@ -11,14 +11,41 @@ use rdkafka::{
     message::Headers,
     Message,
 };
+use std::io;
 use std::net::SocketAddr;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 use tonic::transport::Server;
 use tonic::Request;
 
 const KAFKA_BROKERS: &str = "localhost:9092";
 const TEST_TOPIC: &str = "kafka-sidecar-integration-test";
+
+/// Simple wrapper to convert TcpListener into a Stream
+struct TcpListenerStream {
+    listener: TcpListener,
+}
+
+impl TcpListenerStream {
+    fn new(listener: TcpListener) -> Self {
+        Self { listener }
+    }
+}
+
+impl futures::Stream for TcpListenerStream {
+    type Item = io::Result<TcpStream>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.listener.poll_accept(cx) {
+            Poll::Ready(Ok((stream, _))) => Poll::Ready(Some(Ok(stream))),
+            Poll::Ready(Err(e)) => Poll::Ready(Some(Err(e))),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
 
 /// Helper to start the gRPC server on a random available port
 async fn start_test_server() -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
@@ -47,7 +74,7 @@ async fn start_test_server() -> Result<(SocketAddr, tokio::task::JoinHandle<()>)
     let server_handle = tokio::spawn(async move {
         Server::builder()
             .add_service(KafkaProducerServer::new(kafka_service))
-            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+            .serve_with_incoming(TcpListenerStream::new(listener))
             .await
             .expect("Server failed");
     });
@@ -81,7 +108,7 @@ async fn test_grpc_produce_to_kafka() -> Result<()> {
     let (server_addr, _server_handle) = start_test_server().await?;
 
     // Connect to gRPC server
-    let grpc_url = format!("http://{}", server_addr);
+    let grpc_url = format!("http://{server_addr}");
     let mut client = KafkaProducerClient::connect(grpc_url).await?;
 
     // Send a test message via gRPC
@@ -107,7 +134,7 @@ async fn test_grpc_produce_to_kafka() -> Result<()> {
     // Consume and verify the message
     let message = timeout(Duration::from_secs(5), consumer.recv())
         .await?
-        .map_err(|e| anyhow::anyhow!("Failed to receive message: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to receive message: {e}"))?;
 
     assert_eq!(
         message.payload(),
@@ -139,7 +166,7 @@ async fn test_grpc_produce_without_key() -> Result<()> {
     let (server_addr, _server_handle) = start_test_server().await?;
 
     // Connect to gRPC server
-    let grpc_url = format!("http://{}", server_addr);
+    let grpc_url = format!("http://{server_addr}");
     let mut client = KafkaProducerClient::connect(grpc_url).await?;
 
     // Send message without key
@@ -162,7 +189,7 @@ async fn test_grpc_produce_without_key() -> Result<()> {
     // Verify message
     let message = timeout(Duration::from_secs(5), consumer.recv())
         .await?
-        .map_err(|e| anyhow::anyhow!("Failed to receive message: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to receive message: {e}"))?;
 
     assert_eq!(
         message.payload(),
@@ -182,15 +209,15 @@ async fn test_grpc_produce_multiple_messages() -> Result<()> {
     let (server_addr, _server_handle) = start_test_server().await?;
 
     // Connect to gRPC server
-    let grpc_url = format!("http://{}", server_addr);
+    let grpc_url = format!("http://{server_addr}");
     let mut client = KafkaProducerClient::connect(grpc_url).await?;
 
     // Send multiple messages
     let message_count = 100;
     for i in 0..message_count {
         let request = Request::new(ProduceRequest {
-            value: format!("message-{}", i).into_bytes(),
-            key: Some(format!("key-{}", i).into_bytes()),
+            value: format!("message-{i}").into_bytes(),
+            key: Some(format!("key-{i}").into_bytes()),
             topic: test_topic.clone(),
             headers: Default::default(),
         });
@@ -198,7 +225,7 @@ async fn test_grpc_produce_multiple_messages() -> Result<()> {
         let response = client.produce(request).await?;
         let offset = response.into_inner().offset;
 
-        assert!(offset >= 0, "Should receive valid offset for message {}", i);
+        assert!(offset >= 0, "Should receive valid offset for message {i}");
     }
 
     Ok(())
@@ -212,7 +239,7 @@ async fn test_grpc_produce_concurrent_messages() -> Result<()> {
     let (server_addr, _server_handle) = start_test_server().await?;
 
     // Connect to gRPC server
-    let grpc_url = format!("http://{}", server_addr);
+    let grpc_url = format!("http://{server_addr}");
 
     // Send 1000 messages concurrently
     let message_count = 1000;
@@ -228,8 +255,8 @@ async fn test_grpc_produce_concurrent_messages() -> Result<()> {
                 .expect("Failed to connect");
 
             let request = Request::new(ProduceRequest {
-                value: format!("concurrent-message-{}", i).into_bytes(),
-                key: Some(format!("key-{}", i).into_bytes()),
+                value: format!("concurrent-message-{i}").into_bytes(),
+                key: Some(format!("key-{i}").into_bytes()),
                 topic: test_topic,
                 headers: vec![("test".to_string(), "concurrent".to_string())]
                     .into_iter()
@@ -255,15 +282,14 @@ async fn test_grpc_produce_concurrent_messages() -> Result<()> {
                 success_count += 1;
             }
             Err(e) => {
-                panic!("Task failed: {}", e);
+                panic!("Task failed: {e}");
             }
         }
     }
 
     assert_eq!(
         success_count, message_count,
-        "All {} messages should be produced successfully",
-        message_count
+        "All {message_count} messages should be produced successfully"
     );
 
     Ok(())

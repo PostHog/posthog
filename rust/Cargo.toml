@@ -125,7 +125,6 @@ regex = "1.11.1"
 lz-str = "0.2.1"
 opentelemetry-proto = "0.29.0"
 tonic = "0.12.3"
-tonic-health = "0.12.3"
 clickhouse = { version = "0.13.2", features = [
     "uuid",
     "time",

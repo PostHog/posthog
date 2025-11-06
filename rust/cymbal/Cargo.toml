@@ -27,7 +27,7 @@ sqlx = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
 sourcemap = "9.0.0"
-symbolic = { version = "12.12.1", features = ["sourcemapcache"] }
+symbolic = { version = "12.16.3", features = ["sourcemapcache"] }
 proguard = "5.6.2"
 reqwest = { workspace = true }
 sha2 = "0.10.8"

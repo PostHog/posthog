@@ -9,9 +9,9 @@ common-kafka = { path = "../common/kafka" }
 health = { path = "../common/health" }
 
 # gRPC and async runtime
-tonic = { workspace = true }
+tonic = "0.12.3"
 tokio = { workspace = true }
-tonic-health = { workspace = true }
+tonic-health = "0.12.3"
 prost = "0.13"
 
 # Kafka client
@@ -33,7 +33,6 @@ serde = { workspace = true }
 
 [dev-dependencies]
 uuid = { workspace = true }
-tokio-stream = { version = "0.1", features = ["net"] }
 futures = { workspace = true }
 
 [build-dependencies]
