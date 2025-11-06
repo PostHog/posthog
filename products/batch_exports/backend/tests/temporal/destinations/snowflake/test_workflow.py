@@ -163,9 +163,11 @@ async def test_snowflake_export_workflow_exports_events(
         for call in cursor._execute_async_calls:
             execute_async_calls.append(call["query"].strip())
 
+    warehouse = snowflake_batch_export.destination.config["warehouse"]
     assert execute_async_calls[0:3] == [
         f'USE DATABASE "{database}"',
         f'USE SCHEMA "{schema}"',
+        f'USE WAREHOUSE "{warehouse}"',
         "SET ABORT_DETACHED_QUERY = FALSE",
     ]
 
