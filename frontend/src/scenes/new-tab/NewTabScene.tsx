@@ -9,6 +9,8 @@ import { NEW_TAB_COMMANDS, NEW_TAB_COMMANDS_ITEMS, newTabSceneLogic } from 'scen
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
+import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 
 import { ProjectFileBrowser } from './components/ProjectFileBrowser'
@@ -36,6 +38,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         fileBrowserIsLoading,
         fileBrowserFirstFolderMatch,
     } = useValues(newTabSceneLogic({ tabId }))
+    const { searchTerm: projectTreeSearchTerm } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle, setProjectPath, loadMoreFileBrowser } =
         useActions(newTabSceneLogic({ tabId }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
@@ -50,12 +53,23 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
 
     // Convert active commands to selected commands for the SearchInput
     // Filter out 'all' since that represents the default state (no specific filters)
-    const selectedCommands: SearchInputCommand<NEW_TAB_COMMANDS>[] = activeCommands
-        .filter((commandValue) => commandValue !== 'all')
-        .map((commandValue) => {
-            const commandInfo = NEW_TAB_COMMANDS_ITEMS.find((cmd) => cmd.value === commandValue)
-            return commandInfo || { value: commandValue, displayName: commandValue }
-        })
+    const fallbackCommandLabels: Partial<Record<NEW_TAB_COMMANDS, string>> = {
+        'project-folders': 'Project folders',
+    }
+
+    const selectedCommands: SearchInputCommand<NEW_TAB_COMMANDS>[] = isFileBrowserMode
+        ? []
+        : activeCommands
+              .filter((commandValue) => commandValue !== 'all')
+              .map((commandValue) => {
+                  const commandInfo = NEW_TAB_COMMANDS_ITEMS.find((cmd) => cmd.value === commandValue)
+                  if (commandInfo) {
+                      return commandInfo
+                  }
+
+                  const displayName = fallbackCommandLabels[commandValue] || commandValue
+                  return { value: commandValue, displayName }
+              })
 
     const navigateToFolder = (path: string): void => {
         const trimmed = path.replace(/^\/+/, '').replace(/\/+$/, '')
@@ -89,6 +103,17 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         navigateToFolder(path)
     }
 
+    const handleEmptyBackspace = (): void => {
+        if (!isFileBrowserMode) {
+            return
+        }
+        if (!projectFolderPath) {
+            handleFileBrowserFolderOpen(null)
+            return
+        }
+        handleFileBrowserFolderOpen(fileBrowserParentPath, { focusPath: projectFolderPath })
+    }
+
     useEffect(() => {
         const focusPath = pendingFocusPathRef.current
         if (!focusPath) {
@@ -107,6 +132,12 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
             }
         }
     }, [fileBrowserListItems])
+
+    useEffect(() => {
+        if (isFileBrowserMode && projectTreeSearchTerm !== search) {
+            setSearch(projectTreeSearchTerm)
+        }
+    }, [isFileBrowserMode, projectTreeSearchTerm])
 
     return (
         <>
@@ -150,7 +181,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                             ) : null}
                             <SearchInput
                                 ref={commandInputRef}
-                                commands={NEW_TAB_COMMANDS_ITEMS}
+                                commands={isFileBrowserMode ? [] : NEW_TAB_COMMANDS_ITEMS}
                                 value={search}
                                 onChange={handleSearchChange}
                                 placeholder={
@@ -158,6 +189,8 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                         ? 'Filter this folder or open a subfolder…'
                                         : 'Search or ask an AI question'
                                 }
+                                enableCommands={!isFileBrowserMode}
+                                onEmptyBackspace={isFileBrowserMode ? handleEmptyBackspace : undefined}
                                 activeCommands={activeCommands}
                                 selectedCommands={selectedCommands}
                                 onCommandSelect={(command) => {

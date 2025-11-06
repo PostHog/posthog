@@ -24,6 +24,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { urls } from 'scenes/urls'
 
+import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import {
     ProductIconWrapper,
     getDefaultTreeData,
@@ -36,7 +37,7 @@ import {
     PAGINATION_LIMIT as PROJECT_TREE_PAGINATION_LIMIT,
     projectTreeDataLogic,
 } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { SearchResults, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { joinPath, sortFilesAndFolders, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { groupsModel } from '~/models/groupsModel'
@@ -79,7 +80,6 @@ export type NEW_TAB_COMMANDS =
 
 export const NEW_TAB_COMMANDS_ITEMS: SearchInputCommand<NEW_TAB_COMMANDS>[] = [
     { value: 'all', displayName: 'All' },
-    { value: 'project-folders', displayName: 'Project folders' },
     { value: 'create-new', displayName: 'Create new' },
     { value: 'apps', displayName: 'Apps' },
     { value: 'data-management', displayName: 'Data management' },
@@ -194,8 +194,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             ['groupTypes', 'aggregationLabel'],
             projectTreeDataLogic,
             ['folders', 'folderStates'],
+            projectTreeLogic({ key: PROJECT_TREE_KEY }),
+            [
+                'searchResults as projectTreeSearchResults',
+                'searchResultsLoading as projectTreeSearchResultsLoading',
+                'searchTerm as projectTreeSearchTerm',
+            ],
         ],
-        actions: [projectTreeDataLogic, ['loadFolder']],
+        actions: [
+            projectTreeDataLogic,
+            ['loadFolder'],
+            projectTreeLogic({ key: PROJECT_TREE_KEY }),
+            [
+                'setSearchTerm as setProjectTreeSearchTerm',
+                'clearSearch as clearProjectTreeSearch',
+                'loadSearchResults as loadProjectTreeSearchResults',
+            ],
+        ],
     })),
     actions({
         setSearch: (search: string) => ({ search }),
@@ -894,21 +909,74 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         fileBrowserFilteredEntries: [
-            (s) => [s.currentFolderEntries, s.search],
-            (entries: FileSystemEntry[], search: string): FileSystemEntry[] => {
-                const trimmed = search.trim().toLowerCase()
+            (s) => [
+                s.currentFolderEntries,
+                s.search,
+                s.projectTreeSearchResults,
+                s.projectTreeSearchTerm,
+                s.projectFolderPath,
+            ],
+            (
+                entries: FileSystemEntry[],
+                search: string,
+                projectTreeSearchResults,
+                projectTreeSearchTerm,
+                projectFolderPath
+            ): FileSystemEntry[] => {
+                const trimmed = search.trim()
                 if (!trimmed) {
                     return entries
                 }
-                const chunks = trimmed.split(' ').filter((chunk) => chunk)
+
+                const lowerSearch = trimmed.toLowerCase()
+                const chunks = lowerSearch.split(' ').filter((chunk) => chunk)
                 if (chunks.length === 0) {
                     return entries
                 }
-                return entries.filter((entry) => {
+
+                const directMatches = entries.filter((entry) => {
                     const name = splitPath(entry.path).pop()?.toLowerCase() ?? ''
                     const type = entry.type?.toLowerCase() ?? ''
                     return chunks.every((chunk) => name.includes(chunk) || type.includes(chunk))
                 })
+
+                const seenPaths = new Set(directMatches.map((entry) => entry.path))
+                const descendantMatches: FileSystemEntry[] = []
+                const treeSearchTermLower = (projectTreeSearchTerm ?? '').trim().toLowerCase()
+                const treeResultsTermLower = projectTreeSearchResults.searchTerm.trim().toLowerCase()
+                const treeSearchMatches = treeSearchTermLower === lowerSearch && treeResultsTermLower === lowerSearch
+
+                if (treeSearchMatches) {
+                    for (const entry of projectTreeSearchResults.results) {
+                        if (!entry.path) {
+                            continue
+                        }
+
+                        if (projectFolderPath) {
+                            if (entry.path === projectFolderPath) {
+                                continue
+                            }
+                            if (!entry.path.startsWith(`${projectFolderPath}/`)) {
+                                continue
+                            }
+                        }
+
+                        if (seenPaths.has(entry.path)) {
+                            continue
+                        }
+
+                        const name = splitPath(entry.path).pop()?.toLowerCase() ?? ''
+                        const type = entry.type?.toLowerCase() ?? ''
+                        if (!chunks.every((chunk) => name.includes(chunk) || type.includes(chunk))) {
+                            continue
+                        }
+
+                        seenPaths.add(entry.path)
+                        descendantMatches.push(entry)
+                    }
+                }
+
+                return [...directMatches, ...descendantMatches]
             },
         ],
         fileBrowserListItems: [
@@ -937,12 +1005,22 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (entries): FileSystemEntry | null => entries.find((entry) => entry.type === 'folder') ?? null,
         ],
         fileBrowserHasMore: [
-            (s) => [s.projectFolderPath, s.folderStates],
-            (projectFolderPath, folderStates): boolean => folderStates[projectFolderPath] === 'has-more',
+            (s) => [s.projectFolderPath, s.folderStates, s.search, s.projectTreeSearchResults],
+            (projectFolderPath, folderStates, search, projectTreeSearchResults): boolean => {
+                if (search.trim()) {
+                    return projectTreeSearchResults.hasMore
+                }
+                return folderStates[projectFolderPath] === 'has-more'
+            },
         ],
         fileBrowserIsLoading: [
-            (s) => [s.projectFolderPath, s.folderStates],
-            (projectFolderPath, folderStates): boolean => folderStates[projectFolderPath] === 'loading',
+            (s) => [s.projectFolderPath, s.folderStates, s.search, s.projectTreeSearchResultsLoading],
+            (projectFolderPath, folderStates, search, projectTreeSearchResultsLoading): boolean => {
+                if (search.trim()) {
+                    return projectTreeSearchResultsLoading
+                }
+                return folderStates[projectFolderPath] === 'loading'
+            },
         ],
         personSearchItems: [
             (s) => [s.personSearchResults],
@@ -1764,9 +1842,17 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         setProjectPath: ({ projectPath }) => {
             const folder = normalizeProjectPath(projectPath)
             actions.loadFolder(folder)
+            if (projectPath === null) {
+                actions.clearProjectTreeSearch()
+            }
         },
         loadMoreFileBrowser: () => {
             const folder = values.projectFolderPath
+            const searchTerm = values.search.trim()
+            if (searchTerm) {
+                actions.loadProjectTreeSearchResults(searchTerm, values.projectTreeSearchResults.results.length)
+                return
+            }
             actions.loadFolder(folder)
         },
         logCreateNewItem: async ({ href }) => {
@@ -1832,8 +1918,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 }
             }
         },
-        setSearch: () => {
+        setSearch: ({ search }) => {
             if (values.isFileBrowserMode) {
+                if (search.trim()) {
+                    actions.setProjectTreeSearchTerm(search)
+                } else {
+                    actions.clearProjectTreeSearch()
+                }
                 return
             }
             actions.loadRecents()

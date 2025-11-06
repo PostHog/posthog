@@ -51,16 +51,21 @@ export function ProjectFileBrowser({
     onLoadMore,
 }: ProjectFileBrowserProps): JSX.Element {
     const parentNavigationPath = parentPath ?? ''
-    const hasParentButton = true
+    const hasParentButton = parentPath !== null
     const trimmedSearch = useMemo(() => search.trim(), [search])
     const isFiltering = trimmedSearch.length > 0
+    const parentMatchesSearch = trimmedSearch === '.' || trimmedSearch === '..'
+    const showParentButton = hasParentButton && (!isFiltering || parentMatchesSearch)
     const groupRef = useRef<ListBoxGroupHandle | null>(null)
 
     useEffect(() => {
-        if (isFiltering && items.length > 0) {
-            groupRef.current?.resumeFocus(1)
+        if (isFiltering) {
+            const targetIndex = parentMatchesSearch ? 0 : showParentButton ? 1 : 0
+            if (parentMatchesSearch || items.length > 0) {
+                groupRef.current?.resumeFocus(targetIndex)
+            }
         }
-    }, [isFiltering, items])
+    }, [isFiltering, items, parentMatchesSearch, showParentButton])
 
     const handleParentClick = (): void => {
         if (!currentPath) {
@@ -74,7 +79,7 @@ export function ProjectFileBrowser({
     return (
         <ListBox.Group ref={groupRef} groupId="project-file-browser">
             <div className="flex flex-col gap-1">
-                {hasParentButton ? (
+                {showParentButton ? (
                     <ButtonGroupPrimitive className="group w-full border-0">
                         <ListBox.Item asChild row={0} column={0} focusKey="project-browser-parent" index={0}>
                             <ButtonPrimitive size="sm" className="w-full justify-start" onClick={handleParentClick}>
@@ -85,7 +90,7 @@ export function ProjectFileBrowser({
                 ) : null}
                 {items.map((item, index) => {
                     const isFolder = item.record && (item.record as any).type === 'folder'
-                    const listIndex = hasParentButton ? index + 1 : index
+                    const listIndex = showParentButton ? index + 1 : index
                     const iconContent = isFolder ? <IconFolder className="size-4" /> : (item.icon ?? item.name[0])
                     return (
                         <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
@@ -174,10 +179,10 @@ export function ProjectFileBrowser({
                 {hasMore ? (
                     <ListBox.Item
                         asChild
-                        row={items.length + (hasParentButton ? 1 : 0)}
+                        row={items.length + (showParentButton ? 1 : 0)}
                         column={0}
                         focusKey="project-browser-load-more"
-                        index={items.length + (hasParentButton ? 1 : 0)}
+                        index={items.length + (showParentButton ? 1 : 0)}
                     >
                         <ButtonPrimitive
                             size="sm"

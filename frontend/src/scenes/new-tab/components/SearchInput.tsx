@@ -34,6 +34,8 @@ interface SearchInputProps<T = string> {
     onSelectedCommandsChange?: (commands: SearchInputCommand<T>[]) => void
     activeCommands?: T[]
     onClearAll?: () => void
+    enableCommands?: boolean
+    onEmptyBackspace?: () => void
 }
 
 export interface SearchInputHandle {
@@ -52,6 +54,8 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
         onSelectedCommandsChange,
         activeCommands = [],
         onClearAll,
+        enableCommands = true,
+        onEmptyBackspace,
     }: SearchInputProps<T>,
     ref: React.Ref<SearchInputHandle>
 ) {
@@ -87,6 +91,13 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     const handleInputChange = (newValue: string): void => {
         setInputValue(newValue)
         onChange?.(newValue)
+
+        if (!enableCommands) {
+            if (showDropdown) {
+                setShowDropdown(false)
+            }
+            return
+        }
 
         // Clear focused tag and expanded state when user starts typing
         if (focusedTagIndex !== null) {
@@ -142,6 +153,9 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     const handleKeyDown = (e: React.KeyboardEvent): void => {
         switch (e.key) {
             case '/':
+                if (!enableCommands) {
+                    break
+                }
                 if (!showDropdown && inputValue === '') {
                     // Only prevent default and show dropdown if input is empty
                     e.preventDefault()
@@ -153,6 +167,14 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 break
             case 'Backspace':
                 if (inputValue === '') {
+                    if (!enableCommands) {
+                        if (onEmptyBackspace) {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            onEmptyBackspace()
+                        }
+                        break
+                    }
                     e.preventDefault()
                     e.stopPropagation() // Prevent parent ListBox from handling this event
                     if (selectedCommands.length === 0) {
@@ -172,6 +194,9 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 }
                 break
             case 'ArrowLeft':
+                if (!enableCommands) {
+                    break
+                }
                 if (e.metaKey) {
                     return
                 }
@@ -207,6 +232,9 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 }
                 break
             case 'ArrowRight':
+                if (!enableCommands) {
+                    break
+                }
                 if (e.metaKey) {
                     return
                 }
@@ -242,6 +270,9 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 }
                 break
             case 'ArrowDown':
+                if (!enableCommands) {
+                    break
+                }
                 if (inputValue === '' && expandedTags && focusedTagIndex === -1) {
                     e.preventDefault()
                     e.stopPropagation() // Prevent parent ListBox from handling this event
@@ -250,6 +281,9 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 }
                 break
             case 'Escape':
+                if (!enableCommands) {
+                    break
+                }
                 if (showDropdown || expandedTags) {
                     e.preventDefault()
                     e.stopPropagation()
@@ -273,114 +307,118 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     'flex gap-1 focus-within:border-secondary items-center h-8 rounded-lg'
                 )}
             >
-                <DropdownMenu
-                    open={showDropdown}
-                    onOpenChange={(open) => {
-                        setShowDropdown(open)
-                    }}
-                >
-                    <DropdownMenuTrigger asChild>
-                        <ButtonPrimitive
-                            variant="outline"
-                            className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
-                            iconOnly
-                            size="sm"
-                            tooltip={
-                                <>
-                                    Click to show commands/filters, or type <KeyboardShortcut forwardslash />
-                                </>
-                            }
-                            tooltipPlacement="bottom"
-                        >
-                            /
-                        </ButtonPrimitive>
-                    </DropdownMenuTrigger>
-
-                    <DropdownMenuContent
-                        align="start"
-                        className="min-w-[200px]"
-                        onCloseAutoFocus={(e) => {
-                            e.preventDefault()
-
-                            setTimeout(() => {
-                                if (inputRef.current) {
-                                    inputRef.current.focus()
-                                }
-                            }, 100)
+                {enableCommands ? (
+                    <DropdownMenu
+                        open={showDropdown}
+                        onOpenChange={(open) => {
+                            setShowDropdown(open)
                         }}
                     >
-                        <DropdownMenuGroup>
-                            <Label intent="menu" className="px-2">
-                                Filters
-                            </Label>
-                            <DropdownMenuSeparator />
-                            {filteredCommands.map((command) => {
-                                const isActive = activeCommands.includes(command.value)
-                                return (
-                                    <DropdownMenuItem key={command.value as string} asChild>
-                                        <ButtonPrimitive
-                                            className="group flex items-center text-left"
-                                            onClick={() => selectCommand(command)}
-                                            fullWidth
-                                            menuItem
-                                        >
-                                            <div className="flex items-center justify-center">
-                                                <IconCheck
-                                                    className={cn(
-                                                        'hidden size-4 group-hover:block group-hover:opacity-10',
-                                                        {
-                                                            'opacity-10': !isActive,
-                                                            'block text-success group-hover:opacity-100': isActive,
-                                                        }
-                                                    )}
-                                                />
-                                                <IconBlank
-                                                    className={cn('hidden size-4 group-hover:hidden', {
-                                                        block: !isActive,
-                                                    })}
-                                                />
-                                            </div>
+                        <DropdownMenuTrigger asChild>
+                            <ButtonPrimitive
+                                variant="outline"
+                                className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary ${
+                                    focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''
+                                }`}
+                                iconOnly
+                                size="sm"
+                                tooltip={
+                                    <>
+                                        Click to show commands/filters, or type <KeyboardShortcut forwardslash />
+                                    </>
+                                }
+                                tooltipPlacement="bottom"
+                            >
+                                /
+                            </ButtonPrimitive>
+                        </DropdownMenuTrigger>
 
-                                            <div className="font-medium text-primary">{command.displayName}</div>
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                )
-                            })}
-                        </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                        <DropdownMenuContent
+                            align="start"
+                            className="min-w-[200px]"
+                            onCloseAutoFocus={(e) => {
+                                e.preventDefault()
 
-                {/* Selected inline tags */}
-                {selectedCommands.length === 0 ? null : selectedCommands.length === 1 || expandedTags ? (
-                    selectedCommands.map((command, index) => (
-                        <ButtonPrimitive
-                            key={command.value as string}
-                            className={`text-primary ${focusedTagIndex === index ? 'ring-2 ring-accent' : ''}`}
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                                selectCommand(command)
-                                setShowDropdown(false)
-                                setExpandedTags(false)
-                                setFocusedTagIndex(null)
+                                setTimeout(() => {
+                                    if (inputRef.current) {
+                                        inputRef.current.focus()
+                                    }
+                                }, 100)
                             }}
                         >
-                            {command.displayName}
-                            <IconX className="size-3 ml-1 text-tertiary" />
-                        </ButtonPrimitive>
-                    ))
-                ) : (
-                    <ButtonPrimitive
-                        className="text-primary"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setShowDropdown(true)}
-                    >
-                        {selectedCommands.length} filters
-                        <IconChevronRight className="ml-1 rotate-90 text-tertiary" />
-                    </ButtonPrimitive>
-                )}
+                            <DropdownMenuGroup>
+                                <Label intent="menu" className="px-2">
+                                    Filters
+                                </Label>
+                                <DropdownMenuSeparator />
+                                {filteredCommands.map((command) => {
+                                    const isActive = activeCommands.includes(command.value)
+                                    return (
+                                        <DropdownMenuItem key={command.value as string} asChild>
+                                            <ButtonPrimitive
+                                                className="group flex items-center text-left"
+                                                onClick={() => selectCommand(command)}
+                                                fullWidth
+                                                menuItem
+                                            >
+                                                <div className="flex items-center justify-center">
+                                                    <IconCheck
+                                                        className={cn(
+                                                            'hidden size-4 group-hover:block group-hover:opacity-10',
+                                                            {
+                                                                'opacity-10': !isActive,
+                                                                'block text-success group-hover:opacity-100': isActive,
+                                                            }
+                                                        )}
+                                                    />
+                                                    <IconBlank
+                                                        className={cn('hidden size-4 group-hover:hidden', {
+                                                            block: !isActive,
+                                                        })}
+                                                    />
+                                                </div>
 
+                                                <div className="font-medium text-primary">{command.displayName}</div>
+                                            </ButtonPrimitive>
+                                        </DropdownMenuItem>
+                                    )
+                                })}
+                            </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                ) : null}
+
+                {/* Selected inline tags */}
+                {enableCommands &&
+                    (selectedCommands.length === 0 ? null : selectedCommands.length === 1 || expandedTags ? (
+                        selectedCommands.map((command, index) => (
+                            <ButtonPrimitive
+                                key={command.value as string}
+                                className={`text-primary ${focusedTagIndex === index ? 'ring-2 ring-accent' : ''}`}
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                    selectCommand(command)
+                                    setShowDropdown(false)
+                                    setExpandedTags(false)
+                                    setFocusedTagIndex(null)
+                                }}
+                            >
+                                {command.displayName}
+                                <IconX className="size-3 ml-1 text-tertiary" />
+                            </ButtonPrimitive>
+                        ))
+                    ) : (
+                        <ButtonPrimitive
+                            className="text-primary"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setShowDropdown(true)}
+                        >
+                            {selectedCommands.length} filters
+                            <IconChevronRight className="ml-1 rotate-90 text-tertiary" />
+                        </ButtonPrimitive>
+                    ))}
                 {/* Input Field */}
                 <TextInputPrimitive
                     id="command-input"
@@ -394,7 +432,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     className="pl-1 w-full border-none flex-1 h-full min-h-full rounded-r-lg"
                     size="lg"
                     suffix={
-                        (inputValue !== '' || selectedCommands.length > 0) && (
+                        (inputValue !== '' || (enableCommands && selectedCommands.length > 0)) && (
                             <ListBox.Item asChild>
                                 <ButtonPrimitive
                                     iconOnly
@@ -402,11 +440,15 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                                         setInputValue('')
                                         onChange?.('')
                                         // Reset all tag states
-                                        setExpandedTags(false)
-                                        setFocusedTagIndex(null)
-                                        setShowDropdown(false)
+                                        if (enableCommands) {
+                                            setExpandedTags(false)
+                                            setFocusedTagIndex(null)
+                                            setShowDropdown(false)
+                                        }
                                         // Clear all filters if handler is provided
-                                        onClearAll?.()
+                                        if (enableCommands) {
+                                            onClearAll?.()
+                                        }
                                         inputRef.current?.focus()
                                     }}
                                     aria-label="Clear input and filters"
