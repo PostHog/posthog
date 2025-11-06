@@ -107,7 +107,7 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created the tag{' '}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the tag{' '}
                     <strong>{nameOrId(logItem?.detail?.name, logItem?.item_id)}</strong>
                 </>
             ),
@@ -118,7 +118,7 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted the tag{' '}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the tag{' '}
                     <strong>{nameOrId(logItem?.detail?.name, logItem?.item_id)}</strong>
                 </>
             ),
@@ -129,7 +129,7 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> updated the tag{' '}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated the tag{' '}
                     <strong>{nameOrId(logItem?.detail?.name, logItem?.item_id)}</strong>
                 </>
             ),
@@ -149,8 +149,8 @@ function taggedItemActivityDescriber(logItem: ActivityLogItem, asNotification?: 
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> tagged {relatedObjectDesc} with tag{' '}
-                    <strong>{tagName}</strong>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> tagged {relatedObjectDesc}{' '}
+                    with tag <strong>{tagName}</strong>
                 </>
             ),
         }
@@ -160,8 +160,8 @@ function taggedItemActivityDescriber(logItem: ActivityLogItem, asNotification?: 
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> removed tag <strong>{tagName}</strong>{' '}
-                    {relatedObjectDescFrom}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> removed tag{' '}
+                    <strong>{tagName}</strong> {relatedObjectDescFrom}
                 </>
             ),
         }

@@ -36,7 +36,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
@@ -536,7 +535,6 @@ export function PageHeaderCustom(): JSX.Element {
                     </>
                 }
             />
-            <SceneDivider />
 
             {experiment && isExperimentRunning && (
                 <ScenePanel>
