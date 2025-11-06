@@ -20,6 +20,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
@@ -231,8 +232,11 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             )
             new_source = SourceRegistry.get_source(source_type)
             config = new_source.parse_config(model.pipeline.job_inputs)
+
+            resumable_source_manager: ResumableSourceManager | None = None
             if isinstance(new_source, ResumableSource):
-                pass
+                resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
+                source = new_source.source_for_pipeline(config, resumable_source_manager, source_inputs)
             else:
                 source = new_source.source_for_pipeline(config, source_inputs)
 
@@ -242,6 +246,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 logger=logger,
                 reset_pipeline=reset_pipeline,
                 shutdown_monitor=shutdown_monitor,
+                resumable_source_manager=resumable_source_manager,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -253,8 +258,11 @@ def _run(
     logger: FilteringBoundLogger,
     reset_pipeline: bool,
     shutdown_monitor: ShutdownMonitor,
+    resumable_source_manager: ResumableSourceManager | None,
 ):
-    pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor)
+    pipeline = PipelineNonDLT(
+        source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor, resumable_source_manager
+    )
     pipeline.run()
     logger.debug("Finished running pipeline")
     del pipeline

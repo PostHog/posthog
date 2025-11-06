@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Callable, Iterable
-from typing import Any, ClassVar, Generic, Literal, Optional, Protocol, TypeVar
+from typing import Any, ClassVar, Literal, Optional, Protocol, TypeVar
 
 from dlt.common.data_types.typing import TDataType
 from structlog.types import FilteringBoundLogger
@@ -38,12 +38,6 @@ class SourceResponse:
     rows_to_sync: Optional[int] = None
     has_duplicate_primary_keys: Optional[bool] = None
     """Whether incremental tables have non-unique primary keys"""
-    resumable: Optional[bool] = None
-    """Whether the source supports resumable full-refresh imports"""
-
-
-class ResumableSourceResponse(SourceResponse, Generic[ResumableData]):
-    resume_items: Callable[[ResumableData], Iterable[Any]]
 
 
 @dataclasses.dataclass

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Generic, Protocol, TypeVar, Union
+from typing import Generic, TypeVar, Union
 
 from posthog.schema import (
     SourceConfig,
@@ -11,12 +11,7 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
-from posthog.temporal.data_imports.pipelines.pipeline.typings import (
-    ResumableData,
-    ResumableSourceResponse,
-    SourceInputs,
-    SourceResponse,
-)
+from posthog.temporal.data_imports.pipelines.pipeline.typings import ResumableData, SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -78,23 +73,6 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return True, None
 
 
-class SimpleSourceProtocol(Protocol[ConfigType_contra]):
-    """Protocol for sources that use standard pipeline creation."""
-
-    def source_for_pipeline(self, config: ConfigType_contra, inputs: SourceInputs) -> SourceResponse: ...
-
-
-class ResumableSourceProtocol(Protocol[ConfigType_contra, ResumableData]):
-    """Protocol for sources that support resumable full-refresh imports."""
-
-    def source_for_pipeline(
-        self,
-        config: ConfigType_contra,
-        resumable_source_manager: ResumableSourceManager[ResumableData],
-        inputs: SourceInputs,
-    ) -> ResumableSourceResponse: ...
-
-
 class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources with standard pipeline creation."""
 
@@ -107,9 +85,12 @@ class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData
 
     def source_for_pipeline(
         self, config: ConfigType, resumable_source_manager: ResumableSourceManager[ResumableData], inputs: SourceInputs
-    ) -> ResumableSourceResponse:
+    ) -> SourceResponse:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ResumableData]:
         raise NotImplementedError()
 
 
-# Type alias for any source that can create a pipeline
 AnySource = SimpleSource[ConfigType] | ResumableSource[ConfigType, ResumableData]

@@ -2354,7 +2354,7 @@ async def test_worker_shutdown_desc_sort_order(team, stripe_price, mock_stripe_c
         mock.patch(
             "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
-        mock.patch.object(PipelineNonDLT, "_chunk_size", 1),
+        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1),
     ):
         _, inputs = await _run(
             team=team,
@@ -2390,7 +2390,7 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
         mock.patch(
             "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
-        mock.patch.object(PipelineNonDLT, "_chunk_size", 1),
+        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1),
     ):
         _, inputs = await _run(
             team=team,
@@ -2574,8 +2574,10 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
 @pytest.mark.asyncio
 async def test_pipeline_mb_chunk_size(team, zendesk_brands):
     with (
-        mock.patch.object(PipelineNonDLT, "_chunk_size_bytes", 1),
-        mock.patch.object(PipelineNonDLT, "_chunk_size", 5000),  # Explicitly make this big
+        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE_BYTES", 1),
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 5000
+        ),  # Explicitly make this big
         mock.patch.object(PipelineNonDLT, "_process_pa_table") as mock_process_pa_table,
     ):
         await _run(
