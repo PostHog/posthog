@@ -82,7 +82,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
             <ButtonPrimitive
                 variant="outline"
                 size="sm"
-                // active={!projectFolderPath}
                 onClick={() => navigateToFolder('')}
                 className="truncate max-w-[10rem]"
             >
@@ -93,7 +92,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                     key={crumb.path || crumb.label}
                     variant="outline"
                     size="sm"
-                    // active={index === fileBrowserBreadcrumbs.length - 1}
                     onClick={() => navigateToFolder(crumb.path)}
                     className="truncate max-w-[10rem]"
                 >
