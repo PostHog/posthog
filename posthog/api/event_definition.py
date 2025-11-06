@@ -188,14 +188,14 @@ class EventDefinitionViewSet(
         tags = self.request.GET.get("tags")
         if tags:
             try:
-                tags_list = json.loads(tags)
+                tags_list = orjson.loads(tags)
                 if tags_list:
                     # Convert raw queryset to regular queryset for filtering
                     ids = [obj.id for obj in queryset]
                     queryset = event_definition_object_manager.filter(
                         id__in=ids, tagged_items__tag__name__in=tags_list
                     ).distinct()
-            except (json.JSONDecodeError, TypeError):
+            except (orjson.JSONDecodeError, TypeError):
                 # If the JSON is invalid, ignore the filter
                 pass
 
