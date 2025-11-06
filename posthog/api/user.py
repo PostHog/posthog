@@ -473,53 +473,38 @@ class UserViewSet(
         user = self.get_object()
 
         # Get Zendesk credentials from settings
-        subdomain = getattr(settings, 'ZENDESK_SUBDOMAIN', None)
-        admin_email = getattr(settings, 'ZENDESK_ADMIN_EMAIL', None)
-        api_token = getattr(settings, 'ZENDESK_API_TOKEN', None)
+        subdomain = getattr(settings, "ZENDESK_SUBDOMAIN", None)
+        admin_email = getattr(settings, "ZENDESK_ADMIN_EMAIL", None)
+        api_token = getattr(settings, "ZENDESK_API_TOKEN", None)
 
         if not subdomain or not admin_email or not api_token:
-            return Response({
-                "tickets": [],
-                "count": 0,
-                "error": "Zendesk not configured"
-            })
+            return Response({"tickets": [], "count": 0, "error": "Zendesk not configured"})
 
         try:
             # Create basic auth header
             credentials = f"{admin_email}/token:{api_token}"
-            basic_token = base64.b64encode(credentials.encode()).decode('ascii')
-            headers = {
-                "Authorization": f"Basic {basic_token}",
-                "Content-Type": "application/json"
-            }
+            basic_token = base64.b64encode(credentials.encode()).decode("ascii")
+            headers = {"Authorization": f"Basic {basic_token}", "Content-Type": "application/json"}
 
             # Search for tickets by requester email
             base_url = f"https://{subdomain}.zendesk.com/api/v2"
             search_url = f"{base_url}/search.json"
 
             # Query for open tickets for this user
-            query_string = f'type:ticket requester:{user.email} status<closed'
-            params = {
-                'query': query_string,
-                'sort_by': 'updated_at',
-                'sort_order': 'desc'
-            }
+            query_string = f"type:ticket requester:{user.email} status<closed"
+            params = {"query": query_string, "sort_by": "updated_at", "sort_order": "desc"}
 
             response = requests.get(search_url, headers=headers, params=params, timeout=10)
 
             if response.status_code != 200:
-                return Response({
-                    "tickets": [],
-                    "count": 0,
-                    "error": f"Zendesk API error: {response.status_code}"
-                })
+                return Response({"tickets": [], "count": 0, "error": f"Zendesk API error: {response.status_code}"})
 
             data = response.json()
-            results = data.get('results', [])
+            results = data.get("results", [])
 
             tickets = []
             for ticket in results:
-                ticket_id = ticket.get('id')
+                ticket_id = ticket.get("id")
 
                 # Fetch comments for this ticket
                 comments = []
@@ -529,12 +514,12 @@ class UserViewSet(
 
                     if comments_response.status_code == 200:
                         comments_data = comments_response.json()
-                        for comment in comments_data.get('comments', []):
+                        for comment in comments_data.get("comments", []):
                             # Only include public comments
-                            if comment.get('public', False):
+                            if comment.get("public", False):
                                 # Fetch author name and role
-                                author_id = comment.get('author_id')
-                                author_name = 'Unknown'
+                                author_id = comment.get("author_id")
+                                author_name = "Unknown"
                                 is_agent = False
 
                                 if author_id:
@@ -542,48 +527,47 @@ class UserViewSet(
                                     user_response = requests.get(user_url, headers=headers, timeout=5)
                                     if user_response.status_code == 200:
                                         user_data = user_response.json()
-                                        user_obj = user_data.get('user', {})
-                                        author_name = user_obj.get('name', 'Unknown')
+                                        user_obj = user_data.get("user", {})
+                                        author_name = user_obj.get("name", "Unknown")
                                         # Check if user is an agent (role: 'agent' or 'admin')
-                                        role = user_obj.get('role', '')
-                                        is_agent = role in ['agent', 'admin']
+                                        role = user_obj.get("role", "")
+                                        is_agent = role in ["agent", "admin"]
 
-                                comments.append({
-                                    'id': comment.get('id'),
-                                    'body': comment.get('body', ''),
-                                    'author_id': author_id,
-                                    'author_name': author_name,
-                                    'is_agent': is_agent,
-                                    'created_at': comment.get('created_at', ''),
-                                })
+                                comments.append(
+                                    {
+                                        "id": comment.get("id"),
+                                        "body": comment.get("body", ""),
+                                        "author_id": author_id,
+                                        "author_name": author_name,
+                                        "is_agent": is_agent,
+                                        "created_at": comment.get("created_at", ""),
+                                    }
+                                )
                 except Exception:
                     # If comments fail, just log and continue without comments
                     pass
 
-                tickets.append({
-                    'id': ticket_id,
-                    'subject': ticket.get('subject', ''),
-                    'description': ticket.get('description', ''),
-                    'status': ticket.get('status', 'unknown'),
-                    'priority': ticket.get('priority'),
-                    'created_at': ticket.get('created_at', ''),
-                    'updated_at': ticket.get('updated_at', ''),
-                    'url': ticket.get('url', ''),
-                    'comments': comments,
-                })
+                tickets.append(
+                    {
+                        "id": ticket_id,
+                        "subject": ticket.get("subject", ""),
+                        "description": ticket.get("description", ""),
+                        "status": ticket.get("status", "unknown"),
+                        "priority": ticket.get("priority"),
+                        "created_at": ticket.get("created_at", ""),
+                        "updated_at": ticket.get("updated_at", ""),
+                        "url": ticket.get("url", ""),
+                        "comments": comments,
+                    }
+                )
 
-            return Response({
-                "tickets": tickets,
-                "count": len(tickets)
-            })
+            return Response({"tickets": tickets, "count": len(tickets)})
 
         except Exception:
-            structlog.get_logger().exception("Error fetching Zendesk tickets", user_id=user.id if 'user' in locals() and user else None)
-            return Response({
-                "tickets": [],
-                "count": 0,
-                "error": "An internal error occurred while fetching tickets."
-            })
+            structlog.get_logger().exception(
+                "Error fetching Zendesk tickets", user_id=user.id if "user" in locals() and user else None
+            )
+            return Response({"tickets": [], "count": 0, "error": "An internal error occurred while fetching tickets."})
 
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
