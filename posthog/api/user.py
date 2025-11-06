@@ -464,6 +464,8 @@ class UserViewSet(
     @action(methods=["GET"], detail=True)
     def zendesk_tickets(self, request, **kwargs):
         """Fetch Zendesk tickets for the current user from Zendesk API."""
+        import base64
+
         import requests
         from django.conf import settings
 
@@ -482,8 +484,6 @@ class UserViewSet(
             })
 
         try:
-            import base64
-
             # Create basic auth header
             credentials = f"{admin_email}/token:{api_token}"
             basic_token = base64.b64encode(credentials.encode()).decode('ascii')
@@ -495,7 +495,7 @@ class UserViewSet(
             # Search for tickets by requester email
             base_url = f"https://{subdomain}.zendesk.com/api/v2"
             search_url = f"{base_url}/search.json"
-            
+
             # Query for open tickets for this user
             query_string = f'type:ticket requester:{user.email} status<closed'
             params = {
@@ -519,13 +519,13 @@ class UserViewSet(
             tickets = []
             for ticket in results:
                 ticket_id = ticket.get('id')
-                
+
                 # Fetch comments for this ticket
                 comments = []
                 try:
                     comments_url = f"{base_url}/tickets/{ticket_id}/comments.json"
                     comments_response = requests.get(comments_url, headers=headers, timeout=10)
-                    
+
                     if comments_response.status_code == 200:
                         comments_data = comments_response.json()
                         for comment in comments_data.get('comments', []):
@@ -535,7 +535,7 @@ class UserViewSet(
                                 author_id = comment.get('author_id')
                                 author_name = 'Unknown'
                                 is_agent = False
-                                
+
                                 if author_id:
                                     user_url = f"{base_url}/users/{author_id}.json"
                                     user_response = requests.get(user_url, headers=headers, timeout=5)
@@ -546,7 +546,7 @@ class UserViewSet(
                                         # Check if user is an agent (role: 'agent' or 'admin')
                                         role = user_obj.get('role', '')
                                         is_agent = role in ['agent', 'admin']
-                                
+
                                 comments.append({
                                     'id': comment.get('id'),
                                     'body': comment.get('body', ''),
@@ -555,10 +555,10 @@ class UserViewSet(
                                     'is_agent': is_agent,
                                     'created_at': comment.get('created_at', ''),
                                 })
-                except Exception as e:
+                except Exception:
                     # If comments fail, just log and continue without comments
                     pass
-                
+
                 tickets.append({
                     'id': ticket_id,
                     'subject': ticket.get('subject', ''),
@@ -576,7 +576,7 @@ class UserViewSet(
                 "count": len(tickets)
             })
 
-        except Exception as e:
+        except Exception:
             structlog.get_logger().exception("Error fetching Zendesk tickets", user_id=user.id if 'user' in locals() and user else None)
             return Response({
                 "tickets": [],
