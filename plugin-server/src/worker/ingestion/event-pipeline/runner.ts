@@ -5,7 +5,16 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { HogTransformerService, TransformationResult } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { PipelineWarning } from '../../../ingestion/pipelines/pipeline.interface'
 import { PipelineResult, dlq, drop, isOkResult, ok } from '../../../ingestion/pipelines/results'
-import { EventHeaders, Hub, Person, PipelineEvent, PreIngestionEvent, RawKafkaEvent, Team } from '../../../types'
+import {
+    EventHeaders,
+    Hub,
+    JwtVerificationStatus,
+    Person,
+    PipelineEvent,
+    PreIngestionEvent,
+    RawKafkaEvent,
+    Team,
+} from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
@@ -60,6 +69,7 @@ export class EventPipelineRunner {
     groupStoreForBatch: GroupStoreForBatch
     mergeMode: MergeMode
     headers?: EventHeaders
+    verified: JwtVerificationStatus
 
     constructor(
         hub: Hub,
@@ -67,7 +77,8 @@ export class EventPipelineRunner {
         hogTransformer: HogTransformerService | null = null,
         personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch,
-        headers?: EventHeaders
+        headers?: EventHeaders,
+        verified: JwtVerificationStatus = JwtVerificationStatus.NotVerified
     ) {
         this.hub = hub
         this.originalEvent = event
@@ -77,6 +88,7 @@ export class EventPipelineRunner {
         this.groupStoreForBatch = groupStoreForBatch
         this.mergeMode = determineMergeMode(hub)
         this.headers = headers
+        this.verified = verified
     }
 
     /**
@@ -284,7 +296,7 @@ export class EventPipelineRunner {
 
         const createResult = await this.runStep<RawKafkaEvent, typeof createEventStep>(
             createEventStep,
-            [this, preparedEventWithoutHeatmaps, person, processPerson],
+            [this, preparedEventWithoutHeatmaps, person, processPerson, this.verified],
             event.team_id,
             true,
             kafkaAcks,

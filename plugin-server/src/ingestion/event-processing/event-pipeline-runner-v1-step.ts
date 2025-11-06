@@ -1,5 +1,5 @@
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { Hub, IncomingEventWithTeam } from '../../types'
+import { Hub, IncomingEventWithTeam, JwtVerificationStatus } from '../../types'
 import { EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
 import { EventPipelineResult } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
@@ -12,6 +12,7 @@ export interface EventPipelineRunnerInput extends IncomingEventWithTeam {
     groupStoreForBatch: GroupStoreForBatch
     processPerson: boolean
     forceDisablePersonProcessing: boolean
+    verified: JwtVerificationStatus
 }
 
 export function createEventPipelineRunnerV1Step(
@@ -29,6 +30,7 @@ export function createEventPipelineRunnerV1Step(
             groupStoreForBatch,
             processPerson,
             forceDisablePersonProcessing,
+            verified,
         } = input
 
         const runner = new EventPipelineRunner(
@@ -37,7 +39,8 @@ export function createEventPipelineRunnerV1Step(
             hogTransformer,
             personsStoreForBatch,
             groupStoreForBatch,
-            headers
+            headers,
+            verified
         )
         const result = await runner.runEventPipeline(event, team, processPerson, forceDisablePersonProcessing)
         return result

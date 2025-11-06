@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { Hub, PipelineEvent, ProjectId, RawKafkaEvent, Team, TimestampFormat } from '../../types'
+import { Hub, JwtVerificationStatus, PipelineEvent, ProjectId, RawKafkaEvent, Team, TimestampFormat } from '../../types'
 import { castTimestampOrNow } from '../../utils/utils'
 import { EventPipelineResult, EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
@@ -143,6 +143,7 @@ describe('event-pipeline-runner-v1-step', () => {
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
+                verified: JwtVerificationStatus.NotVerified,
             }
 
             const result = await step(input)
@@ -175,6 +176,7 @@ describe('event-pipeline-runner-v1-step', () => {
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
+                verified: JwtVerificationStatus.NotVerified,
             }
 
             await expect(step(input)).rejects.toThrow('Retriable error')
@@ -195,6 +197,7 @@ describe('event-pipeline-runner-v1-step', () => {
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
+                verified: JwtVerificationStatus.NotVerified,
             }
 
             await expect(step(input)).rejects.toThrow('Non-retriable error')
@@ -214,6 +217,7 @@ describe('event-pipeline-runner-v1-step', () => {
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
+                verified: JwtVerificationStatus.NotVerified,
             }
 
             await expect(step(input)).rejects.toThrow('Error without isRetriable')
@@ -242,6 +246,7 @@ describe('event-pipeline-runner-v1-step', () => {
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
+                verified: JwtVerificationStatus.NotVerified,
             }
 
             const result = await step(input)
@@ -269,6 +274,7 @@ describe('event-pipeline-runner-v1-step', () => {
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
+                verified: JwtVerificationStatus.NotVerified,
             }
 
             const result = await step(input)
@@ -296,6 +302,7 @@ describe('event-pipeline-runner-v1-step', () => {
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
+                verified: JwtVerificationStatus.NotVerified,
             }
 
             await step(input)
@@ -329,6 +336,7 @@ describe('event-pipeline-runner-v1-step', () => {
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
+                verified: JwtVerificationStatus.NotVerified,
             }
 
             await step(input)
@@ -359,6 +367,7 @@ describe('event-pipeline-runner-v1-step', () => {
                 groupStoreForBatch: mockGroupStore,
                 processPerson: false,
                 forceDisablePersonProcessing: true,
+                verified: JwtVerificationStatus.NotVerified,
             }
 
             await step(input)
@@ -376,6 +385,7 @@ describe('event-pipeline-runner-v1-step', () => {
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
+                verified: JwtVerificationStatus.NotVerified,
             }
 
             await step(input)
@@ -393,6 +403,7 @@ describe('event-pipeline-runner-v1-step', () => {
                 groupStoreForBatch: mockGroupStore,
                 processPerson: false,
                 forceDisablePersonProcessing: false,
+                verified: JwtVerificationStatus.NotVerified,
             }
 
             await step(input)
@@ -410,6 +421,7 @@ describe('event-pipeline-runner-v1-step', () => {
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: true,
+                verified: JwtVerificationStatus.NotVerified,
             }
 
             await step(input)

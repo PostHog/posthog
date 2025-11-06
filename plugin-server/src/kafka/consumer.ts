@@ -911,6 +911,8 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.event = value
             } else if (key === 'uuid') {
                 result.uuid = value
+            } else if (key === 'jwt') {
+                result.jwt = value
             } else if (key === 'force_disable_person_processing') {
                 result.force_disable_person_processing = value === 'true'
             }
@@ -924,6 +926,7 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
         'timestamp',
         'event',
         'uuid',
+        'jwt',
         'force_disable_person_processing',
     ] as const
     trackedHeaders.forEach((header) => {

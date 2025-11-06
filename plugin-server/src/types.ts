@@ -33,6 +33,7 @@ import { GeoIPService } from './utils/geoip'
 import { ObjectStorage } from './utils/object_storage'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
+import { TeamSecretKeysManager } from './utils/team-secret-keys-manager'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
@@ -519,6 +520,7 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigSecretLookup: Map<string, PluginConfigId>
     // tools
     teamManager: TeamManager
+    teamSecretKeysManager: TeamSecretKeysManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
     actionManager: ActionManager
@@ -860,6 +862,12 @@ export interface EventMessage extends BaseEventMessage {
     sent_at: DateTime | null
 }
 
+export enum JwtVerificationStatus {
+    Verified = 'verified',
+    Invalid = 'invalid',
+    NotVerified = 'not_verified',
+}
+
 /** Properties shared by RawClickHouseEvent and ClickHouseEvent. */
 interface BaseEvent {
     uuid: string
@@ -868,6 +876,8 @@ interface BaseEvent {
     distinct_id: string
     /** Person UUID. */
     person_id?: string
+    /** JWT verification status */
+    verified?: JwtVerificationStatus
 }
 
 export type ISOTimestamp = Brand<string, 'ISOTimestamp'>
@@ -1374,6 +1384,7 @@ export interface EventHeaders {
     timestamp?: string
     event?: string
     uuid?: string
+    jwt?: string
     force_disable_person_processing: boolean
 }
 

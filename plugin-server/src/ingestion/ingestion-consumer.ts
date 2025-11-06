@@ -17,6 +17,7 @@ import {
     Hub,
     IncomingEvent,
     IncomingEventWithTeam,
+    JwtVerificationStatus,
     PipelineEvent,
     PluginServerService,
     PluginsServerConfig,
@@ -40,6 +41,7 @@ import {
     createResolveTeamStep,
     createValidateEventPropertiesStep,
     createValidateEventUuidStep,
+    createValidateJwtStep,
 } from './event-preprocessing'
 import { createEmitEventStep } from './event-processing/emit-event-step'
 import { createEventPipelineRunnerV1Step } from './event-processing/event-pipeline-runner-v1-step'
@@ -66,7 +68,7 @@ const forcedOverflowEventsCounter = new Counter({
 type EventsForDistinctId = {
     token: string
     distinctId: string
-    events: IncomingEventWithTeam[]
+    events: (IncomingEventWithTeam & { verified: JwtVerificationStatus })[]
 }
 
 type IncomingEventsByDistinctId = {
@@ -78,11 +80,13 @@ type PreprocessedEvent = {
     headers: EventHeaders
     event: IncomingEvent
     eventWithTeam: IncomingEventWithTeam
+    verified: JwtVerificationStatus
 }
 
 export interface PerDistinctIdPipelineInput extends IncomingEventWithTeam {
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
+    verified: JwtVerificationStatus
 }
 
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
@@ -255,6 +259,7 @@ export class IngestionConsumer {
                         .pipe(createParseKafkaMessageStep())
                         .pipe(createDropExceptionEventsStep())
                         .pipe(createResolveTeamStep(this.hub))
+                        .pipe(createValidateJwtStep(this.hub.teamSecretKeysManager))
                 )
             )
             // We want to handle the first batch of rejected events, so that the remaining ones
@@ -410,7 +415,9 @@ export class IngestionConsumer {
         }
 
         const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
-        const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents.map((x) => x.eventWithTeam))
+        const eventsPerDistinctId = this.groupEventsByDistinctId(
+            preprocessedEvents.map((x) => ({ ...x.eventWithTeam, verified: x.verified }))
+        )
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
@@ -640,11 +647,13 @@ export class IngestionConsumer {
         return result
     }
 
-    private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {
+    private groupEventsByDistinctId(
+        messages: (IncomingEventWithTeam & { verified: JwtVerificationStatus })[]
+    ): IncomingEventsByDistinctId {
         const groupedEvents: IncomingEventsByDistinctId = {}
 
         for (const eventWithTeam of messages) {
-            const { message, event, team, headers } = eventWithTeam
+            const { message, event, team, headers, verified } = eventWithTeam
             const token = event.token ?? ''
             const distinctId = event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`
@@ -659,7 +668,7 @@ export class IngestionConsumer {
                 }
             }
 
-            groupedEvents[eventKey].events.push({ message, event, team, headers })
+            groupedEvents[eventKey].events.push({ message, event, team, headers, verified })
         }
 
         return groupedEvents

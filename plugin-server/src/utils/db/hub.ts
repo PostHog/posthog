@@ -32,6 +32,7 @@ import { logger } from '../logger'
 import { getObjectStorage } from '../object_storage'
 import { PubSub } from '../pubsub'
 import { TeamManager } from '../team-manager'
+import { TeamSecretKeysManager } from '../team-secret-keys-manager'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
@@ -126,6 +127,7 @@ export async function createHub(
         serverConfig.PERSON_INFO_CACHE_TTL
     )
     const teamManager = new TeamManager(postgres)
+    const teamSecretKeysManager = new TeamSecretKeysManager(postgres)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const pubSub = new PubSub(serverConfig)
@@ -181,6 +183,7 @@ export async function createHub(
         pluginSchedule: null,
 
         teamManager,
+        teamSecretKeysManager,
         pluginsApiKeyManager,
         rootAccessManager,
         rustyHook,

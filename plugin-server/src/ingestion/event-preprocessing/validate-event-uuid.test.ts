@@ -1,4 +1,4 @@
-import { IncomingEventWithTeam } from '../../types'
+import { IncomingEventWithTeam, JwtVerificationStatus } from '../../types'
 import { PipelineResultType, drop, ok } from '../pipelines/results'
 import { createValidateEventUuidStep } from './validate-event-uuid'
 

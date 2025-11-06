@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
-import { PipelineEvent, ProjectId, Team } from '../../types'
+import { JwtVerificationStatus, PipelineEvent, ProjectId, Team } from '../../types'
 import { PipelineResultType } from '../pipelines/results'
 import { EventPipelineRunnerInput } from './event-pipeline-runner-v1-step'
 import { createHandleClientIngestionWarningStep } from './handle-client-ingestion-warning-step'
@@ -52,6 +52,7 @@ describe('handleClientIngestionWarningStep', () => {
         groupStoreForBatch: {} as any,
         processPerson: true,
         forceDisablePersonProcessing: false,
+        verified: JwtVerificationStatus.NotVerified,
     }
 
     const handleStep = createHandleClientIngestionWarningStep()

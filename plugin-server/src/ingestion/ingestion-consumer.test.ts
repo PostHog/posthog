@@ -12,7 +12,14 @@ import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/inge
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { CookielessServerHashMode, Hub, IncomingEventWithTeam, PipelineEvent, Team } from '../../src/types'
+import {
+    CookielessServerHashMode,
+    Hub,
+    IncomingEventWithTeam,
+    JwtVerificationStatus,
+    PipelineEvent,
+    Team,
+} from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
 import { PostgresUse } from '../utils/db/postgres'
@@ -657,11 +664,11 @@ describe('IngestionConsumer', () => {
                         createEvent({ distinct_id: 'distinct-id-1' }),
                     ],
                     team
-                ),
+                ).map((e) => ({ ...e, verified: JwtVerificationStatus.NotVerified })),
                 ...createIncomingEventsWithTeam(
                     [createEvent({ token: team2.api_token, distinct_id: 'distinct-id-1' })],
                     team2
-                ),
+                ).map((e) => ({ ...e, verified: JwtVerificationStatus.NotVerified })),
             ]
 
             const batches = ingester['groupEventsByDistinctId'](messages)
@@ -695,26 +702,29 @@ describe('IngestionConsumer', () => {
             ]
 
             // Create messages with custom headers
-            const messages: IncomingEventWithTeam[] = events.map((event, index) => {
-                const message = createKafkaMessage(event)
-                message.headers = [
-                    { token: Buffer.from(team.api_token) },
-                    { distinct_id: Buffer.from(event.distinct_id || '') },
-                    { timestamp: Buffer.from((Date.now() + index * 1000).toString()) },
-                ]
+            const messages: (IncomingEventWithTeam & { verified: JwtVerificationStatus })[] = events.map(
+                (event, index) => {
+                    const message = createKafkaMessage(event)
+                    message.headers = [
+                        { token: Buffer.from(team.api_token) },
+                        { distinct_id: Buffer.from(event.distinct_id || '') },
+                        { timestamp: Buffer.from((Date.now() + index * 1000).toString()) },
+                    ]
 
-                return {
-                    event: { ...event, team_id: team.id },
-                    team: team,
-                    message: message,
-                    headers: {
-                        token: team.api_token,
-                        distinct_id: event.distinct_id || '',
-                        timestamp: (Date.now() + index * 1000).toString(),
-                        force_disable_person_processing: false,
-                    },
+                    return {
+                        event: { ...event, team_id: team.id },
+                        team: team,
+                        message: message,
+                        headers: {
+                            token: team.api_token,
+                            distinct_id: event.distinct_id || '',
+                            timestamp: (Date.now() + index * 1000).toString(),
+                            force_disable_person_processing: false,
+                        },
+                        verified: JwtVerificationStatus.NotVerified,
+                    }
                 }
-            })
+            )
 
             const batches = ingester['groupEventsByDistinctId'](messages)
 

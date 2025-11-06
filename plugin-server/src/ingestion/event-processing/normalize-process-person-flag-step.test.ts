@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
-import { PipelineEvent, ProjectId, Team } from '../../types'
+import { JwtVerificationStatus, PipelineEvent, ProjectId, Team } from '../../types'
 import { PerDistinctIdPipelineInput } from '../ingestion-consumer'
 import { PipelineResultType } from '../pipelines/results'
 import { createNormalizeProcessPersonFlagStep } from './normalize-process-person-flag-step'
@@ -49,6 +49,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         headers: { force_disable_person_processing: false },
         personsStoreForBatch: {} as any,
         groupStoreForBatch: {} as any,
+        verified: JwtVerificationStatus.NotVerified,
     }
 
     const normalizeStep = createNormalizeProcessPersonFlagStep()

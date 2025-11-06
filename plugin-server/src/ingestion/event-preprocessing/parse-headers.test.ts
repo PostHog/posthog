@@ -138,6 +138,29 @@ describe('createParseHeadersStep', () => {
         )
     })
 
+    it('should handle jwt header', async () => {
+        const input = {
+            message: {
+                headers: [
+                    { token: Buffer.from('test-token') },
+                    { jwt: Buffer.from('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test') },
+                ],
+            } as Pick<Message, 'headers'>,
+        }
+        const result = await step(input)
+
+        expect(result).toEqual(
+            ok({
+                ...input,
+                headers: {
+                    token: 'test-token',
+                    jwt: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test',
+                    force_disable_person_processing: false,
+                },
+            })
+        )
+    })
+
     it('should handle string values in headers', async () => {
         const input = {
             message: {
