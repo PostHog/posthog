@@ -406,7 +406,7 @@ const lengthPrefixedSnappyDecompress = async (
             break
         }
 
-        const compressedBlock = uint8Data.slice(offset, offset + length)
+        const compressedBlock = uint8Data.subarray(offset, offset + length)
         offset += length
 
         const decompressedData = await workerManager.decompress(compressedBlock)

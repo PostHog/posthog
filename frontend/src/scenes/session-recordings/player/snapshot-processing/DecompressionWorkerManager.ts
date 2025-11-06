@@ -111,6 +111,8 @@ export class DecompressionWorkerManager {
                 compressedData,
             }
 
+            // Transfer buffer ownership to worker for zero-copy performance
+            // Caller must not reuse compressedData after this call
             this.worker!.postMessage(message, [compressedData.buffer])
         })
     }
