@@ -123,7 +123,7 @@ export const workflowLogic = kea<workflowLogicType>([
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
-        triggerManualWorkflow: (variables: Record<string, string>) => ({ variables }),
+        triggerManualWorkflow: (variables: Record<string, any>) => ({ variables }),
         discardChanges: true,
     }),
     loaders(({ props, values }) => ({

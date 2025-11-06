@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
@@ -8,29 +7,20 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
-import { workflowLogic } from '../workflowLogic'
+import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
+import { hogFlowManualTriggerButtonLogic } from './HogFlowManualTriggerButtonLogic'
 
 const VariableInputsPopover = ({
     setPopoverVisible,
+    props,
 }: {
     setPopoverVisible: (visible: boolean) => void
+    props: WorkflowLogicProps
 }): JSX.Element => {
-    const { workflow } = useValues(workflowLogic)
-    const { triggerManualWorkflow } = useActions(workflowLogic)
-    const [inputs, setInputs] = useState<Record<string, string>>({})
-
-    const getVariableValues = (): Record<string, string> => {
-        if (!workflow?.variables) {
-            return {}
-        }
-        return Object.fromEntries(
-            workflow.variables.map((v: any) => {
-                const inputValue = inputs[v.key]
-                // Use input value if provided and not empty, otherwise use default
-                return [v.key, inputValue !== undefined && inputValue !== '' ? inputValue : (v.default ?? '')]
-            })
-        )
-    }
+    const logic = hogFlowManualTriggerButtonLogic(props)
+    const { workflow, variableValues, inputs } = useValues(logic)
+    const { triggerManualWorkflow } = useActions(workflowLogic(props))
+    const { setInput, clearInputs } = useActions(logic)
 
     if (!workflow?.variables || workflow.variables.length === 0) {
         return (
@@ -46,6 +36,7 @@ const VariableInputsPopover = ({
                         onClick={() => {
                             triggerManualWorkflow({})
                             setPopoverVisible(false)
+                            clearInputs()
                         }}
                         data-attr="run-workflow-btn"
                     >
@@ -70,14 +61,25 @@ const VariableInputsPopover = ({
 
                     return (
                         <LemonField.Pure key={variable.key} label={variable.label || variable.key}>
-                            <LemonInput
-                                type="text"
-                                value={displayValue}
-                                placeholder={hasDefault ? `Default: ${String(variable.default)}` : 'Enter value'}
-                                onChange={(value) => {
-                                    setInputs((prev) => ({ ...prev, [variable.key]: value }))
-                                }}
-                            />
+                            {variable.type === 'number' ? (
+                                <LemonInput
+                                    type="number"
+                                    value={displayValue === '' ? undefined : Number(displayValue)}
+                                    placeholder={hasDefault ? `Default: ${String(variable.default)}` : 'Enter value'}
+                                    onChange={(value: number | undefined) => {
+                                        setInput(variable.key, value !== undefined ? String(value) : '')
+                                    }}
+                                />
+                            ) : (
+                                <LemonInput
+                                    type="text"
+                                    value={displayValue}
+                                    placeholder={hasDefault ? `Default: ${String(variable.default)}` : 'Enter value'}
+                                    onChange={(value: string) => {
+                                        setInput(variable.key, value)
+                                    }}
+                                />
+                            )}
                         </LemonField.Pure>
                     )
                 })}
@@ -88,8 +90,9 @@ const VariableInputsPopover = ({
                     type="primary"
                     status="alt"
                     onClick={() => {
-                        triggerManualWorkflow(getVariableValues())
+                        triggerManualWorkflow(variableValues)
                         setPopoverVisible(false)
+                        clearInputs()
                     }}
                     data-attr="run-workflow-btn"
                 >
@@ -100,9 +103,11 @@ const VariableInputsPopover = ({
     )
 }
 
-export const HogFlowManualTriggerButton = (): JSX.Element => {
-    const { workflow, workflowChanged } = useValues(workflowLogic)
-    const [manualTriggerPopoverVisible, setManualTriggerPopoverVisible] = useState(false)
+export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.Element => {
+    const logic = hogFlowManualTriggerButtonLogic(props)
+    const { workflow, workflowChanged } = useValues(workflowLogic(props))
+    const { popoverVisible } = useValues(logic)
+    const { setPopoverVisible } = useActions(logic)
 
     const triggerButton = (
         <LemonButton
@@ -114,13 +119,9 @@ export const HogFlowManualTriggerButton = (): JSX.Element => {
                       ? 'Save changes first'
                       : undefined
             }
-            sideIcon={
-                <IconChevronDown
-                    className={`transition-transform ${manualTriggerPopoverVisible ? 'rotate-180' : ''}`}
-                />
-            }
+            sideIcon={<IconChevronDown className={`transition-transform ${popoverVisible ? 'rotate-180' : ''}`} />}
             tooltip="Triggers workflow immediately"
-            onClick={() => setManualTriggerPopoverVisible(!manualTriggerPopoverVisible)}
+            onClick={() => setPopoverVisible(!popoverVisible)}
         >
             Trigger
         </LemonButton>
@@ -128,10 +129,10 @@ export const HogFlowManualTriggerButton = (): JSX.Element => {
 
     return (
         <Popover
-            visible={manualTriggerPopoverVisible}
+            visible={popoverVisible}
             placement="bottom-start"
-            onClickOutside={() => setManualTriggerPopoverVisible(false)}
-            overlay={<VariableInputsPopover setPopoverVisible={setManualTriggerPopoverVisible} />}
+            onClickOutside={() => setPopoverVisible(false)}
+            overlay={<VariableInputsPopover setPopoverVisible={setPopoverVisible} props={props} />}
         >
             {triggerButton}
         </Popover>

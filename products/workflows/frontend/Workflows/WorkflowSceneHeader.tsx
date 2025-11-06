@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -29,11 +29,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 renameDebounceMs={200}
                 actions={
                     <>
-                        {isManualWorkflow && (
-                            <BindLogic logic={workflowLogic} props={props}>
-                                <HogFlowManualTriggerButton />
-                            </BindLogic>
-                        )}
+                        {isManualWorkflow && <HogFlowManualTriggerButton {...props} />}
                         {isSavedWorkflow && (
                             <>
                                 <LemonButton
