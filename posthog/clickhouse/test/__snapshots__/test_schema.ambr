@@ -29,6 +29,7 @@
       
       
       
+      
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
@@ -177,6 +178,7 @@
       
       
       
+      
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
@@ -210,6 +212,7 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      
       
       
       
@@ -769,6 +772,7 @@
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
       
       
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
@@ -919,6 +923,39 @@
       , properties_group_custom Map(String, String), properties_group_ai Map(String, String), properties_group_feature_flags Map(String, String), person_properties_map_custom Map(String, String)
   
       
+      , soe_min_timestamp Nullable(DateTime64(6, 'UTC'))
+      , soe_max_timestamp Nullable(DateTime64(6, 'UTC'))
+  
+      , soe_pageview_prio_timestamp_min Nullable(DateTime64(6, 'UTC'))
+      , soe_pageview_prio_timestamp_max Nullable(DateTime64(6, 'UTC'))
+  
+      , soe_entry_url Nullable(String)
+      , soe_end_url Nullable(String)
+      , soe_last_external_click_url Nullable(String)
+  
+      -- attribution
+      , soe_entry_referring_domain Nullable(String)
+      , soe_entry_utm_source Nullable(String)
+      , soe_entry_utm_campaign Nullable(String)
+      , soe_entry_utm_medium Nullable(String)
+      , soe_entry_utm_term Nullable(String)
+      , soe_entry_utm_content Nullable(String)
+      , soe_entry_gclid Nullable(String)
+      , soe_entry_gad_source Nullable(String)
+      , soe_entry_fbclid Nullable(String)
+  
+      -- for channel type calculation, it's enough to know if these were present
+      , soe_entry_has_gclid Boolean
+      , soe_entry_has_fbclid Boolean
+  
+      -- for lower-tier ad ids, just put them in a map, and set of the ones present
+      , soe_entry_ad_ids_map Map(String, String)
+      , soe_entry_ad_ids_set Array(String)
+  
+      -- bounce rate
+      , soe_page_screen_autocapture_uniq_up_to Array(UUID)
+  
+      
   , _timestamp DateTime
   , _offset UInt64
   , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64(), consumer_breadcrumbs Array(String)
@@ -1058,6 +1095,7 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      
       
       
   , _timestamp DateTime
@@ -1395,6 +1433,7 @@
       
       
       
+      
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
@@ -1428,6 +1467,7 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      
       
       
       
@@ -3621,6 +3661,39 @@
           , INDEX person_properties_map_custom_keys_bf mapKeys(person_properties_map_custom) TYPE bloom_filter, INDEX person_properties_map_custom_values_bf mapValues(person_properties_map_custom) TYPE bloom_filter
   
       
+      , soe_min_timestamp Nullable(DateTime64(6, 'UTC'))
+      , soe_max_timestamp Nullable(DateTime64(6, 'UTC'))
+  
+      , soe_pageview_prio_timestamp_min Nullable(DateTime64(6, 'UTC'))
+      , soe_pageview_prio_timestamp_max Nullable(DateTime64(6, 'UTC'))
+  
+      , soe_entry_url Nullable(String)
+      , soe_end_url Nullable(String)
+      , soe_last_external_click_url Nullable(String)
+  
+      -- attribution
+      , soe_entry_referring_domain Nullable(String)
+      , soe_entry_utm_source Nullable(String)
+      , soe_entry_utm_campaign Nullable(String)
+      , soe_entry_utm_medium Nullable(String)
+      , soe_entry_utm_term Nullable(String)
+      , soe_entry_utm_content Nullable(String)
+      , soe_entry_gclid Nullable(String)
+      , soe_entry_gad_source Nullable(String)
+      , soe_entry_fbclid Nullable(String)
+  
+      -- for channel type calculation, it's enough to know if these were present
+      , soe_entry_has_gclid Boolean
+      , soe_entry_has_fbclid Boolean
+  
+      -- for lower-tier ad ids, just put them in a map, and set of the ones present
+      , soe_entry_ad_ids_map Map(String, String)
+      , soe_entry_ad_ids_set Array(String)
+  
+      -- bounce rate
+      , soe_page_screen_autocapture_uniq_up_to Array(UUID)
+  
+      
   , _timestamp DateTime
   , _offset UInt64
   , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64(), consumer_breadcrumbs Array(String)
@@ -4706,6 +4779,7 @@
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
       
       
+      
   , _timestamp DateTime
   , _offset UInt64
   , consumer_breadcrumbs Array(String)
@@ -4772,6 +4846,7 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      
       
       
   , _timestamp DateTime
@@ -5484,6 +5559,7 @@
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
       
       
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
@@ -6089,6 +6165,39 @@
               )
               CODEC(ZSTD(1))
           , INDEX person_properties_map_custom_keys_bf mapKeys(person_properties_map_custom) TYPE bloom_filter, INDEX person_properties_map_custom_values_bf mapValues(person_properties_map_custom) TYPE bloom_filter
+  
+      
+      , soe_min_timestamp Nullable(DateTime64(6, 'UTC'))
+      , soe_max_timestamp Nullable(DateTime64(6, 'UTC'))
+  
+      , soe_pageview_prio_timestamp_min Nullable(DateTime64(6, 'UTC'))
+      , soe_pageview_prio_timestamp_max Nullable(DateTime64(6, 'UTC'))
+  
+      , soe_entry_url Nullable(String)
+      , soe_end_url Nullable(String)
+      , soe_last_external_click_url Nullable(String)
+  
+      -- attribution
+      , soe_entry_referring_domain Nullable(String)
+      , soe_entry_utm_source Nullable(String)
+      , soe_entry_utm_campaign Nullable(String)
+      , soe_entry_utm_medium Nullable(String)
+      , soe_entry_utm_term Nullable(String)
+      , soe_entry_utm_content Nullable(String)
+      , soe_entry_gclid Nullable(String)
+      , soe_entry_gad_source Nullable(String)
+      , soe_entry_fbclid Nullable(String)
+  
+      -- for channel type calculation, it's enough to know if these were present
+      , soe_entry_has_gclid Boolean
+      , soe_entry_has_fbclid Boolean
+  
+      -- for lower-tier ad ids, just put them in a map, and set of the ones present
+      , soe_entry_ad_ids_map Map(String, String)
+      , soe_entry_ad_ids_set Array(String)
+  
+      -- bounce rate
+      , soe_page_screen_autocapture_uniq_up_to Array(UUID)
   
       
   , _timestamp DateTime
