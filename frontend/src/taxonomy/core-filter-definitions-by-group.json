@@ -1526,6 +1526,91 @@
             "description": "The surveys that were activated for this event.",
             "label": "Surveys activated"
         },
+        "$synthetic_dns_ms": {
+            "description": "Time spent on DNS lookup in milliseconds.",
+            "label": "Synthetic check DNS lookup time (ms)",
+            "type": "Numeric"
+        },
+        "$synthetic_download_ms": {
+            "description": "Time spent downloading the response in milliseconds.",
+            "label": "Synthetic check download time (ms)",
+            "type": "Numeric"
+        },
+        "$synthetic_error_message": {
+            "description": "Error message if the synthetic check failed.",
+            "label": "Synthetic check error message",
+            "type": "String"
+        },
+        "$synthetic_expected_status_code": {
+            "description": "The expected HTTP status code for the synthetic check.",
+            "examples": [200, 201, 204],
+            "label": "Synthetic check expected status code",
+            "type": "Numeric"
+        },
+        "$synthetic_method": {
+            "description": "The HTTP method used for the synthetic check.",
+            "examples": ["GET", "POST", "PUT"],
+            "label": "Synthetic check HTTP method",
+            "type": "String"
+        },
+        "$synthetic_monitor_id": {
+            "description": "The unique identifier for the synthetic monitor.",
+            "label": "Synthetic monitor ID",
+            "type": "String"
+        },
+        "$synthetic_monitor_name": {
+            "description": "The name of the synthetic monitor.",
+            "label": "Synthetic monitor name",
+            "type": "String"
+        },
+        "$synthetic_region": {
+            "description": "The AWS region from which the synthetic check was performed.",
+            "examples": ["us-east-2", "eu-west-1", "ap-northeast-2"],
+            "label": "Synthetic check region",
+            "type": "String"
+        },
+        "$synthetic_request_send_ms": {
+            "description": "Time spent sending the HTTP request in milliseconds.",
+            "label": "Synthetic check request send time (ms)",
+            "type": "Numeric"
+        },
+        "$synthetic_response_time_ms": {
+            "description": "The total response time of the synthetic check in milliseconds.",
+            "label": "Synthetic check response time (ms)",
+            "type": "Numeric"
+        },
+        "$synthetic_status_code": {
+            "description": "The HTTP status code returned by the synthetic check.",
+            "examples": [200, 404, 500],
+            "label": "Synthetic check HTTP status code",
+            "type": "Numeric"
+        },
+        "$synthetic_success": {
+            "description": "Whether the synthetic check succeeded or failed.",
+            "label": "Synthetic check success",
+            "type": "Boolean"
+        },
+        "$synthetic_tcp_ms": {
+            "description": "Time spent establishing TCP connection in milliseconds.",
+            "label": "Synthetic check TCP connection time (ms)",
+            "type": "Numeric"
+        },
+        "$synthetic_tls_ms": {
+            "description": "Time spent on TLS/SSL handshake in milliseconds.",
+            "label": "Synthetic check TLS handshake time (ms)",
+            "type": "Numeric"
+        },
+        "$synthetic_total_ms": {
+            "description": "Total time for the entire HTTP request/response cycle in milliseconds.",
+            "label": "Synthetic check total time (ms)",
+            "type": "Numeric"
+        },
+        "$synthetic_url": {
+            "description": "The URL being monitored by the synthetic check.",
+            "examples": ["https://example.com/api/health"],
+            "label": "Synthetic check URL",
+            "type": "String"
+        },
         "$time": {
             "description": "Use the SQL field `timestamp` instead. This field was previously set on some client side events.",
             "examples": ["1681211521.345"],
@@ -1916,6 +2001,10 @@
             "description": "Setting person properties. Sent as `$set`.",
             "ignored_in_assistant": true,
             "label": "Set person properties"
+        },
+        "$synthetic_http_check": {
+            "description": "A synthetic monitoring HTTP check performed from one or more regions to monitor uptime and latency.",
+            "label": "Synthetic HTTP check"
         },
         "$web_vitals": {
             "description": "Automatically captured web vitals data.",

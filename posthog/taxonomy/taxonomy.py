@@ -250,6 +250,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Content Security Policy violation reported by a browser to our csp endpoint.",
             "examples": ["Unauthorized inline script", "Trying to load resources from unauthorized domain"],
         },
+        "$synthetic_http_check": {
+            "label": "Synthetic HTTP check",
+            "description": "A synthetic monitoring HTTP check performed from one or more regions to monitor uptime and latency.",
+        },
         "Application opened": {
             "label": "Application opened",
             "description": "When a user opens the mobile app either for the first time or from the foreground.",
@@ -464,6 +468,91 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Set person properties once",
             "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`.",
             "ignored_in_assistant": True,
+        },
+        "$synthetic_monitor_id": {
+            "label": "Synthetic monitor ID",
+            "description": "The unique identifier for the synthetic monitor.",
+            "type": "String",
+        },
+        "$synthetic_monitor_name": {
+            "label": "Synthetic monitor name",
+            "description": "The name of the synthetic monitor.",
+            "type": "String",
+        },
+        "$synthetic_url": {
+            "label": "Synthetic check URL",
+            "description": "The URL being monitored by the synthetic check.",
+            "type": "String",
+            "examples": ["https://example.com/api/health"],
+        },
+        "$synthetic_method": {
+            "label": "Synthetic check HTTP method",
+            "description": "The HTTP method used for the synthetic check.",
+            "type": "String",
+            "examples": ["GET", "POST", "PUT"],
+        },
+        "$synthetic_region": {
+            "label": "Synthetic check region",
+            "description": "The AWS region from which the synthetic check was performed.",
+            "type": "String",
+            "examples": ["us-east-2", "eu-west-1", "ap-northeast-2"],
+        },
+        "$synthetic_success": {
+            "label": "Synthetic check success",
+            "description": "Whether the synthetic check succeeded or failed.",
+            "type": "Boolean",
+        },
+        "$synthetic_status_code": {
+            "label": "Synthetic check HTTP status code",
+            "description": "The HTTP status code returned by the synthetic check.",
+            "type": "Numeric",
+            "examples": [200, 404, 500],
+        },
+        "$synthetic_response_time_ms": {
+            "label": "Synthetic check response time (ms)",
+            "description": "The total response time of the synthetic check in milliseconds.",
+            "type": "Numeric",
+        },
+        "$synthetic_error_message": {
+            "label": "Synthetic check error message",
+            "description": "Error message if the synthetic check failed.",
+            "type": "String",
+        },
+        "$synthetic_expected_status_code": {
+            "label": "Synthetic check expected status code",
+            "description": "The expected HTTP status code for the synthetic check.",
+            "type": "Numeric",
+            "examples": [200, 201, 204],
+        },
+        "$synthetic_dns_ms": {
+            "label": "Synthetic check DNS lookup time (ms)",
+            "description": "Time spent on DNS lookup in milliseconds.",
+            "type": "Numeric",
+        },
+        "$synthetic_tcp_ms": {
+            "label": "Synthetic check TCP connection time (ms)",
+            "description": "Time spent establishing TCP connection in milliseconds.",
+            "type": "Numeric",
+        },
+        "$synthetic_tls_ms": {
+            "label": "Synthetic check TLS handshake time (ms)",
+            "description": "Time spent on TLS/SSL handshake in milliseconds.",
+            "type": "Numeric",
+        },
+        "$synthetic_request_send_ms": {
+            "label": "Synthetic check request send time (ms)",
+            "description": "Time spent sending the HTTP request in milliseconds.",
+            "type": "Numeric",
+        },
+        "$synthetic_download_ms": {
+            "label": "Synthetic check download time (ms)",
+            "description": "Time spent downloading the response in milliseconds.",
+            "type": "Numeric",
+        },
+        "$synthetic_total_ms": {
+            "label": "Synthetic check total time (ms)",
+            "description": "Total time for the entire HTTP request/response cycle in milliseconds.",
+            "type": "Numeric",
         },
         "$pageview_id": {
             "label": "Pageview ID",
@@ -2383,6 +2472,10 @@ def decapitalize_first_word(text: str) -> str:
 
 
 for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
+    # Skip synthetic monitoring properties - they should not be copied to person properties
+    if key.startswith("$synthetic_"):
+        continue
+
     if key in PERSON_PROPERTIES_ADAPTED_FROM_EVENT or key.startswith("$geoip_"):
         CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"][key] = {
             **value,

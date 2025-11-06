@@ -179,22 +179,22 @@ async def emit_check_event(
     """Emit synthetic check event to ClickHouse"""
     try:
         properties = {
-            "monitor_id": str(monitor.id),
-            "monitor_name": monitor.name,
-            "url": monitor.url,
-            "method": monitor.method,
-            "region": region,
-            "success": success,
-            "status_code": status_code,
-            "response_time_ms": response_time_ms,
-            "error_message": error_message,
-            "expected_status_code": monitor.expected_status_code,
+            "$synthetic_monitor_id": str(monitor.id),
+            "$synthetic_monitor_name": monitor.name,
+            "$synthetic_url": monitor.url,
+            "$synthetic_method": monitor.method,
+            "$synthetic_region": region,
+            "$synthetic_success": success,
+            "$synthetic_status_code": status_code,
+            "$synthetic_response_time_ms": response_time_ms,
+            "$synthetic_error_message": error_message,
+            "$synthetic_expected_status_code": monitor.expected_status_code,
         }
 
-        # Add timing metrics if available
         if timing_metrics:
-            # Filter out None values from timing metrics
-            properties.update({k: v for k, v in timing_metrics.items() if v is not None})
+            for key, value in timing_metrics.items():
+                if value is not None:
+                    properties[f"$synthetic_{key}"] = value
 
         # Add IP address for GeoIP resolution to match the Lambda region
         region_ip = REGION_IPS.get(region, "127.0.0.1")
@@ -204,6 +204,7 @@ async def emit_check_event(
             token=monitor.team.api_token,
             event_name="$synthetic_http_check",
             event_source="synthetic_monitoring",
+            # Quite a stretch but we need to send something, so let's use the monitor ID to avoid creating new distinct IDs for each run
             distinct_id=f"monitor_{monitor.id}",
             timestamp=None,
             properties=properties,
