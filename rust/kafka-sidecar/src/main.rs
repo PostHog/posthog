@@ -1,7 +1,7 @@
+use health::HealthRegistry;
 use kafka_sidecar::config::Config;
 use kafka_sidecar::proto::kafka_producer::kafka_producer_server::KafkaProducerServer;
 use kafka_sidecar::service::KafkaProducerService;
-use health::HealthRegistry;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -43,12 +43,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create Kafka producer
     info!("Connecting to Kafka at {}...", config.kafka_hosts);
     let kafka_config = config.to_kafka_config();
-    let producer = common_kafka::kafka_producer::create_kafka_producer(&kafka_config, kafka_liveness)
-        .await
-        .map_err(|e| {
-            error!("Failed to create Kafka producer: {}", e);
-            e
-        })?;
+    let producer =
+        common_kafka::kafka_producer::create_kafka_producer(&kafka_config, kafka_liveness)
+            .await
+            .map_err(|e| {
+                error!("Failed to create Kafka producer: {}", e);
+                e
+            })?;
     info!("Successfully connected to Kafka");
 
     // Set up gRPC health reporting
@@ -95,4 +96,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

@@ -37,7 +37,7 @@
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
         "build:cyclotron": "pnpm --filter=@posthog/cyclotron package",
-        "generate:proto": "buf generate",
+        "generate:proto": "npx buf generate",
         "update-ai-costs": "ts-node src/ingestion/ai-costs/scripts/update-ai-costs.ts",
         "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts"
     },

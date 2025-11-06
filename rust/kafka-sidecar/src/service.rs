@@ -2,8 +2,8 @@ use crate::error::kafka_error_to_status;
 use crate::proto::kafka_producer::kafka_producer_server::KafkaProducer;
 use crate::proto::kafka_producer::{ProduceRequest, ProduceResponse};
 use metrics::counter;
-use rdkafka::producer::FutureProducer;
 use rdkafka::message::OwnedHeaders;
+use rdkafka::producer::FutureProducer;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error};
 
@@ -26,7 +26,8 @@ impl KafkaProducer for KafkaProducerService {
         let req = request.into_inner();
 
         let topic = &req.topic;
-        counter!("kafka_producer_messages_queued_counter", "topic_name" => topic.clone()).increment(1);
+        counter!("kafka_producer_messages_queued_counter", "topic_name" => topic.clone())
+            .increment(1);
 
         debug!(
             topic = %topic,
@@ -89,9 +90,10 @@ impl KafkaProducer for KafkaProducerService {
                         );
 
                         // Convert to appropriate gRPC status
-                        let produce_error = common_kafka::kafka_producer::KafkaProduceError::KafkaProduceError {
-                            error: kafka_error,
-                        };
+                        let produce_error =
+                            common_kafka::kafka_producer::KafkaProduceError::KafkaProduceError {
+                                error: kafka_error,
+                            };
                         Err(kafka_error_to_status(produce_error))
                     }
                     Err(_) => {
@@ -102,16 +104,18 @@ impl KafkaProducer for KafkaProducerService {
                 }
             }
             Err((kafka_error, _)) => {
-                counter!("kafka_producer_messages_failed_counter", "topic_name" => topic.clone()).increment(1);
+                counter!("kafka_producer_messages_failed_counter", "topic_name" => topic.clone())
+                    .increment(1);
                 error!(
                     topic = %topic,
                     error = %kafka_error,
                     "Failed to queue message for Kafka"
                 );
 
-                let produce_error = common_kafka::kafka_producer::KafkaProduceError::KafkaProduceError {
-                    error: kafka_error,
-                };
+                let produce_error =
+                    common_kafka::kafka_producer::KafkaProduceError::KafkaProduceError {
+                        error: kafka_error,
+                    };
                 Err(kafka_error_to_status(produce_error))
             }
         }

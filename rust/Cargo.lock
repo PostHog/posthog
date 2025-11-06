@@ -4369,8 +4369,6 @@ dependencies = [
  "prost 0.13.5",
  "rdkafka",
  "serde",
- "serde_json",
- "thiserror 2.0.17",
  "tokio",
  "tokio-stream",
  "tonic 0.12.3",

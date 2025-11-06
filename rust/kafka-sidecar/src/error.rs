@@ -5,9 +5,10 @@ use tonic::{Code, Status};
 pub fn kafka_error_to_status(error: KafkaProduceError) -> Status {
     match error {
         // Serialization errors are client errors (invalid input)
-        KafkaProduceError::SerializationError { error } => {
-            Status::new(Code::InvalidArgument, format!("Invalid message format: {}", error))
-        }
+        KafkaProduceError::SerializationError { error } => Status::new(
+            Code::InvalidArgument,
+            format!("Invalid message format: {error:?}"),
+        ),
         // Kafka produce errors need more nuanced handling
         KafkaProduceError::KafkaProduceError { error } => {
             if let Some(code) = error.rdkafka_error_code() {
@@ -22,14 +23,15 @@ pub fn kafka_error_to_status(error: KafkaProduceError) -> Status {
                     | RDKafkaErrorCode::RequestTimedOut
                     | RDKafkaErrorCode::BrokerNotAvailable
                     | RDKafkaErrorCode::NotEnoughReplicas
-                    | RDKafkaErrorCode::NotEnoughReplicasAfterAppend => {
-                        Status::new(Code::Unavailable, format!("Kafka temporarily unavailable: {}", error))
-                    }
+                    | RDKafkaErrorCode::NotEnoughReplicasAfterAppend => Status::new(
+                        Code::Unavailable,
+                        format!("Kafka temporarily unavailable: {error:?}"),
+                    ),
                     // Other errors are internal
-                    _ => Status::new(Code::Internal, format!("Kafka error: {}", error)),
+                    _ => Status::new(Code::Internal, format!("Kafka error: {error:?}")),
                 }
             } else {
-                Status::new(Code::Internal, format!("Kafka error: {}", error))
+                Status::new(Code::Internal, format!("Kafka error: {error:?}"))
             }
         }
         // Timeout/cancellation - unavailable

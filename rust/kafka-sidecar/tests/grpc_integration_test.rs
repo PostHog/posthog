@@ -6,8 +6,8 @@ use kafka_sidecar::proto::kafka_producer::{
 };
 use kafka_sidecar::service::KafkaProducerService;
 use rdkafka::{
-    consumer::{Consumer, StreamConsumer},
     config::ClientConfig,
+    consumer::{Consumer, StreamConsumer},
     message::Headers,
     Message,
 };
@@ -41,8 +41,8 @@ async fn start_test_server() -> Result<(SocketAddr, tokio::task::JoinHandle<()>)
 
     // Create Kafka producer
     let kafka_config = config.to_kafka_config();
-    let producer = common_kafka::kafka_producer::create_kafka_producer(&kafka_config, kafka_liveness)
-        .await?;
+    let producer =
+        common_kafka::kafka_producer::create_kafka_producer(&kafka_config, kafka_liveness).await?;
 
     // Create gRPC service
     let kafka_service = KafkaProducerService::new(producer);
@@ -73,7 +73,7 @@ fn create_test_consumer(group_id: &str) -> Result<StreamConsumer> {
         .set("bootstrap.servers", KAFKA_BROKERS)
         .set("group.id", group_id)
         .set("enable.auto.commit", "false")
-        .set("auto.offset.reset", "earliest")  // Read from beginning
+        .set("auto.offset.reset", "earliest") // Read from beginning
         .set("session.timeout.ms", "6000")
         .set("heartbeat.interval.ms", "2000")
         .create()?;
