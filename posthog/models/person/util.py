@@ -27,6 +27,7 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.settings import TEST
+from posthog.clickhouse.client.connection import Workload
 
 if TEST:
     # :KLUDGE: Hooks are kept around for tests. All other code goes through plugin-server or the other methods explicitly
@@ -54,6 +55,8 @@ if TEST:
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
+        distinct_ids_to_version = _get_distinct_ids_with_version(instance)
+
         _delete_person(
             instance.team.id,
             instance.uuid,
@@ -61,6 +64,17 @@ if TEST:
             instance.created_at,
             sync=True,
         )
+
+        _delete_ch_cohortpeople(instance.team_id, instance.uuid, sync=True)
+
+        for distinct_id, version in distinct_ids_to_version.items():
+            _delete_ch_distinct_id(
+                instance.team.pk,
+                instance.uuid,
+                distinct_id,
+                version,
+                sync=True,
+            )
 
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
@@ -205,6 +219,7 @@ def delete_person(person: Person, sync: bool = False) -> None:
     # This is racy https://github.com/PostHog/posthog/issues/11590
     distinct_ids_to_version = _get_distinct_ids_with_version(person)
     _delete_person(person.team_id, person.uuid, int(person.version or 0), person.created_at, sync)
+    _delete_ch_cohortpeople(person.team_id, person.uuid, sync)
     for distinct_id, version in distinct_ids_to_version.items():
         _delete_ch_distinct_id(person.team_id, person.uuid, distinct_id, version, sync)
 
@@ -229,6 +244,21 @@ def _delete_person(
         sync=sync,
     )
 
+def _delete_ch_cohortpeople(team_id: int, person_uuid, sync: bool = False) -> None:
+    """
+    Delete of cohortpeople rows for this person.
+    """
+    settings = {"lightweight_deletes_sync": 1 if sync else 0}
+
+    sync_execute(
+        """
+        DELETE FROM cohortpeople
+        WHERE team_id = %(team_id)s AND person_id = %(person_id)s
+        """,
+        {"team_id": team_id, "person_id": str(person_uuid)},
+        settings=settings,
+        workload=Workload.OFFLINE,
+    )
 
 def _get_distinct_ids_with_version(person: Person) -> dict[str, int]:
     return {
