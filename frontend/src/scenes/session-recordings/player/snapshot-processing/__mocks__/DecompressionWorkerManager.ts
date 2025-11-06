@@ -27,10 +27,18 @@ export class DecompressionWorkerManager {
 }
 
 let workerManager: DecompressionWorkerManager | null = null
+let currentConfig: { useWorker?: boolean; posthog?: any } | null = null
 
-export function getDecompressionWorkerManager(): DecompressionWorkerManager {
+export function getDecompressionWorkerManager(useWorker?: boolean, posthog?: any): DecompressionWorkerManager {
+    const configChanged = currentConfig && (currentConfig.useWorker !== useWorker || currentConfig.posthog !== posthog)
+
+    if (configChanged) {
+        terminateDecompressionWorker()
+    }
+
     if (!workerManager) {
         workerManager = new DecompressionWorkerManager()
+        currentConfig = { useWorker, posthog }
     }
     return workerManager
 }
@@ -40,4 +48,5 @@ export function terminateDecompressionWorker(): void {
         workerManager.terminate()
         workerManager = null
     }
+    currentConfig = null
 }
