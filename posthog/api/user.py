@@ -6,7 +6,7 @@ import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
@@ -170,12 +170,12 @@ class UserSerializer(serializers.ModelSerializer):
     def get_has_password(self, instance: User) -> bool:
         return bool(instance.password) and instance.has_usable_password()
 
-    def get_is_impersonated(self, _) -> Optional[bool]:
+    def get_is_impersonated(self, _) -> bool | None:
         if "request" not in self.context:
             return None
         return is_impersonated_session(self.context["request"])
 
-    def get_is_impersonated_until(self, _) -> Optional[str]:
+    def get_is_impersonated_until(self, _) -> str | None:
         if "request" not in self.context or not is_impersonated_session(self.context["request"]):
             return None
 
@@ -183,7 +183,7 @@ class UserSerializer(serializers.ModelSerializer):
 
         return expires_at_time.replace(tzinfo=UTC).isoformat() if expires_at_time else None
 
-    def get_sensitive_session_expires_at(self, instance: User) -> Optional[str]:
+    def get_sensitive_session_expires_at(self, instance: User) -> str | None:
         if "request" not in self.context:
             return None
 
@@ -276,8 +276,8 @@ class UserSerializer(serializers.ModelSerializer):
         return cast(Notifications, current_settings)
 
     def validate_password_change(
-        self, instance: User, current_password: Optional[str], password: Optional[str]
-    ) -> Optional[str]:
+        self, instance: User, current_password: str | None, password: str | None
+    ) -> str | None:
         if password:
             if instance.password and instance.has_usable_password():
                 # If user has a password set, we check it's provided to allow updating it. We need to check that is both
@@ -465,8 +465,10 @@ class UserViewSet(
     def zendesk_tickets(self, request, **kwargs):
         """Fetch Zendesk tickets for the current user from Zendesk API."""
         import base64
-        import requests
+
         from django.conf import settings
+
+        import requests
 
         user = self.get_object()
 
@@ -596,7 +598,7 @@ class UserViewSet(
             return {"success": True, "token": token}
 
         try:
-            user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
+            user: User | None = User.objects.filter(is_active=True).get(uuid=user_uuid)
         except User.DoesNotExist:
             user = None
 
