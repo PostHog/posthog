@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from posthog.schema import AgentMode
 
-from ee.hogai.graph.agent_modes.nodes import AgentNode, AgentToolkit, AgentToolsNode
+from .nodes import AgentNode, AgentToolkit, AgentToolsNode
 
 
 class AgentExample(BaseModel):

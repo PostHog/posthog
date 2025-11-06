@@ -38,8 +38,8 @@ class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
 
     def add_root(
         self,
-        router: Callable[[AssistantState], AssistantNodeName],
-        tools_router: Callable[[AssistantState], AssistantNodeName],
+        router: Callable[[AssistantState], AssistantNodeName] | None = None,
+        tools_router: Callable[[AssistantState], AssistantNodeName] | None = None,
     ):
         agent_executor = AgentExecutorGraph(self._team, self._user).compile_full_graph(
             agent_node_router=router, agent_tools_node_router=tools_router

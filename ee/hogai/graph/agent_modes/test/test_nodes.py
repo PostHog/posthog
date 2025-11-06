@@ -33,7 +33,7 @@ from posthog.models.organization import OrganizationMembership
 from products.replay.backend.max_tools import SearchSessionRecordingsTool
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.tool import ToolMessagesArtifact
+from ee.hogai.tools.read_taxonomy import ReadEvents
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion
@@ -57,29 +57,6 @@ def mock_contextual_tool(mock_tool):
 
 
 class TestAgentToolkit(BaseTest):
-    @patch("ee.hogai.graph.agent_modes.nodes.AgentNode._get_model")
-    @patch("posthoganalytics.feature_enabled")
-    async def test_get_tools_session_summarization_feature_flag(self, mock_feature_enabled, mock_model):
-        """Test that session_summarization tool is only included when feature flag is enabled"""
-        mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
-
-        node = AgentToolkit(
-            self.team, self.user, AssistantContextManager(self.team, self.user, RunnableConfig(configurable={}))
-        )
-        state = AssistantState(messages=[HumanMessage(content="Test")])
-
-        # Test with feature flag enabled
-        mock_feature_enabled.return_value = True
-        tools_with_flag = await node.get_tools(state, {})
-        tool_names_with_flag = [tool.get_name() for tool in tools_with_flag]
-        self.assertIn("session_summarization", tool_names_with_flag)
-
-        # Test with feature flag disabled
-        mock_feature_enabled.return_value = False
-        tools_without_flag = await node.get_tools(state, {})
-        tool_names_without_flag = [tool.get_name() for tool in tools_without_flag]
-        self.assertNotIn("session_summarization", tool_names_without_flag)
-
     @patch("ee.hogai.graph.agent_modes.nodes.AgentNode._get_model")
     @patch("ee.hogai.registry.get_contextual_tool_class")
     async def test_get_tools_ignores_unknown_contextual_tools(self, mock_get_tool_class, mock_model):
@@ -115,28 +92,19 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, "Why did the chicken cross the road? To get to the other side!")
 
-    @parameterized.expand(
-        [
-            ["trends", "Hang tight while I check this."],
-            ["funnel", "Hang tight while I check this."],
-            ["retention", "Hang tight while I check this."],
-            ["trends", ""],
-            ["funnel", ""],
-            ["retention", ""],
-        ]
-    )
-    async def test_node_handles_insight_tool_call(self, insight_type, content):
+    async def test_node_can_produce_not_existing_tool(self):
+        """Test that the node can produce a not existing tool call message. AgentToolsNode will handle the hallucination."""
         with patch(
             "ee.hogai.graph.agent_modes.nodes.AgentNode._get_model",
             return_value=FakeChatOpenAI(
                 responses=[
                     LangchainAIMessage(
-                        content=content,
+                        content="Content",
                         tool_calls=[
                             {
                                 "id": "xyz",
-                                "name": "create_and_query_insight",
-                                "args": {"query_description": "Foobar", "query_kind": insight_type},
+                                "name": "does_not_exist",
+                                "args": {"query_description": "Foobar"},
                             }
                         ],
                     )
@@ -144,14 +112,14 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             ),
         ):
             node = AgentNode(self.team, self.user, AgentToolkit)
-            state_1 = AssistantState(messages=[HumanMessage(content=f"generate {insight_type}")])
+            state_1 = AssistantState(messages=[HumanMessage(content="generate")])
             next_state = await node.arun(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
             self.assertEqual(len(next_state.messages), 1)
             self.assertIsInstance(next_state.messages[0], AssistantMessage)
             assistant_message = next_state.messages[0]
             assert isinstance(assistant_message, AssistantMessage)
-            self.assertEqual(assistant_message.content, content)
+            self.assertEqual(assistant_message.content, "Content")
             self.assertIsNotNone(assistant_message.id)
             self.assertIsNotNone(assistant_message.tool_calls)
             assert assistant_message.tool_calls is not None
@@ -160,8 +128,8 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                 assistant_message.tool_calls[0],
                 AssistantToolCall(
                     id="xyz",
-                    name="create_and_query_insight",
-                    args={"query_description": "Foobar", "query_kind": insight_type},
+                    name="does_not_exist",
+                    args={"query_description": "Foobar"},
                 ),
             )
 
@@ -773,10 +741,10 @@ class TestAgentToolsNode(BaseTest):
         result = await node.arun(state, {})
         self.assertEqual(result, PartialAssistantState(root_tool_call_id=None))
 
-    @patch("ee.hogai.tools.create_and_query_insight.CreateAndQueryInsightTool._arun_impl")
-    async def test_run_valid_tool_call(self, create_and_query_insight_mock):
-        test_message = AssistantToolCallMessage(content="Tool result", tool_call_id="xyz", id="msg-1")
-        create_and_query_insight_mock.return_value = ("", ToolMessagesArtifact(messages=[test_message]))
+    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    async def test_run_valid_tool_call(self, read_taxonomy_mock):
+        """Test that built-in tools can be called"""
+        read_taxonomy_mock.return_value = ("Content", None)
 
         node = AgentToolsNode(self.team, self.user, AgentToolkit)
         state = AssistantState(
@@ -787,21 +755,48 @@ class TestAgentToolsNode(BaseTest):
                     tool_calls=[
                         AssistantToolCall(
                             id="xyz",
-                            name="create_and_query_insight",
-                            args={"query_description": "test query"},
+                            name="read_taxonomy",
+                            args={"query": {"kind": "events"}},
                         )
                     ],
                 )
             ],
             root_tool_call_id="xyz",
         )
-        result = await node.arun(state, {})
+        result = await node(state, {})
         self.assertIsInstance(result, PartialAssistantState)
         assert result is not None
         self.assertEqual(len(result.messages), 1)
         assert isinstance(result.messages[0], AssistantToolCallMessage)
         self.assertEqual(result.messages[0].tool_call_id, "xyz")
-        create_and_query_insight_mock.assert_called_once_with(query_description="test query")
+        read_taxonomy_mock.assert_called_once_with(query=ReadEvents())
+
+    async def test_invalid_tool_call_returns_error(self):
+        """Test that invalid tool calls return an error message"""
+        node = AgentToolsNode(self.team, self.user, AgentToolkit)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Hello",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(
+                            id="xyz",
+                            name="does_not_exist",
+                            args={"query_description": "Foobar"},
+                        )
+                    ],
+                )
+            ],
+            root_tool_call_id="xyz",
+        )
+        result = await node(state, {})
+        self.assertIsInstance(result, PartialAssistantState)
+        assert result is not None
+        self.assertEqual(len(result.messages), 1)
+        assert isinstance(result.messages[0], AssistantToolCallMessage)
+        self.assertEqual(result.messages[0].tool_call_id, "xyz")
+        self.assertIn("This tool does not exist", result.messages[0].content)
 
     async def test_run_valid_contextual_tool_call(self):
         node = AgentToolsNode(self.team, self.user, AgentToolkit)
@@ -858,20 +853,19 @@ class TestAgentToolsNode(BaseTest):
             content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
         )
 
-        with mock_contextual_tool(mock_navigate_tool):
-            # The navigate tool call should raise NodeInterrupt
-            with self.assertRaises(NodeInterrupt) as cm:
-                await node.arun(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
+        # The navigate tool call should raise NodeInterrupt
+        with self.assertRaises(NodeInterrupt) as cm:
+            await node(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
 
-            # Verify the NodeInterrupt contains the expected message
-            # NodeInterrupt wraps the message in an Interrupt object
-            interrupt_data = cm.exception.args[0]
-            if isinstance(interrupt_data, list):
-                interrupt_data = interrupt_data[0].value
-            self.assertIsInstance(interrupt_data, AssistantToolCallMessage)
-            self.assertEqual(interrupt_data.content, "XXX")
-            self.assertEqual(interrupt_data.tool_call_id, "nav-123")
-            self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
+        # Verify the NodeInterrupt contains the expected message
+        # NodeInterrupt wraps the message in an Interrupt object
+        interrupt_data = cm.exception.args[0]
+        if isinstance(interrupt_data, list):
+            interrupt_data = interrupt_data[0].value
+        self.assertIsInstance(interrupt_data, AssistantToolCallMessage)
+        self.assertIn("Navigated to **insights**.", interrupt_data.content)
+        self.assertEqual(interrupt_data.tool_call_id, "nav-123")
+        self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
 
     async def test_arun_tool_returns_wrong_type_returns_error_message(self):
         """Test that tool returning wrong type returns an error message"""
@@ -898,7 +892,7 @@ class TestAgentToolsNode(BaseTest):
             self.assertEqual(len(result.messages), 1)
             assert isinstance(result.messages[0], AssistantToolCallMessage)
             self.assertEqual(result.messages[0].tool_call_id, "tool-123")
-            self.assertIn("internal error", result.messages[0].content)
+            self.assertIn("This tool does not exist.", result.messages[0].content)
 
     async def test_arun_unknown_tool_returns_error_message(self):
         """Test that unknown tool name returns an error message"""

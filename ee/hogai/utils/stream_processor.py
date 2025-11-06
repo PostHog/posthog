@@ -175,9 +175,10 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         if not node_path:
             return False
         # The first path is always the top-level graph.
-        # The second path is always the top-level node.
-        # If the path is longer than 2, it's a MaxTool or nested graphs.
-        if len(node_path) > 2 and next((path for path in node_path[1:] if path.name in AssistantGraphName), None):
+        # The second path is always the agent executor graph.
+        # The third path is always the top-level node.
+        # If the path is longer than 3, it's a MaxTool or nested graphs.
+        if len(node_path) > 3 and next((path for path in node_path[2:] if path.name in AssistantGraphName), None):
             return True
         return False
 

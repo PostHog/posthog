@@ -2,11 +2,9 @@ import pkgutil
 import importlib
 from typing import TYPE_CHECKING
 
-from posthog.schema import AgentMode, AssistantTool
+from posthog.schema import AssistantTool
 
 import products
-
-from ee.hogai.graph.agent_modes.presets.product_analytics import product_analytics_agent
 
 if TYPE_CHECKING:
     from ee.hogai.tool import MaxTool
@@ -16,6 +14,10 @@ CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantTool, type["MaxTool"]] = {}
 
 def _import_max_tools() -> None:
     """TRICKY: Dynamically import max_tools from all products"""
+    # Already imported
+    if CONTEXTUAL_TOOL_NAME_TO_TOOL:
+        return
+
     for module_info in pkgutil.iter_modules(products.__path__):
         if module_info.name in ("conftest", "test"):
             continue  # We mustn't import test modules in prod
@@ -34,8 +36,3 @@ def get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
         return CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantTool(tool_name)]
     except KeyError:
         return None
-
-
-MODE_REGISTRY = {
-    AgentMode.PRODUCT_ANALYTICS: product_analytics_agent,
-}
