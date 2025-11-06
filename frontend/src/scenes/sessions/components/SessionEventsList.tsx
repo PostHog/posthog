@@ -92,7 +92,7 @@ export function SessionEventsList({
     const durationSeconds = startTime && endTime ? endTime.diff(startTime, 'second') : 0
 
     return (
-        <LemonCard className="overflow-hidden">
+        <LemonCard className="overflow-hidden" hoverEffect={false}>
             {/* Header */}
             <div className="flex items-center justify-between bg-surface-primary p-3 border-b border-border">
                 <div className="flex items-center gap-3">
