@@ -1,15 +1,140 @@
+import logging
+from collections import defaultdict
+from datetime import timedelta
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 
 from rest_framework import filters, serializers, viewsets
 
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.models import Team
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.synthetic_monitoring.backend.models import SyntheticMonitor
+
+logger = logging.getLogger(__name__)
+
+
+def fetch_sparkline_data_bulk(team_id: int, monitor_ids: list[str]) -> dict:
+    """
+    Fetch sparkline data for multiple monitors in a single query.
+    Returns dict with monitor_id -> {failures: list[int], response_times: list[float]}
+    """
+    if not monitor_ids:
+        return {}
+
+    team = Team.objects.get(id=team_id)
+
+    # Single query for all failure data
+    failure_query = parse_select(
+        """
+        SELECT
+            outer.monitor_id AS monitor_id,
+            outer.hour AS hour,
+            coalesce(inner.failures, 0) AS failures
+        FROM (
+            SELECT
+                arrayJoin({monitor_ids}) AS monitor_id,
+                arrayJoin(arrayMap(n -> toStartOfHour(now()) - INTERVAL 24 HOUR + INTERVAL n HOUR, range(24))) AS hour
+        ) AS outer
+        LEFT JOIN (
+            SELECT
+                properties.monitor_id as monitor_id,
+                toStartOfHour(timestamp) as hour,
+                countIf(`properties`.`$synthetic_success` = false) as failures
+            FROM events
+            WHERE
+                event = '$synthetic_http_check'
+                AND properties.monitor_id IN {monitor_ids}
+                AND timestamp >= toStartOfHour(now()) - INTERVAL 25 HOUR -- 25 hours to ensure we get the minutes before the current minute from the first hour
+            GROUP BY monitor_id, hour
+            ORDER BY monitor_id, hour ASC
+        ) AS inner
+        ON outer.monitor_id = inner.monitor_id AND outer.hour = inner.hour
+        ORDER BY monitor_id, hour ASC
+        """,
+        placeholders={"monitor_ids": monitor_ids},
+    )
+
+    # Single query for all response time data
+    response_time_query = parse_select(
+        """
+        SELECT
+            outer.monitor_id AS monitor_id,
+            outer.hour AS hour,
+            coalesce(inner.avg_time_ms, 0) AS avg_time_ms
+        FROM (
+            SELECT
+                arrayJoin({monitor_ids}) AS monitor_id,
+                arrayJoin(arrayMap(n -> toStartOfHour(now()) - INTERVAL 24 HOUR + INTERVAL n HOUR, range(24))) AS hour
+        ) AS outer
+        LEFT JOIN (
+            SELECT
+                properties.monitor_id as monitor_id,
+                toStartOfHour(timestamp) as hour,
+                avg(toInt(`properties`.`$synthetic_response_time_ms`)) as avg_time_ms
+            FROM events
+            WHERE
+                event = '$synthetic_http_check'
+                AND properties.monitor_id IN {monitor_ids}
+                AND timestamp >= toStartOfHour(now()) - INTERVAL 25 HOUR -- 25 hours to ensure we get the minutes before the current minute from the first hour
+            GROUP BY monitor_id, hour
+            ORDER BY monitor_id, hour ASC
+        ) AS inner
+        ON outer.monitor_id = inner.monitor_id AND outer.hour = inner.hour
+        ORDER BY monitor_id, hour ASC
+        """,
+        placeholders={"monitor_ids": monitor_ids},
+    )
+
+    failure_response = execute_hogql_query(
+        query_type="SyntheticMonitorFailureSparkline",
+        query=failure_query,
+        team=team,
+    )
+
+    response_time_response = execute_hogql_query(
+        query_type="SyntheticMonitorResponseTimeSparkline",
+        query=response_time_query,
+        team=team,
+    )
+
+    # Build data structure: monitor_id -> hour -> value
+    failure_data = defaultdict(dict)
+    for row in failure_response.results:
+        monitor_id, hour, failures = row
+        failure_data[monitor_id][hour] = int(failures)
+
+    response_time_data = defaultdict(dict)
+    for row in response_time_response.results:
+        monitor_id, hour, avg_time = row
+        if avg_time is not None:
+            response_time_data[monitor_id][hour] = float(avg_time)
+
+    # Generate full 24-hour arrays for each monitor
+    result = {}
+    base_hour = next(iter(failure_data[monitor_ids[0]].keys()))
+
+    for monitor_id in monitor_ids:
+        failures = []
+        response_times = []
+        current = base_hour
+
+        for _ in range(24):
+            failures.append(failure_data[monitor_id].get(current, 0))
+            response_times.append(response_time_data[monitor_id].get(current, 0.0))
+            current += timedelta(hours=1)
+
+        result[monitor_id] = {"failures": failures, "response_times": response_times}
+
+    return result
 
 
 class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -65,6 +190,8 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
         help_text="Whether the monitor is active. Disabled monitors won't be checked.",
         default=True,
     )
+    failure_sparkline = serializers.SerializerMethodField(read_only=True)
+    response_time_sparkline = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = SyntheticMonitor
@@ -83,12 +210,16 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
             "created_by",
             "created_at",
             "updated_at",
+            "failure_sparkline",
+            "response_time_sparkline",
         ]
         read_only_fields = [
             "id",
             "created_by",
             "created_at",
             "updated_at",
+            "failure_sparkline",
+            "response_time_sparkline",
         ]
 
     def create(self, validated_data: dict) -> SyntheticMonitor:
@@ -156,6 +287,18 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
 
         return instance
 
+    def get_failure_sparkline(self, obj: SyntheticMonitor) -> list[int]:
+        """Get hourly failure counts for the last 24 hours"""
+        sparkline_data = self.context.get("sparkline_data", {})
+        monitor_data = sparkline_data.get(str(obj.id), {})
+        return monitor_data.get("failures", [])
+
+    def get_response_time_sparkline(self, obj: SyntheticMonitor) -> list[float]:
+        """Get hourly average response times for the last 24 hours"""
+        sparkline_data = self.context.get("sparkline_data", {})
+        monitor_data = sparkline_data.get(str(obj.id), {})
+        return monitor_data.get("response_times", [])
+
 
 class SyntheticMonitorViewSet(
     TeamAndOrgViewSetMixin,
@@ -177,15 +320,25 @@ class SyntheticMonitorViewSet(
         if enabled is not None:
             queryset = queryset.filter(enabled=enabled.lower() == "true")
 
-        # Note: State filtering would require querying ClickHouse events
-        # For MVP, we skip state filtering in the queryset
-
         # Optionally filter by type
         monitor_type = self.request.query_params.get("type")
         if monitor_type:
             queryset = queryset.filter(type=monitor_type)
 
         return queryset.order_by("-created_at")
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        # Fetch sparkline data for list/retrieve operations
+        if self.action in ["list", "retrieve"]:
+            queryset = self.filter_queryset(self.get_queryset())
+            if self.action == "retrieve" and "pk" in self.kwargs:
+                monitor_ids = [str(self.kwargs["pk"])]
+            else:
+                monitor_ids = [str(id) for id in queryset.values_list("id", flat=True)]
+            if monitor_ids:
+                context["sparkline_data"] = fetch_sparkline_data_bulk(self.team_id, monitor_ids)
+        return context
 
     def perform_destroy(self, instance: SyntheticMonitor):
         report_user_action(

@@ -28,6 +28,8 @@ export interface SyntheticMonitor extends WithAccessControl {
     expected_status_code: number
     timeout_seconds: number
     enabled: boolean
+    failure_sparkline: number[]
+    response_time_sparkline: number[]
     created_by: {
         id: string
         uuid: string

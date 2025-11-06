@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { Sparkline } from 'lib/components/Sparkline'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
@@ -64,6 +65,25 @@ export function MonitorsTable(): JSX.Element {
                     </div>
                 )
             },
+        },
+        {
+            title: 'Failure Count',
+            dataIndex: 'failure_sparkline',
+            render: (failure_sparkline) => (
+                <Sparkline data={failure_sparkline as number[]} maximumIndicator={false} type="line" className="h-8" />
+            ),
+        },
+        {
+            title: 'Response Time',
+            dataIndex: 'response_time_sparkline',
+            render: (response_time_sparkline) => (
+                <Sparkline
+                    data={response_time_sparkline as number[]}
+                    maximumIndicator={false}
+                    type="line"
+                    className="h-8"
+                />
+            ),
         },
         {
             width: 0,
