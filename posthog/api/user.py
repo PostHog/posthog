@@ -466,7 +466,6 @@ class UserViewSet(
         """Fetch Zendesk tickets for the current user from Zendesk API."""
         import base64
         import requests
-
         from django.conf import settings
 
         user = self.get_object()
