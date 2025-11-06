@@ -778,8 +778,8 @@ class ExperimentQueryBuilder:
             return ast.And(exprs=[property_to_expr(property, self.team) for property in self.team.test_account_filters])
         return ast.Constant(value=True)
 
-    def _build_variant_property(self) -> ast.Field:
-        """Derive which event property that should be used for variants"""
+    def _get_variant_field(self) -> ast.Field:
+        """Return the raw field that stores the experiment variant."""
 
         # $feature_flag_called events are special as we can use the $feature_flag_response
         if (
@@ -789,6 +789,18 @@ class ExperimentQueryBuilder:
             return ast.Field(chain=["properties", "$feature_flag_response"])
 
         return ast.Field(chain=["properties", f"$feature/{self.feature_flag_key}"])
+
+    def _build_variant_property(self) -> ast.Expr:
+        """Variant expression coerced to Nullable(String) for stable use in filters."""
+
+        variant_field = self._get_variant_field()
+
+        return parse_expr(
+            "nullIf(toString({variant_field}), '')",
+            placeholders={
+                "variant_field": variant_field,
+            },
+        )
 
     def _build_variant_expr_for_funnel(self) -> ast.Expr:
         """
