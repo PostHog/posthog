@@ -67,18 +67,6 @@ def run_sql_with_exceptions(
         # because we don't have different ClickHouse topologies yet in Docker
         node_roles = [NodeRole.ALL]
 
-    errors = []
-    if "ON CLUSTER" in sql:
-        logger.error("ON CLUSTER is not supposed to used in migration, query: %s", sql)
-    if "ALTER TABLE" in sql:
-        if sharded is None:
-            errors.append("sharded parameter must be explicitly specified for ALTER TABLE queries")
-        if is_alter_on_replicated_table is None:
-            errors.append("is_alter_on_replicated_table parameter must be explicitly specified for ALTER TABLE queries")
-    if errors:
-        msg = "\n\t- ".join(errors)
-        raise ValueError(f"problems:\n\t- {msg}")
-
     def run_migration():
         cluster = get_migrations_cluster()
 

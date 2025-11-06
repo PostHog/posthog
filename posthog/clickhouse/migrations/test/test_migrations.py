@@ -97,6 +97,30 @@ class TestUniqueMigrationPrefixes(TestCase):
             f"is {latest_migration!r}. Update max_migration.txt to contain {latest_migration!r}.",
         )
 
+    def check_alter_table(
+        self, sql: str, node_roles: list[NodeRole], sharded: bool, is_alter_on_replicated_table: bool
+    ):
+        # Check if this is an ALTER TABLE statement
+        if not re.search(r"\bALTER\s+TABLE\b", sql, re.IGNORECASE):
+            return []
+
+        errors = []
+        if sharded is None:
+            errors.append("sharded parameter must be explicitly specified for ALTER TABLE queries")
+
+        if is_alter_on_replicated_table is None:
+            errors.append("is_alter_on_replicated_table parameter must be explicitly specified for ALTER TABLE queries")
+
+        if sharded and node_roles != [NodeRole.DATA]:
+            errors.append("ALTER TABLE on sharded tables must have node_role=NodeRole.DATA")
+
+        if not sharded and is_alter_on_replicated_table and set(node_roles) != {NodeRole.DATA, NodeRole.COORDINATOR}:
+            errors.append(
+                "ALTER TABLE on non-sharded tables must have node_role=NodeRole.DATA and NodeRole.COORDINATOR"
+            )
+
+        return errors
+
     def test_alter_on_replicated_tables_has_correct_flag(self):
         """Test that ALTER TABLE on replicated non-sharded tables uses is_alter_on_replicated_table=True."""
         MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
@@ -133,30 +157,11 @@ class TestUniqueMigrationPrefixes(TestCase):
                 sharded = operation._sharded
                 is_alter_on_replicated_table = operation._is_alter_on_replicated_table
 
-                # Check if this is an ALTER TABLE statement
-                if not re.search(r"\bALTER\s+TABLE\b", sql, re.IGNORECASE):
-                    continue
-
                 errors = []
-                if sharded is None:
-                    errors.append("sharded parameter must be explicitly specified for ALTER TABLE queries")
+                if "ON CLUSTER" in sql:
+                    errors.append("ON CLUSTER is not supposed to used in migration")
 
-                if is_alter_on_replicated_table is None:
-                    errors.append(
-                        "is_alter_on_replicated_table parameter must be explicitly specified for ALTER TABLE queries"
-                    )
-
-                if sharded and node_roles != [NodeRole.DATA]:
-                    errors.append("ALTER TABLE on sharded tables must have node_role=NodeRole.DATA")
-
-                if (
-                    not sharded
-                    and is_alter_on_replicated_table
-                    and set(node_roles) != {NodeRole.DATA, NodeRole.COORDINATOR}
-                ):
-                    errors.append(
-                        "ALTER TABLE on non-sharded tables must have node_role=NodeRole.DATA and NodeRole.COORDINATOR"
-                    )
+                errors = errors + self.check_alter_table(sql, node_roles, sharded, is_alter_on_replicated_table)
 
                 if errors:
                     table_match = re.search(r"ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?([^\s(]+)", sql, re.IGNORECASE)
