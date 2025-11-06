@@ -666,106 +666,6 @@ describe('IngestionConsumer', () => {
         })
     })
 
-    describe('event batching', () => {
-        beforeEach(async () => {
-            ingester = await createIngestionConsumer(hub)
-        })
-
-        it('should batch events based on the distinct_id', () => {
-            const messages = [
-                ...createIncomingEventsWithTeam(
-                    [
-                        createEvent({ distinct_id: 'distinct-id-1' }),
-                        createEvent({ distinct_id: 'distinct-id-1' }),
-                        createEvent({ distinct_id: 'distinct-id-2' }),
-                        createEvent({ distinct_id: 'distinct-id-1' }),
-                    ],
-                    team
-                ),
-                ...createIncomingEventsWithTeam(
-                    [createEvent({ token: team2.api_token, distinct_id: 'distinct-id-1' })],
-                    team2
-                ),
-            ]
-
-            const batches = ingester['groupEventsByDistinctId'](messages)
-
-            expect(Object.keys(batches)).toHaveLength(3)
-
-            // Rewrite the test to check for the overall object with the correct length
-            expect(batches).toEqual({
-                [`${team.api_token}:distinct-id-1`]: {
-                    distinctId: 'distinct-id-1',
-                    token: team.api_token,
-                    events: [expect.any(Object), expect.any(Object), expect.any(Object)],
-                },
-                [`${team.api_token}:distinct-id-2`]: {
-                    distinctId: 'distinct-id-2',
-                    token: team.api_token,
-                    events: [expect.any(Object)],
-                },
-                [`${team2.api_token}:distinct-id-1`]: {
-                    distinctId: 'distinct-id-1',
-                    token: team2.api_token,
-                    events: [expect.any(Object)],
-                },
-            })
-        })
-
-        it('should preserve headers when grouping events by distinct_id', () => {
-            const events = [
-                createEvent({ distinct_id: 'distinct-id-1' }),
-                createEvent({ distinct_id: 'distinct-id-2' }),
-            ]
-
-            // Create messages with custom headers
-            const messages: IncomingEventWithTeam[] = events.map((event, index) => {
-                const message = createKafkaMessage(event)
-                message.headers = [
-                    { token: Buffer.from(team.api_token) },
-                    { distinct_id: Buffer.from(event.distinct_id || '') },
-                    { timestamp: Buffer.from((Date.now() + index * 1000).toString()) },
-                ]
-
-                return {
-                    event: { ...event, team_id: team.id },
-                    team: team,
-                    message: message,
-                    headers: {
-                        token: team.api_token,
-                        distinct_id: event.distinct_id || '',
-                        timestamp: (Date.now() + index * 1000).toString(),
-                        force_disable_person_processing: false,
-                    },
-                }
-            })
-
-            const batches = ingester['groupEventsByDistinctId'](messages)
-
-            expect(Object.keys(batches)).toHaveLength(2)
-
-            // Check that headers are preserved in the grouped events
-            expect(batches[`${team.api_token}:distinct-id-1`].events[0].headers).toEqual({
-                token: team.api_token,
-                distinct_id: 'distinct-id-1',
-                timestamp: expect.any(String),
-                force_disable_person_processing: false,
-            })
-
-            expect(batches[`${team.api_token}:distinct-id-2`].events[0].headers).toEqual({
-                token: team.api_token,
-                distinct_id: 'distinct-id-2',
-                timestamp: expect.any(String),
-                force_disable_person_processing: false,
-            })
-
-            // Verify the timestamp values are different
-            const timestamp1 = parseInt(batches[`${team.api_token}:distinct-id-1`].events[0].headers.timestamp!)
-            const timestamp2 = parseInt(batches[`${team.api_token}:distinct-id-2`].events[0].headers.timestamp!)
-            expect(timestamp2 - timestamp1).toBe(1000)
-        })
-    })
-
     describe('error handling', () => {
         let messages: Message[]
 
@@ -1132,14 +1032,13 @@ describe('IngestionConsumer', () => {
         )
 
         it(
-            'should not call hogwatcher state caching methods when hogwatcher is disabled (sample rate = 0)',
+            'should not call hogwatcher observeResults when hogwatcher is disabled (sample rate = 0)',
             async () => {
                 // Set hogwatcher disabled (0% sample rate)
                 hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
 
-                // Create spies for methods after the service is configured
-                const fetchAndCacheSpy = jest.spyOn(ingester.hogTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(ingester.hogTransformer, 'clearHogFunctionStates')
+                // Create spy for observeResults on hogWatcher
+                const observeResultsSpy = jest.spyOn(ingester.hogTransformer['hogWatcher'], 'observeResults')
 
                 // Process batch with hogwatcher disabled
                 const event = createEvent({
@@ -1150,9 +1049,8 @@ describe('IngestionConsumer', () => {
 
                 await ingester.handleKafkaBatch(messages)
 
-                // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were NOT called
-                expect(fetchAndCacheSpy).not.toHaveBeenCalled()
-                expect(clearStatesSpy).not.toHaveBeenCalled()
+                // Verify that observeResults was NOT called (hogwatcher telemetry is disabled)
+                expect(observeResultsSpy).not.toHaveBeenCalled()
             },
             TRANSFORMATION_TEST_TIMEOUT
         )

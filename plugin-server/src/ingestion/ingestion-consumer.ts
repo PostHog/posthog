@@ -1,16 +1,13 @@
 import { Message } from 'node-rdkafka'
 
-// import { Counter } from 'prom-client'
-
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
+import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
-import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
+import { latestOffsetTimestampGauge } from '../main/ingestion-queues/metrics'
 import {
     EventHeaders,
     HealthCheckResult,
@@ -18,7 +15,6 @@ import {
     Hub,
     IncomingEvent,
     IncomingEventWithTeam,
-    PipelineEvent,
     PluginServerService,
     PluginsServerConfig,
     Team,
@@ -55,6 +51,7 @@ import { createNormalizeEventStep } from './event-processing/normalize-event-ste
 import { createNormalizeProcessPersonFlagStep } from './event-processing/normalize-process-person-flag-step'
 import { createPrefetchHogFunctionsStep } from './event-processing/prefetch-hog-functions-step'
 import { createSkipEmitEventStep } from './event-processing/skip-emit-event-step'
+import { createTrackNonPersonEventUpdatesStep } from './event-processing/track-non-person-event-updates-step'
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
@@ -62,26 +59,6 @@ import { createBatch, createContext, createUnwrapper } from './pipelines/helpers
 import { PipelineConfig } from './pipelines/result-handling-pipeline'
 import { ok } from './pipelines/results'
 import { MemoryRateLimiter } from './utils/overflow-detector'
-
-// const ingestionEventOverflowed = new Counter({
-//     name: 'ingestion_event_overflowed',
-//     help: 'Indicates that a given event has overflowed capacity and been redirected to a different topic.',
-// })
-
-// const forcedOverflowEventsCounter = new Counter({
-//     name: 'ingestion_forced_overflow_events_total',
-//     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
-// })
-
-type EventsForDistinctId = {
-    token: string
-    distinctId: string
-    events: IncomingEventWithTeam[]
-}
-
-type IncomingEventsByDistinctId = {
-    [key: string]: EventsForDistinctId
-}
 
 type PreprocessedEvent = {
     message: Message
@@ -93,24 +70,6 @@ type PreprocessedEvent = {
 export interface PerDistinctIdPipelineInput extends IncomingEventWithTeam {
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
-}
-
-const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
-const KNOWN_SET_EVENTS = new Set([
-    '$feature_interaction',
-    '$feature_enrollment_update',
-    'survey dismissed',
-    'survey sent',
-])
-
-const trackIfNonPersonEventUpdatesPersons = (event: PipelineEvent): void => {
-    if (
-        !PERSON_EVENTS.has(event.event) &&
-        !KNOWN_SET_EVENTS.has(event.event) &&
-        (event.properties?.$set || event.properties?.$set_once || event.properties?.$unset)
-    ) {
-        setUsageInNonPersonEventsCounter.inc()
-    }
 }
 
 export class IngestionConsumer {
@@ -352,6 +311,7 @@ export class IngestionConsumer {
                                 .teamAware((team) =>
                                     team
                                         .pipeBatch(createPrefetchHogFunctionsStep(this.hub, this.hogTransformer))
+                                        .pipeBatch(createTrackNonPersonEventUpdatesStep())
                                         // We process the events for the distinct id sequentially to provide ordering guarantees.
                                         .sequentially((seq) =>
                                             seq.retry(
@@ -593,8 +553,6 @@ export class IngestionConsumer {
     ): Promise<void> {
         const preprocessedEventsWithStores: PerDistinctIdPipelineInput[] = preprocessedEvents.map(
             (preprocessedEvent) => {
-                // Track $set usage in events that aren't known to use it, before ingestion adds anything there
-                trackIfNonPersonEventUpdatesPersons(preprocessedEvent.eventWithTeam.event)
                 return {
                     ...preprocessedEvent.eventWithTeam,
                     personsStoreForBatch,
@@ -616,101 +574,6 @@ export class IngestionConsumer {
         }
     }
 
-    /**
-     * TEMPORARILY COMMENTED OUT: This will be restored as a separate pipeline step
-     * Redirect events to overflow or testing topic based on their configuration
-     * returning events that have not been redirected
-     */
-    /* private redirectEvents(eventsForDistinctId: EventsForDistinctId): EventsForDistinctId {
-        if (!eventsForDistinctId.events.length) {
-            return eventsForDistinctId
-        }
-
-        if (this.testingTopic) {
-            void this.promiseScheduler.schedule(
-                this.emitToTestingTopic(eventsForDistinctId.events.map((x) => x.message))
-            )
-            return {
-                ...eventsForDistinctId,
-                events: [],
-            }
-        }
-
-        // NOTE: We know at this point that all these events are the same token distinct_id
-        const token = eventsForDistinctId.token
-        const distinctId = eventsForDistinctId.distinctId
-        const kafkaTimestamp = eventsForDistinctId.events[0].message.timestamp
-        const eventKey = `${token}:${distinctId}`
-
-        // Check if this token is in the force overflow static/dynamic config list
-        const shouldForceOverflow = this.shouldForceOverflow(token, distinctId)
-
-        // Check the rate limiter and emit to overflow if necessary
-        const isBelowRateLimit = this.overflowRateLimiter.consume(
-            eventKey,
-            eventsForDistinctId.events.length,
-            kafkaTimestamp
-        )
-
-        if (this.overflowEnabled() && (shouldForceOverflow || !isBelowRateLimit)) {
-            ingestionEventOverflowed.inc(eventsForDistinctId.events.length)
-
-            if (shouldForceOverflow) {
-                forcedOverflowEventsCounter.inc()
-            } else if (this.ingestionWarningLimiter.consume(eventKey, eventsForDistinctId.events.length)) {
-                logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
-            }
-
-            // NOTE: If we are forcing to overflow we typically want to keep the partition key
-            // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
-            // of random partitioning.
-            const preserveLocality = shouldForceOverflow && !this.shouldSkipPerson(token, distinctId) ? true : undefined
-
-            void this.promiseScheduler.schedule(
-                this.emitToOverflow(
-                    eventsForDistinctId.events.map((x) => x.message),
-                    preserveLocality
-                )
-            )
-
-            return {
-                ...eventsForDistinctId,
-                events: [],
-            }
-        }
-
-        return eventsForDistinctId
-    } */
-
-    /**
-     * TEMPORARILY COMMENTED OUT: No longer needed with sharded pipeline
-     * Old method that processed events for a single distinct_id
-     */
-    /* private async processEventsForDistinctId(
-        eventsForDistinctId: EventsForDistinctId,
-        personsStoreForBatch: PersonsStoreForBatch,
-        groupStoreForBatch: GroupStoreForBatch
-    ): Promise<void> {
-        const preprocessedEventsWithStores: PerDistinctIdPipelineInput[] = eventsForDistinctId.events.map(
-            (incomingEvent) => {
-                // Track $set usage in events that aren't known to use it, before ingestion adds anything there
-                trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
-                return {
-                    ...incomingEvent,
-                    personsStoreForBatch,
-                    groupStoreForBatch,
-                }
-            }
-        )
-
-        // Feed the batch to the main event pipeline
-        const eventsSequence = preprocessedEventsWithStores.map((event) =>
-            createContext(ok(event), { message: event.message, team: event.team })
-        )
-        this.perDistinctIdPipeline.feed(eventsSequence)
-        await this.perDistinctIdPipeline.next()
-    } */
-
     private async preprocessEvents(messages: Message[]): Promise<PreprocessedEvent[]> {
         // Create batch using the helper function
         const batch = createBatch(messages.map((message) => ({ message })))
@@ -729,78 +592,11 @@ export class IngestionConsumer {
         return result
     }
 
-    private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {
-        const groupedEvents: IncomingEventsByDistinctId = {}
-
-        for (const eventWithTeam of messages) {
-            const { message, event, team, headers } = eventWithTeam
-            const token = event.token ?? ''
-            const distinctId = event.distinct_id ?? ''
-            const eventKey = `${token}:${distinctId}`
-
-            // We collect the events grouped by token and distinct_id so that we can process batches in parallel
-            // whilst keeping the order of events for a given distinct_id.
-            if (!groupedEvents[eventKey]) {
-                groupedEvents[eventKey] = {
-                    token: token,
-                    distinctId,
-                    events: [],
-                }
-            }
-
-            groupedEvents[eventKey].events.push({ message, event, team, headers })
-        }
-
-        return groupedEvents
-    }
-
-    private shouldSkipPerson(token?: string, distinctId?: string): boolean {
-        if (!token) {
-            return false
-        }
-        return this.eventIngestionRestrictionManager.shouldSkipPerson(token, distinctId)
-    }
-
-    private shouldForceOverflow(token?: string, distinctId?: string): boolean {
-        if (!token) {
-            return false
-        }
-        return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
-    }
-
     private overflowEnabled(): boolean {
         return (
             !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
             this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic &&
             !this.testingTopic
-        )
-    }
-
-    private async emitToOverflow(kafkaMessages: Message[], preservePartitionLocalityOverride?: boolean): Promise<void> {
-        const overflowTopic = this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
-        if (!overflowTopic) {
-            throw new Error('No overflow topic configured')
-        }
-
-        ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
-
-        const preservePartitionLocality =
-            preservePartitionLocalityOverride !== undefined
-                ? preservePartitionLocalityOverride
-                : this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
-
-        await Promise.all(
-            kafkaMessages.map((message) => {
-                return this.kafkaOverflowProducer!.produce({
-                    topic: this.overflowTopic!,
-                    value: message.value,
-                    // ``message.key`` should not be undefined here, but in the
-                    // (extremely) unlikely event that it is, set it to ``null``
-                    // instead as that behavior is safer.
-                    key: preservePartitionLocality ? (message.key ?? null) : null,
-                    headers: parseKafkaHeaders(message.headers),
-                })
-            })
         )
     }
 }
