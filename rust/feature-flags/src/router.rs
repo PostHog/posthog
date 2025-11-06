@@ -178,11 +178,38 @@ where
 
 pub async fn readiness(
     database_pools: Arc<DatabasePools>,
-) -> Result<&'static str, (StatusCode, &'static str)> {
-    match database_pools.non_persons_reader.acquire().await {
-        Ok(_) => Ok("ready"),
-        Err(_) => Err((StatusCode::SERVICE_UNAVAILABLE, "database unavailable")),
+) -> Result<&'static str, (StatusCode, String)> {
+    // Check all pools and collect errors
+    let pools = [
+        ("non_persons_reader", &database_pools.non_persons_reader),
+        ("non_persons_writer", &database_pools.non_persons_writer),
+        ("persons_reader", &database_pools.persons_reader),
+        ("persons_writer", &database_pools.persons_writer),
+    ];
+
+    for (name, pool) in pools {
+        let mut conn = pool.acquire().await.map_err(|e| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("{} pool unavailable: {}", name, e),
+            )
+        })?;
+
+        // If test_before_acquire is false, explicitly test the connection
+        if !database_pools.test_before_acquire {
+            sqlx::query("SELECT 1")
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        format!("{} connection test failed: {}", name, e),
+                    )
+                })?;
+        }
     }
+
+    Ok("ready")
 }
 
 pub async fn index() -> &'static str {
