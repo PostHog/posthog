@@ -113,6 +113,9 @@ class ExportedAsset(models.Model):
             expiry_datetime = now() + expiry_delta
             self.expires_after = expiry_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
 
+            if update_fields is not None and "expires_after" not in update_fields:
+                kwargs["update_fields"] = {*update_fields, "expires_after"}
+
         super().save(*args, **kwargs)
 
     @property
