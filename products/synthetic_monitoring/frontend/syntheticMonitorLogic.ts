@@ -47,6 +47,7 @@ export const syntheticMonitorLogic = kea<syntheticMonitorLogicType>([
                 body: null,
                 expected_status_code: 200,
                 timeout_seconds: 30,
+                enabled: true,
             } as Partial<SyntheticMonitor>,
             errors: ({ name, url }) => ({
                 name: !name ? 'Name is required' : undefined,
@@ -62,12 +63,13 @@ export const syntheticMonitorLogic = kea<syntheticMonitorLogicType>([
                         const updated = await api.syntheticMonitoring.update(props.id, monitor)
                         lemonToast.success('Monitor updated successfully')
                         actions.setMonitor(updated)
-                        router.actions.push(urls.syntheticMonitor(updated.id))
+                        router.actions.push(urls.syntheticMonitoring())
                     } else {
-                        const created = await api.syntheticMonitoring.create(monitor)
+                        await api.syntheticMonitoring.create(monitor)
                         lemonToast.success('Monitor created successfully')
-                        router.actions.push(urls.syntheticMonitor(created.id))
                     }
+
+                    router.actions.push(urls.syntheticMonitoring())
                 } catch (error: any) {
                     lemonToast.error(error.detail || 'Failed to save monitor')
                     throw error

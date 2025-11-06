@@ -8,6 +8,11 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
 import { syntheticMonitorLogic } from './syntheticMonitorLogic'
 import { SyntheticMonitoringRegion } from './types'
 
@@ -17,6 +22,15 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }) => ({ id: id || 'new' }),
 }
 
+const READABLE_SYNTHETIC_MONITORING_REGIONS: Record<SyntheticMonitoringRegion, string> = {
+    [SyntheticMonitoringRegion.US_EAST_1]: 'US East (N. Virginia)',
+    [SyntheticMonitoringRegion.US_WEST_2]: 'US West (Oregon)',
+    [SyntheticMonitoringRegion.EU_WEST_1]: 'EU West (Ireland)',
+    [SyntheticMonitoringRegion.EU_CENTRAL_1]: 'EU Central (Frankfurt)',
+    [SyntheticMonitoringRegion.AP_SOUTHEAST_1]: 'Asia Pacific (Singapore)',
+    [SyntheticMonitoringRegion.AP_NORTHEAST_1]: 'Asia Pacific (Tokyo)',
+}
+
 export function SyntheticMonitor(): JSX.Element {
     const { monitor, isMonitorFormSubmitting } = useValues(syntheticMonitorLogic)
     const { submitMonitorForm } = useActions(syntheticMonitorLogic)
@@ -24,149 +38,120 @@ export function SyntheticMonitor(): JSX.Element {
     const isNew = !monitor?.id
 
     return (
-        <div className="max-w-4xl">
-            <div className="mb-6">
-                <LemonButton type="secondary" onClick={() => router.actions.push(urls.syntheticMonitoring())}>
-                    ← Back to monitors
-                </LemonButton>
-            </div>
-
-            <h1 className="text-3xl font-bold mb-2">{isNew ? 'New monitor' : 'Edit monitor'}</h1>
-            <p className="text-muted mb-6">
-                Configure an HTTP endpoint monitor to track uptime, latency, and get alerts when issues occur
-            </p>
-
-            <Form logic={syntheticMonitorLogic} formKey="monitorForm" enableFormOnSubmit className="space-y-6">
-                <div className="bg-bg-light border rounded p-6 space-y-4">
-                    <h2 className="text-xl font-semibold mb-4">1. Configure monitor</h2>
-
-                    <div className="flex gap-4">
+        <Form logic={syntheticMonitorLogic} formKey="monitorForm" enableFormOnSubmit>
+            <SceneContent>
+                <SceneTitleSection
+                    name={isNew ? 'New monitor' : monitor?.name || 'Edit monitor'}
+                    resourceType={{ type: 'synthetic_monitor' }}
+                    description={
+                        isNew
+                            ? 'Configure an HTTP endpoint monitor to track uptime, latency, and get alerts when issues occur'
+                            : null
+                    }
+                    actions={
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => router.actions.push(urls.syntheticMonitoring())}
+                                disabled={isMonitorFormSubmitting}
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                htmlType="submit"
+                                loading={isMonitorFormSubmitting}
+                                onClick={submitMonitorForm}
+                            >
+                                {isNew ? 'Create monitor' : 'Save'}
+                            </LemonButton>
+                        </>
+                    }
+                    forceBackTo={{
+                        name: 'Synthetic monitoring',
+                        path: urls.syntheticMonitoring(),
+                        key: 'synthetic-monitoring',
+                    }}
+                />
+                <SceneDivider />
+                <SceneSection title="Monitor configuration" description="Configure the HTTP endpoint to monitor">
+                    <div className="space-y-4">
                         <LemonField name="enabled" label="">
                             {({ value, onChange }) => (
                                 <LemonCheckbox checked={value} onChange={onChange} label="Monitor enabled" />
                             )}
                         </LemonField>
+
+                        <LemonField name="name" label="Name">
+                            <LemonInput placeholder="My API endpoint" />
+                        </LemonField>
+
+                        <LemonField name="url" label="URL">
+                            <LemonInput placeholder="https://api.example.com/health" />
+                        </LemonField>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <LemonField name="method" label="HTTP Method">
+                                <LemonSelect
+                                    options={[
+                                        { label: 'GET', value: 'GET' },
+                                        { label: 'POST', value: 'POST' },
+                                        { label: 'PUT', value: 'PUT' },
+                                        { label: 'PATCH', value: 'PATCH' },
+                                        { label: 'DELETE', value: 'DELETE' },
+                                        { label: 'HEAD', value: 'HEAD' },
+                                    ]}
+                                />
+                            </LemonField>
+
+                            <LemonField name="expected_status_code" label="Expected status code">
+                                <LemonInput type="number" placeholder="200" />
+                            </LemonField>
+
+                            <LemonField name="frequency_minutes" label="Check frequency">
+                                <LemonSelect
+                                    options={[
+                                        { label: 'Every 1 minute', value: 1 },
+                                        { label: 'Every 5 minutes', value: 5 },
+                                        { label: 'Every 15 minutes', value: 15 },
+                                        { label: 'Every 30 minutes', value: 30 },
+                                        { label: 'Every 60 minutes', value: 60 },
+                                    ]}
+                                />
+                            </LemonField>
+
+                            <LemonField name="timeout_seconds" label="Timeout (seconds)">
+                                <LemonInput type="number" placeholder="30" />
+                            </LemonField>
+                        </div>
+
+                        <LemonField
+                            name="body"
+                            label="Request body"
+                            showOptional
+                            help="Optional JSON body for POST/PUT requests"
+                        >
+                            <LemonInput placeholder='{"key": "value"}' />
+                        </LemonField>
                     </div>
-
-                    <LemonField name="name" label="Name (required)">
-                        <LemonInput placeholder="My API endpoint" />
-                    </LemonField>
-
-                    <LemonField name="url" label="URL (required)">
-                        <LemonInput placeholder="https://api.example.com/health" />
-                    </LemonField>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <LemonField name="method" label="HTTP Method">
-                            <LemonSelect
-                                options={[
-                                    { label: 'GET', value: 'GET' },
-                                    { label: 'POST', value: 'POST' },
-                                    { label: 'PUT', value: 'PUT' },
-                                    { label: 'PATCH', value: 'PATCH' },
-                                    { label: 'DELETE', value: 'DELETE' },
-                                    { label: 'HEAD', value: 'HEAD' },
-                                ]}
-                            />
-                        </LemonField>
-
-                        <LemonField name="expected_status_code" label="Expected status code">
-                            <LemonInput type="number" placeholder="200" />
-                        </LemonField>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <LemonField name="frequency_minutes" label="Check frequency">
-                            <LemonSelect
-                                options={[
-                                    { label: 'Every 1 minute', value: 1 },
-                                    { label: 'Every 5 minutes', value: 5 },
-                                    { label: 'Every 15 minutes', value: 15 },
-                                    { label: 'Every 30 minutes', value: 30 },
-                                    { label: 'Every 60 minutes', value: 60 },
-                                ]}
-                            />
-                        </LemonField>
-
-                        <LemonField name="timeout_seconds" label="Timeout (seconds)">
-                            <LemonInput type="number" placeholder="30" />
-                        </LemonField>
-                    </div>
-
-                    <LemonField name="body" label="Request body (optional)">
-                        <LemonInput placeholder='{"key": "value"}' />
-                    </LemonField>
-                </div>
-
-                <div className="bg-bg-light border rounded p-6 space-y-4">
-                    <h2 className="text-xl font-semibold mb-4">2. Select locations</h2>
-
-                    <LemonField name="regions" label="Regions" help="Select AWS regions to run checks from">
+                </SceneSection>
+                <SceneDivider />
+                <SceneSection title="Regions" description="Select AWS regions to run checks from">
+                    <LemonField name="regions" label="">
                         <LemonInputSelect
                             mode="multiple"
                             placeholder="Select regions"
-                            options={[
-                                {
-                                    label: 'US East (N. Virginia)',
-                                    key: SyntheticMonitoringRegion.US_EAST_1,
-                                    value: SyntheticMonitoringRegion.US_EAST_1,
-                                },
-                                {
-                                    label: 'US West (Oregon)',
-                                    key: SyntheticMonitoringRegion.US_WEST_2,
-                                    value: SyntheticMonitoringRegion.US_WEST_2,
-                                },
-                                {
-                                    label: 'EU West (Ireland)',
-                                    key: SyntheticMonitoringRegion.EU_WEST_1,
-                                    value: SyntheticMonitoringRegion.EU_WEST_1,
-                                },
-                                {
-                                    label: 'EU Central (Frankfurt)',
-                                    key: SyntheticMonitoringRegion.EU_CENTRAL_1,
-                                    value: SyntheticMonitoringRegion.EU_CENTRAL_1,
-                                },
-                                {
-                                    label: 'Asia Pacific (Singapore)',
-                                    key: SyntheticMonitoringRegion.AP_SOUTHEAST_1,
-                                    value: SyntheticMonitoringRegion.AP_SOUTHEAST_1,
-                                },
-                                {
-                                    label: 'Asia Pacific (Tokyo)',
-                                    key: SyntheticMonitoringRegion.AP_NORTHEAST_1,
-                                    value: SyntheticMonitoringRegion.AP_NORTHEAST_1,
-                                },
-                            ]}
+                            options={Object.entries(SyntheticMonitoringRegion).map(([key, value]) => ({
+                                label: READABLE_SYNTHETIC_MONITORING_REGIONS[value],
+                                key,
+                                value,
+                            }))}
                         />
                     </LemonField>
-                </div>
-
-                <div className="bg-bg-light border rounded p-6 space-y-4">
-                    <h2 className="text-xl font-semibold mb-4">3. Alerts</h2>
-                    <p className="text-muted">
-                        Create alert workflows to get notified when monitors fail. Use the "Create alert workflow"
-                        button in the monitor list to set up email, Slack, or webhook notifications.
-                    </p>
-                </div>
-
-                <div className="flex gap-2">
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => router.actions.push(urls.syntheticMonitoring())}
-                        disabled={isMonitorFormSubmitting}
-                    >
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        htmlType="submit"
-                        loading={isMonitorFormSubmitting}
-                        onClick={submitMonitorForm}
-                    >
-                        Save monitor
-                    </LemonButton>
-                </div>
-            </Form>
-        </div>
+                </SceneSection>
+            </SceneContent>
+        </Form>
     )
 }
