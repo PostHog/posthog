@@ -89,7 +89,7 @@ def validated_request(
                         validation_errors=serializer.errors,
                     )
 
-                request.validated_data = serializer.validated_data
+                setattr(request, "validated_data", serializer.validated_data)
 
             result = view_func(self, request, *args, **kwargs)
 
