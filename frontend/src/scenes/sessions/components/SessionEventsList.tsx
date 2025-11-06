@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCollapse, IconExpand, IconSort } from '@posthog/icons'
@@ -9,6 +10,7 @@ import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
 
 import { RecordingEventType } from '~/types'
 
+import { sessionProfileLogic } from '../sessionProfileLogic'
 import { SessionEventItem } from './SessionEventItem'
 
 export interface SessionEventsListProps {
@@ -23,17 +25,10 @@ export interface SessionEventsListProps {
     onSortOrderChange: (sortOrder: 'asc' | 'desc') => void
 }
 
-export function SessionEventsList({
-    events,
-    totalEventCount,
-    isLoading,
-    isLoadingMore = false,
-    hasMoreEvents,
-    onLoadEventDetails,
-    onLoadMoreEvents,
-    sortOrder,
-    onSortOrderChange,
-}: SessionEventsListProps): JSX.Element {
+export function SessionEventsList(): JSX.Element {
+    const { sessionEvents, totalEventCount, isInitialLoading, isLoadingMore, hasMoreEvents, sortOrder } =
+        useValues(sessionProfileLogic)
+    const { loadEventDetails, loadMoreSessionEvents, setSortOrder } = useActions(sessionProfileLogic)
     const [expandedIndices, setExpandedIndices] = useState<Set<number>>(new Set())
     const [isFolded, setIsFolded] = useState(false)
 
@@ -54,7 +49,7 @@ export function SessionEventsList({
     }
 
     const handleScroll = (e: React.UIEvent<HTMLDivElement>): void => {
-        if (!hasMoreEvents || isLoadingMore || !onLoadMoreEvents) {
+        if (!hasMoreEvents || isLoadingMore || !loadMoreSessionEvents) {
             return
         }
 
@@ -63,11 +58,11 @@ export function SessionEventsList({
 
         // Load more when within 200px of bottom
         if (scrollBottom < 200) {
-            onLoadMoreEvents()
+            loadMoreSessionEvents()
         }
     }
 
-    if (isLoading) {
+    if (isInitialLoading) {
         return (
             <LemonCard className="p-6">
                 <div className="text-muted-alt text-center">Loading events...</div>
@@ -75,7 +70,7 @@ export function SessionEventsList({
         )
     }
 
-    if (!events || events.length === 0) {
+    if (!sessionEvents || sessionEvents?.length === 0) {
         return (
             <LemonCard className="p-6">
                 <div className="text-muted-alt text-center">No events found</div>
@@ -85,8 +80,8 @@ export function SessionEventsList({
 
     // When sorted ASC, first event is oldest (startTime), last is newest (endTime)
     // When sorted DESC, first event is newest (endTime), last is oldest (startTime)
-    const firstEvent = events && events.length > 0 ? dayjs(events[0].timestamp) : null
-    const lastEvent = events && events.length > 0 ? dayjs(events[events.length - 1].timestamp) : null
+    const firstEvent = dayjs(sessionEvents[0].timestamp)
+    const lastEvent = dayjs(sessionEvents[sessionEvents.length - 1].timestamp)
     const startTime = sortOrder === 'asc' ? firstEvent : lastEvent
     const endTime = sortOrder === 'asc' ? lastEvent : firstEvent
     const durationSeconds = startTime && endTime ? endTime.diff(startTime, 'second') : 0
@@ -106,7 +101,7 @@ export function SessionEventsList({
                             Events (
                             {totalEventCount !== null && totalEventCount !== undefined
                                 ? totalEventCount
-                                : events.length}
+                                : sessionEvents.length}
                             )
                         </h3>
                         {startTime && (
@@ -123,7 +118,7 @@ export function SessionEventsList({
                     <LemonButton
                         size="small"
                         icon={<IconSort className={clsx({ 'rotate-180': sortOrder === 'asc' })} />}
-                        onClick={() => onSortOrderChange(sortOrder === 'asc' ? 'desc' : 'asc')}
+                        onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
                         tooltip={sortOrder === 'asc' ? 'Sorted: Oldest first' : 'Sorted: Newest first'}
                     >
                         {sortOrder === 'asc' ? 'Oldest first' : 'Newest first'}
@@ -137,14 +132,14 @@ export function SessionEventsList({
             {/* Events List */}
             {!isFolded && (
                 <div className="p-4 space-y-2 max-h-[600px] overflow-y-auto" onScroll={handleScroll}>
-                    {events?.map((event, index) => (
+                    {sessionEvents?.map((event, index) => (
                         <SessionEventItem
                             key={event.id}
                             event={event}
                             index={index}
                             isExpanded={expandedIndices.has(index)}
                             onToggleExpand={handleToggleExpand}
-                            onLoadEventDetails={onLoadEventDetails}
+                            onLoadEventDetails={loadEventDetails}
                         />
                     ))}
                     {hasMoreEvents && (

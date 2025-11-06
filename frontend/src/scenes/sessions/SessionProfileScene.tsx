@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -31,23 +31,15 @@ export const scene: SceneExport<SessionProfileLogicProps> = {
 
 export function SessionProfileScene(): JSX.Element {
     const {
+        sessionId,
         sessionData,
-        sessionEvents,
-        sessionDuration,
-        uniqueUrlCount,
-        totalEventCount,
-        categorizedEventCount,
-        otherEventCount,
         isInitialLoading,
-        isLoadingMore,
-        hasMoreEvents,
-        sortOrder,
         sessionDataLoading,
         sessionEventsLoading,
         hasRecording,
         hasRecordingLoading,
     } = useValues(sessionProfileLogic)
-    const { loadEventDetails, loadSessionData, loadMoreSessionEvents, setSortOrder } = useActions(sessionProfileLogic)
+    const { loadSessionData } = useActions(sessionProfileLogic)
 
     if (!sessionData && !isInitialLoading) {
         return <NotFound object="session" />
@@ -92,69 +84,47 @@ export function SessionProfileScene(): JSX.Element {
             />
             <SceneDivider />
 
-            <div className="space-y-4">
-                {sessionData && (
-                    <div className="flex flex-wrap gap-x-6 gap-y-2">
-                        <div>
-                            <div className="text-xs text-muted-alt">Session ID</div>
-                            <div className="font-mono text-sm">
-                                <CopyToClipboardInline description="session ID">
-                                    {sessionData.session_id}
-                                </CopyToClipboardInline>
+            <BindLogic logic={sessionProfileLogic} props={{ sessionId }}>
+                <div className="space-y-4">
+                    {sessionData && (
+                        <div className="flex flex-wrap gap-x-6 gap-y-2">
+                            <div>
+                                <div className="text-xs text-muted-alt">Session ID</div>
+                                <div className="font-mono text-sm">
+                                    <CopyToClipboardInline description="session ID">{sessionId}</CopyToClipboardInline>
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-muted-alt">Person</div>
+                                <div className="text-sm">
+                                    <PersonDisplay
+                                        person={{
+                                            distinct_id: sessionData.distinct_id,
+                                            properties: sessionData.person_properties || undefined,
+                                        }}
+                                        withIcon
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-muted-alt">Start time</div>
+                                <div className="text-sm">
+                                    <TZLabel time={sessionData.start_timestamp} />
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-muted-alt">End time</div>
+                                <div className="text-sm">
+                                    <TZLabel time={sessionData.end_timestamp} />
+                                </div>
                             </div>
                         </div>
-                        <div>
-                            <div className="text-xs text-muted-alt">Person</div>
-                            <div className="text-sm">
-                                <PersonDisplay
-                                    person={{
-                                        distinct_id: sessionData.distinct_id,
-                                        properties: sessionData.person_properties || undefined,
-                                    }}
-                                    withIcon
-                                />
-                            </div>
-                        </div>
-                        <div>
-                            <div className="text-xs text-muted-alt">Start time</div>
-                            <div className="text-sm">
-                                <TZLabel time={sessionData.start_timestamp} />
-                            </div>
-                        </div>
-                        <div>
-                            <div className="text-xs text-muted-alt">End time</div>
-                            <div className="text-sm">
-                                <TZLabel time={sessionData.end_timestamp} />
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                <SessionMetricsCard
-                    duration={sessionDuration}
-                    uniqueUrlCount={uniqueUrlCount}
-                    totalEventCount={totalEventCount || categorizedEventCount}
-                    pageviewCount={sessionData?.pageview_count}
-                    autocaptureCount={sessionData?.autocapture_count}
-                    screenCount={sessionData?.screen_count}
-                    otherEventCount={otherEventCount}
-                    isLoading={isInitialLoading}
-                />
-
-                <SessionDetailsCard sessionData={sessionData} isLoading={isInitialLoading} />
-
-                <SessionEventsList
-                    events={sessionEvents}
-                    totalEventCount={totalEventCount}
-                    isLoading={isInitialLoading}
-                    isLoadingMore={isLoadingMore}
-                    hasMoreEvents={hasMoreEvents}
-                    onLoadEventDetails={loadEventDetails}
-                    onLoadMoreEvents={loadMoreSessionEvents}
-                    sortOrder={sortOrder}
-                    onSortOrderChange={setSortOrder}
-                />
-            </div>
+                    )}
+                    <SessionMetricsCard />
+                    <SessionDetailsCard />
+                    <SessionEventsList />
+                </div>
+            </BindLogic>
         </SceneContent>
     )
 }

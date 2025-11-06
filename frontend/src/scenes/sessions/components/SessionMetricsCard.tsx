@@ -1,6 +1,10 @@
+import { useValues } from 'kea'
+
 import { LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { humanFriendlyDuration } from 'lib/utils'
+
+import { sessionProfileLogic } from '../sessionProfileLogic'
 
 interface MetricCardProps {
     title: string
@@ -38,37 +42,32 @@ export interface SessionMetricsCardProps {
     isLoading?: boolean
 }
 
-export function SessionMetricsCard({
-    duration,
-    uniqueUrlCount,
-    totalEventCount,
-    pageviewCount,
-    autocaptureCount,
-    screenCount,
-    otherEventCount = 0,
-    isLoading,
-}: SessionMetricsCardProps): JSX.Element {
+export function SessionMetricsCard(): JSX.Element {
+    const { sessionData, sessionDuration, uniqueUrlCount, totalEventCount, otherEventCount, isInitialLoading } =
+        useValues(sessionProfileLogic)
     return (
         <div className="@container">
             <div className="grid grid-cols-1 @md:grid-cols-3 gap-4">
                 <MetricCard
                     title="Duration"
-                    value={duration !== null ? humanFriendlyDuration(duration) : null}
-                    subtitle={duration !== null ? `${duration} seconds` : undefined}
-                    isLoading={isLoading}
+                    value={sessionDuration !== null ? humanFriendlyDuration(sessionDuration) : null}
+                    subtitle={sessionDuration !== null ? `${sessionDuration} seconds` : undefined}
+                    isLoading={isInitialLoading}
                 />
-                <MetricCard title="Unique URLs" value={uniqueUrlCount} isLoading={isLoading} />
+                <MetricCard title="Unique URLs" value={uniqueUrlCount} isLoading={isInitialLoading} />
                 <MetricCard
                     title="Total Events"
                     value={totalEventCount}
                     subtitle={
-                        pageviewCount !== undefined && autocaptureCount !== undefined && screenCount !== undefined
-                            ? `${pageviewCount} pageviews, ${autocaptureCount} autocapture, ${screenCount} screens${
+                        sessionData?.pageview_count !== undefined &&
+                        sessionData?.autocapture_count !== undefined &&
+                        sessionData?.screen_count !== undefined
+                            ? `${sessionData.pageview_count} pageviews, ${sessionData.autocapture_count} autocapture, ${sessionData.screen_count} screens${
                                   otherEventCount > 0 ? ` + ${otherEventCount} other` : ''
                               }`
                             : undefined
                     }
-                    isLoading={isLoading}
+                    isLoading={isInitialLoading}
                 />
             </div>
         </div>

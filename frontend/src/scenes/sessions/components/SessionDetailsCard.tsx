@@ -1,9 +1,10 @@
+import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { SessionData } from '../sessionProfileLogic'
+import { SessionData, sessionProfileLogic } from '../sessionProfileLogic'
 
 interface DetailRowProps {
     label: string
@@ -56,8 +57,10 @@ export interface SessionDetailsCardProps {
     isLoading?: boolean
 }
 
-export function SessionDetailsCard({ sessionData, isLoading }: SessionDetailsCardProps): JSX.Element | null {
-    if (!sessionData || isLoading) {
+export function SessionDetailsCard(): JSX.Element | null {
+    const { sessionData, isInitialLoading } = useValues(sessionProfileLogic)
+
+    if (!sessionData || isInitialLoading) {
         return null
     }
 
