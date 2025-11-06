@@ -88,6 +88,7 @@ class SnowflakeEstablishConnectionTestStep(DestinationTestStep):
                 password=self.password,
                 account=self.account,
                 private_key=private_key,
+                # wrap role in quotes in case it contains lowercase or special characters
                 role=f'"{self.role}"' if self.role is not None else None,
             )
         except (OperationalError, InterfaceError, DatabaseError) as err:
@@ -259,7 +260,7 @@ class SnowflakeDatabaseTestStep(DestinationTestStep):
             account=self.account,
             private_key=private_key,
             role=f'"{self.role}"' if self.role is not None else None,
-            warehouse=f'"{self.warehouse}"',
+            warehouse=self.warehouse,
         )
 
         with connection:
@@ -353,7 +354,7 @@ class SnowflakeSchemaTestStep(DestinationTestStep):
             account=self.account,
             private_key=private_key,
             role=f'"{self.role}"' if self.role is not None else None,
-            warehouse=f'"{self.warehouse}"',
+            warehouse=self.warehouse,
         )
 
         with connection:

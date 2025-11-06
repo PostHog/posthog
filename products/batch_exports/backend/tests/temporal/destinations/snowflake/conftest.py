@@ -110,7 +110,7 @@ def snowflake_cursor(snowflake_config: dict[str, str]):
         password=password,
         account=snowflake_config["account"],
         role=f'"{snowflake_config["role"]}"' if snowflake_config["role"] is not None else None,
-        warehouse=f'"{snowflake_config["warehouse"]}"',
+        warehouse=snowflake_config["warehouse"],
         private_key=private_key,
     ) as connection:
         connection.telemetry_enabled = False

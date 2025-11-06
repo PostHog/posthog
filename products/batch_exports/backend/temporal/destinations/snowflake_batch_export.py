@@ -370,11 +370,10 @@ class SnowflakeClient:
                     user=self.user,
                     password=self.password,
                     account=self.account,
-                    # Snowflake expects identifiers to be wrapped in quotes to preserve case sensitivity and
-                    # special characters
-                    warehouse=f'"{self.warehouse}"',
-                    database=f'"{self.database}"',
-                    schema=f'"{self.schema}"',
+                    warehouse=self.warehouse,
+                    database=self.database,
+                    schema=self.schema,
+                    # wrap role in quotes in case it contains lowercase or special characters
                     role=f'"{self.role}"' if self.role is not None else None,
                     private_key=self.private_key,
                     login_timeout=5,
