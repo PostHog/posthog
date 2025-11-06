@@ -808,12 +808,12 @@ class TestCSVExporter(APIBaseTest):
 
             expected_lines = [
                 "series,$browser,21-Mar-2023,22-Mar-2023,23-Mar-2023,24-Mar-2023,25-Mar-2023,26-Mar-2023,27-Mar-2023,28-Mar-2023",
-                "Chrome - current,Chrome,2.0,0.0,0.0,0.0,0.0,0.0,0.0,3.0",
-                "Firefox - current,Firefox,1.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
-                "Safari - current,Safari,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0",
-                "Chrome - previous,Chrome,0.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
-                "Firefox - previous,Firefox,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
-                "Safari - previous,Safari,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
+                "$pageview - current,Chrome,2.0,0.0,0.0,0.0,0.0,0.0,0.0,3.0",
+                "$pageview - current,Firefox,1.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
+                "$pageview - current,Safari,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0",
+                "$pageview - previous,Chrome,0.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
+                "$pageview - previous,Firefox,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
+                "$pageview - previous,Safari,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
             ]
 
             self.assertEqual(lines, expected_lines)
