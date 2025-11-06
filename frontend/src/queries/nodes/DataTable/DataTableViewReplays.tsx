@@ -44,7 +44,7 @@ export function DataTableViewReplays(): JSX.Element | null {
             to={urls.replay(ReplayTabs.Home, filters)}
             data-attr="view-replays-button"
         >
-            View replays
+            View session recordings
         </LemonButton>
     )
 }

@@ -44,7 +44,7 @@ export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.El
             }
             data-attr="open-json-editor-button"
         >
-            Open as new insighttt
+            Open as new insight
         </LemonButton>
     )
 }
