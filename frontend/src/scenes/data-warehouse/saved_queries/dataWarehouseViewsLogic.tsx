@@ -160,9 +160,14 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             }
 
             actions.loadDatabase()
+
+            lemonToast.success('View updated')
         },
         updateDataWarehouseSavedQueryError: () => {
             lemonToast.error('Failed to update view')
+        },
+        deleteDataWarehouseSavedQuerySuccess: () => {
+            lemonToast.success('View deleted')
         },
         runDataWarehouseSavedQuery: async ({ viewId }) => {
             try {

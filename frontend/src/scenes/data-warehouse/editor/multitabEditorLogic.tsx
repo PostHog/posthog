@@ -828,7 +828,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.setTabs([])
                 actions.createTab()
             }
-            lemonToast.success('View deleted')
         },
         createDataWarehouseSavedQuerySuccess: ({ dataWarehouseSavedQueries, payload: view }) => {
             const newView = view && dataWarehouseSavedQueries.find((v) => v.name === view.name)
@@ -838,9 +837,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.updateTab({ ...oldTab, view: newView })
                 }
             }
-        },
-        updateDataWarehouseSavedQuerySuccess: () => {
-            lemonToast.success('View updated')
         },
         updateView: async ({ view, draftId }) => {
             const latestView = await api.dataWarehouseSavedQueries.get(view.id)
