@@ -19,7 +19,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { managedMigrationLogic } from './managedMigrationLogic'
@@ -60,7 +59,6 @@ export function ManagedMigration(): JSX.Element {
                         name: 'Managed migrations',
                     }}
                 />
-                <SceneDivider />
                 <LemonField name="source_type" label="Source">
                     <LemonSelect
                         value={managedMigration.source_type}
@@ -256,7 +254,6 @@ export function ManagedMigrations(): JSX.Element {
                             </LemonButton>
                         }
                     />
-                    <SceneDivider />
                     <LemonTable
                         dataSource={migrations}
                         loading={migrationsLoading}

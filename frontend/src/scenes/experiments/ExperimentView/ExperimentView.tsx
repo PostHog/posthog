@@ -394,8 +394,8 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                         </>
                     )}
 
-                    <DistributionModal experimentId={experimentId} />
-                    <ReleaseConditionsModal experimentId={experimentId} />
+                    <DistributionModal />
+                    <ReleaseConditionsModal />
 
                     <StopExperimentModal experimentId={experimentId} />
                     <EditConclusionModal experimentId={experimentId} />

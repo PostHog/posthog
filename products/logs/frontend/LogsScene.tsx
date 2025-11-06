@@ -67,7 +67,6 @@ export function LogsScene(): JSX.Element {
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
             <Filters />
             <div className="relative h-40 flex flex-col">
                 {sparklineData.data.length > 0 ? (
