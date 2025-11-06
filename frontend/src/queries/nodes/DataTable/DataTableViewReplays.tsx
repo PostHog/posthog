@@ -42,7 +42,7 @@ export function DataTableViewReplays(): JSX.Element | null {
             type="secondary"
             icon={<IconRewindPlay />}
             to={urls.replay(ReplayTabs.Home, filters)}
-            data-attr="view-replays-button"
+            data-attr="view-replays-from-cohort-button"
         >
             View session recordings
         </LemonButton>
