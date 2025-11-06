@@ -35,7 +35,7 @@ def format_slack_message(report: IngestionLimitsReport) -> dict:
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": f"Time window: {report.time_window_minutes} minutes | Threshold: {report.total_candidates} candidates",
+                        "text": f"Time window: {report.time_window_minutes} minutes | Threshold: {report.event_threshold} dup distinct IDs per team",
                     }
                 ],
             },

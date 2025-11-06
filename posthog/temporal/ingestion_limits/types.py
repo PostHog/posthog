@@ -19,16 +19,17 @@ class HighVolumeDistinctId(BaseModel):
 
 class IngestionLimitsWorkflowInput(BaseModel):
     report_destination: ReportDestination = ReportDestination.BOTH
-    slack_channel: Optional[str] = None
-    kafka_topic: Optional[str] = None
+    slack_channel: Optional[str] = "#alerts-ingestion"
+    kafka_topic: Optional[str] = "ingestion_warnings"
     time_window_minutes: int = 10
-    event_threshold: int
+    event_threshold: int = 10000
 
 
 class IngestionLimitsReport(BaseModel):
     high_volume_distinct_ids: list[HighVolumeDistinctId]
     total_candidates: int
     timestamp: datetime
+    event_threshold: int
     time_window_minutes: int
 
 

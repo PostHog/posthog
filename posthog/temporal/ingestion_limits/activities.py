@@ -46,7 +46,9 @@ async def query_ingestion_limits_activity(inputs: IngestionLimitsWorkflowInput) 
             event_threshold=inputs.event_threshold,
         )
         logger = LOGGER.bind()
-        logger.info("Querying ingestion limits from ClickHouse")
+        logger.info(
+            "Querying ingestion limits from ClickHouse: window={inputs.time_window_minutes} minutes, threshold={inputs.event_threshold}"
+        )
 
         query = get_high_volume_distinct_ids_query(inputs.time_window_minutes)
 
@@ -72,6 +74,8 @@ async def query_ingestion_limits_activity(inputs: IngestionLimitsWorkflowInput) 
             logger.exception("Error querying ClickHouse for ingestion limits", error=str(e))
             raise
 
+        # TODO: validate offending teams in the report aren't already marked via Django event restrictions API
+
         logger.info(
             "Completed ingestion limits query",
             high_volume_count=len(high_volume_distinct_ids),
@@ -82,16 +86,20 @@ async def query_ingestion_limits_activity(inputs: IngestionLimitsWorkflowInput) 
             high_volume_distinct_ids=high_volume_distinct_ids,
             total_candidates=total_candidates,
             timestamp=datetime.now(UTC),
+            event_threshold=inputs.event_threshold,
             time_window_minutes=inputs.time_window_minutes,
         )
 
 
 @activity.defn(name="report-ingestion-limits")
-async def report_ingestion_limits_activity(inputs: ReportIngestionLimitsInput) -> None:
+async def report_ingestion_limits_activity(inputs: ReportIngestionLimitsInput) -> IngestionLimitsReport:
     """Report ingestion limits results to Slack and/or Kafka.
 
     Args:
         inputs: Contains workflow inputs and report data
+
+    Returns:
+        The ingestion limits report
     """
     async with Heartbeater():
         bind_contextvars(
@@ -101,13 +109,20 @@ async def report_ingestion_limits_activity(inputs: ReportIngestionLimitsInput) -
         logger = LOGGER.bind()
         logger.info("Reporting ingestion limits")
 
+        # we can report to slack whether the report contains any teams of interest or not
         should_send_slack = inputs.workflow_inputs.report_destination in (
             ReportDestination.SLACK,
             ReportDestination.BOTH,
         )
-        should_send_kafka = inputs.workflow_inputs.report_destination in (
-            ReportDestination.KAFKA,
-            ReportDestination.BOTH,
+
+        # ingestion warnings should only go out if we have a problem to report
+        should_send_kafka = (
+            inputs.workflow_inputs.report_destination
+            in (
+                ReportDestination.KAFKA,
+                ReportDestination.BOTH,
+            )
+            and len(inputs.report.high_volume_distinct_ids) > 0
         )
 
         if should_send_slack:
@@ -137,3 +152,4 @@ async def report_ingestion_limits_activity(inputs: ReportIngestionLimitsInput) -
                 # Don't raise - Slack may have succeeded
 
         logger.info("Completed reporting ingestion limits")
+        return inputs.report

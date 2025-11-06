@@ -9,7 +9,11 @@ from posthog.temporal.ingestion_limits.activities import (
     query_ingestion_limits_activity,
     report_ingestion_limits_activity,
 )
-from posthog.temporal.ingestion_limits.types import IngestionLimitsWorkflowInput, ReportIngestionLimitsInput
+from posthog.temporal.ingestion_limits.types import (
+    IngestionLimitsReport,
+    IngestionLimitsWorkflowInput,
+    ReportIngestionLimitsInput,
+)
 
 
 @workflow.defn(name="ingestion-limits-report")
@@ -25,7 +29,7 @@ class IngestionLimitsWorkflow(PostHogWorkflow):
         return parsed_input
 
     @workflow.run
-    async def run(self, input: IngestionLimitsWorkflowInput) -> None:
+    async def run(self, input: IngestionLimitsWorkflowInput) -> IngestionLimitsReport:
         report = await workflow.execute_activity(
             query_ingestion_limits_activity,
             input,
@@ -37,7 +41,7 @@ class IngestionLimitsWorkflow(PostHogWorkflow):
             heartbeat_timeout=timedelta(minutes=1),
         )
 
-        await workflow.execute_activity(
+        report = await workflow.execute_activity(
             report_ingestion_limits_activity,
             ReportIngestionLimitsInput(workflow_inputs=input, report=report),
             start_to_close_timeout=timedelta(minutes=2),
@@ -47,3 +51,5 @@ class IngestionLimitsWorkflow(PostHogWorkflow):
             ),
             heartbeat_timeout=timedelta(minutes=1),
         )
+
+        return report
