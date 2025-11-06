@@ -346,44 +346,40 @@ jobs:
                   # Attempt 1: Always verify (fast path when snapshots match)
                   # Attempt 2: Update snapshots if previous failure was screenshot-related (UPDATE mode only)
                   # Note: Playwright's built-in retry (3x per test) handles test flakiness
-                  for i in 1 2; do
-                    echo "Attempt $i: Running Playwright tests"
-                    if [ $i -eq 1 ]; then
-                      FLAG=""
-                    elif [ $i -eq 2 ] && [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ]; then
-                      # Check if previous failure was due to screenshots
-                      if grep -q "Screenshot comparison failed" /tmp/playwright-output.log 2>/dev/null; then
-                        FLAG="--update-snapshots"
-                      else
-                        FLAG=""
+                  # Attempt 1: Always verify (fast path when snapshots match)
+                  echo "Attempt 1: Running Playwright tests"
+                  set -o pipefail
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=10 2>&1 | tee /tmp/playwright-output-attempt-1.log
+                  EXIT_CODE=$?
+                  set +o pipefail
+
+                  if [ $EXIT_CODE -ne 0 ]; then
+                    # Check if we should retry with snapshot update
+                    if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -q "Screenshot comparison failed" /tmp/playwright-output-attempt-1.log 2>/dev/null; then
+                      echo "Screenshot comparison failed - retrying with --update-snapshots"
+
+                      # Preserve attempt 1 artifacts
+                      echo "Preserving attempt 1 artifacts..."
+                      mkdir -p playwright/test-results-attempt-1 playwright/playwright-report-attempt-1
+                      cp -r playwright/test-results/* playwright/test-results-attempt-1/ 2>/dev/null || true
+                      cp -r playwright/playwright-report/* playwright/playwright-report-attempt-1/ 2>/dev/null || true
+
+                      # Attempt 2: Update snapshots
+                      echo "Attempt 2: Running Playwright tests with --update-snapshots"
+                      set -o pipefail
+                      pnpm --filter=@posthog/playwright exec playwright test --workers=10 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
+                      EXIT_CODE=$?
+                      set +o pipefail
+
+                      if [ $EXIT_CODE -ne 0 ]; then
+                        echo "Playwright tests failed after 2 attempts"
+                        exit 1
                       fi
                     else
-                      FLAG=""
-                    fi
-
-                    # Run tests and capture output
-                    set -o pipefail
-                    pnpm --filter=@posthog/playwright exec playwright test --workers=10 $FLAG 2>&1 | tee /tmp/playwright-output-attempt-$i.log
-                    EXIT_CODE=$?
-                    set +o pipefail
-
-                    if [ $EXIT_CODE -eq 0 ]; then
-                      break
-                    fi
-
-                    # If this attempt failed, preserve artifacts before next retry
-                    if [ $i -eq 1 ] && [ $EXIT_CODE -ne 0 ]; then
-                      echo "Preserving attempt $i artifacts..."
-                      mkdir -p playwright/test-results-attempt-$i playwright/playwright-report-attempt-$i
-                      cp -r playwright/test-results/* playwright/test-results-attempt-$i/ 2>/dev/null || true
-                      cp -r playwright/playwright-report/* playwright/playwright-report-attempt-$i/ 2>/dev/null || true
-                    fi
-
-                    if [ $i -eq 2 ]; then
-                      echo "Playwright tests failed after 2 attempts"
+                      echo "Non-screenshot failure - not retrying (Playwright already retried failed tests 3x)"
                       exit 1
                     fi
-                  done
+                  fi
 
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
