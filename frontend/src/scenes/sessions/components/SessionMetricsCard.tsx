@@ -47,7 +47,7 @@ export function SessionMetricsCard(): JSX.Element {
         useValues(sessionProfileLogic)
     return (
         <div className="@container">
-            <div className="grid grid-cols-1 @md:grid-cols-3 gap-4">
+            <div className="flex flex-col @md:flex-row gap-4 @md:justify-between">
                 <MetricCard
                     title="Duration"
                     value={sessionDuration !== null ? humanFriendlyDuration(sessionDuration) : null}

@@ -27,27 +27,32 @@ interface DetailSectionProps {
     title: string
     children: React.ReactNode
     defaultExpanded?: boolean
+    showBorder?: boolean
 }
 
-function DetailSection({ title, children, defaultExpanded = true }: DetailSectionProps): JSX.Element {
+function DetailSection({
+    title,
+    children,
+    defaultExpanded = true,
+    showBorder = true,
+}: DetailSectionProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(defaultExpanded)
 
     return (
-        <div className="border-t border-border">
+        <div className={showBorder ? 'border-t border-border' : ''}>
             <div
-                className="flex items-center justify-between h-10 px-4 cursor-pointer hover:bg-surface-primary"
+                className="flex ml-1 gap-2 items-center justify-start cursor-pointer hover:bg-surface-primary"
                 onClick={() => setIsExpanded(!isExpanded)}
             >
-                <h4 className="text-sm font-semibold">{title}</h4>
                 <LemonButton
                     icon={isExpanded ? <IconCollapse /> : <IconExpand />}
                     size="small"
-                    noPadding
                     onClick={(e) => {
                         e.stopPropagation()
                         setIsExpanded(!isExpanded)
                     }}
                 />
+                <h4 className="text-sm font-semibold mt-2">{title}</h4>
             </div>
             {isExpanded && <div className="px-4 pb-4 space-y-2">{children}</div>}
         </div>
@@ -81,8 +86,8 @@ export function SessionDetailsCard(): JSX.Element | null {
     const hasSupportTickets = supportTicketEvents.length > 0
 
     return (
-        <LemonCard className="overflow-hidden" hoverEffect={false}>
-            <DetailSection title="Session Properties" defaultExpanded={true}>
+        <LemonCard className="p-2" hoverEffect={false}>
+            <DetailSection title="Session Properties" defaultExpanded={true} showBorder={false}>
                 {sessionData.channel_type && (
                     <DetailRow label="Channel type" value={<LemonTag>{sessionData.channel_type}</LemonTag>} />
                 )}

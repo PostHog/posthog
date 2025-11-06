@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import { useRef } from 'react'
 
 import {
     BaseIcon,
@@ -18,7 +17,6 @@ import { getExceptionAttributes } from 'lib/components/Errors/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import useIsHovering from 'lib/hooks/useIsHovering'
 
 import { RecordingEventType } from '~/types'
 
@@ -113,9 +111,6 @@ export function SessionEventItem({
     onToggleExpand,
     onLoadEventDetails,
 }: SessionEventItemProps): JSX.Element {
-    const hoverRef = useRef<HTMLDivElement>(null)
-    const isHovering = useIsHovering(hoverRef)
-
     const EventIcon = eventToIcon(event.event)
     const highlightColor = getEventHighlightColor(event)
 
@@ -129,21 +124,20 @@ export function SessionEventItem({
     return (
         <div
             className={clsx(
-                'border border-border rounded overflow-hidden transition-all',
+                'border border-border rounded overflow-hidden transition-all bg-surface-primary',
+                !isExpanded && 'hover:bg-secondary-3000-hover-light',
                 isExpanded && 'border-accent',
                 isExpanded && highlightColor === 'danger' && 'border-danger-dark',
                 isExpanded && highlightColor === 'warning' && 'border-warning-dark',
-                isExpanded && highlightColor === 'primary' && 'border-primary-dark',
-                isHovering && !isExpanded && 'bg-surface-primary'
+                isExpanded && highlightColor === 'primary' && 'border-primary-dark'
             )}
             style={{
                 zIndex: isExpanded ? 1 : 0,
             }}
         >
             <div
-                ref={hoverRef}
                 className={clsx(
-                    'flex items-center justify-between px-3 py-2 cursor-pointer',
+                    'flex items-center justify-between px-2 py-1 cursor-pointer',
                     highlightColor === 'danger' && 'bg-fill-error-highlight',
                     highlightColor === 'warning' && 'bg-fill-warning-highlight',
                     highlightColor === 'primary' && 'bg-fill-success-highlight'
