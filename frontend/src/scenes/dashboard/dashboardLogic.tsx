@@ -1662,8 +1662,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             } else if (
                 mode === null &&
-                (source === DashboardEventSource.DashboardHeaderSaveDashboard ||
-                    (source === DashboardEventSource.Hotkey && values.dashboardMode === DashboardMode.Edit))
+                (source === DashboardEventSource.DashboardHeaderSaveDashboard || source === DashboardEventSource.Hotkey)
             ) {
                 // save edit mode changes
                 actions.saveEditModeChanges()
