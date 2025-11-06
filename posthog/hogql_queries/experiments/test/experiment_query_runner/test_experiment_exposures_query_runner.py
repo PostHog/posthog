@@ -15,6 +15,8 @@ from django.forms.models import model_to_dict
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureQuery
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
@@ -552,7 +554,15 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 6)
 
-    def _calculate_custom_exposure_response(self, exposure_event: str):
+    @parameterized.expand(
+        [
+            "$pageview",
+            "$feature_flag_called",
+        ]
+    )
+    @freeze_time("2024-01-07T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_exposure_query_with_custom_exposure(self, exposure_event):
         if exposure_event == "$feature_flag_called":
             ff_property = f"$feature_flag_response"
             add_feature_flag_property = True
@@ -663,23 +673,10 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=query,
         )
-        return query_runner.calculate()
-
-    @freeze_time("2024-01-07T12:00:00Z")
-    @snapshot_clickhouse_queries
-    def test_exposure_query_with_custom_exposure_pageview(self):
-        response = self._calculate_custom_exposure_response("$pageview")
+        response = query_runner.calculate()
 
         self.assertEqual(len(response.timeseries), 2)
-        self.assertEqual(response.total_exposures["control"], 4)
-        self.assertEqual(response.total_exposures["test"], 5)
 
-    @freeze_time("2024-01-07T12:00:00Z")
-    @snapshot_clickhouse_queries
-    def test_exposure_query_with_custom_exposure_feature_flag_called(self):
-        response = self._calculate_custom_exposure_response("$feature_flag_called")
-
-        self.assertEqual(len(response.timeseries), 2)
         self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 5)
 
