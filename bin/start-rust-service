@@ -70,8 +70,8 @@ case "$RS_SVC" in
     export KAFKA_CONSUMER_GROUP=cymbal
     export KAFKA_CONSUMER_TOPIC=exceptions_ingestion
     export OBJECT_STORAGE_BUCKET=posthog
-    export OBJECT_STORAGE_ACCESS_KEY_ID=any
-    export OBJECT_STORAGE_SECRET_ACCESS_KEY=any
+    export OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
+    export OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
     export FRAME_CACHE_TTL_SECONDS=1
     export BIND_PORT=3302 # HACK! avoid local-dev clash with property-defs-rs port
     export ALLOW_INTERNAL_IPS="true"

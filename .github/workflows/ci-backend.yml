@@ -27,9 +27,9 @@ env:
     TEST: 1
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
     OBJECT_STORAGE_ENABLED: 'True'
-    OBJECT_STORAGE_ENDPOINT: 'http://localhost:8333'
-    OBJECT_STORAGE_ACCESS_KEY_ID: 'any'
-    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'any'
+    OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+    OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
     # tests would intermittently fail in GH actions
     # with exit code 134 _after passing_ all tests
     # this appears to fix it

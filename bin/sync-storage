@@ -4,7 +4,7 @@ set -e
 # Wrapper script for syncing object storage between MinIO and SeaweedFS
 # This makes it easier to sync different services with sensible defaults
 
-# All available services
+# All available services (for explicit selection)
 ALL_SERVICES=(
     "query-cache"
     "session-recordings"
@@ -12,6 +12,13 @@ ALL_SERVICES=(
     "media-uploads"
     "exports"
     "source-maps"
+)
+
+# Default set when no service is specified (partial rollout):
+# Only session recordings V2 and legacy LTS
+DEFAULT_SERVICES=(
+    "session-recordings"
+    "session-recordings-lts"
 )
 
 MODE="sync"
@@ -62,20 +69,20 @@ if [ -n "$DRY_RUN_FLAG" ]; then
     echo ""
 fi
 
-# If no service specified, sync all
+# If no service specified, sync default subset (SR V2 + LTS)
 if [ -z "$SERVICE" ]; then
     echo "═══════════════════════════════════════════════════════════════"
-    echo "🔄 Syncing ALL services between MinIO and SeaweedFS"
+    echo "🔄 Syncing DEFAULT services between MinIO and SeaweedFS"
+    echo "   (session-recordings, session-recordings-lts)"
     echo "═══════════════════════════════════════════════════════════════"
     echo ""
-    
-    for service in "${ALL_SERVICES[@]}"; do
+    for service in "${DEFAULT_SERVICES[@]}"; do
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         sync_service "$service" "$DRY_RUN_FLAG"
     done
     
     echo "═══════════════════════════════════════════════════════════════"
-    echo "✨ All services synced!"
+    echo "✨ Default services synced!"
     echo "═══════════════════════════════════════════════════════════════"
 else
     # Sync single service
@@ -93,14 +100,14 @@ echo "  - exports                (CSV, PNG, PDF, videos)"
 echo "  - source-maps            (error tracking source maps)"
 echo ""
 echo "Usage:"
-echo "  $0                       # Sync ALL services"
-echo "  $0 [--dry-run]           # Preview syncing ALL services"
+echo "  $0                       # Sync DEFAULT services (SR V2 + LTS)"
+echo "  $0 [--dry-run]           # Preview syncing DEFAULT services"
 echo "  $0 <service>             # Sync specific service"
 echo "  $0 <service> [--dry-run] # Preview syncing specific service"
 echo ""
 echo "Examples:"
-echo "  $0                       # Sync all services"
-echo "  $0 --dry-run             # Dry run for all services"
+echo "  $0                       # Sync default services (SR V2 + LTS)"
+echo "  $0 --dry-run             # Dry run for default services"
 echo "  $0 query-cache           # Sync query cache only"
 echo "  $0 media-uploads -n      # Dry run for media uploads only"
 

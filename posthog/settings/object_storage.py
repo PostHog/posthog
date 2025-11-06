@@ -6,10 +6,12 @@ from posthog.settings.base_variables import DEBUG, TEST
 from posthog.utils import str_to_bool
 
 if TEST or DEBUG:
-    # Full transition to SeaweedFS by default in dev/test
-    OBJECT_STORAGE_ENDPOINT = os.getenv("OBJECT_STORAGE_ENDPOINT", "http://localhost:8333")
-    OBJECT_STORAGE_ACCESS_KEY_ID: Optional[str] = os.getenv("OBJECT_STORAGE_ACCESS_KEY_ID", "any")
-    OBJECT_STORAGE_SECRET_ACCESS_KEY: Optional[str] = os.getenv("OBJECT_STORAGE_SECRET_ACCESS_KEY", "any")
+    # Default to MinIO in dev/test for generic object storage
+    OBJECT_STORAGE_ENDPOINT = os.getenv("OBJECT_STORAGE_ENDPOINT", "http://localhost:19000")
+    OBJECT_STORAGE_ACCESS_KEY_ID: Optional[str] = os.getenv("OBJECT_STORAGE_ACCESS_KEY_ID", "object_storage_root_user")
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: Optional[str] = os.getenv(
+        "OBJECT_STORAGE_SECRET_ACCESS_KEY", "object_storage_root_password"
+    )
 else:
     OBJECT_STORAGE_ENDPOINT = os.getenv("OBJECT_STORAGE_ENDPOINT", "")
     # To enable us to specify that the AWS provided credentials for e.g. the EC2
