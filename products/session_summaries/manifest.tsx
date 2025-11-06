@@ -10,7 +10,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/SessionSummariesScene'),
             projectBased: true,
             description: 'View and analyze session summaries.',
-            iconType: 'default_icon_type',
+            iconType: 'insight/hog',
         },
     },
     routes: {
@@ -22,7 +22,7 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         session_summaries: {
             name: 'Session summary',
-            iconType: 'default_icon_type' as FileSystemIconType,
+            iconType: 'insight/hog' as FileSystemIconType,
             href: () => urls.sessionSummaries(),
             iconColor: [
                 'var(--color-product-session-replay-light)',
@@ -37,7 +37,7 @@ export const manifest: ProductManifest = {
             category: 'Behavior',
             href: urls.sessionSummaries(),
             type: 'session_summaries',
-            iconType: 'default_icon_type',
+            iconType: 'insight/hog',
             iconColor: [
                 'var(--color-product-session-replay-light)',
                 'var(--color-product-session-replay-dark)',
