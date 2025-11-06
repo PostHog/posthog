@@ -18,12 +18,7 @@ export function SessionPropertyFilters({ query, setQuery }: SessionPropertyFilte
     return !query.properties || Array.isArray(query.properties) ? (
         <PropertyFilters
             propertyFilters={query.properties || []}
-            taxonomicGroupTypes={[
-                TaxonomicFilterGroupType.SessionProperties,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.Cohorts,
-                TaxonomicFilterGroupType.HogQLExpression,
-            ]}
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]}
             onChange={(value: AnyPropertyFilter[]) => {
                 setQuery?.({ ...query, properties: value })
             }}
