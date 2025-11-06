@@ -346,7 +346,6 @@ jobs:
                   # Attempt 1: Always verify (fast path when snapshots match)
                   # Attempt 2: Update snapshots if previous failure was screenshot-related (UPDATE mode only)
                   # Note: Playwright's built-in retry (3x per test) handles test flakiness
-                  # Attempt 1: Always verify (fast path when snapshots match)
                   echo "Attempt 1: Running Playwright tests"
                   set -o pipefail
                   pnpm --filter=@posthog/playwright exec playwright test --workers=10 2>&1 | tee /tmp/playwright-output-attempt-1.log

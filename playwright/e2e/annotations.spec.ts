@@ -8,7 +8,7 @@ test.describe('Annotations', () => {
 
     test('Annotations loaded', async ({ page }) => {
         // Check that the annotations page loaded with key elements visible
-        await expect(page.getByText('Annotations')).toBeVisible()
+        await expect(page.getByRole('heading', { name: 'Annotations' })).toBeVisible()
         await expect(page.getByRole('button', { name: 'New annotation' })).toBeVisible()
         await expect(page.locator('[data-attr="annotations-content"]')).toBeVisible()
     })
