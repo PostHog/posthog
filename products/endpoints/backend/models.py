@@ -138,3 +138,20 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         if not self.saved_query:
             return ""
         return self.saved_query.latest_error or ""
+
+    def can_materialize(self) -> tuple[bool, str]:
+        """Check if endpoint can be materialized.
+
+        Returns: (can_materialize: bool, reason: str)
+        """
+        if self.query.get("kind") != "HogQLQuery":
+            return False, "Only HogQL queries can be materialized."
+
+        if self.query.get("variables"):
+            return False, "Queries with variables cannot be materialized."
+
+        hogql_query = self.query.get("query")
+        if not hogql_query or not isinstance(hogql_query, str):
+            return False, "Query is empty or invalid."
+
+        return True, ""
