@@ -35,8 +35,10 @@ class TestVercelRegionProxyMixin(VercelTestBase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.client_id_patcher = patch("ee.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience")
-        cls.jwks_patcher = patch("ee.api.authentication.get_vercel_jwks")
+        cls.client_id_patcher = patch(
+            "products.enterprise.backend.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience"
+        )
+        cls.jwks_patcher = patch("products.enterprise.backend.api.authentication.get_vercel_jwks")
         cls.client_id_patcher.start()
         cls.mock_jwks_function = cls.jwks_patcher.start()
 
@@ -264,7 +266,7 @@ class TestVercelRegionProxyMixin(VercelTestBase):
             result = self.test_viewset._should_proxy_to_eu("icfg_nonexistentinstallation", request)
             assert result is True  # Should use normal logic (installation doesn't exist)
 
-    @patch("ee.api.vercel.vercel_region_proxy_mixin.requests.request")
+    @patch("products.enterprise.backend.api.vercel.vercel_region_proxy_mixin.requests.request")
     def test_successfully_proxies_request_to_target_region(self, mock_request):
         mock_request.return_value = self._mock_success_response()
         mock_django_request = self._create_mock_request()
@@ -274,7 +276,7 @@ class TestVercelRegionProxyMixin(VercelTestBase):
             assert isinstance(result, Response)
             assert result.status_code == 200
 
-    @patch("ee.api.vercel.vercel_region_proxy_mixin.requests.request")
+    @patch("products.enterprise.backend.api.vercel.vercel_region_proxy_mixin.requests.request")
     def test_raises_exception_on_proxy_request_failure(self, mock_request):
         mock_request.side_effect = requests.exceptions.RequestException("Connection failed")
         mock_django_request = self._create_mock_request(headers={})

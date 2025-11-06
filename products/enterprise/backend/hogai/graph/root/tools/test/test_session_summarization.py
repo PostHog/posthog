@@ -34,8 +34,13 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
             messages=[AssistantMessage(content="Session summary: 10 sessions analyzed with 5 key patterns found")]
         )
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode", return_value=mock_node_instance):
-            with patch("ee.hogai.graph.root.tools.session_summarization.RunnableLambda") as mock_runnable:
+        with patch(
+            "products.enterprise.backend.hogai.graph.session_summaries.nodes.SessionSummarizationNode",
+            return_value=mock_node_instance,
+        ):
+            with patch(
+                "products.enterprise.backend.hogai.graph.root.tools.session_summarization.RunnableLambda"
+            ) as mock_runnable:
                 mock_chain = MagicMock()
                 mock_chain.ainvoke = AsyncMock(return_value=mock_result)
                 mock_runnable.return_value = mock_chain
@@ -67,8 +72,11 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
-            with patch("ee.hogai.graph.root.tools.session_summarization.RunnableLambda", return_value=mock_chain):
+        with patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+            with patch(
+                "products.enterprise.backend.hogai.graph.root.tools.session_summarization.RunnableLambda",
+                return_value=mock_chain,
+            ):
                 await self.tool._arun_impl(
                     session_summarization_query="analyze mobile user sessions",
                     should_use_current_filters=True,
@@ -88,8 +96,11 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
-            with patch("ee.hogai.graph.root.tools.session_summarization.RunnableLambda", return_value=mock_chain):
+        with patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+            with patch(
+                "products.enterprise.backend.hogai.graph.root.tools.session_summarization.RunnableLambda",
+                return_value=mock_chain,
+            ):
                 await self.tool._arun_impl(
                     session_summarization_query="watch last 300 session recordings",
                     should_use_current_filters=False,
@@ -104,8 +115,11 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
-            with patch("ee.hogai.graph.root.tools.session_summarization.RunnableLambda", return_value=mock_chain):
+        with patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+            with patch(
+                "products.enterprise.backend.hogai.graph.root.tools.session_summarization.RunnableLambda",
+                return_value=mock_chain,
+            ):
                 result, artifact = await self.tool._arun_impl(
                     session_summarization_query="test query",
                     should_use_current_filters=False,
@@ -125,8 +139,11 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
-            with patch("ee.hogai.graph.root.tools.session_summarization.RunnableLambda", return_value=mock_chain):
+        with patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+            with patch(
+                "products.enterprise.backend.hogai.graph.root.tools.session_summarization.RunnableLambda",
+                return_value=mock_chain,
+            ):
                 result, artifact = await self.tool._arun_impl(
                     session_summarization_query="test query",
                     should_use_current_filters=False,
@@ -147,8 +164,11 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
-            with patch("ee.hogai.graph.root.tools.session_summarization.RunnableLambda", return_value=mock_chain):
+        with patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+            with patch(
+                "products.enterprise.backend.hogai.graph.root.tools.session_summarization.RunnableLambda",
+                return_value=mock_chain,
+            ):
                 result, artifact = await self.tool._arun_impl(
                     session_summarization_query="summarize sessions",
                     should_use_current_filters=False,
@@ -186,8 +206,11 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
-            with patch("ee.hogai.graph.root.tools.session_summarization.RunnableLambda", return_value=mock_chain):
+        with patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+            with patch(
+                "products.enterprise.backend.hogai.graph.root.tools.session_summarization.RunnableLambda",
+                return_value=mock_chain,
+            ):
                 await tool._arun_impl(
                     session_summarization_query="new query",
                     should_use_current_filters=True,

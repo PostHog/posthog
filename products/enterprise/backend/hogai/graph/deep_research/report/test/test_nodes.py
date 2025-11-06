@@ -185,7 +185,7 @@ class TestDeepResearchReportNode:
         result = self.node._get_query_type_name(unknown_query)
         assert result == "Query"
 
-    @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
     def test_format_insights_success(self, mock_executor_class):
         """Test that insights are formatted correctly when query execution is successful."""
         mock_executor = MagicMock()
@@ -203,8 +203,8 @@ class TestDeepResearchReportNode:
         assert insight.formatted_results == "Formatted results"
         assert insight.query_type == "Trends"
 
-    @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
-    @patch("ee.hogai.graph.deep_research.report.nodes.capture_exception")
+    @patch("products.enterprise.backend.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.graph.deep_research.report.nodes.capture_exception")
     def test_format_insights_handles_execution_error(self, mock_capture_exception, mock_executor_class):
         """Test that insights formatting handles query execution errors gracefully."""
         mock_executor = MagicMock()
@@ -309,7 +309,7 @@ class TestDeepResearchReportNode:
     @pytest.mark.asyncio
     @patch.object(DeepResearchReportNode, "_get_model")
     @patch.object(DeepResearchReportNode, "_astream_notebook")
-    @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
     @patch("langgraph.config.get_config")
     @patch("langgraph.config.get_stream_writer")
     async def test_arun_success(
@@ -359,7 +359,7 @@ class TestDeepResearchReportNode:
     @pytest.mark.asyncio
     @patch.object(DeepResearchReportNode, "_get_model")
     @patch.object(DeepResearchReportNode, "_astream_notebook")
-    @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
     @patch("langgraph.config.get_config")
     @patch("langgraph.config.get_stream_writer")
     async def test_arun_handles_empty_artifacts(
@@ -391,7 +391,7 @@ class TestDeepResearchReportNode:
     @pytest.mark.asyncio
     @patch.object(DeepResearchReportNode, "_get_model")
     @patch.object(DeepResearchReportNode, "_astream_notebook")
-    @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
     @patch("langgraph.config.get_config")
     @patch("langgraph.config.get_stream_writer")
     async def test_arun_handles_empty_intermediate_results(
@@ -437,7 +437,7 @@ class TestDeepResearchReportNode:
     @pytest.mark.asyncio
     @patch.object(DeepResearchReportNode, "_get_model")
     @patch.object(DeepResearchReportNode, "_astream_notebook", side_effect=Exception("Streaming failed"))
-    @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
     async def test_arun_handles_streaming_errors(self, mock_executor_class, mock_astream_notebook, mock_get_model):
         """Test that arun propagates streaming errors appropriately."""
         mock_executor = MagicMock()
@@ -455,7 +455,7 @@ class TestDeepResearchReportNode:
     @pytest.mark.asyncio
     @patch.object(DeepResearchReportNode, "_get_model")
     @patch.object(DeepResearchReportNode, "_astream_notebook")
-    @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
     @patch("langgraph.config.get_config")
     @patch("langgraph.config.get_stream_writer")
     async def test_arun_passes_correct_parameters_to_stream(
@@ -557,7 +557,7 @@ class TestDeepResearchReportNode:
     @pytest.mark.asyncio
     @patch.object(DeepResearchReportNode, "_get_model")
     @patch.object(DeepResearchReportNode, "_astream_notebook")
-    @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
     @patch("langgraph.config.get_config")
     @patch("langgraph.config.get_stream_writer")
     async def test_arun_creates_proper_message_chain(
@@ -605,7 +605,9 @@ class TestDeepResearchReportNode:
 
     def test_format_insights_preserves_order(self):
         """Test that insights formatting preserves the order of artifacts."""
-        with patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor") as mock_executor_class:
+        with patch(
+            "products.enterprise.backend.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor"
+        ) as mock_executor_class:
             mock_executor = MagicMock()
             mock_executor.run_and_format_query.return_value = ("Results", False)
             mock_executor_class.return_value = mock_executor
@@ -624,9 +626,11 @@ class TestDeepResearchReportNode:
             assert formatted_insights[2].id == "artifact_3"
 
     @pytest.mark.asyncio
-    @patch("ee.hogai.graph.deep_research.report.nodes.DeepResearchReportNode._get_model")
-    @patch("ee.hogai.graph.deep_research.report.nodes.DeepResearchReportNode._astream_notebook")
-    @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.graph.deep_research.report.nodes.DeepResearchReportNode._get_model")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.report.nodes.DeepResearchReportNode._astream_notebook"
+    )
+    @patch("products.enterprise.backend.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
     @patch("langgraph.config.get_config")
     @patch("langgraph.config.get_stream_writer")
     async def test_arun_includes_stage_notebooks_in_final_message(

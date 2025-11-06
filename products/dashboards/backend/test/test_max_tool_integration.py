@@ -168,7 +168,9 @@ async def test_dashboard_add_insights(dashboard_setup):
     ]
 
     # Mock the DashboardCreationNode to simulate successful insight creation
-    with patch("ee.hogai.graph.dashboards.nodes.DashboardCreationNode._search_insights") as mock_search_insights:
+    with patch(
+        "products.enterprise.backend.hogai.graph.dashboards.nodes.DashboardCreationNode._search_insights"
+    ) as mock_search_insights:
         # Create a mock insight
         mock_insight = await Insight.objects.acreate(
             name="User Activity",

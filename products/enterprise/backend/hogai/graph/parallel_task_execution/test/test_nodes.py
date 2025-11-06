@@ -89,7 +89,7 @@ class TestBaseTaskExecutorNode(TestCase):
 
 
 class TestTaskExecution(TestBaseTaskExecutorNode):
-    @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
+    @patch("products.enterprise.backend.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_single_task_execution(self, mock_write_message):
         """Test execution of a single task."""
         task = self._create_task("task1")
@@ -106,7 +106,7 @@ class TestTaskExecution(TestBaseTaskExecutorNode):
         self.assertTrue(self.node.input_tuples_called)
         self.assertTrue(self.node.final_state_called)
 
-    @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
+    @patch("products.enterprise.backend.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_multiple_tasks_parallel_execution(self, mock_write_message):
         """Test that multiple tasks are executed in parallel."""
         task1 = self._create_task("task1")
@@ -144,7 +144,7 @@ class TestTaskExecution(TestBaseTaskExecutorNode):
 
 
 class TestReasoningCallback(TestBaseTaskExecutorNode):
-    @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
+    @patch("products.enterprise.backend.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_reasoning_callback_for_single_task(self, mock_write_message):
         """Test that reasoning messages are sent for single task execution."""
         task = self._create_task("task1")
@@ -161,7 +161,7 @@ class TestReasoningCallback(TestBaseTaskExecutorNode):
 
         await self.node.arun(state, config)
 
-    @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
+    @patch("products.enterprise.backend.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_reasoning_callback_for_multiple_tasks(self, mock_write_message):
         """Test that task execution messages are updated for multiple tasks."""
         task1 = self._create_task("task1")
@@ -186,7 +186,7 @@ class TestReasoningCallback(TestBaseTaskExecutorNode):
 
 
 class TestErrorHandling(TestBaseTaskExecutorNode):
-    @patch("ee.hogai.graph.parallel_task_execution.nodes.capture_exception")
+    @patch("products.enterprise.backend.hogai.graph.parallel_task_execution.nodes.capture_exception")
     async def test_handles_task_failure(self, mock_capture):
         """Test that individual task failures are handled gracefully."""
         task1 = self._create_task("task1")
@@ -209,7 +209,7 @@ class TestErrorHandling(TestBaseTaskExecutorNode):
         await self.node.arun(state, config)
         self.assertTrue(self.node.final_state_called)
 
-    @patch("ee.hogai.graph.parallel_task_execution.nodes.capture_exception")
+    @patch("products.enterprise.backend.hogai.graph.parallel_task_execution.nodes.capture_exception")
     async def test_handles_general_exception(self, mock_capture):
         """Test that general exceptions are captured and re-raised."""
         # Mock _aget_input_tuples to raise an exception
@@ -224,7 +224,7 @@ class TestErrorHandling(TestBaseTaskExecutorNode):
 
             mock_capture.assert_called_once()
 
-    @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
+    @patch("products.enterprise.backend.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_cancels_remaining_tasks_on_exception(self, mock_write_message):
         """Test that remaining tasks are cancelled when an exception occurs."""
         task1 = self._create_task("task1")
@@ -263,7 +263,7 @@ class TestErrorHandling(TestBaseTaskExecutorNode):
 
 
 class TestArtifactHandling(TestBaseTaskExecutorNode):
-    @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
+    @patch("products.enterprise.backend.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_passes_artifacts_to_coroutines(self, mock_write_message):
         """Test that artifacts are passed correctly to task coroutines."""
         task = self._create_task("task1")
@@ -286,7 +286,7 @@ class TestArtifactHandling(TestBaseTaskExecutorNode):
 
 
 class TestMessageFlow(TestBaseTaskExecutorNode):
-    @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
+    @patch("products.enterprise.backend.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_no_task_execution_message_for_single_task(self, mock_write_message):
         """Test that no TaskExecutionMessage is sent for single task."""
         task = self._create_task("task1")
@@ -300,7 +300,7 @@ class TestMessageFlow(TestBaseTaskExecutorNode):
 
         await self.node.arun(state, config)
 
-    @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
+    @patch("products.enterprise.backend.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_task_execution_messages_for_multiple_tasks(self, mock_write_message):
         """Test that TaskExecutionMessages are sent for multiple tasks."""
         task1 = self._create_task("task1")
@@ -321,7 +321,7 @@ class TestMessageFlow(TestBaseTaskExecutorNode):
 
 
 class TestEdgeCases(TestBaseTaskExecutorNode):
-    @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
+    @patch("products.enterprise.backend.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_empty_input_tuples_raises_error(self, mock_write_message):
         """Test that empty input tuples raises ValueError."""
         state = MockTestState()
@@ -335,7 +335,7 @@ class TestEdgeCases(TestBaseTaskExecutorNode):
         self.assertTrue(self.node.input_tuples_called)
         self.assertFalse(self.node.final_state_called)  # Should not reach final state
 
-    @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
+    @patch("products.enterprise.backend.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_none_task_result(self, mock_write_message):
         """Test handling of None task results."""
         task = self._create_task("task1")
@@ -408,7 +408,7 @@ class TestDispatcherIntegration(TestBaseTaskExecutorNode):
 class TestPartialFailureScenarios(TestBaseTaskExecutorNode):
     """Test scenarios where some tasks fail but others succeed."""
 
-    @patch("ee.hogai.graph.parallel_task_execution.nodes.capture_exception")
+    @patch("products.enterprise.backend.hogai.graph.parallel_task_execution.nodes.capture_exception")
     async def test_some_tasks_fail_others_succeed(self, mock_capture):
         """Test that when some tasks fail, successful tasks still complete."""
         task1 = self._create_task("task1")

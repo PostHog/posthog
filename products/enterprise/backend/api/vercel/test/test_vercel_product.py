@@ -13,8 +13,10 @@ class TestVercelProductAPI(VercelTestBase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.client_id_patcher = patch("ee.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience")
-        cls.jwks_patcher = patch("ee.api.authentication.get_vercel_jwks")
+        cls.client_id_patcher = patch(
+            "products.enterprise.backend.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience"
+        )
+        cls.jwks_patcher = patch("products.enterprise.backend.api.authentication.get_vercel_jwks")
         cls.client_id_patcher.start()
         cls.mock_get_jwks = cls.jwks_patcher.start()
 

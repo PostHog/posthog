@@ -180,9 +180,9 @@ class TestSessionSummarizationNode(BaseTest):
         ]
     )
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
-    @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.database_sync_to_async")
     @patch("products.replay.backend.max_tools.SearchSessionRecordingsTool")
-    @patch("ee.hogai.graph.session_summaries.nodes._SessionSearch._generate_filter_query")
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes._SessionSearch._generate_filter_query")
     def test_session_summarization_limit_applied(
         self,
         _name: str,
@@ -228,9 +228,9 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertEqual(query.limit, expected_limit)
 
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
-    @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.database_sync_to_async")
     @patch("products.replay.backend.max_tools.SearchSessionRecordingsTool")
-    @patch("ee.hogai.graph.session_summaries.nodes._SessionSearch._generate_filter_query")
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes._SessionSearch._generate_filter_query")
     def test_arun_filter_generation_clarification_needed(
         self,
         mock_generate_filter_query: MagicMock,
@@ -313,7 +313,7 @@ class TestSessionSummarizationNode(BaseTest):
             },
         }
 
-    @patch("ee.hogai.graph.session_summaries.nodes.execute_summarize_session")
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.execute_summarize_session")
     def test_summarize_sessions_individually(self, mock_execute_summarize: MagicMock) -> None:
         """Test that individual session summarization aggregates results correctly."""
         session_ids = [
@@ -343,8 +343,8 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertEqual(result, expected_result)
         self.assertEqual(mock_execute_summarize.call_count, 3)
 
-    @patch("ee.hogai.graph.session_summaries.nodes.execute_summarize_session_group")
-    @patch("ee.hogai.graph.session_summaries.nodes.find_sessions_timestamps")
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.execute_summarize_session_group")
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.find_sessions_timestamps")
     def test_summarize_sessions_as_group_no_summary(
         self, mock_find_timestamps: MagicMock, mock_execute_group: MagicMock
     ) -> None:
@@ -406,9 +406,9 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertIn("encountered an issue", message.content)
 
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
-    @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.database_sync_to_async")
     @patch("products.replay.backend.max_tools.SearchSessionRecordingsTool")
-    @patch("ee.hogai.graph.session_summaries.nodes._SessionSearch._generate_filter_query")
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes._SessionSearch._generate_filter_query")
     def test_arun_no_sessions_found(
         self,
         mock_generate_filter_query: MagicMock,
@@ -448,12 +448,12 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertIsNone(result.session_summarization_query)
         self.assertIsNone(result.root_tool_call_id)
 
-    @patch("ee.hogai.graph.session_summaries.nodes.execute_summarize_session")
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.execute_summarize_session")
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
-    @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.database_sync_to_async")
     @patch("products.replay.backend.max_tools.SearchSessionRecordingsTool")
-    @patch("ee.hogai.graph.session_summaries.nodes._SessionSearch._generate_filter_query")
-    @patch("ee.hogai.graph.session_summaries.nodes.GROUP_SUMMARIES_MIN_SESSIONS", 5)
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes._SessionSearch._generate_filter_query")
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.GROUP_SUMMARIES_MIN_SESSIONS", 5)
     def test_arun_individual_vs_group_sessions(
         self,
         mock_generate_filter_query: MagicMock,
@@ -515,7 +515,7 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertEqual(mock_execute_summarize.call_count, 2)
 
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
-    @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.database_sync_to_async")
     def test_arun_use_current_filters_true_with_context(
         self,
         mock_db_sync: MagicMock,
@@ -577,9 +577,9 @@ class TestSessionSummarizationNode(BaseTest):
         mock_query_runner_class.assert_called_once()
 
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
-    @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes.database_sync_to_async")
     @patch("products.replay.backend.max_tools.SearchSessionRecordingsTool")
-    @patch("ee.hogai.graph.session_summaries.nodes._SessionSearch._generate_filter_query")
+    @patch("products.enterprise.backend.hogai.graph.session_summaries.nodes._SessionSearch._generate_filter_query")
     def test_arun_use_current_filters_false_generates_filters(
         self,
         mock_generate_filter_query: MagicMock,

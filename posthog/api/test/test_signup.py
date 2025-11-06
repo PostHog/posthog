@@ -796,7 +796,7 @@ class TestSignupAPI(APIBaseTest):
 
     @unittest.skip("Skipping until fixed in Python 3.12+")
     @patch("posthoganalytics.capture")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
+    @mock.patch("products.enterprise.backend.billing.billing_manager.BillingManager.update_billing_organization_users")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @mock.patch("posthog.tasks.user_identify.identify_task")
@@ -815,7 +815,7 @@ class TestSignupAPI(APIBaseTest):
 
     @unittest.skip("Skipping until fixed in Python 3.12+")
     @patch("posthoganalytics.capture")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
+    @mock.patch("products.enterprise.backend.billing.billing_manager.BillingManager.update_billing_organization_users")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @mock.patch("posthog.tasks.user_identify.identify_task")
@@ -834,7 +834,7 @@ class TestSignupAPI(APIBaseTest):
 
     @unittest.skip("Skipping until fixed in Python 3.12+")
     @patch("posthoganalytics.capture")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
+    @mock.patch("products.enterprise.backend.billing.billing_manager.BillingManager.update_billing_organization_users")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @mock.patch("posthog.tasks.user_identify.identify_task")
@@ -1597,7 +1597,7 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(len(mail.outbox), 0)
 
     @patch("posthoganalytics.capture")
-    @patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
+    @patch("products.enterprise.backend.billing.billing_manager.BillingManager.update_billing_organization_users")
     def test_existing_user_can_sign_up_to_a_new_organization(
         self, mock_update_billing_organization_users, mock_capture
     ):

@@ -43,7 +43,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         mock_capture_exception.assert_not_called()
 
     @patch("posthoganalytics.capture_exception")
-    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "products.enterprise.backend.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
+    )
     def test_count_recordings_that_match_no_recordings(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
@@ -67,7 +69,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         }
 
     @patch("posthoganalytics.capture_exception")
-    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "products.enterprise.backend.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
+    )
     def test_count_recordings_that_match_recordings(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
@@ -99,7 +103,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         }
 
     @patch("posthoganalytics.capture_exception")
-    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "products.enterprise.backend.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
+    )
     def test_count_recordings_that_match_recordings_records_previous_ids(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
@@ -134,7 +140,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         }
 
     @patch("posthoganalytics.capture_exception")
-    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "products.enterprise.backend.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
+    )
     def test_count_recordings_that_match_recordings_skips_cooldown(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
@@ -156,7 +164,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         assert self._get_counts_from_redis(playlist) == existing_value
 
     @patch("posthoganalytics.capture_exception")
-    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "products.enterprise.backend.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
+    )
     def test_matching_legacy_filters(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
@@ -231,7 +241,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         )
 
     @patch("posthoganalytics.capture_exception")
-    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "products.enterprise.backend.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
+    )
     def test_skips_default_filters(self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock):
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team,
@@ -244,7 +256,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     @patch("posthoganalytics.capture_exception")
-    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "products.enterprise.backend.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
+    )
     @patch(
         "ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.count_recordings_that_match_playlist_filters"
     )
@@ -290,7 +304,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
             ]
 
     @patch("posthoganalytics.capture_exception")
-    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "products.enterprise.backend.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
+    )
     def test_template_rageclick_filter_should_process(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ) -> None:
@@ -351,7 +367,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         )
 
     @patch("posthoganalytics.capture_exception")
-    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "products.enterprise.backend.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
+    )
     def test_count_recordings_with_too_many_errors_skips(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
@@ -373,7 +391,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         assert self._get_counts_from_redis(playlist) == existing_value
 
     @patch("posthoganalytics.capture_exception")
-    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "products.enterprise.backend.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
+    )
     def test_count_recordings_with_too_recent_error_skips(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
@@ -395,7 +415,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         assert self._get_counts_from_redis(playlist) == existing_value
 
     @patch("posthoganalytics.capture_exception")
-    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "products.enterprise.backend.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
+    )
     def test_count_recordings_only_queries_since_last_count(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
@@ -455,7 +477,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         return json.loads(counts.decode("utf-8"))
 
     @patch("posthoganalytics.capture_exception")
-    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "products.enterprise.backend.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
+    )
     @patch(
         "ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.count_recordings_that_match_playlist_filters"
     )
@@ -475,7 +499,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         assert playlist.id not in [call_args[0][0] for call_args in mock_count_task.delay.call_args_list]
 
     @patch("posthoganalytics.capture_exception")
-    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "products.enterprise.backend.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
+    )
     @patch(
         "ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.count_recordings_that_match_playlist_filters"
     )

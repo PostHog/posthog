@@ -49,7 +49,7 @@ def mock_contextual_tool(mock_tool):
     mock_tool_class = MagicMock()
     mock_tool_class.create_tool_class = AsyncMock(return_value=mock_tool)
 
-    with patch("ee.hogai.tool.get_contextual_tool_class", return_value=mock_tool_class):
+    with patch("products.enterprise.backend.hogai.tool.get_contextual_tool_class", return_value=mock_tool_class):
         yield
 
 
@@ -121,7 +121,10 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 ),
             )
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch(
+        "products.enterprise.backend.hogai.graph.root.nodes.RootNode._get_model",
+        return_value=FakeChatOpenAI(responses=[]),
+    )
     async def test_node_reconstructs_conversation(self, mock_model):
         node = RootNode(self.team, self.user)
         state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
@@ -159,7 +162,10 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatAnthropic(responses=[]))
+    @patch(
+        "products.enterprise.backend.hogai.graph.root.nodes.RootNode._get_model",
+        return_value=FakeChatAnthropic(responses=[]),
+    )
     async def test_node_reconstructs_conversation_with_tool_calls(self, mock_model):
         node = RootNode(self.team, self.user)
         state = AssistantState(
@@ -203,7 +209,10 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch(
+        "products.enterprise.backend.hogai.graph.root.nodes.RootNode._get_model",
+        return_value=FakeChatOpenAI(responses=[]),
+    )
     async def test_node_filters_tool_calls_without_responses(self, mock_model):
         node = RootNode(self.team, self.user)
         state = AssistantState(
@@ -299,7 +308,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertIn("iterations", messages[-1].content)
 
     async def test_node_gets_contextual_tool(self):
-        with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
+        with patch("products.enterprise.backend.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
             mock_model = MagicMock()
             mock_model.get_num_tokens_from_messages.return_value = 100
             mock_model.bind_tools.return_value = mock_model
@@ -327,7 +336,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 mock_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
 
                 # We need to patch at the point where it's imported
-                with patch("ee.hogai.tool.get_contextual_tool_class") as mock_get_tool:
+                with patch("products.enterprise.backend.hogai.tool.get_contextual_tool_class") as mock_get_tool:
                     mock_get_tool.return_value = mock_tool_class
 
                     # Verify that context_manager has the right tools
@@ -361,7 +370,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 "ee.hogai.graph.root.nodes.RootNode._get_model",
                 return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Simple response")]),
             ),
-            patch("ee.hogai.utils.tests.FakeChatOpenAI.bind_tools", return_value=MagicMock()) as mock_bind_tools,
+            patch(
+                "products.enterprise.backend.hogai.utils.tests.FakeChatOpenAI.bind_tools", return_value=MagicMock()
+            ) as mock_bind_tools,
             patch(
                 "products.replay.backend.max_tools.SearchSessionRecordingsTool._arun_impl",
                 return_value=("Success", {}),
@@ -427,7 +438,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         with (
             patch("os.environ", {"ANTHROPIC_API_KEY": "foo"}),
             patch("langchain_anthropic.chat_models.ChatAnthropic._agenerate") as mock_generate,
-            # patch("ee.hogai.graph.root.nodes.RootNode._find_new_window_id", return_value=None),
+            # patch("products.enterprise.backend.hogai.graph.root.nodes.RootNode._find_new_window_id", return_value=None),
         ):
             mock_generate.return_value = ChatResult(
                 generations=[ChatGeneration(message=AIMessage(content="Test response"))],
@@ -495,9 +506,16 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(await node._get_billing_prompt(node._config), expected_prompt)
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
-    @patch("ee.hogai.graph.root.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation")
-    @patch("ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize")
+    @patch(
+        "products.enterprise.backend.hogai.graph.root.nodes.RootNode._get_model",
+        return_value=FakeChatOpenAI(responses=[]),
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.root.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize"
+    )
     async def test_conversation_summarization_flow(self, mock_summarize, mock_should_compact, mock_model):
         """Test that conversation is summarized when it gets too long"""
         mock_should_compact.return_value = True
@@ -527,9 +545,16 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(context_messages), 1)
         self.assertIn("This is a summary of the conversation so far.", context_messages[0].content)
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
-    @patch("ee.hogai.graph.root.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation")
-    @patch("ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize")
+    @patch(
+        "products.enterprise.backend.hogai.graph.root.nodes.RootNode._get_model",
+        return_value=FakeChatOpenAI(responses=[]),
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.root.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize"
+    )
     async def test_conversation_summarization_on_first_turn(self, mock_summarize, mock_should_compact, mock_model):
         """Test that on first turn, the last message is excluded from summarization"""
         mock_should_compact.return_value = True
@@ -554,7 +579,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         summarized_messages = mock_summarize.call_args[0][0]
         self.assertEqual(len(summarized_messages), 2)
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("products.enterprise.backend.hogai.graph.root.nodes.RootNode._get_model")
     @patch("posthoganalytics.feature_enabled")
     async def test_get_tools_session_summarization_feature_flag(self, mock_feature_enabled, mock_model):
         """Test that session_summarization tool is only included when feature flag is enabled"""
@@ -575,8 +600,8 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         tool_names_without_flag = [tool.name if hasattr(tool, "name") else tool.__name__ for tool in tools_without_flag]
         self.assertNotIn("session_summarization", tool_names_without_flag)
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
-    @patch("ee.hogai.tool.get_contextual_tool_class")
+    @patch("products.enterprise.backend.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("products.enterprise.backend.hogai.tool.get_contextual_tool_class")
     async def test_get_tools_ignores_unknown_contextual_tools(self, mock_get_tool_class, mock_model):
         """Test that unknown contextual tools (None from get_contextual_tool_class) are ignored"""
         mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
@@ -590,14 +615,20 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         tools = await node._get_tools(state, config)
         self.assertIsNotNone(tools)
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch(
+        "products.enterprise.backend.hogai.graph.root.nodes.RootNode._get_model",
+        return_value=FakeChatOpenAI(responses=[]),
+    )
     async def test_construct_messages_empty_list(self, mock_model):
         """Test _construct_messages with empty message list"""
         node = RootNode(self.team, self.user)
         result = node._construct_messages([], None, None)
         self.assertEqual(result, [])
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch(
+        "products.enterprise.backend.hogai.graph.root.nodes.RootNode._get_model",
+        return_value=FakeChatOpenAI(responses=[]),
+    )
     async def test_construct_messages_cache_control_only_on_last_eligible_message(self, mock_model):
         """Test that cache_control is only added to the last eligible message"""
         node = RootNode(self.team, self.user)
@@ -618,7 +649,10 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(cache_control_count, 1, "Only one message should have cache_control")
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch(
+        "products.enterprise.backend.hogai.graph.root.nodes.RootNode._get_model",
+        return_value=FakeChatOpenAI(responses=[]),
+    )
     async def test_construct_messages_with_hard_limit_reached(self, mock_model):
         """Test that hard limit prompt is added when tool calls reach MAX_TOOL_CALLS"""
         node = RootNode(self.team, self.user)
@@ -818,7 +852,9 @@ class TestRootNodeTools(BaseTest):
         result = await node.arun(state, {})
         self.assertEqual(result, PartialAssistantState(root_tool_call_id=None))
 
-    @patch("ee.hogai.graph.root.tools.create_and_query_insight.CreateAndQueryInsightTool._arun_impl")
+    @patch(
+        "products.enterprise.backend.hogai.graph.root.tools.create_and_query_insight.CreateAndQueryInsightTool._arun_impl"
+    )
     async def test_run_valid_tool_call(self, create_and_query_insight_mock):
         test_message = AssistantToolCallMessage(content="Tool result", tool_call_id="xyz", id="msg-1")
         create_and_query_insight_mock.return_value = ("", ToolMessagesArtifact(messages=[test_message]))
@@ -959,7 +995,7 @@ class TestRootNodeTools(BaseTest):
             root_tool_call_id="tool-123",
         )
 
-        with patch("ee.hogai.tool.get_contextual_tool_class", return_value=None):
+        with patch("products.enterprise.backend.hogai.tool.get_contextual_tool_class", return_value=None):
             result = await node.arun(state, {})
 
             self.assertIsInstance(result, PartialAssistantState)

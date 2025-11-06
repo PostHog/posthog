@@ -20,9 +20,15 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         self.conversation = Conversation.objects.create(team=self.team, user=self.user)
         self.config = RunnableConfig(configurable={"thread_id": str(self.conversation.id)})
 
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook"
+    )
     async def test_arun_creates_notebook_plan_successfully(self, mock_astream, mock_get_model, mock_core_memory):
         """Test that notebook plan is created successfully."""
         mock_core_memory.return_value = "Test core memory"
@@ -65,9 +71,15 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
             ("question_format", "What factors influence user retention?"),
         ]
     )
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook"
+    )
     async def test_arun_handles_different_message_types(
         self, _name, message_content, mock_astream, mock_get_model, mock_core_memory
     ):
@@ -108,9 +120,15 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
 
         self.assertEqual(str(context.exception), "Last message is not a human message.")
 
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook"
+    )
     async def test_arun_uses_previous_response_id_correctly(self, mock_astream, mock_get_model, mock_core_memory):
         """Test that arun passes previous_response_id to model and resets it in response."""
         # Arrange
@@ -141,9 +159,15 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         self.assertEqual(response_id_arg, previous_response_id)
         self.assertIsNone(result.previous_response_id)
 
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook"
+    )
     async def test_state_management_with_notebook_updates(self, mock_astream, mock_get_model, mock_core_memory):
         """Test that state is properly managed with notebook updates."""
         mock_core_memory.return_value = "Core memory content"
@@ -180,9 +204,15 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         result_message = cast(NotebookUpdateMessage, result.messages[0])
         self.assertEqual(result_message.notebook_id, notebook_id)
 
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model"
+    )
     async def test_integration_with_notebook_serializer(self, mock_get_model, mock_core_memory, mock_astream_notebook):
         """Test integration with NotebookSerializer for content processing."""
         mock_core_memory.return_value = "Test memory"
@@ -202,9 +232,15 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         self.assertIsInstance(result, PartialDeepResearchState)
         mock_astream_notebook.assert_called_once()
 
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model"
+    )
     async def test_streaming_behavior_with_partial_messages(
         self, mock_get_model, mock_core_memory, mock_astream_notebook
     ):
@@ -227,9 +263,15 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         self.assertIsInstance(result, PartialDeepResearchState)
         mock_astream_notebook.assert_called_once()
 
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model"
+    )
     async def test_error_when_no_notebook_message_generated(
         self, mock_get_model, mock_core_memory, mock_astream_notebook
     ):
@@ -248,7 +290,9 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
 
         self.assertEqual(str(context.exception), "No notebook update message found.")
 
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory"
+    )
     async def test_error_when_core_memory_fails(self, mock_core_memory):
         """Test error handling when core memory retrieval fails."""
         mock_core_memory.side_effect = Exception("Core memory error")
@@ -260,9 +304,15 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
 
         self.assertEqual(str(context.exception), "Core memory error")
 
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model"
+    )
     async def test_error_when_model_generation_fails(self, mock_get_model, mock_core_memory, mock_astream_notebook):
         """Test error handling when model generation fails."""
         mock_core_memory.return_value = "Test memory"
@@ -322,9 +372,15 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
 
                     self.assertIsInstance(result, PartialDeepResearchState)
 
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook"
+    )
     async def test_message_content_passed_to_prompt_correctly(self, mock_astream, mock_get_model, mock_core_memory):
         """Test that human message content is correctly passed to the prompt."""
         mock_core_memory.return_value = "Test memory"
@@ -347,9 +403,15 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         # The chain should contain the user's message content (verify the call was made)
         mock_astream.assert_called_once()
 
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook"
+    )
     async def test_stage_notebook_tracking_in_result(self, mock_astream, mock_get_model, mock_core_memory):
         """Should add notebook to stage_notebooks in returned state."""
         mock_core_memory.return_value = "Test core memory"
@@ -375,9 +437,15 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         self.assertEqual(notebook_info.notebook_id, "planning_nb_123")
         self.assertEqual(notebook_info.title, notebook_title)
 
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook"
+    )
     async def test_stage_notebook_with_no_notebook_instance(self, mock_astream, mock_get_model, mock_core_memory):
         """Should handle case where notebook instance is None."""
         mock_core_memory.return_value = "Test core memory"
@@ -400,9 +468,15 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         notebook_info = result.conversation_notebooks[0]
         self.assertEqual(notebook_info.title, "Planning Notebook")
 
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
-    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model"
+    )
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook"
+    )
     async def test_stage_notebook_info_serialization(self, mock_astream, mock_get_model, mock_core_memory):
         """Should create notebook info that serializes correctly."""
         mock_core_memory.return_value = "Test core memory"

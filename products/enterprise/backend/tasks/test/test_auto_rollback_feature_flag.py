@@ -165,7 +165,7 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(flag.performed_rollback, True)
             self.assertEqual(flag.active, False)
 
-    @patch("ee.tasks.auto_rollback_feature_flag.get_stats_for_timerange")
+    @patch("products.enterprise.backend.tasks.auto_rollback_feature_flag.get_stats_for_timerange")
     def test_check_condition_sentry(self, stats_for_timerange):
         rollback_condition = {
             "threshold": 1.25,

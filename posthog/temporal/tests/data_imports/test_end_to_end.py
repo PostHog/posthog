@@ -2437,7 +2437,7 @@ async def test_billing_limits_too_many_rows(team, postgres_config, postgres_conn
     await postgres_connection.commit()
 
     with (
-        mock.patch("ee.api.billing.requests.get") as mock_billing_request,
+        mock.patch("products.enterprise.backend.api.billing.requests.get") as mock_billing_request,
         mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
     ):
         await sync_to_async(License.objects.create)(
@@ -2507,7 +2507,7 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
     await postgres_connection.commit()
 
     with (
-        mock.patch("ee.api.billing.requests.get") as mock_billing_request,
+        mock.patch("products.enterprise.backend.api.billing.requests.get") as mock_billing_request,
         mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
     ):
         source = await sync_to_async(ExternalDataSource.objects.create)(team=team)

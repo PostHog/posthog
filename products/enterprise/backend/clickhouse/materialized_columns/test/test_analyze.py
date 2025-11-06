@@ -9,8 +9,8 @@ from products.enterprise.backend.clickhouse.materialized_columns.analyze import 
 
 class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
     @pytest.mark.skip(reason="Test is failing for some reason")
-    @patch("ee.clickhouse.materialized_columns.analyze.materialize")
-    @patch("ee.clickhouse.materialized_columns.analyze.backfill_materialized_columns")
+    @patch("products.enterprise.backend.clickhouse.materialized_columns.analyze.materialize")
+    @patch("products.enterprise.backend.clickhouse.materialized_columns.analyze.backfill_materialized_columns")
     def test_mat_columns(self, patch_backfill, patch_materialize):
         sync_execute("SYSTEM FLUSH LOGS")
         sync_execute("TRUNCATE TABLE system.query_log")

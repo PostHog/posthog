@@ -80,7 +80,9 @@ class TestTaskExecutorNodeInitialization(TestTaskExecutorNode):
 
 
 class TestTaskExecutorNodeArun(TestTaskExecutorNode):
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode.dispatcher")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode.dispatcher"
+    )
     async def test_arun_with_valid_tool_call_and_tasks(self, mock_dispatcher):
         """Test successful execution with valid tool call message and tasks."""
         config = RunnableConfig()
@@ -127,8 +129,10 @@ class TestTaskExecutorNodeArun(TestTaskExecutorNode):
 
 
 class TestTaskExecutorInsightsExecution(TestTaskExecutorNode):
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode.dispatcher")
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.InsightsGraph")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode.dispatcher"
+    )
+    @patch("products.enterprise.backend.hogai.graph.deep_research.task_executor.nodes.InsightsGraph")
     async def test_execute_task_with_insights_successful(self, mock_insights_graph_class, mock_dispatcher):
         """Test successful task execution through insights pipeline."""
 
@@ -170,8 +174,10 @@ class TestTaskExecutorInsightsExecution(TestTaskExecutorNode):
         self.assertEqual(result.status, "completed")
         self.assertEqual(len(result.artifacts), 1)
 
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode.dispatcher")
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.InsightsGraph")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode.dispatcher"
+    )
+    @patch("products.enterprise.backend.hogai.graph.deep_research.task_executor.nodes.InsightsGraph")
     async def test_execute_task_with_insights_no_artifacts(self, mock_insights_graph_class, mock_dispatcher):
         """Test task execution that produces no artifacts."""
         task = self._create_assistant_tool_call()
@@ -207,9 +213,11 @@ class TestTaskExecutorInsightsExecution(TestTaskExecutorNode):
         self.assertEqual(result.status, "failed")
         self.assertEqual(len(result.artifacts), 0)
 
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.capture_exception")
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode.dispatcher")
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.InsightsGraph")
+    @patch("products.enterprise.backend.hogai.graph.deep_research.task_executor.nodes.capture_exception")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode.dispatcher"
+    )
+    @patch("products.enterprise.backend.hogai.graph.deep_research.task_executor.nodes.InsightsGraph")
     async def test_execute_task_with_exception(self, mock_insights_graph_class, mock_dispatcher, mock_capture):
         """Test task execution that encounters an exception."""
         task = self._create_assistant_tool_call()
@@ -236,7 +244,9 @@ class TestTaskExecutorInsightsExecution(TestTaskExecutorNode):
 
 
 class TestParallelTaskExecution(TestTaskExecutorNode):
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode.dispatcher")
+    @patch(
+        "products.enterprise.backend.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode.dispatcher"
+    )
     async def test_multiple_tasks_executed_in_parallel(self, mock_dispatcher):
         """Test that multiple tasks are executed in parallel."""
         task1 = self._create_assistant_tool_call("task_1")

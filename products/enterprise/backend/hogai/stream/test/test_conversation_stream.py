@@ -45,7 +45,7 @@ class TestConversationStreamManager(BaseTest):
         self.assertEqual(manager._conversation.id, self.conversation.id)
         self.assertIsInstance(manager._redis_stream, ConversationRedisStream)
 
-    @patch("ee.hogai.stream.conversation_stream.async_connect")
+    @patch("products.enterprise.backend.hogai.stream.conversation_stream.async_connect")
     async def test_start_workflow_and_stream_success(self, mock_connect):
         """Test successful workflow start and streaming."""
         # Setup mocks
@@ -94,7 +94,7 @@ class TestConversationStreamManager(BaseTest):
             self.assertEqual(call_args[1]["task_queue"], settings.MAX_AI_TASK_QUEUE)
             self.assertIn("conversation-", call_args[1]["id"])
 
-    @patch("ee.hogai.stream.conversation_stream.async_connect")
+    @patch("products.enterprise.backend.hogai.stream.conversation_stream.async_connect")
     async def test_start_workflow_and_stream_connection_error(self, mock_connect):
         """Test error handling when connection fails."""
         # Setup mock to raise exception
@@ -275,7 +275,7 @@ class TestConversationStreamManager(BaseTest):
         """Test successful conversation cancellation."""
         # Mock all external dependencies
         with (
-            patch("ee.hogai.stream.conversation_stream.async_connect") as mock_connect,
+            patch("products.enterprise.backend.hogai.stream.conversation_stream.async_connect") as mock_connect,
             patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
             patch.object(self.conversation, "asave") as mock_save,
         ):
@@ -305,7 +305,7 @@ class TestConversationStreamManager(BaseTest):
             self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
             mock_save.assert_called()
 
-    @patch("ee.hogai.stream.conversation_stream.async_connect")
+    @patch("products.enterprise.backend.hogai.stream.conversation_stream.async_connect")
     async def test_cancel_conversation_temporal_error(self, mock_connect):
         """Test conversation cancellation when Temporal client fails."""
         # Setup mock to raise exception
@@ -317,7 +317,7 @@ class TestConversationStreamManager(BaseTest):
 
     async def test_cancel_conversation_workflow_cancel_error(self):
         """Test conversation cancellation when workflow cancel fails."""
-        with patch("ee.hogai.stream.conversation_stream.async_connect") as mock_connect:
+        with patch("products.enterprise.backend.hogai.stream.conversation_stream.async_connect") as mock_connect:
             # Setup mocks
             mock_client = Mock()
             mock_handle = Mock()
@@ -337,7 +337,7 @@ class TestConversationStreamManager(BaseTest):
     async def test_cancel_conversation_redis_cleanup_error(self):
         """Test conversation cancellation when Redis cleanup fails."""
         with (
-            patch("ee.hogai.stream.conversation_stream.async_connect") as mock_connect,
+            patch("products.enterprise.backend.hogai.stream.conversation_stream.async_connect") as mock_connect,
             patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
         ):
             # Setup mocks
@@ -362,7 +362,7 @@ class TestConversationStreamManager(BaseTest):
         with (
             patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
             patch.object(self.conversation, "asave") as mock_save,
-            patch("ee.hogai.stream.conversation_stream.async_connect") as mock_connect,
+            patch("products.enterprise.backend.hogai.stream.conversation_stream.async_connect") as mock_connect,
         ):
             mock_delete.return_value = True
             mock_save.side_effect = Exception("Save failed")

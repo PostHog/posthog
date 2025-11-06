@@ -38,8 +38,8 @@ from products.enterprise.backend.models.assistant import Conversation
 from products.notebooks.backend.models import Notebook
 
 
-@patch("ee.hogai.graph.deep_research.base.nodes.DeepResearchNode._get_model")
-@patch("ee.hogai.llm.MaxChatOpenAI")
+@patch("products.enterprise.backend.hogai.graph.deep_research.base.nodes.DeepResearchNode._get_model")
+@patch("products.enterprise.backend.hogai.llm.MaxChatOpenAI")
 class TestDeepResearchWorkflowIntegration(APIBaseTest):
     """
     Simplified integration tests for the deep research workflow

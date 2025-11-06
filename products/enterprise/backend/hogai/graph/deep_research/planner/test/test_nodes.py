@@ -88,8 +88,8 @@ class TestDeepResearchPlannerNode(BaseTest):
         message.response_metadata = {"id": "test_response_id"}
         return message
 
-    @patch("ee.hogai.graph.deep_research.planner.nodes.Notebook.objects.aget")
-    @patch("ee.hogai.graph.deep_research.planner.nodes.NotebookSerializer")
+    @patch("products.enterprise.backend.hogai.graph.deep_research.planner.nodes.Notebook.objects.aget")
+    @patch("products.enterprise.backend.hogai.graph.deep_research.planner.nodes.NotebookSerializer")
     async def test_arun_without_previous_response_id(self, mock_serializer, mock_notebook_get):
         """Test node execution without previous response ID uses notebook content"""
         mock_notebook = MagicMock()
@@ -120,7 +120,9 @@ class TestDeepResearchPlannerNode(BaseTest):
             mock_model.bind_tools.return_value = mock_chain
             mock_get_model.return_value = mock_model
 
-            with patch("ee.hogai.graph.deep_research.planner.nodes.ChatPromptTemplate") as mock_prompt:
+            with patch(
+                "products.enterprise.backend.hogai.graph.deep_research.planner.nodes.ChatPromptTemplate"
+            ) as mock_prompt:
                 mock_prompt_instance = MagicMock()
                 mock_prompt.from_messages.return_value = mock_prompt_instance
                 mock_prompt_instance.__or__ = MagicMock(return_value=mock_chain)
@@ -132,7 +134,7 @@ class TestDeepResearchPlannerNode(BaseTest):
                 self.assertEqual(len(result.messages), 1)
                 self.assertIsInstance(result.messages[0], AssistantMessage)
 
-    @patch("ee.hogai.graph.deep_research.planner.nodes.Notebook.objects.aget")
+    @patch("products.enterprise.backend.hogai.graph.deep_research.planner.nodes.Notebook.objects.aget")
     async def test_arun_notebook_not_found(self, mock_notebook_get):
         """Test node execution raises error when notebook not found"""
 
@@ -194,7 +196,9 @@ class TestDeepResearchPlannerNode(BaseTest):
             mock_model.bind_tools.return_value = mock_chain
             mock_get_model.return_value = mock_model
 
-            with patch("ee.hogai.graph.deep_research.planner.nodes.ChatPromptTemplate") as mock_prompt:
+            with patch(
+                "products.enterprise.backend.hogai.graph.deep_research.planner.nodes.ChatPromptTemplate"
+            ) as mock_prompt:
                 mock_prompt_instance = MagicMock()
                 mock_prompt.from_messages.return_value = mock_prompt_instance
                 mock_prompt_instance.__or__ = MagicMock(return_value=mock_chain)

@@ -212,7 +212,7 @@ class TestVercelIntegration(TestCase):
         assert self.installation.config == self.payload
         assert self.installation.config != original_config
 
-    @patch("ee.vercel.integration.report_user_signed_up")
+    @patch("products.enterprise.backend.vercel.integration.report_user_signed_up")
     def test_upsert_installation_new_user_new_org(self, mock_report):
         new_installation_id = self.NEW_INSTALLATION_ID
         new_user_claims = self._create_user_claims("new_user_456")
@@ -247,7 +247,7 @@ class TestVercelIntegration(TestCase):
 
         mock_report.assert_called_once()
 
-    @patch("ee.vercel.integration.report_user_signed_up")
+    @patch("products.enterprise.backend.vercel.integration.report_user_signed_up")
     def test_upsert_installation_existing_user_new_org(self, mock_report):
         existing_user = User.objects.create_user(
             email=self.payload["account"]["contact"]["email"], password="existing", first_name="Existing"
@@ -277,13 +277,15 @@ class TestVercelIntegration(TestCase):
 
         mock_report.assert_not_called()
 
-    @patch("ee.vercel.integration.capture_exception")
+    @patch("products.enterprise.backend.vercel.integration.capture_exception")
     def test_upsert_installation_integrity_error(self, mock_capture):
         error_user_claims = self._create_user_claims("error_user_999")
         error_user_claims.installation_id = self.NEW_INSTALLATION_ID
         error_user_claims.sub = "account:test:user:error"
 
-        with patch("ee.vercel.integration.OrganizationIntegration.objects.update_or_create") as mock_update_or_create:
+        with patch(
+            "products.enterprise.backend.vercel.integration.OrganizationIntegration.objects.update_or_create"
+        ) as mock_update_or_create:
             mock_update_or_create.side_effect = IntegrityError("Duplicate key")
 
             with self.assertRaises(ValidationError) as context:
@@ -465,8 +467,8 @@ class TestVercelIntegration(TestCase):
             ("failure", True),
         ]
     )
-    @patch("ee.vercel.integration.VercelAPIClient")
-    @patch("ee.vercel.integration.capture_exception")
+    @patch("products.enterprise.backend.vercel.integration.VercelAPIClient")
+    @patch("products.enterprise.backend.vercel.integration.capture_exception")
     def test_create_vercel_client(self, _, should_fail, mock_capture, mock_client_class):
         token = "bad_token" if should_fail else "good_token"
 
@@ -539,7 +541,7 @@ class TestVercelIntegration(TestCase):
             ("delete", "delete", "delete_experimentation_item", {}),
         ]
     )
-    @patch("ee.vercel.integration.VercelIntegration._setup_vercel_client_for_team")
+    @patch("products.enterprise.backend.vercel.integration.VercelIntegration._setup_vercel_client_for_team")
     def test_vercel_item_operations(self, _, operation_type, client_method, params, mock_setup):
         team, _ = self.make_team_with_vercel(self.organization, self.user)
         has_client = params.get("has_client", True)
@@ -574,7 +576,7 @@ class TestVercelIntegration(TestCase):
         else:
             mock_setup.assert_called_once_with(team)
 
-    @patch("ee.vercel.integration.VercelIntegration._sync_item_to_vercel")
+    @patch("products.enterprise.backend.vercel.integration.VercelIntegration._sync_item_to_vercel")
     def test_sync_feature_flag_to_vercel(self, mock_sync):
         team, _ = self.make_team_with_vercel(self.organization, self.user)
         feature_flag = self.make_feature_flag(team, "test_flag", "Test Flag", False)
@@ -582,7 +584,7 @@ class TestVercelIntegration(TestCase):
         VercelIntegration.sync_feature_flag_to_vercel(feature_flag, created=True)
         assert mock_sync.call_count >= 1
 
-    @patch("ee.vercel.integration.VercelIntegration._delete_item_from_vercel")
+    @patch("products.enterprise.backend.vercel.integration.VercelIntegration._delete_item_from_vercel")
     def test_delete_feature_flag_from_vercel(self, mock_delete):
         team, _ = self.make_team_with_vercel(self.organization, self.user)
         feature_flag = self.make_feature_flag(team, "test_flag", "Test Flag", False)
@@ -595,7 +597,7 @@ class TestVercelIntegration(TestCase):
             item_id=f"flag_{feature_flag.pk}",
         )
 
-    @patch("ee.vercel.integration.VercelIntegration.delete_feature_flag_from_vercel")
+    @patch("products.enterprise.backend.vercel.integration.VercelIntegration.delete_feature_flag_from_vercel")
     def test_feature_flag_post_save_signal_deletes_when_marked_deleted(self, mock_delete):
         team, _ = self.make_team_with_vercel(self.organization, self.user)
 
@@ -612,7 +614,7 @@ class TestVercelIntegration(TestCase):
 
         mock_delete.assert_called_once_with(feature_flag)
 
-    @patch("ee.vercel.integration.VercelIntegration.sync_feature_flag_to_vercel")
+    @patch("products.enterprise.backend.vercel.integration.VercelIntegration.sync_feature_flag_to_vercel")
     def test_feature_flag_post_save_signal_syncs_when_not_deleted(self, mock_sync):
         """Test that post_save signal triggers sync when feature flag is not deleted"""
         team, _ = self.make_team_with_vercel(self.organization, self.user)
@@ -632,7 +634,7 @@ class TestVercelIntegration(TestCase):
 
         mock_sync.assert_called_once_with(feature_flag, False)
 
-    @patch("ee.vercel.integration.VercelIntegration.delete_experiment_from_vercel")
+    @patch("products.enterprise.backend.vercel.integration.VercelIntegration.delete_experiment_from_vercel")
     def test_experiment_post_save_signal_deletes_when_marked_deleted(self, mock_delete):
         """Test that post_save signal triggers deletion when experiment is marked as deleted=True"""
         team, _ = self.make_team_with_vercel(self.organization, self.user)
@@ -652,7 +654,7 @@ class TestVercelIntegration(TestCase):
 
         mock_delete.assert_called_once_with(experiment)
 
-    @patch("ee.vercel.integration.VercelIntegration.sync_experiment_to_vercel")
+    @patch("products.enterprise.backend.vercel.integration.VercelIntegration.sync_experiment_to_vercel")
     def test_experiment_post_save_signal_syncs_when_not_deleted(self, mock_sync):
         """Test that post_save signal triggers sync when experiment is not deleted"""
         team, _ = self.make_team_with_vercel(self.organization, self.user)

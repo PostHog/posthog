@@ -275,7 +275,7 @@ class TestCreateDispatcherFromConfig(BaseTest):
 
         mock_writer = MagicMock()
 
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=mock_writer):
+        with patch("products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer", return_value=mock_writer):
             dispatcher = create_dispatcher_from_config(config, node_path)
 
             self.assertEqual(dispatcher._node_name, AssistantNodeName.TRENDS_GENERATOR)
@@ -292,7 +292,10 @@ class TestCreateDispatcherFromConfig(BaseTest):
         )
 
         # Simulate RuntimeError when get_stream_writer is called outside streaming context
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", side_effect=RuntimeError("Not in streaming context")):
+        with patch(
+            "products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer",
+            side_effect=RuntimeError("Not in streaming context"),
+        ):
             dispatcher = create_dispatcher_from_config(config, node_path)
 
             # Should create a noop writer
@@ -310,7 +313,10 @@ class TestCreateDispatcherFromConfig(BaseTest):
 
         config = RunnableConfig(metadata={})
 
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", side_effect=RuntimeError("Not in streaming context")):
+        with patch(
+            "products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer",
+            side_effect=RuntimeError("Not in streaming context"),
+        ):
             dispatcher = create_dispatcher_from_config(config, node_path)
 
             # Should use empty strings as defaults
@@ -330,7 +336,10 @@ class TestCreateDispatcherFromConfig(BaseTest):
             metadata={"langgraph_node": AssistantNodeName.TRENDS_GENERATOR, "langgraph_checkpoint_ns": "cp_1"}
         )
 
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", side_effect=RuntimeError("Not in streaming context")):
+        with patch(
+            "products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer",
+            side_effect=RuntimeError("Not in streaming context"),
+        ):
             dispatcher = create_dispatcher_from_config(config, nested_path)
 
             self.assertEqual(dispatcher._node_path, nested_path)

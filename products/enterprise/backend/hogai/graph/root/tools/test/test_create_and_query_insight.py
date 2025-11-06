@@ -63,7 +63,9 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         mock_state = AssistantState(messages=[viz_message, tool_call_message])
 
-        with patch("ee.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
+        with patch(
+            "products.enterprise.backend.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph"
+        ) as mock_compile:
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_compile.return_value = mock_graph
@@ -84,7 +86,9 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             llm_output="Invalid query structure", validation_message="Missing required field: series"
         )
 
-        with patch("ee.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
+        with patch(
+            "products.enterprise.backend.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph"
+        ) as mock_compile:
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(side_effect=exception)
             mock_compile.return_value = mock_graph
@@ -106,7 +110,9 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         mock_state = AssistantState(messages=[viz_message, invalid_message])
 
-        with patch("ee.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
+        with patch(
+            "products.enterprise.backend.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph"
+        ) as mock_compile:
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_compile.return_value = mock_graph
@@ -127,7 +133,9 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         mock_state = AssistantState(messages=[some_message, tool_call_message])
 
-        with patch("ee.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
+        with patch(
+            "products.enterprise.backend.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph"
+        ) as mock_compile:
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_compile.return_value = mock_graph
@@ -151,7 +159,9 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         mock_state = AssistantState(messages=[viz_message, tool_call_message])
 
-        with patch("ee.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
+        with patch(
+            "products.enterprise.backend.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph"
+        ) as mock_compile:
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_compile.return_value = mock_graph
@@ -182,7 +192,9 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         mock_state = AssistantState(messages=[viz_message, tool_call_message])
 
-        with patch("ee.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
+        with patch(
+            "products.enterprise.backend.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph"
+        ) as mock_compile:
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_compile.return_value = mock_graph
@@ -216,7 +228,9 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             invoked_state = state
             return mock_state.model_dump()
 
-        with patch("ee.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
+        with patch(
+            "products.enterprise.backend.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph"
+        ) as mock_compile:
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(side_effect=capture_invoked_state)
             mock_compile.return_value = mock_graph

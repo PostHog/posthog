@@ -137,7 +137,10 @@ async def test_get_llm_single_session_summary_activity_standalone(
     assert summary_before is None, "Summary should not exist in DB before the activity"
     # Execute the activity and verify results
     with (
-        patch("ee.hogai.session_summaries.llm.consume.call_llm", new=AsyncMock(return_value=mock_call_llm())),
+        patch(
+            "products.enterprise.backend.hogai.session_summaries.llm.consume.call_llm",
+            new=AsyncMock(return_value=mock_call_llm()),
+        ),
         patch("temporalio.activity.info") as mock_activity_info,
     ):
         mock_activity_info.return_value.workflow_id = "test_workflow_id"
@@ -199,7 +202,10 @@ async def test_validate_llm_single_session_summary_with_videos_activity_standalo
     mocket_video_validator.validate_session_summary_with_videos = mocker.AsyncMock(return_value=None)
     # Execute the activity and verify results
     with (
-        patch("ee.hogai.session_summaries.llm.consume.call_llm", new=AsyncMock(return_value=mock_call_llm())),
+        patch(
+            "products.enterprise.backend.hogai.session_summaries.llm.consume.call_llm",
+            new=AsyncMock(return_value=mock_call_llm()),
+        ),
         patch("temporalio.activity.info") as mock_activity_info,
         mocker.patch(
             "posthog.temporal.ai.session_summary.activities.video_validation.SessionSummaryVideoValidator",
@@ -268,7 +274,7 @@ async def test_extract_session_group_patterns_activity_standalone(
 
     # Execute the activity
     with (
-        patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
+        patch("products.enterprise.backend.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
         patch("posthog.temporal.ai.session_summary.activities.patterns.async_connect") as mock_async_connect,
     ):
@@ -377,7 +383,7 @@ async def test_assign_events_to_patterns_activity_standalone(
 
     # Execute the activity
     with (
-        patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
+        patch("products.enterprise.backend.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
         patch("posthog.temporal.ai.session_summary.activities.patterns.async_connect") as mock_async_connect,
     ):
@@ -489,7 +495,7 @@ async def test_assign_events_to_patterns_threshold_check(
 
     # Test 1: Should fail when only 2 out of 4 patterns get events (50% < 75% threshold)
     with (
-        patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
+        patch("products.enterprise.backend.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
         patch("posthog.temporal.ai.session_summary.activities.patterns.async_connect") as mock_async_connect,
     ):
@@ -533,7 +539,7 @@ async def test_assign_events_to_patterns_threshold_check(
 
     # Test 2: Should succeed when 3 out of 4 patterns get events (75% == 75% threshold)
     with (
-        patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
+        patch("products.enterprise.backend.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
         patch("posthog.temporal.ai.session_summary.activities.patterns.async_connect") as mock_async_connect,
     ):
@@ -681,7 +687,7 @@ async def test_assign_events_to_patterns_filters_non_blocking_exceptions(
     )
     # Mock LLM calls and Temporal context
     with (
-        patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
+        patch("products.enterprise.backend.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
         patch("posthog.temporal.ai.session_summary.activities.patterns.async_connect") as mock_async_connect,
     ):
@@ -861,7 +867,7 @@ async def test_non_blocking_exceptions_dont_fail_enrichment_ratio(
         ],
     )
     with (
-        patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
+        patch("products.enterprise.backend.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
         patch("posthog.temporal.ai.session_summary.activities.patterns.async_connect") as mock_async_connect,
     ):

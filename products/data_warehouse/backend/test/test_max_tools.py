@@ -243,7 +243,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
 
         with (
             patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
-            patch("ee.hogai.graph.sql.mixins.parse_pydantic_structured_output") as mock_parse,
+            patch("products.enterprise.backend.hogai.graph.sql.mixins.parse_pydantic_structured_output") as mock_parse,
         ):
             mock_parse_result = Mock()
             mock_parse_result.query = "SELECT count() FROM events;"
@@ -279,7 +279,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
 
         with (
             patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
-            patch("ee.hogai.graph.sql.mixins.parse_pydantic_structured_output") as mock_parse,
+            patch("products.enterprise.backend.hogai.graph.sql.mixins.parse_pydantic_structured_output") as mock_parse,
         ):
             mock_parse_result = Mock()
             mock_parse_result.query = "SELECT count() FROM events;;;"
@@ -315,7 +315,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
 
         with (
             patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
-            patch("ee.hogai.graph.sql.mixins.parse_pydantic_structured_output") as mock_parse,
+            patch("products.enterprise.backend.hogai.graph.sql.mixins.parse_pydantic_structured_output") as mock_parse,
         ):
             mock_parse_result = Mock()
             mock_parse_result.query = "SELECT 'hello;world' FROM events;"

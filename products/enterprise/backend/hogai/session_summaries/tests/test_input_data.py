@@ -412,8 +412,12 @@ def test_get_paginated_session_events(
     # Prepare mock pages data (add columns to each page)
     processed_pages_data = [(mock_columns, events) if events is not None else (None, None) for events in pages_data]
     with (
-        patch("ee.hogai.session_summaries.session.input_data.SessionReplayEvents") as mock_replay_events,
-        patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team),
+        patch(
+            "products.enterprise.backend.hogai.session_summaries.session.input_data.SessionReplayEvents"
+        ) as mock_replay_events,
+        patch(
+            "products.enterprise.backend.hogai.session_summaries.session.input_data.get_team", return_value=mock_team
+        ),
     ):
         # Mock the SessionReplayEvents DB model to return different data for each page
         mock_instance = MagicMock()

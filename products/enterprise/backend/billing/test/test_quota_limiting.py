@@ -1081,7 +1081,7 @@ class TestQuotaLimiting(BaseTest):
                 )
             ) == sorted(["5678"])
 
-    @patch("ee.billing.quota_limiting.capture_exception")
+    @patch("products.enterprise.backend.billing.quota_limiting.capture_exception")
     def test_get_team_attribute_by_quota_resource(self, mock_capture):
         Team.objects.all().delete()
 

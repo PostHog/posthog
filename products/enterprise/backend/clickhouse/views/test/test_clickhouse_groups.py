@@ -287,7 +287,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(log.msg["event"], "Group notebook creation failed")
 
     @freeze_time("2021-05-02")
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.enterprise.backend.clickhouse.views.groups.capture_internal")
     def test_create_group_missing_group_properties(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -319,7 +319,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         mock_capture.assert_called_once()
 
     @freeze_time("2021-05-02")
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.enterprise.backend.clickhouse.views.groups.capture_internal")
     @flaky(max_runs=3, min_passes=1)
     def test_create_group(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
@@ -395,7 +395,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             prop_name = result["detail"]["name"]
             self.assertEqual(result["detail"]["changes"][0]["after"], group_properties[prop_name])
 
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.enterprise.backend.clickhouse.views.groups.capture_internal")
     def test_create_group_duplicated_group_key(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -432,7 +432,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         mock_capture.assert_not_called()
 
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.enterprise.backend.clickhouse.views.groups.capture_internal")
     def test_create_group_missing_group_key(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -462,7 +462,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         mock_capture.assert_not_called()
 
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.enterprise.backend.clickhouse.views.groups.capture_internal")
     def test_create_group_missing_group_type_index(self, mock_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/groups",
@@ -486,7 +486,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         mock_capture.assert_not_called()
 
     @freeze_time("2021-05-02")
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.enterprise.backend.clickhouse.views.groups.capture_internal")
     @flaky(max_runs=3, min_passes=1)
     def test_group_property_crud_add_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
@@ -571,7 +571,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
 
     @freeze_time("2021-05-02")
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.enterprise.backend.clickhouse.views.groups.capture_internal")
     @flaky(max_runs=3, min_passes=1)
     def test_group_property_crud_update_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
@@ -695,7 +695,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 404)
 
     @freeze_time("2021-05-02")
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.enterprise.backend.clickhouse.views.groups.capture_internal")
     @flaky(max_runs=3, min_passes=1)
     def test_group_property_crud_delete_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
@@ -816,7 +816,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 404)
 
     @freeze_time("2021-05-02")
-    @patch("ee.clickhouse.views.groups.capture_internal")
+    @patch("products.enterprise.backend.clickhouse.views.groups.capture_internal")
     def test_get_group_activities_success(self, mock_capture):
         # Mock the response to return a 200 OK
         mock_capture.return_value = mock.MagicMock(status_code=200)
@@ -856,7 +856,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
 
     @freeze_time("2021-05-02")
-    @patch("ee.clickhouse.views.groups.capture_internal")
+    @patch("products.enterprise.backend.clickhouse.views.groups.capture_internal")
     def test_get_group_activities_invalid_group(self, mock_capture):
         # Mock the response to return a 200 OK
         mock_capture.return_value = mock.MagicMock(status_code=200)

@@ -18,8 +18,8 @@ from products.enterprise.backend.api.authentication import VercelAuthentication
 from products.enterprise.backend.api.vercel.types import VercelUser
 
 
-@patch("ee.api.authentication.get_vercel_jwks")
-@patch("ee.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience")
+@patch("products.enterprise.backend.api.authentication.get_vercel_jwks")
+@patch("products.enterprise.backend.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience")
 class TestVercelAuthentication(SimpleTestCase):
     def setUp(self):
         super().setUp()

@@ -49,7 +49,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         with freeze_time("2025-01-20T12:00:00Z"):
             self.query_runner = AssistantQueryExecutor(self.team, datetime.now())
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_trends(self, mock_process_query):
         """Test successful execution and formatting of trends query"""
         mock_process_query.return_value = {
@@ -64,7 +64,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("Date|test", result)
         mock_process_query.assert_called_once()
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_funnels(self, mock_process_query):
         """Test successful execution and formatting of funnels query"""
         mock_process_query.return_value = {
@@ -88,7 +88,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("Metric|test", result)
         mock_process_query.assert_called_once()
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_retention(self, mock_process_query):
         """Test successful execution and formatting of retention query"""
         mock_process_query.return_value = {
@@ -108,7 +108,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("Date|Number of persons on date", result)
         mock_process_query.assert_called_once()
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_sql(self, mock_process_query):
         """Test successful execution and formatting of SQL query"""
         mock_process_query.return_value = {"results": [{"count": 100}, {"count": 200}], "columns": ["count"]}
@@ -121,7 +121,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("count\n100\n200", result)
         mock_process_query.assert_called_once()
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_with_fallback_info_no_fallback(self, mock_process_query):
         """Test run_and_format_query_with_fallback_info returns fallback info"""
         mock_process_query.return_value = {
@@ -135,7 +135,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertFalse(used_fallback)
         self.assertIn("Date|test", result)
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_with_fallback_on_compression_error(self, mock_process_query):
         """Test fallback to JSON when compression fails"""
         mock_process_query.return_value = {"results": [{"invalid": "data"}]}
@@ -154,7 +154,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         # Should be JSON formatted
         self.assertIn('{"invalid":"data"}', result)
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_api_exception(self, mock_process_query):
         """Test handling of APIException"""
         mock_process_query.side_effect = APIException("API error message")
@@ -166,7 +166,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("There was an error running this query: API error message", str(context.exception))
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_exposed_hogql_error(self, mock_process_query):
         """Test handling of ExposedHogQLError"""
         mock_process_query.side_effect = ExposedHogQLError("HogQL error")
@@ -178,7 +178,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("There was an error running this query: HogQL error", str(context.exception))
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_exposed_ch_query_error(self, mock_process_query):
         """Test handling of ExposedCHQueryError"""
         mock_process_query.side_effect = ExposedCHQueryError("ClickHouse error")
@@ -190,7 +190,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("There was an error running this query: ClickHouse error", str(context.exception))
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_generic_exception(self, mock_process_query):
         """Test handling of generic exceptions"""
         mock_process_query.side_effect = ValueError("Some other error")
@@ -202,8 +202,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("There was an unknown error running this query.", str(context.exception))
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
-    @patch("ee.hogai.graph.query_executor.query_executor.get_query_status")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.get_query_status")
     async def test_async_query_polling_success(self, mock_get_query_status, mock_process_query):
         """Test successful async query polling"""
         # Initial response with incomplete query
@@ -223,7 +223,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
-        with patch("ee.hogai.graph.query_executor.query_executor.asyncio.sleep") as mock_sleep:
+        with patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.asyncio.sleep") as mock_sleep:
             result, used_fallback = await self.query_runner.arun_and_format_query(query)
 
         self.assertIsInstance(result, str)
@@ -232,8 +232,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertEqual(mock_get_query_status.call_count, 2)
         self.assertEqual(mock_sleep.call_count, 2)
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
-    @patch("ee.hogai.graph.query_executor.query_executor.get_query_status")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.get_query_status")
     async def test_async_query_polling_timeout(self, mock_get_query_status, mock_process_query):
         """Test async query polling timeout"""
         # Initial response with incomplete query
@@ -244,14 +244,14 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
-        with patch("ee.hogai.graph.query_executor.query_executor.asyncio.sleep"):
+        with patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.asyncio.sleep"):
             with self.assertRaises(Exception) as context:
                 await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("Query hasn't completed in time", str(context.exception))
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
-    @patch("ee.hogai.graph.query_executor.query_executor.get_query_status")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.get_query_status")
     async def test_async_query_polling_with_error(self, mock_get_query_status, mock_process_query):
         """Test async query polling that returns an error"""
         # Initial response with incomplete query
@@ -269,14 +269,14 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
-        with patch("ee.hogai.graph.query_executor.query_executor.asyncio.sleep"):
+        with patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.asyncio.sleep"):
             with self.assertRaises(Exception) as context:
                 await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("Query failed with error", str(context.exception))
 
     @override_settings(TEST=False)
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_execution_mode_in_production(self, mock_process_query):
         """Test that production uses correct execution mode"""
         mock_process_query.return_value = {"results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}]}
@@ -504,7 +504,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("Jane Doe", result)
         self.assertIn("John Doe", result)
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_response_dict_handling(self, mock_process_query):
         """Test that response is handled correctly whether it's a dict or model"""
         # Test with dict response

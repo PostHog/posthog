@@ -68,7 +68,10 @@ class TestDispatcherIntegration(BaseTest):
         state = AssistantState(messages=[])
         config = RunnableConfig(metadata={"langgraph_node": AssistantNodeName.ROOT, "langgraph_checkpoint_ns": "cp_1"})
 
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", side_effect=RuntimeError("Not streaming")):
+        with patch(
+            "products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer",
+            side_effect=RuntimeError("Not streaming"),
+        ):
             await node(state, config)
 
         self.assertTrue(node.arun_called)
@@ -98,7 +101,7 @@ class TestDispatcherIntegration(BaseTest):
             if isinstance(event, AssistantDispatcherEvent):
                 dispatched_actions.append(event)
 
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
+        with patch("products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
             await node(state, config)
 
         # Should have dispatched actions in this order:
@@ -129,7 +132,7 @@ class TestDispatcherIntegration(BaseTest):
         def capture_write(event: AssistantDispatcherEvent):
             dispatched_actions.append(event)
 
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
+        with patch("products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
             await node(state, config)
 
         # Find the update and message actions (excluding NODE_START and NODE_END)
@@ -163,7 +166,7 @@ class TestDispatcherIntegration(BaseTest):
         def capture_write(event: AssistantDispatcherEvent):
             dispatched_events.append(event)
 
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
+        with patch("products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
             await node(state, config)
 
         # Verify all events have the correct node_path
@@ -185,7 +188,7 @@ class TestDispatcherIntegration(BaseTest):
         def capture_write(event: AssistantDispatcherEvent):
             dispatched_events.append(event)
 
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
+        with patch("products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
             await node(state, config)
 
         # Verify all events have the correct node_run_id
@@ -214,7 +217,7 @@ class TestDispatcherIntegration(BaseTest):
         def failing_writer(data):
             raise RuntimeError("Writer failed")
 
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=failing_writer):
+        with patch("products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer", return_value=failing_writer):
             # Should not crash - node should complete
             result = await node(state, config)
             self.assertIsNotNone(result)
@@ -246,7 +249,7 @@ class TestDispatcherIntegration(BaseTest):
         def capture_write(event: AssistantDispatcherEvent):
             dispatched_events.append(event)
 
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
+        with patch("products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
             await node(state, config)
 
         # Should have NODE_END action with state containing messages
@@ -276,7 +279,10 @@ class TestDispatcherIntegration(BaseTest):
         state = AssistantState(messages=[])
         config = RunnableConfig(metadata={"langgraph_node": AssistantNodeName.ROOT, "langgraph_checkpoint_ns": "cp_7"})
 
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", side_effect=RuntimeError("Not streaming")):
+        with patch(
+            "products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer",
+            side_effect=RuntimeError("Not streaming"),
+        ):
             result = await node(state, config)
             # Should handle None gracefully
             self.assertIsNone(result)
@@ -302,7 +308,7 @@ class TestDispatcherIntegration(BaseTest):
         def capture_write(event: AssistantDispatcherEvent):
             dispatched_events.append(event)
 
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
+        with patch("products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
             await node(state, config)
 
         # Verify all events have the nested path
@@ -326,7 +332,7 @@ class TestDispatcherIntegration(BaseTest):
         def capture_write(event: AssistantDispatcherEvent):
             dispatched_events.append(event)
 
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
+        with patch("products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
             await node(state, config)
 
         # Find update actions
@@ -359,10 +365,10 @@ class TestDispatcherIntegration(BaseTest):
         def capture_write2(event: AssistantDispatcherEvent):
             events2.append(event)
 
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write1):
+        with patch("products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write1):
             await node1(state, config1)
 
-        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write2):
+        with patch("products.enterprise.backend.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write2):
             await node2(state, config2)
 
         # Verify events went to separate lists

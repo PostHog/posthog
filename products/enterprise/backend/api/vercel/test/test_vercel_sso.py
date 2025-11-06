@@ -68,7 +68,7 @@ def mock_vercel_integration(**overrides):
 
 @contextmanager
 def mock_jwt_validation(claims):
-    with patch("ee.api.authentication.VercelAuthentication._validate_jwt_token") as mock_jwt:
+    with patch("products.enterprise.backend.api.authentication.VercelAuthentication._validate_jwt_token") as mock_jwt:
         mock_jwt.return_value = claims
         yield mock_jwt
 
@@ -297,7 +297,9 @@ class TestSSORedirectFailures:
 
         with (
             mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
-            patch("ee.api.authentication.VercelAuthentication._validate_jwt_token") as mock_jwt,
+            patch(
+                "products.enterprise.backend.api.authentication.VercelAuthentication._validate_jwt_token"
+            ) as mock_jwt,
         ):
             mock_jwt.side_effect = InvalidTokenError("Invalid token")
 

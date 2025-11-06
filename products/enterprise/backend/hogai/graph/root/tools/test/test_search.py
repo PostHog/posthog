@@ -42,7 +42,7 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
     async def test_run_docs_search_without_api_key(self):
-        with patch("ee.hogai.graph.root.tools.search.settings") as mock_settings:
+        with patch("products.enterprise.backend.hogai.graph.root.tools.search.settings") as mock_settings:
             mock_settings.INKEEP_API_KEY = None
             result, artifact = await self.tool._arun_impl(kind="docs", query="How to use feature flags?")
             self.assertEqual(result, "This tool is not available in this environment.")
@@ -53,8 +53,11 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_docs_tool.execute = AsyncMock(return_value=("", MagicMock()))
 
         with (
-            patch("ee.hogai.graph.root.tools.search.settings") as mock_settings,
-            patch("ee.hogai.graph.root.tools.search.InkeepDocsSearchTool", return_value=mock_docs_tool),
+            patch("products.enterprise.backend.hogai.graph.root.tools.search.settings") as mock_settings,
+            patch(
+                "products.enterprise.backend.hogai.graph.root.tools.search.InkeepDocsSearchTool",
+                return_value=mock_docs_tool,
+            ),
         ):
             mock_settings.INKEEP_API_KEY = "test-key"
             result, artifact = await self.tool._arun_impl(kind="docs", query="How to use feature flags?")
@@ -67,7 +70,10 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_insights_tool = MagicMock()
         mock_insights_tool.execute = AsyncMock(return_value=("", MagicMock()))
 
-        with patch("ee.hogai.graph.root.tools.search.InsightSearchTool", return_value=mock_insights_tool):
+        with patch(
+            "products.enterprise.backend.hogai.graph.root.tools.search.InsightSearchTool",
+            return_value=mock_insights_tool,
+        ):
             result, artifact = await self.tool._arun_impl(kind="insights", query="user signups")
 
             mock_insights_tool.execute.assert_called_once_with("user signups", self.tool_call_id)
@@ -79,7 +85,7 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(result, "Invalid entity kind: unknown. Please provide a valid entity kind for the tool.")
         self.assertIsNone(artifact)
 
-    @patch("ee.hogai.graph.root.tools.search.EntitySearchTool.execute")
+    @patch("products.enterprise.backend.hogai.graph.root.tools.search.EntitySearchTool.execute")
     async def test_arun_impl_error_tracking_issues_returns_routing_data(self, mock_execute):
         mock_execute.return_value = "Search results for error tracking issues"
 
@@ -91,8 +97,8 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsNone(artifact)
         mock_execute.assert_called_once_with("test error tracking issue query", "error_tracking_issues")
 
-    @patch("ee.hogai.graph.root.tools.search.EntitySearchTool.execute")
-    @patch("ee.hogai.graph.root.tools.search.SearchTool._has_insights_fts_search_feature_flag")
+    @patch("products.enterprise.backend.hogai.graph.root.tools.search.EntitySearchTool.execute")
+    @patch("products.enterprise.backend.hogai.graph.root.tools.search.SearchTool._has_insights_fts_search_feature_flag")
     async def test_arun_impl_insight_with_feature_flag_disabled(
         self, mock_has_insights_fts_search_feature_flag, mock_execute
     ):
@@ -105,8 +111,8 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsNone(artifact)
         mock_execute.assert_not_called()
 
-    @patch("ee.hogai.graph.root.tools.search.EntitySearchTool.execute")
-    @patch("ee.hogai.graph.root.tools.search.SearchTool._has_insights_fts_search_feature_flag")
+    @patch("products.enterprise.backend.hogai.graph.root.tools.search.EntitySearchTool.execute")
+    @patch("products.enterprise.backend.hogai.graph.root.tools.search.SearchTool._has_insights_fts_search_feature_flag")
     async def test_arun_impl_insight_with_feature_flag_enabled(
         self, mock_has_insights_fts_search_feature_flag, mock_execute
     ):
@@ -140,8 +146,10 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_node_instance = MagicMock()
         mock_result = PartialAssistantState(messages=[AssistantMessage(content="Here is the answer from docs")])
 
-        with patch("ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode", return_value=mock_node_instance):
-            with patch("ee.hogai.graph.root.tools.search.RunnableLambda") as mock_runnable:
+        with patch(
+            "products.enterprise.backend.hogai.graph.inkeep_docs.nodes.InkeepDocsNode", return_value=mock_node_instance
+        ):
+            with patch("products.enterprise.backend.hogai.graph.root.tools.search.RunnableLambda") as mock_runnable:
                 mock_chain = MagicMock()
                 mock_chain.ainvoke = AsyncMock(return_value=mock_result)
                 mock_runnable.return_value = mock_chain
@@ -165,13 +173,18 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode"):
-            with patch("ee.hogai.graph.root.tools.search.RunnableLambda", return_value=mock_chain):
+        with patch("products.enterprise.backend.hogai.graph.inkeep_docs.nodes.InkeepDocsNode"):
+            with patch(
+                "products.enterprise.backend.hogai.graph.root.tools.search.RunnableLambda", return_value=mock_chain
+            ):
                 await self.tool.execute("test query", "custom-tool-call-id")
 
     @override_settings(INKEEP_API_KEY="test-inkeep-key")
-    @patch("ee.hogai.graph.root.tools.search.ChatOpenAI")
-    @patch("ee.hogai.graph.root.tools.search.InkeepDocsSearchTool._has_rag_docs_search_feature_flag", return_value=True)
+    @patch("products.enterprise.backend.hogai.graph.root.tools.search.ChatOpenAI")
+    @patch(
+        "products.enterprise.backend.hogai.graph.root.tools.search.InkeepDocsSearchTool._has_rag_docs_search_feature_flag",
+        return_value=True,
+    )
     async def test_search_docs_with_successful_results(self, mock_has_rag_docs_search_feature_flag, mock_llm_class):
         response_json = """{
             "content": [
@@ -240,8 +253,10 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_node_instance = MagicMock()
         mock_result = PartialAssistantState(messages=[AssistantMessage(content="Found 3 insights matching your query")])
 
-        with patch("ee.hogai.graph.insights.nodes.InsightSearchNode", return_value=mock_node_instance):
-            with patch("ee.hogai.graph.root.tools.search.RunnableLambda") as mock_runnable:
+        with patch(
+            "products.enterprise.backend.hogai.graph.insights.nodes.InsightSearchNode", return_value=mock_node_instance
+        ):
+            with patch("products.enterprise.backend.hogai.graph.root.tools.search.RunnableLambda") as mock_runnable:
                 mock_chain = MagicMock()
                 mock_chain.ainvoke = AsyncMock(return_value=mock_result)
                 mock_runnable.return_value = mock_chain
@@ -266,14 +281,19 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.insights.nodes.InsightSearchNode"):
-            with patch("ee.hogai.graph.root.tools.search.RunnableLambda", return_value=mock_chain):
+        with patch("products.enterprise.backend.hogai.graph.insights.nodes.InsightSearchNode"):
+            with patch(
+                "products.enterprise.backend.hogai.graph.root.tools.search.RunnableLambda", return_value=mock_chain
+            ):
                 await self.tool.execute("custom search query", self.tool_call_id)
 
     async def test_execute_handles_no_insights_exception(self):
         from products.enterprise.backend.hogai.graph.insights.nodes import NoInsightsException
 
-        with patch("ee.hogai.graph.insights.nodes.InsightSearchNode", side_effect=NoInsightsException()):
+        with patch(
+            "products.enterprise.backend.hogai.graph.insights.nodes.InsightSearchNode",
+            side_effect=NoInsightsException(),
+        ):
             result, artifact = await self.tool.execute("user signups", self.tool_call_id)
 
             self.assertEqual(result, EMPTY_DATABASE_ERROR_MESSAGE)
@@ -286,8 +306,10 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.insights.nodes.InsightSearchNode"):
-            with patch("ee.hogai.graph.root.tools.search.RunnableLambda", return_value=mock_chain):
+        with patch("products.enterprise.backend.hogai.graph.insights.nodes.InsightSearchNode"):
+            with patch(
+                "products.enterprise.backend.hogai.graph.root.tools.search.RunnableLambda", return_value=mock_chain
+            ):
                 result, artifact = await self.tool.execute("test query", self.tool_call_id)
 
                 self.assertEqual(result, "")

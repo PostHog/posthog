@@ -13,7 +13,7 @@ from products.enterprise.backend.api.test.base import APILicensedTest
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
-@patch("ee.api.subscription.sync_connect")
+@patch("products.enterprise.backend.api.subscription.sync_connect")
 class TestSubscriptionTemporal(APILicensedTest):
     subscription: Subscription = None  # type: ignore
     dashboard: Dashboard = None  # type: ignore
@@ -130,7 +130,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert activity_inputs.invite_message == "hi new user"
 
 
-@patch("ee.api.subscription.subscriptions")
+@patch("products.enterprise.backend.api.subscription.subscriptions")
 class TestSubscription(APILicensedTest):
     subscription: Subscription = None  # type: ignore
     dashboard: Dashboard = None  # type: ignore

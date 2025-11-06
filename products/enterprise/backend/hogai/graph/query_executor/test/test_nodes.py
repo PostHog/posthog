@@ -40,7 +40,10 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
     maxDiff = None
 
-    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict", side_effect=process_query_dict)
+    @patch(
+        "products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict",
+        side_effect=process_query_dict,
+    )
     async def test_node_runs(self, mock_process_query_dict):
         node = QueryExecutorNode(self.team, self.user)
         new_state = await node.arun(
@@ -177,7 +180,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_fallback_to_json(self):
         node = QueryExecutorNode(self.team, self.user)
-        with patch("ee.hogai.graph.query_executor.query_executor.process_query_dict") as mock_process_query_dict:
+        with patch(
+            "products.enterprise.backend.hogai.graph.query_executor.query_executor.process_query_dict"
+        ) as mock_process_query_dict:
             mock_process_query_dict.return_value = QueryStatus(
                 id="test", team_id=self.team.pk, query_async=True, complete=True, results=[{"test": "test"}]
             )

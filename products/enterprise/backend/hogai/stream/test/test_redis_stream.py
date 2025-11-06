@@ -35,7 +35,7 @@ class TestRedisStream(BaseTest):
         self.stream_key = f"test_stream:{uuid4()}"
         self.redis_stream = ConversationRedisStream(self.stream_key)
 
-    @patch("ee.hogai.stream.redis_stream.get_async_client")
+    @patch("products.enterprise.backend.hogai.stream.redis_stream.get_async_client")
     def test_init(self, mock_get_client):
         mock_client = AsyncMock()
         mock_get_client.return_value = mock_client
@@ -61,7 +61,9 @@ class TestRedisStream(BaseTest):
             mock_client.exists = AsyncMock(return_value=False)
 
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch("ee.hogai.stream.redis_stream.asyncio.get_event_loop") as mock_get_loop:
+                with patch(
+                    "products.enterprise.backend.hogai.stream.redis_stream.asyncio.get_event_loop"
+                ) as mock_get_loop:
                     from unittest.mock import MagicMock
 
                     mock_loop = MagicMock()

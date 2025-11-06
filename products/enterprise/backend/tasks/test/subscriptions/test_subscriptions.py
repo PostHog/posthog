@@ -19,9 +19,9 @@ from products.enterprise.backend.tasks.subscriptions import (
 from products.enterprise.backend.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
-@patch("ee.tasks.subscriptions.send_slack_subscription_report")
-@patch("ee.tasks.subscriptions.send_email_subscription_report")
-@patch("ee.tasks.subscriptions.generate_assets")
+@patch("products.enterprise.backend.tasks.subscriptions.send_slack_subscription_report")
+@patch("products.enterprise.backend.tasks.subscriptions.send_email_subscription_report")
+@patch("products.enterprise.backend.tasks.subscriptions.generate_assets")
 @freeze_time("2022-02-02T08:55:00.000Z")
 class TestSubscriptionsTasks(APIBaseTest):
     dashboard: Dashboard
@@ -41,7 +41,7 @@ class TestSubscriptionsTasks(APIBaseTest):
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
 
-    @patch("ee.tasks.subscriptions.deliver_subscription_report")
+    @patch("products.enterprise.backend.tasks.subscriptions.deliver_subscription_report")
     def test_subscription_delivery_scheduling(
         self,
         mock_deliver_task: MagicMock,
@@ -72,7 +72,7 @@ class TestSubscriptionsTasks(APIBaseTest):
             mock_deliver_task.delay.call_args_list, [call(subscriptions[0].id), call(subscriptions[1].id)]
         )
 
-    @patch("ee.tasks.subscriptions.deliver_subscription_report")
+    @patch("products.enterprise.backend.tasks.subscriptions.deliver_subscription_report")
     def test_does_not_schedule_subscription_if_item_is_deleted(
         self,
         mock_deliver_task: MagicMock,

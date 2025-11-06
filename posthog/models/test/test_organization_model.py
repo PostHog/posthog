@@ -145,7 +145,7 @@ class TestOrganization(BaseTest):
         else:
             self.assertIsNone(result)
 
-    @patch("ee.billing.quota_limiting.add_limited_team_tokens")
+    @patch("products.enterprise.backend.billing.quota_limiting.add_limited_team_tokens")
     def test_limit_product_until_end_of_billing_cycle_success(self, mock_add_limited):
         self.organization.usage = {
             "period": ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
@@ -172,7 +172,7 @@ class TestOrganization(BaseTest):
         # quota_limiting_suspended_until is set to None, which deletes the key
         self.assertNotIn("quota_limiting_suspended_until", self.organization.usage["events"])
 
-    @patch("ee.billing.quota_limiting.add_limited_team_tokens")
+    @patch("products.enterprise.backend.billing.quota_limiting.add_limited_team_tokens")
     def test_limit_product_until_end_of_billing_cycle_multiple_teams(self, mock_add_limited):
         second_team = self.organization.teams.create(name="Second Team", api_token="second_token")
 
@@ -198,7 +198,7 @@ class TestOrganization(BaseTest):
         # quota_limiting_suspended_until is set to None, which deletes the key
         self.assertNotIn("quota_limiting_suspended_until", self.organization.usage["recordings"])
 
-    @patch("ee.billing.quota_limiting.add_limited_team_tokens")
+    @patch("products.enterprise.backend.billing.quota_limiting.add_limited_team_tokens")
     def test_limit_product_until_end_of_billing_cycle_creates_resource_usage_if_missing(self, mock_add_limited):
         self.organization.usage = {
             "period": ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
@@ -232,7 +232,7 @@ class TestOrganization(BaseTest):
 
         self.assertIn("Cannot limit without having a billing period", str(context.exception))
 
-    @patch("ee.billing.quota_limiting.remove_limited_team_tokens")
+    @patch("products.enterprise.backend.billing.quota_limiting.remove_limited_team_tokens")
     def test_unlimit_product_success(self, mock_remove_limited):
         self.organization.usage = {
             "period": ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
@@ -255,7 +255,7 @@ class TestOrganization(BaseTest):
         self.assertNotIn("quota_limited_until", self.organization.usage["events"])
         self.assertNotIn("quota_limiting_suspended_until", self.organization.usage["events"])
 
-    @patch("ee.billing.quota_limiting.remove_limited_team_tokens")
+    @patch("products.enterprise.backend.billing.quota_limiting.remove_limited_team_tokens")
     def test_unlimit_product_multiple_teams(self, mock_remove_limited):
         second_team = self.organization.teams.create(name="Second Team", api_token="second_token")
 
@@ -283,7 +283,7 @@ class TestOrganization(BaseTest):
         self.assertNotIn("quota_limited_until", self.organization.usage["recordings"])
         self.assertNotIn("quota_limiting_suspended_until", self.organization.usage["recordings"])
 
-    @patch("ee.billing.quota_limiting.remove_limited_team_tokens")
+    @patch("products.enterprise.backend.billing.quota_limiting.remove_limited_team_tokens")
     def test_unlimit_product_no_usage_data(self, mock_remove_limited):
         self.organization.usage = None
         self.organization.save()
@@ -295,7 +295,7 @@ class TestOrganization(BaseTest):
         team_tokens = mock_remove_limited.call_args[0][1]
         self.assertIn(self.team.api_token, team_tokens)
 
-    @patch("ee.billing.quota_limiting.remove_limited_team_tokens")
+    @patch("products.enterprise.backend.billing.quota_limiting.remove_limited_team_tokens")
     def test_unlimit_product_resource_not_in_usage(self, mock_remove_limited):
         self.organization.usage = {
             "period": ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
@@ -309,7 +309,7 @@ class TestOrganization(BaseTest):
         team_tokens = mock_remove_limited.call_args[0][1]
         self.assertIn(self.team.api_token, team_tokens)
 
-    @patch("ee.billing.quota_limiting.get_client")
+    @patch("products.enterprise.backend.billing.quota_limiting.get_client")
     def test_get_limited_products_no_teams(self, mock_get_client):
         self.organization.teams.all().delete()
         self.organization.usage = {
@@ -326,7 +326,7 @@ class TestOrganization(BaseTest):
             self.assertEqual(data["limited_teams"], [])
             self.assertIsNone(data["redis_quota_limited_until"])
 
-    @patch("ee.billing.quota_limiting.get_client")
+    @patch("products.enterprise.backend.billing.quota_limiting.get_client")
     def test_get_limited_products_no_limits(self, mock_get_client):
         mock_redis = mock_get_client.return_value
         mock_pipe = mock_redis.pipeline.return_value
@@ -346,7 +346,7 @@ class TestOrganization(BaseTest):
         self.assertIsNone(result["events"]["redis_quota_limited_until"])
         self.assertIsNone(result["events"]["usage_quota_limited_until"])
 
-    @patch("ee.billing.quota_limiting.get_client")
+    @patch("products.enterprise.backend.billing.quota_limiting.get_client")
     def test_get_limited_products_with_redis_limits(self, mock_get_client):
         from products.enterprise.backend.billing.quota_limiting import QuotaResource
 
@@ -377,7 +377,7 @@ class TestOrganization(BaseTest):
         self.assertEqual(result["events"]["redis_quota_limited_until"], int(future_timestamp))
         self.assertEqual(result["events"]["usage_quota_limited_until"], 1234567890)
 
-    @patch("ee.billing.quota_limiting.get_client")
+    @patch("products.enterprise.backend.billing.quota_limiting.get_client")
     def test_get_limited_products_redis_vs_usage_mismatch(self, mock_get_client):
         from products.enterprise.backend.billing.quota_limiting import QuotaResource
 
@@ -406,7 +406,7 @@ class TestOrganization(BaseTest):
         self.assertTrue(result["events"]["is_limited_in_redis"])
         self.assertIsNone(result["events"]["usage_quota_limited_until"])
 
-    @patch("ee.billing.quota_limiting.get_client")
+    @patch("products.enterprise.backend.billing.quota_limiting.get_client")
     def test_get_limited_products_multiple_teams(self, mock_get_client):
         from products.enterprise.backend.billing.quota_limiting import QuotaResource
 

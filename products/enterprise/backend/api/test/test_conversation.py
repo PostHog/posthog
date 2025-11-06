@@ -105,7 +105,10 @@ class TestConversation(APIBaseTest):
             "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch(
+                "products.enterprise.backend.api.conversation.StreamingHttpResponse",
+                side_effect=self._create_mock_streaming_response,
+            ):
                 trace_id = str(uuid.uuid4())
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
@@ -132,7 +135,10 @@ class TestConversation(APIBaseTest):
             "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch(
+                "products.enterprise.backend.api.conversation.StreamingHttpResponse",
+                side_effect=self._create_mock_streaming_response,
+            ):
                 conversation = Conversation.objects.create(user=self.user, team=self.team)
                 trace_id = str(uuid.uuid4())
                 response = self.client.post(
@@ -186,7 +192,10 @@ class TestConversation(APIBaseTest):
             "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
             return_value=_async_generator(),
         ):
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch(
+                "products.enterprise.backend.api.conversation.StreamingHttpResponse",
+                side_effect=self._create_mock_streaming_response,
+            ):
                 for _ in range(11):  # Assuming burst limit is less than this
                     response = self.client.post(
                         f"/api/environments/{self.team.id}/conversations/",
@@ -218,7 +227,10 @@ class TestConversation(APIBaseTest):
             "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
             return_value=_async_generator(),
         ) as mock_stream_conversation:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch(
+                "products.enterprise.backend.api.conversation.StreamingHttpResponse",
+                side_effect=self._create_mock_streaming_response,
+            ):
                 trace_id = str(uuid.uuid4())
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
@@ -254,7 +266,10 @@ class TestConversation(APIBaseTest):
             "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
             return_value=_async_generator(),
         ):
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch(
+                "products.enterprise.backend.api.conversation.StreamingHttpResponse",
+                side_effect=self._create_mock_streaming_response,
+            ):
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
                     {
@@ -284,7 +299,7 @@ class TestConversation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch("ee.hogai.stream.conversation_stream.ConversationStreamManager.cancel_conversation")
+    @patch("products.enterprise.backend.hogai.stream.conversation_stream.ConversationStreamManager.cancel_conversation")
     def test_cancel_conversation(self, mock_cancel):
         conversation = Conversation.objects.create(
             user=self.user,
@@ -327,7 +342,7 @@ class TestConversation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("ee.hogai.stream.conversation_stream.ConversationStreamManager.cancel_conversation")
+    @patch("products.enterprise.backend.hogai.stream.conversation_stream.ConversationStreamManager.cancel_conversation")
     def test_cancel_conversation_with_async_cleanup(self, mock_cancel):
         """Test that cancel endpoint properly handles async cleanup."""
         conversation = Conversation.objects.create(
@@ -347,7 +362,7 @@ class TestConversation(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    @patch("ee.hogai.stream.conversation_stream.ConversationStreamManager.cancel_conversation")
+    @patch("products.enterprise.backend.hogai.stream.conversation_stream.ConversationStreamManager.cancel_conversation")
     def test_cancel_conversation_async_cleanup_failure(self, mock_cancel):
         """Test cancel endpoint behavior when async cleanup fails."""
         conversation = Conversation.objects.create(
@@ -418,7 +433,10 @@ class TestConversation(APIBaseTest):
             "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
             return_value=_async_generator(),
         ) as mock_stream_conversation:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch(
+                "products.enterprise.backend.api.conversation.StreamingHttpResponse",
+                side_effect=self._create_mock_streaming_response,
+            ):
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
                     {
@@ -438,7 +456,10 @@ class TestConversation(APIBaseTest):
             "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch(
+                "products.enterprise.backend.api.conversation.StreamingHttpResponse",
+                side_effect=self._create_mock_streaming_response,
+            ):
                 trace_id = str(uuid.uuid4())
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
@@ -598,7 +619,10 @@ class TestConversation(APIBaseTest):
             "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch(
+                "products.enterprise.backend.api.conversation.StreamingHttpResponse",
+                side_effect=self._create_mock_streaming_response,
+            ):
                 trace_id = str(uuid.uuid4())
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
@@ -622,7 +646,10 @@ class TestConversation(APIBaseTest):
             "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch(
+                "products.enterprise.backend.api.conversation.StreamingHttpResponse",
+                side_effect=self._create_mock_streaming_response,
+            ):
                 trace_id = str(uuid.uuid4())
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",

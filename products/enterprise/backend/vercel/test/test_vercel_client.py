@@ -88,7 +88,7 @@ class TestVercelAPIClient:
         client = VercelAPIClient("test_token", base_url="https://staging.vercel.com/v1")
         assert client.base_url == "https://staging.vercel.com/v1"
 
-    @patch("ee.vercel.client.requests.Session.request")
+    @patch("products.enterprise.backend.vercel.client.requests.Session.request")
     def test_create_experimentation_items(self, mock_request, client, test_ids):
         items = [{"id": "test", "slug": "test-slug", "origin": "test-origin"}]
         self.assert_successful_request(
@@ -101,7 +101,7 @@ class TestVercelAPIClient:
             json={"items": items},
         )
 
-    @patch("ee.vercel.client.requests.Session.request")
+    @patch("products.enterprise.backend.vercel.client.requests.Session.request")
     def test_update_experimentation_item(self, mock_request, client, test_ids):
         data = {"slug": "updated-slug", "origin": "updated-origin"}
         self.assert_successful_request(
@@ -114,7 +114,7 @@ class TestVercelAPIClient:
             json=data,
         )
 
-    @patch("ee.vercel.client.requests.Session.request")
+    @patch("products.enterprise.backend.vercel.client.requests.Session.request")
     def test_delete_experimentation_item(self, mock_request, client, test_ids):
         self.assert_successful_request(
             mock_request,
@@ -165,7 +165,7 @@ class TestVercelAPIClient:
             ),
         ],
     )
-    @patch("ee.vercel.client.requests.Session.request")
+    @patch("products.enterprise.backend.vercel.client.requests.Session.request")
     def test_experimentation_method_errors(
         self, mock_request, client, test_ids, method_name, args_func, error_setup, expected_error, expected_status
     ):
@@ -264,7 +264,7 @@ class TestVercelAPIClient:
             ),
         ],
     )
-    @patch("ee.vercel.client.requests.Session.request")
+    @patch("products.enterprise.backend.vercel.client.requests.Session.request")
     def test_sso_token_exchange_success(self, mock_request, test_name, kwargs, expected_data, client):
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -298,7 +298,7 @@ class TestVercelAPIClient:
             ("return_value", lambda self: self.ErrorFactory.json_error()),
         ],
     )
-    @patch("ee.vercel.client.requests.Session.request")
+    @patch("products.enterprise.backend.vercel.client.requests.Session.request")
     def test_sso_token_exchange_errors(self, mock_request, client, error_setup):
         attr_name, error_factory = error_setup
         error_value = error_factory(self) if callable(error_factory) else error_factory

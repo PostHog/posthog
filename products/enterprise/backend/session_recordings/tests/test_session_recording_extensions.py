@@ -12,8 +12,8 @@ from products.enterprise.backend.session_recordings.session_recording_extensions
 
 
 class TestSessionRecordingExtensions(TestCase):
-    @patch("ee.session_recordings.session_recording_extensions.SessionRecording")
-    @patch("ee.session_recordings.session_recording_extensions.copy_to_lts")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.SessionRecording")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.copy_to_lts")
     @freeze_time("2024-01-01T12:00:00Z")
     def test_persist_recording_v2_success(self, mock_copy_to_lts, mock_recording_model):
         # Setup mock recording
@@ -35,8 +35,8 @@ class TestSessionRecordingExtensions(TestCase):
         mock_recording.save.assert_called_once()
         self.assertEqual(mock_recording.full_recording_v2_path, "s3://bucket/lts/test_id")
 
-    @patch("ee.session_recordings.session_recording_extensions.SessionRecording")
-    @patch("ee.session_recordings.session_recording_extensions.copy_to_lts")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.SessionRecording")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.copy_to_lts")
     @freeze_time("2024-01-01T12:00:00Z")
     def test_persist_recording_v2_skips_if_too_young(self, mock_copy_to_lts, mock_recording_model):
         # Setup mock recording that's too young
@@ -53,8 +53,8 @@ class TestSessionRecordingExtensions(TestCase):
         mock_copy_to_lts.assert_not_called()
         mock_recording.save.assert_called_once()
 
-    @patch("ee.session_recordings.session_recording_extensions.SessionRecording")
-    @patch("ee.session_recordings.session_recording_extensions.copy_to_lts")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.SessionRecording")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.copy_to_lts")
     @freeze_time("2024-01-01T12:00:00Z")
     def test_persist_recording_v2_skips_if_too_old(self, mock_copy_to_lts, mock_recording_model):
         # Setup mock recording that's too old (more than 90 days old)
@@ -71,8 +71,8 @@ class TestSessionRecordingExtensions(TestCase):
         mock_copy_to_lts.assert_not_called()
         mock_recording.save.assert_called_once()
 
-    @patch("ee.session_recordings.session_recording_extensions.SessionRecording")
-    @patch("ee.session_recordings.session_recording_extensions.copy_to_lts")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.SessionRecording")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.copy_to_lts")
     @freeze_time("2024-01-01T12:00:00Z")
     def test_persist_recording_v2_skips_if_deleted(self, mock_copy_to_lts, mock_recording_model):
         # Setup mock recording that's deleted
@@ -89,8 +89,8 @@ class TestSessionRecordingExtensions(TestCase):
         mock_copy_to_lts.assert_not_called()
         mock_recording.save.assert_not_called()
 
-    @patch("ee.session_recordings.session_recording_extensions.SessionRecording")
-    @patch("ee.session_recordings.session_recording_extensions.copy_to_lts")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.SessionRecording")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.copy_to_lts")
     @freeze_time("2024-01-01T12:00:00Z")
     def test_persist_recording_v2_skips_if_no_start_time(self, mock_copy_to_lts, mock_recording_model):
         # Setup mock recording with no start time
@@ -107,8 +107,8 @@ class TestSessionRecordingExtensions(TestCase):
         mock_copy_to_lts.assert_not_called()
         mock_recording.save.assert_called_once()
 
-    @patch("ee.session_recordings.session_recording_extensions.SessionRecording")
-    @patch("ee.session_recordings.session_recording_extensions.copy_to_lts")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.SessionRecording")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.copy_to_lts")
     @freeze_time("2024-01-01T12:00:00Z")
     def test_persist_recording_v2_handles_copy_failure(self, mock_copy_to_lts, mock_recording_model):
         # Setup mock recording
@@ -130,8 +130,8 @@ class TestSessionRecordingExtensions(TestCase):
         mock_recording.save.assert_not_called()  # Should not save if copy failed
         self.assertIsNone(mock_recording.full_recording_v2_path)
 
-    @patch("ee.session_recordings.session_recording_extensions.SessionRecording")
-    @patch("ee.session_recordings.session_recording_extensions.copy_to_lts")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.SessionRecording")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.copy_to_lts")
     @freeze_time("2024-01-01T12:00:00Z")
     def test_persist_recording_v2_handles_block_fetch_error(self, mock_copy_to_lts, mock_recording_model):
         # Setup mock recording
@@ -154,8 +154,8 @@ class TestSessionRecordingExtensions(TestCase):
         mock_recording.save.assert_not_called()
         self.assertIsNone(mock_recording.full_recording_v2_path)
 
-    @patch("ee.session_recordings.session_recording_extensions.SessionRecording")
-    @patch("ee.session_recordings.session_recording_extensions.copy_to_lts")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.SessionRecording")
+    @patch("products.enterprise.backend.session_recordings.session_recording_extensions.copy_to_lts")
     @freeze_time("2024-01-01T12:00:00Z")
     def test_persist_recording_v2_handles_generic_error(self, mock_copy_to_lts, mock_recording_model):
         # Setup mock recording

@@ -37,7 +37,7 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
         self.assertEqual(retrieve_response.json(), response_data["results"][0])
 
-    @patch("ee.api.license.requests.post")
+    @patch("products.enterprise.backend.api.license.requests.post")
     @pytest.mark.skip_on_multitenancy
     def test_can_create_license(self, patch_post):
         valid_until = timezone.now() + datetime.timedelta(days=10)
@@ -60,7 +60,7 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(license.key, "newer_license_1")
         self.assertEqual(license.valid_until, valid_until)
 
-    @patch("ee.api.license.requests.post")
+    @patch("products.enterprise.backend.api.license.requests.post")
     @pytest.mark.skip_on_multitenancy
     def test_friendly_error_when_license_key_is_invalid(self, patch_post):
         mock = Mock()
@@ -131,7 +131,7 @@ class TestLicenseAPI(APILicensedTest):
             self.assertEqual(first_valid.plan, "enterprise")  # type: ignore
 
     @pytest.mark.skip_on_multitenancy
-    @patch("ee.api.license.requests.post")
+    @patch("products.enterprise.backend.api.license.requests.post")
     def test_can_cancel_license(self, patch_post):
         to_be_deleted = Team.objects.create(organization=self.organization)
         not_to_be_deleted = Team.objects.create(organization=self.organization, is_demo=True)  # don't delete
@@ -164,7 +164,7 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(Organization.objects.count(), 1)
 
     @pytest.mark.skip_on_multitenancy
-    @patch("ee.api.license.requests.post")
+    @patch("products.enterprise.backend.api.license.requests.post")
     def test_can_cancel_license_with_another_valid_license(self, patch_post):
         # In this case we won't delete projects as there's another valid license
         License.objects.create(valid_until=now() + relativedelta(years=1), plan="enterprise")

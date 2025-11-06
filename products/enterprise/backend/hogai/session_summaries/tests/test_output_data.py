@@ -95,7 +95,10 @@ class TestLoadRawSessionSummary:
         # 1/5 events is missing (would be marked as hallucinated)
         allowed_event_ids = ["abcd1234", "defg4567", "ghij7890", "mnop3456"]
         # Should pass through, as only 20% of events are hallucinated
-        with patch("ee.hogai.session_summaries.session.output_data.HALLUCINATED_EVENTS_MIN_RATIO", 0.25):
+        with patch(
+            "products.enterprise.backend.hogai.session_summaries.session.output_data.HALLUCINATED_EVENTS_MIN_RATIO",
+            0.25,
+        ):
             summary = load_raw_session_summary_from_llm_content(
                 mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id, final_validation=True
             )

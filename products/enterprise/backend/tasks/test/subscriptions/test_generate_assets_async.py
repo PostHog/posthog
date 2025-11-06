@@ -31,9 +31,12 @@ async def mock_export_asset():
         asset.save()
 
     with (
-        patch("ee.tasks.subscriptions.subscription_utils.exporter.export_asset_direct", side_effect=set_content),
-        patch("ee.tasks.subscriptions.subscription_utils.get_metric_meter", MagicMock()),
-        patch("ee.tasks.subscriptions.get_metric_meter", MagicMock()),
+        patch(
+            "products.enterprise.backend.tasks.subscriptions.subscription_utils.exporter.export_asset_direct",
+            side_effect=set_content,
+        ),
+        patch("products.enterprise.backend.tasks.subscriptions.subscription_utils.get_metric_meter", MagicMock()),
+        patch("products.enterprise.backend.tasks.subscriptions.get_metric_meter", MagicMock()),
     ):
         yield
 
@@ -222,7 +225,7 @@ async def test_async_foreign_key_access_with_real_subscription(team, user, dashb
         )
 
 
-@patch("ee.tasks.subscriptions.subscription_utils.exporter.export_asset_direct")
+@patch("products.enterprise.backend.tasks.subscriptions.subscription_utils.exporter.export_asset_direct")
 async def test_async_generate_assets_basic(mock_export: MagicMock, team, user) -> None:
     def export_success(asset: ExportedAsset, **kwargs) -> None:
         asset.content = b"fake image data"
@@ -252,7 +255,7 @@ async def test_async_generate_assets_basic(mock_export: MagicMock, team, user) -
     assert all(asset.content for asset in assets)
 
 
-@patch("ee.tasks.subscriptions.subscription_utils.asyncio.wait_for")
+@patch("products.enterprise.backend.tasks.subscriptions.subscription_utils.asyncio.wait_for")
 @patch("posthog.tasks.exporter.export_asset_direct")
 async def test_async_generate_assets_timeout_continues_with_partial_results(
     mock_export: MagicMock, mock_wait_for: MagicMock, team, user

@@ -140,7 +140,9 @@ class TestDeepResearchOnboardingNode:
             mock_model = MagicMock()
             mock_get_model.return_value = mock_model
 
-            with patch("ee.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate") as mock_prompt_template:
+            with patch(
+                "products.enterprise.backend.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate"
+            ) as mock_prompt_template:
                 mock_prompt = MagicMock()
                 mock_prompt_template.from_messages.return_value = mock_prompt
                 mock_prompt.__or__ = MagicMock(return_value=mock_chain)
@@ -176,7 +178,9 @@ class TestDeepResearchOnboardingNode:
             mock_model = MagicMock()
             mock_get_model.return_value = mock_model
 
-            with patch("ee.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate") as mock_prompt_template:
+            with patch(
+                "products.enterprise.backend.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate"
+            ) as mock_prompt_template:
                 mock_prompt = MagicMock()
                 mock_prompt_template.from_messages.return_value = mock_prompt
                 mock_prompt.__or__ = MagicMock(return_value=mock_chain)
@@ -202,7 +206,9 @@ class TestDeepResearchOnboardingNode:
             mock_model = MagicMock()
             mock_get_model.return_value = mock_model
 
-            with patch("ee.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate") as mock_prompt_template:
+            with patch(
+                "products.enterprise.backend.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate"
+            ) as mock_prompt_template:
                 mock_prompt = MagicMock()
                 mock_prompt_template.from_messages.return_value = mock_prompt
                 mock_prompt.__or__ = MagicMock(return_value=mock_chain)
@@ -228,7 +234,9 @@ class TestDeepResearchOnboardingNode:
             mock_model = MagicMock()
             mock_get_model.return_value = mock_model
 
-            with patch("ee.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate") as mock_prompt_template:
+            with patch(
+                "products.enterprise.backend.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate"
+            ) as mock_prompt_template:
                 mock_prompt = MagicMock()
                 mock_prompt_template.from_messages.return_value = mock_prompt
                 mock_prompt.__or__ = MagicMock(return_value=mock_chain)
@@ -267,7 +275,9 @@ class TestDeepResearchOnboardingNode:
             mock_model = MagicMock()
             mock_get_model.return_value = mock_model
 
-            with patch("ee.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate") as mock_prompt_template:
+            with patch(
+                "products.enterprise.backend.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate"
+            ) as mock_prompt_template:
                 mock_prompt = MagicMock()
                 mock_prompt_template.from_messages.return_value = mock_prompt
                 mock_prompt.__or__ = MagicMock(return_value=mock_chain)
@@ -287,8 +297,13 @@ class TestDeepResearchOnboardingNode:
         """Test that the prompt is constructed correctly from the last human message."""
         with (
             patch.object(self.node, "_aget_core_memory", return_value=None),
-            patch("ee.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate") as mock_prompt_template,
-            patch("ee.hogai.utils.helpers.extract_content_from_ai_message", return_value="Test response"),
+            patch(
+                "products.enterprise.backend.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate"
+            ) as mock_prompt_template,
+            patch(
+                "products.enterprise.backend.hogai.utils.helpers.extract_content_from_ai_message",
+                return_value="Test response",
+            ),
         ):
             mock_prompt = MagicMock()
             mock_prompt_template.from_messages.return_value = mock_prompt
@@ -321,8 +336,13 @@ class TestDeepResearchOnboardingNode:
         """Test handling of various message content formats."""
         with (
             patch.object(self.node, "_aget_core_memory", return_value=None),
-            patch("ee.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate") as mock_prompt_template,
-            patch("ee.hogai.utils.helpers.extract_content_from_ai_message", return_value="Response"),
+            patch(
+                "products.enterprise.backend.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate"
+            ) as mock_prompt_template,
+            patch(
+                "products.enterprise.backend.hogai.utils.helpers.extract_content_from_ai_message",
+                return_value="Response",
+            ),
         ):
             mock_prompt = MagicMock()
             mock_prompt_template.from_messages.return_value = mock_prompt
@@ -353,7 +373,9 @@ class TestDeepResearchOnboardingNode:
             mock_model = MagicMock()
             mock_get_model.return_value = mock_model
 
-            with patch("ee.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate") as mock_prompt_template:
+            with patch(
+                "products.enterprise.backend.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate"
+            ) as mock_prompt_template:
                 mock_prompt = MagicMock()
                 mock_prompt_template.from_messages.return_value = mock_prompt
                 mock_prompt.__or__ = MagicMock(return_value=mock_chain)
@@ -380,7 +402,9 @@ class TestDeepResearchOnboardingNode:
             mock_model = MagicMock()
             mock_get_model.return_value = mock_model
 
-            with patch("ee.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate") as mock_prompt_template:
+            with patch(
+                "products.enterprise.backend.hogai.graph.deep_research.onboarding.nodes.ChatPromptTemplate"
+            ) as mock_prompt_template:
                 mock_prompt = MagicMock()
                 mock_prompt_template.from_messages.return_value = mock_prompt
                 mock_prompt.__or__ = MagicMock(return_value=mock_chain)

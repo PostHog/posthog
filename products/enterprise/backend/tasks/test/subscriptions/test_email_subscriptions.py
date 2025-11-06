@@ -17,7 +17,7 @@ def mock_ee_email_messages(MockEmailMessage: MagicMock):
     return mock_email_messages(MockEmailMessage, path="ee/tasks/test/__emails__/")
 
 
-@patch("ee.tasks.subscriptions.email_subscriptions.EmailMessage")
+@patch("products.enterprise.backend.tasks.subscriptions.email_subscriptions.EmailMessage")
 @freeze_time("2022-02-02T08:55:00.000Z")
 class TestEmailSubscriptionsTasks(APIBaseTest):
     subscription: Subscription

@@ -44,7 +44,7 @@ class TestAssistantContextManager(ClickhouseTestMixin, BaseTest):
         self.config = RunnableConfig(configurable={})
         self.context_manager = AssistantContextManager(self.team, self.user, self.config)
 
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.context.context.AssistantQueryExecutor")
     async def test_run_and_format_insight_trends_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
         mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Trend results: 100 users", None))
@@ -75,7 +75,7 @@ Trend results: 100 users
         self.assertEqual(result, expected)
         mock_query_runner.arun_and_format_query.assert_called_once()
 
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.context.context.AssistantQueryExecutor")
     async def test_run_and_format_insight_funnel_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
         mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Funnel results: 50% conversion", None))
@@ -102,7 +102,7 @@ Funnel results: 50% conversion
 ```"""
         self.assertEqual(result, expected)
 
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.context.context.AssistantQueryExecutor")
     async def test_run_and_format_insight_retention_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
         mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Retention: 30% Day 7", None))
@@ -133,7 +133,7 @@ Retention: 30% Day 7
 ```"""
         self.assertEqual(result, expected)
 
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.context.context.AssistantQueryExecutor")
     async def test_run_and_format_insight_hogql_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
         mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Query results: 42 events", None))
@@ -161,7 +161,7 @@ Query results: 42 events
 ```"""
         self.assertEqual(result, expected)
 
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.context.context.AssistantQueryExecutor")
     async def test_run_and_format_insight_unsupported_query_kind(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
         mock_query_runner.arun_and_format_query = AsyncMock()
@@ -173,8 +173,8 @@ Query results: 42 events
         self.assertEqual(result, None)
         mock_query_runner.arun_and_format_query.assert_not_called()
 
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
-    @patch("ee.hogai.context.context.capture_exception")
+    @patch("products.enterprise.backend.hogai.context.context.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.context.context.capture_exception")
     async def test_run_and_format_insight_exception_handling(self, mock_capture_exception, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
         mock_query_runner.arun_and_format_query = AsyncMock(side_effect=Exception("Query failed"))
@@ -191,7 +191,7 @@ Query results: 42 events
         self.assertEqual(result, None)
         mock_capture_exception.assert_called_once()
 
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.context.context.AssistantQueryExecutor")
     async def test_format_ui_context_with_dashboard(self, mock_query_runner_class):
         # Configure the mock to return a proper mock instance with arun_and_format_query method
         mock_query_runner = MagicMock()
@@ -290,7 +290,7 @@ Query results: 42 events
         self.assertIn('"Sign Up: User creates account", "Purchase: User makes a purchase"', result)
         self.assertIn("<actions_context>", result)
 
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.context.context.AssistantQueryExecutor")
     async def test_format_ui_context_with_standalone_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
         mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Standalone insight results", None))
@@ -323,7 +323,7 @@ Query results: 42 events
         result = await self.context_manager._format_ui_context(ui_context)
         self.assertIsNone(result)
 
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.context.context.AssistantQueryExecutor")
     async def test_format_ui_context_with_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
         mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Insight execution results", None))
@@ -348,8 +348,8 @@ Query results: 42 events
         self.assertIn("Test description", result)
         self.assertIn("Insight execution results", result)
 
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
-    @patch("ee.hogai.context.context.capture_exception")
+    @patch("products.enterprise.backend.hogai.context.context.AssistantQueryExecutor")
+    @patch("products.enterprise.backend.hogai.context.context.capture_exception")
     async def test_format_ui_context_with_failed_insights(self, mock_capture_exception, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
         mock_query_runner.arun_and_format_query = AsyncMock(side_effect=Exception("Query failed"))
@@ -501,7 +501,7 @@ Query results: 42 events
         result = self.context_manager._format_entity_context([], "events", "Event")
         self.assertEqual(result, "")
 
-    @patch("ee.hogai.tool.get_contextual_tool_class")
+    @patch("products.enterprise.backend.hogai.tool.get_contextual_tool_class")
     def test_get_contextual_tools_prompt(self, mock_get_contextual_tool_class):
         """Test generation of contextual tools prompt"""
         # Mock the tool class

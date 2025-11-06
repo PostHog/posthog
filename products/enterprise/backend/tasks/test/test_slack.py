@@ -36,8 +36,8 @@ def create_mock_unfurl_event(team_id: str, links: list[str]):
     }
 
 
-@patch("ee.tasks.slack.generate_assets")
-@patch("ee.tasks.slack.SlackIntegration")
+@patch("products.enterprise.backend.tasks.slack.generate_assets")
+@patch("products.enterprise.backend.tasks.slack.SlackIntegration")
 @freeze_time("2022-01-01T12:00:00.000Z")
 class TestSlackSubscriptionsTasks(APIBaseTest):
     subscription: Subscription

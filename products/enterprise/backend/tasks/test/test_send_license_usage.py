@@ -79,7 +79,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
 
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthoganalytics.capture")
-    @patch("ee.tasks.send_license_usage.sync_execute", side_effect=Exception())
+    @patch("products.enterprise.backend.tasks.send_license_usage.sync_execute", side_effect=Exception())
     def test_send_license_error(self, mock_post, mock_capture):
         self.license.key = "legacy-key"
         self.license.save()

@@ -108,7 +108,9 @@ class TestFetchSessionDataActivity:
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
         with (
             # Mock DB calls
-            patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=ateam),
+            patch(
+                "products.enterprise.backend.hogai.session_summaries.session.input_data.get_team", return_value=ateam
+            ),
             patch(
                 "ee.hogai.session_summaries.session.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
@@ -150,7 +152,9 @@ class TestFetchSessionDataActivity:
         input_data = mock_single_session_summary_inputs(mock_session_id, ateam.id, auser.id, "test-no-events-key-base")
         with (
             # Mock DB calls - return columns but no events (empty list)
-            patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=ateam),
+            patch(
+                "products.enterprise.backend.hogai.session_summaries.session.input_data.get_team", return_value=ateam
+            ),
             patch(
                 "ee.hogai.session_summaries.session.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
@@ -252,7 +256,9 @@ class TestStreamLlmSummaryActivity:
         spy_setex.reset_mock()
         # Second run: should retrieve from DB without calling LLM
         with (
-            patch("ee.hogai.session_summaries.llm.consume.stream_llm") as mock_stream_llm_patch_2,
+            patch(
+                "products.enterprise.backend.hogai.session_summaries.llm.consume.stream_llm"
+            ) as mock_stream_llm_patch_2,
             patch("temporalio.activity.heartbeat") as mock_heartbeat_2,
             patch("temporalio.activity.info") as mock_activity_info_2,
         ):
@@ -309,9 +315,15 @@ class TestSummarizeSingleSessionStreamWorkflow:
             ) as worker:
                 with (
                     # Mock LLM call
-                    patch("ee.hogai.session_summaries.llm.consume.stream_llm", return_value=mock_stream_llm()),
+                    patch(
+                        "products.enterprise.backend.hogai.session_summaries.llm.consume.stream_llm",
+                        return_value=mock_stream_llm(),
+                    ),
                     # Mock DB calls
-                    patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team),
+                    patch(
+                        "products.enterprise.backend.hogai.session_summaries.session.input_data.get_team",
+                        return_value=mock_team,
+                    ),
                     patch(
                         "ee.hogai.session_summaries.session.summarize_session.get_session_metadata",
                         return_value=mock_raw_metadata,

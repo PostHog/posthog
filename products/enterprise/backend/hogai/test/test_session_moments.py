@@ -21,9 +21,9 @@ class TestSessionMomentsLLMAnalyzer(BaseTest):
         )
 
     @pytest.mark.asyncio
-    @patch("ee.hogai.videos.session_moments.GeminiVideoUnderstandingProvider")
-    @patch("ee.hogai.videos.session_moments.async_connect")
-    @patch("ee.hogai.videos.session_moments.ExportedAsset.objects")
+    @patch("products.enterprise.backend.hogai.videos.session_moments.GeminiVideoUnderstandingProvider")
+    @patch("products.enterprise.backend.hogai.videos.session_moments.async_connect")
+    @patch("products.enterprise.backend.hogai.videos.session_moments.ExportedAsset.objects")
     async def test_generate_videos_for_moments_partial_failure_within_threshold(
         self, mock_asset_objects, mock_async_connect, mock_gemini_provider
     ):
@@ -64,9 +64,9 @@ class TestSessionMomentsLLMAnalyzer(BaseTest):
             assert f"event_{i}" in result
 
     @pytest.mark.asyncio
-    @patch("ee.hogai.videos.session_moments.GeminiVideoUnderstandingProvider")
-    @patch("ee.hogai.videos.session_moments.async_connect")
-    @patch("ee.hogai.videos.session_moments.ExportedAsset.objects")
+    @patch("products.enterprise.backend.hogai.videos.session_moments.GeminiVideoUnderstandingProvider")
+    @patch("products.enterprise.backend.hogai.videos.session_moments.async_connect")
+    @patch("products.enterprise.backend.hogai.videos.session_moments.ExportedAsset.objects")
     async def test_generate_videos_for_moments_too_many_failures(
         self, mock_asset_objects, mock_async_connect, mock_gemini_provider
     ):

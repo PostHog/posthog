@@ -11,8 +11,8 @@ from products.enterprise.backend.tasks.subscriptions.subscription_utils import D
 from products.enterprise.backend.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
-@patch("ee.tasks.subscriptions.subscription_utils.chain")
-@patch("ee.tasks.subscriptions.subscription_utils.exporter.export_asset")
+@patch("products.enterprise.backend.tasks.subscriptions.subscription_utils.chain")
+@patch("products.enterprise.backend.tasks.subscriptions.subscription_utils.exporter.export_asset")
 class TestSubscriptionsTasksUtils(APIBaseTest):
     dashboard: Dashboard
     insight: Insight

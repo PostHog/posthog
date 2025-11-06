@@ -23,9 +23,11 @@ class TestVercelPermission(VercelTestBase):
         self.mock_view = MagicMock()
         self.mock_request = MagicMock()
         self.mock_request.user = VercelUser(claims=self._mock_user_claims())
-        self.claims_patcher = patch("ee.api.vercel.vercel_permission.get_vercel_claims")
+        self.claims_patcher = patch("products.enterprise.backend.api.vercel.vercel_permission.get_vercel_claims")
         self.mock_get_claims = self.claims_patcher.start()
-        self.user_claim_patcher = patch("ee.api.vercel.vercel_permission.expect_vercel_user_claim")
+        self.user_claim_patcher = patch(
+            "products.enterprise.backend.api.vercel.vercel_permission.expect_vercel_user_claim"
+        )
         self.mock_expect_user_claim = self.user_claim_patcher.start()
 
     def tearDown(self):
@@ -213,8 +215,10 @@ class TestVercelPermissionIntegration(VercelTestBase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.client_id_patcher = patch("ee.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience")
-        cls.jwks_patcher = patch("ee.api.authentication.get_vercel_jwks")
+        cls.client_id_patcher = patch(
+            "products.enterprise.backend.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience"
+        )
+        cls.jwks_patcher = patch("products.enterprise.backend.api.authentication.get_vercel_jwks")
         cls.client_id_patcher.start()
         cls.mock_get_jwks = cls.jwks_patcher.start()
 

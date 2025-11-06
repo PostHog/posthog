@@ -49,7 +49,7 @@ def create_mock_query_executor():
     return mock_executor
 
 
-@patch("ee.hogai.graph.insights.nodes.AssistantQueryExecutor", create_mock_query_executor)
+@patch("products.enterprise.backend.hogai.graph.insights.nodes.AssistantQueryExecutor", create_mock_query_executor)
 class TestInsightSearchNode(BaseTest):
     def setUp(self):
         super().setUp()
@@ -266,7 +266,7 @@ class TestInsightSearchNode(BaseTest):
 
                 # Note: Additional visualization messages depend on query type support in test data
 
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    @patch("products.enterprise.backend.hogai.graph.insights.nodes.ChatOpenAI")
     def test_search_insights_iteratively_single_page(self, mock_openai):
         """Test iterative search with single page (no pagination)."""
 
@@ -296,7 +296,7 @@ class TestInsightSearchNode(BaseTest):
         self.assertIn(self.insight1.id, result)
         self.assertIn(self.insight2.id, result)
 
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    @patch("products.enterprise.backend.hogai.graph.insights.nodes.ChatOpenAI")
     def test_search_insights_iteratively_with_pagination(self, mock_openai):
         """Test iterative search with pagination returns valid IDs."""
 
@@ -326,7 +326,7 @@ class TestInsightSearchNode(BaseTest):
         self.assertIn(existing_insight_ids[0], result)
         self.assertIn(existing_insight_ids[1], result)
 
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    @patch("products.enterprise.backend.hogai.graph.insights.nodes.ChatOpenAI")
     def test_search_insights_iteratively_fallback(self, mock_openai):
         """Test iterative search when LLM fails - should return empty list."""
 
@@ -586,7 +586,7 @@ class TestInsightSearchNode(BaseTest):
         self.assertEqual(len(self.node._evaluation_selections), 0)
         self.assertEqual(self.node._rejection_reason, "None of these match the user's needs")
 
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    @patch("products.enterprise.backend.hogai.graph.insights.nodes.ChatOpenAI")
     async def test_evaluate_insights_with_tools_selection(self, mock_openai):
         """Test the new tool-based evaluation with insight selection."""
         # Load insights
@@ -662,7 +662,7 @@ class TestInsightSearchNode(BaseTest):
         query_info_empty = self.node._extract_query_metadata({})
         self.assertIsNone(query_info_empty)
 
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    @patch("products.enterprise.backend.hogai.graph.insights.nodes.ChatOpenAI")
     async def test_non_executable_insights_handling(self, mock_openai):
         """Test that non-executable insights are presented to LLM but rejected."""
         # Create a mock insight that can't be visualized
@@ -707,7 +707,7 @@ class TestInsightSearchNode(BaseTest):
             # The explanation should indicate why the insight was rejected
             self.assertTrue(len(result["explanation"]) > 0)
 
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    @patch("products.enterprise.backend.hogai.graph.insights.nodes.ChatOpenAI")
     async def test_evaluate_insights_with_tools_rejection(self, mock_openai):
         """Test the new tool-based evaluation with rejection."""
         # Load insights
@@ -737,7 +737,7 @@ class TestInsightSearchNode(BaseTest):
             result["explanation"], "User is looking for retention analysis, but these are trends and funnels"
         )
 
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    @patch("products.enterprise.backend.hogai.graph.insights.nodes.ChatOpenAI")
     async def test_evaluate_insights_with_tools_multiple_selection(self, mock_openai):
         """Test the evaluation with multiple selection mode."""
         # Load insights

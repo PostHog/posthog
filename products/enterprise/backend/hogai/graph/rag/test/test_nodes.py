@@ -47,7 +47,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
             [PgEmbeddingRow(domain="action", team_id=self.team.id, id=str(self.action.id), vector=[2, 4], text="test")]
         )
 
-    @patch("ee.hogai.graph.rag.nodes.TeamTaxonomyQueryRunner")
+    @patch("products.enterprise.backend.hogai.graph.rag.nodes.TeamTaxonomyQueryRunner")
     def test_prewarm_queries(self, mock_team_taxonomy_query_runner, cohere_mock, embed_mock):
         # Arrange
         team = MagicMock()

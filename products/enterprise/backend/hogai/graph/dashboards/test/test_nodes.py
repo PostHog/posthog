@@ -167,7 +167,7 @@ class TestDashboardCreationNode(BaseTest):
         expected_url = f"/project/{self.mock_team.id}/dashboard/{dashboard_id}"
         assert url == expected_url
 
-    @patch("ee.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
+    @patch("products.enterprise.backend.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
     async def test_arun_missing_search_insights_queries(self, mock_executor_node_class):
         """Test arun returns error when search_insights_queries is missing."""
         mock_executor_node = MagicMock()
@@ -187,7 +187,7 @@ class TestDashboardCreationNode(BaseTest):
         assert isinstance(result.messages[0], AssistantToolCallMessage)
         assert "Search insights queries are required" in result.messages[0].content
 
-    @patch("ee.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
+    @patch("products.enterprise.backend.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
     @patch.object(DashboardCreationNode, "_search_insights")
     @patch.object(DashboardCreationNode, "_create_insights")
     @patch.object(DashboardCreationNode, "_create_dashboard_with_insights")
@@ -242,7 +242,7 @@ class TestDashboardCreationNode(BaseTest):
         assert "Dashboard Created" in result.messages[0].content
         assert "Test Dashboard" in result.messages[0].content
 
-    @patch("ee.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
+    @patch("products.enterprise.backend.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
     @patch.object(DashboardCreationNode, "_search_insights")
     @patch.object(DashboardCreationNode, "_create_insights")
     async def test_arun_no_insights_found_or_created(
@@ -279,9 +279,9 @@ class TestDashboardCreationNode(BaseTest):
         assert isinstance(result.messages[0], AssistantToolCallMessage)
         assert "No existing insights matched" in result.messages[0].content
 
-    @patch("ee.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
+    @patch("products.enterprise.backend.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
     @patch.object(DashboardCreationNode, "_search_insights")
-    @patch("ee.hogai.graph.dashboards.nodes.logger")
+    @patch("products.enterprise.backend.hogai.graph.dashboards.nodes.logger")
     async def test_arun_exception_handling(self, mock_logger, mock_search_insights, mock_executor_node_class):
         """Test arun handles exceptions properly."""
         mock_executor_node = MagicMock()
@@ -342,7 +342,7 @@ class TestDashboardCreationNode(BaseTest):
 
     def test_create_error_response(self):
         """Test _create_error_response creates correct error message."""
-        with patch("ee.hogai.graph.dashboards.nodes.capture_exception") as mock_capture:
+        with patch("products.enterprise.backend.hogai.graph.dashboards.nodes.capture_exception") as mock_capture:
             result = self.node._create_error_response("Test error", "test_tool_call_id")
 
             assert isinstance(result, PartialAssistantState)
@@ -367,7 +367,7 @@ class TestDashboardCreationNodeAsyncMethods(BaseTest):
             node_path=(NodePath(name="test_node", message_id="test-id", tool_call_id="test_tool_call_id"),),
         )
 
-    @patch("ee.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
+    @patch("products.enterprise.backend.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
     async def test_create_insights(self, mock_executor_node_class):
         """Test _create_insights method."""
         # Setup mocks
@@ -415,7 +415,7 @@ class TestDashboardCreationNodeAsyncMethods(BaseTest):
             assert len(result["task_1"].created_insight_ids) == 2
             assert len(result["task_1"].created_insight_messages) == 1
 
-    @patch("ee.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
+    @patch("products.enterprise.backend.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
     async def test_search_insights(self, mock_executor_node_class):
         """Test _search_insights method."""
         # Setup mocks
@@ -455,7 +455,7 @@ class TestDashboardCreationNodeAsyncMethods(BaseTest):
         assert len(result["task_1"].found_insight_ids) == 2
         assert len(result["task_1"].found_insight_messages) == 2
 
-    @patch("ee.hogai.graph.dashboards.nodes.database_sync_to_async")
+    @patch("products.enterprise.backend.hogai.graph.dashboards.nodes.database_sync_to_async")
     async def test_create_dashboard_with_insights(self, mock_db_sync):
         """Test _create_dashboard_with_insights method."""
 

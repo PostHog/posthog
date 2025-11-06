@@ -3473,7 +3473,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide(api_version=3, data={"token": new_token, "distinct_id": "other id"})
             self.assertEqual(response.status_code, 429)
 
-    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    @patch("products.enterprise.backend.billing.quota_limiting.list_limited_team_attributes")
     def test_quota_limited_recordings_disabled(self, _fake_token_limiting, *args):
         from products.enterprise.backend.billing.quota_limiting import QuotaResource
 
@@ -3494,7 +3494,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             assert response["sessionRecording"] is False
             assert response["quotaLimited"] == ["recordings"]
 
-    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    @patch("products.enterprise.backend.billing.quota_limiting.list_limited_team_attributes")
     def test_quota_limited_recordings_other_token(self, _fake_token_limiting, *args):
         from products.enterprise.backend.billing.quota_limiting import QuotaResource
 
@@ -3771,7 +3771,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertTrue("defaultIdentifiedOnly" in response.json())
         self.assertTrue(response.json()["defaultIdentifiedOnly"])
 
-    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    @patch("products.enterprise.backend.billing.quota_limiting.list_limited_team_attributes")
     def test_decide_v1_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
         self, _fake_token_limiting, *args
     ):
@@ -3789,7 +3789,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             assert response["errorsWhileComputingFlags"] is False
             assert "feature_flags" in response["quotaLimited"]
 
-    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    @patch("products.enterprise.backend.billing.quota_limiting.list_limited_team_attributes")
     def test_decide_v2_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
         self, _fake_token_limiting, *args
     ):
@@ -3807,7 +3807,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             assert response["errorsWhileComputingFlags"] is False
             assert "feature_flags" in response["quotaLimited"]
 
-    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    @patch("products.enterprise.backend.billing.quota_limiting.list_limited_team_attributes")
     def test_decide_v3_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
         self, _fake_token_limiting, *args
     ):
@@ -3826,7 +3826,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             assert response["errorsWhileComputingFlags"] is False
             assert "feature_flags" in response["quotaLimited"]
 
-    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    @patch("products.enterprise.backend.billing.quota_limiting.list_limited_team_attributes")
     def test_decide_v4_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
         self, _fake_token_limiting, *args
     ):
@@ -3844,7 +3844,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             assert response["errorsWhileComputingFlags"] is False
             assert "feature_flags" in response["quotaLimited"]
 
-    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    @patch("products.enterprise.backend.billing.quota_limiting.list_limited_team_attributes")
     def test_feature_flags_are_empty_list_when_not_quota_limited(self, _fake_token_limiting, *args):
         from products.enterprise.backend.billing.quota_limiting import QuotaResource
 

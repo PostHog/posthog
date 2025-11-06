@@ -47,10 +47,10 @@ async def subscriptions_worker(temporal_client: Client):
         yield  # allow the test to run while the worker is active
 
 
-@patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("ee.tasks.subscriptions.send_slack_subscription_report")
-@patch("ee.tasks.subscriptions.send_email_subscription_report")
-@patch("ee.tasks.subscriptions.generate_assets_async")
+@patch("products.enterprise.backend.tasks.subscriptions.get_metric_meter")
+@patch("products.enterprise.backend.tasks.subscriptions.send_slack_subscription_report")
+@patch("products.enterprise.backend.tasks.subscriptions.send_email_subscription_report")
+@patch("products.enterprise.backend.tasks.subscriptions.generate_assets_async")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_subscription_delivery_scheduling(
@@ -147,11 +147,11 @@ async def test_subscription_delivery_scheduling(
     assert delivered_sub_ids == {subscriptions[0].id, subscriptions[1].id}
 
 
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.enterprise.backend.tasks.subscriptions.get_metric_meter")
 @patch("posthoganalytics.feature_enabled", return_value=True)
-@patch("ee.tasks.subscriptions.get_slack_integration_for_team", return_value=None)
-@patch("ee.tasks.subscriptions.send_email_subscription_report")
-@patch("ee.tasks.subscriptions.generate_assets")
+@patch("products.enterprise.backend.tasks.subscriptions.get_slack_integration_for_team", return_value=None)
+@patch("products.enterprise.backend.tasks.subscriptions.send_email_subscription_report")
+@patch("products.enterprise.backend.tasks.subscriptions.generate_assets")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_does_not_schedule_subscription_if_item_is_deleted(
@@ -209,10 +209,10 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
     assert mock_send_email.call_count == 0 and mock_send_slack.call_count == 0
 
 
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.enterprise.backend.tasks.subscriptions.get_metric_meter")
 @patch("posthoganalytics.feature_enabled", return_value=True)
-@patch("ee.tasks.subscriptions.send_email_subscription_report")
-@patch("ee.tasks.subscriptions.generate_assets_async")
+@patch("products.enterprise.backend.tasks.subscriptions.send_email_subscription_report")
+@patch("products.enterprise.backend.tasks.subscriptions.generate_assets_async")
 @pytest.mark.asyncio
 async def test_handle_subscription_value_change_email(
     mock_gen_assets: MagicMock,
@@ -275,10 +275,10 @@ async def test_handle_subscription_value_change_email(
     ]
 
 
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.enterprise.backend.tasks.subscriptions.get_metric_meter")
 @patch("posthoganalytics.feature_enabled", return_value=True)
-@patch("ee.tasks.subscriptions.get_slack_integration_for_team", return_value=None)
-@patch("ee.tasks.subscriptions.generate_assets_async")
+@patch("products.enterprise.backend.tasks.subscriptions.get_slack_integration_for_team", return_value=None)
+@patch("products.enterprise.backend.tasks.subscriptions.generate_assets_async")
 @pytest.mark.asyncio
 async def test_deliver_subscription_report_slack(
     mock_gen_assets: MagicMock,

@@ -23,8 +23,10 @@ class TestVercelResourceAPI(VercelTestBase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        cls.client_id_patcher = patch("ee.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience")
-        cls.jwks_patcher = patch("ee.api.authentication.get_vercel_jwks")
+        cls.client_id_patcher = patch(
+            "products.enterprise.backend.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience"
+        )
+        cls.jwks_patcher = patch("products.enterprise.backend.api.authentication.get_vercel_jwks")
         cls.client_id_patcher.start()
         cls.mock_get_jwks = cls.jwks_patcher.start()
 
@@ -120,7 +122,7 @@ class TestVercelResourceAPI(VercelTestBase):
             error_msg = response.json()["error"]["message"]
             self.assertIn(error_substring, error_msg)
 
-    @patch("ee.vercel.integration.VercelIntegration.create_resource")
+    @patch("products.enterprise.backend.vercel.integration.VercelIntegration.create_resource")
     def test_create_resource(self, mock_create):
         mock_create.return_value = {
             "id": "new_resource",
@@ -138,7 +140,7 @@ class TestVercelResourceAPI(VercelTestBase):
         self.assert_success(response)
         mock_create.assert_called_once_with(self.installation_id, data)
 
-    @patch("ee.vercel.integration.VercelIntegration.get_resource")
+    @patch("products.enterprise.backend.vercel.integration.VercelIntegration.get_resource")
     def test_get_resource(self, mock_get):
         mock_get.return_value = {
             "id": self.primary_resource["resource_id"],
@@ -154,7 +156,7 @@ class TestVercelResourceAPI(VercelTestBase):
         self.assert_success(response)
         mock_get.assert_called_once_with(self.primary_resource["resource_id"])
 
-    @patch("ee.vercel.integration.VercelIntegration.update_resource")
+    @patch("products.enterprise.backend.vercel.integration.VercelIntegration.update_resource")
     def test_update_resource(self, mock_update):
         mock_update.return_value = {
             "id": self.primary_resource["resource_id"],
@@ -170,7 +172,7 @@ class TestVercelResourceAPI(VercelTestBase):
         self.assert_success(response)
         mock_update.assert_called_once_with(self.primary_resource["resource_id"], data)
 
-    @patch("ee.vercel.integration.VercelIntegration.delete_resource")
+    @patch("products.enterprise.backend.vercel.integration.VercelIntegration.delete_resource")
     def test_delete_resource(self, mock_delete):
         response = self.request("delete", self.primary_resource["resource_url"])
 
@@ -252,7 +254,7 @@ class TestVercelResourceAPI(VercelTestBase):
         response = self.client.get(url, **headers)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("ee.vercel.integration.VercelIntegration.create_resource")
+    @patch("products.enterprise.backend.vercel.integration.VercelIntegration.create_resource")
     def test_integration_errors_bubble_up(self, mock_create):
         from rest_framework.exceptions import ValidationError
 
@@ -264,7 +266,7 @@ class TestVercelResourceAPI(VercelTestBase):
         response = self.request("post", url, data)
         self.assert_bad_request(response)
 
-    @patch("ee.vercel.integration.VercelIntegration.create_resource")
+    @patch("products.enterprise.backend.vercel.integration.VercelIntegration.create_resource")
     def test_invalid_resource_config_rejected(self, mock_create):
         mock_create.side_effect = TypeError("ResourceConfig.__init__() missing required positional argument")
 

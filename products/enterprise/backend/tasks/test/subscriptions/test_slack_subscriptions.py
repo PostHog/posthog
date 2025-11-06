@@ -17,7 +17,7 @@ from products.enterprise.backend.tasks.subscriptions.slack_subscriptions import 
 from products.enterprise.backend.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
-@patch("ee.tasks.subscriptions.slack_subscriptions.SlackIntegration")
+@patch("products.enterprise.backend.tasks.subscriptions.slack_subscriptions.SlackIntegration")
 @freeze_time("2022-02-02T08:30:00.000Z")
 class TestSlackSubscriptionsTasks(APIBaseTest):
     subscription: Subscription
@@ -204,7 +204,7 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
         # TODO: Should we perhaps save something to say the Subscription failed?
 
 
-@patch("ee.tasks.subscriptions.slack_subscriptions.SlackIntegration")
+@patch("products.enterprise.backend.tasks.subscriptions.slack_subscriptions.SlackIntegration")
 @freeze_time("2025-01-01T08:30:00.000Z")
 class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
     TOTAL_ASSET_COUNT = 10
@@ -256,7 +256,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         assert len(result.failed_thread_message_indices) == 0
         assert result.total_thread_messages == 3
 
-    @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
+    @patch("products.enterprise.backend.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
     def test_async_delivery_partial_success(self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock) -> None:
         """Test that thread message timeouts are retried and result in partial success."""
         mock_slack_integration = MagicMock()
@@ -293,7 +293,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         assert result.failed_thread_message_indices == [1]  # Second thread message (index 1)
         assert result.total_thread_messages == 3
 
-    @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
+    @patch("products.enterprise.backend.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
     def test_async_delivery_main_message_timeout_raises(
         self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock
     ) -> None:
@@ -320,7 +320,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
 
         assert mock_async_client.chat_postMessage.call_count == 3
 
-    @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
+    @patch("products.enterprise.backend.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
     def test_async_delivery_retry_succeeds_on_second_attempt(
         self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock
     ) -> None:
