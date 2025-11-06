@@ -22,7 +22,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EventDefinition, EventDefinitionType, FilterLogicalOperator, ReplayTabs } from '~/types'
 
@@ -140,7 +139,6 @@ export function EventDefinitionsTable(): JSX.Element {
                     forceIcon: <IconApps />,
                 }}
             />
-            <SceneDivider />
             <LemonBanner type="info">
                 Looking for{' '}
                 {filters.event_type === 'event_custom'
