@@ -19,10 +19,10 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.user_permissions import UserPermissions
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role, RoleMembership
+from products.enterprise.backend.models.explicit_team_membership import ExplicitTeamMembership
+from products.enterprise.backend.models.feature_flag_role_access import FeatureFlagRoleAccess
+from products.enterprise.backend.models.rbac.access_control import AccessControl
+from products.enterprise.backend.models.rbac.role import Role, RoleMembership
 
 
 class TestOrganizationAPI(APIBaseTest):

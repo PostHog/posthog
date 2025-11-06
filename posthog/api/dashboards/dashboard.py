@@ -50,7 +50,7 @@ from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
 
-from ee.hogai.utils.aio import async_to_sync
+from products.enterprise.backend.hogai.utils.aio import async_to_sync
 
 logger = structlog.get_logger(__name__)
 

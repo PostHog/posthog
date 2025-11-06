@@ -478,7 +478,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         # Try to import enterprise model, skip test if not available
         try:
-            from ee.models.property_definition import EnterprisePropertyDefinition
+            from products.enterprise.backend.models.property_definition import EnterprisePropertyDefinition
 
             # Create hidden property definition - this should hide all values for this property
             EnterprisePropertyDefinition.objects.create(

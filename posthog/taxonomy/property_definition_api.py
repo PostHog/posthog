@@ -573,7 +573,7 @@ class PropertyDefinitionViewSet(
         if use_enterprise_taxonomy:
             try:
                 # noinspection PyUnresolvedReferences
-                from ee.models.property_definition import EnterprisePropertyDefinition
+                from products.enterprise.backend.models.property_definition import EnterprisePropertyDefinition
 
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
                 property_definition_fields = ", ".join(
@@ -658,7 +658,9 @@ class PropertyDefinitionViewSet(
             and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
         ):
             try:
-                from ee.api.ee_property_definition import EnterprisePropertyDefinitionSerializer
+                from products.enterprise.backend.api.ee_property_definition import (
+                    EnterprisePropertyDefinitionSerializer,
+                )
             except ImportError:
                 pass
             else:
@@ -681,7 +683,7 @@ class PropertyDefinitionViewSet(
         ):
             try:
                 # noinspection PyUnresolvedReferences
-                from ee.models.property_definition import EnterprisePropertyDefinition
+                from products.enterprise.backend.models.property_definition import EnterprisePropertyDefinition
             except ImportError:
                 pass
             else:

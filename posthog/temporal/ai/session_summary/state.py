@@ -8,8 +8,8 @@ from redis import asyncio as aioredis
 
 from posthog.redis import get_async_client
 
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
-from ee.models.session_summaries import ExtraSummaryContext, SingleSessionSummary
+from products.enterprise.backend.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
+from products.enterprise.backend.models.session_summaries import ExtraSummaryContext, SingleSessionSummary
 
 T = TypeVar("T")
 

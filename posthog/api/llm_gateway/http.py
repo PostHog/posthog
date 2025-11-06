@@ -21,7 +21,7 @@ from posthog.permissions import APIScopePermission
 from posthog.rate_limit import LLMGatewayBurstRateThrottle, LLMGatewaySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 
-from ee.hogai.utils.aio import async_to_sync
+from products.enterprise.backend.hogai.utils.aio import async_to_sync
 
 from .serializers import (
     AnthropicMessagesRequestSerializer,

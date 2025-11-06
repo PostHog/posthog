@@ -17,7 +17,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from ee.tasks.subscriptions import deliver_subscription_report_async, team_use_temporal_flag
+from products.enterprise.backend.tasks.subscriptions import deliver_subscription_report_async, team_use_temporal_flag
 
 LOGGER = get_logger(__name__)
 

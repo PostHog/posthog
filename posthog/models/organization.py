@@ -25,7 +25,7 @@ from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slu
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
-    from ee.billing.quota_limiting import QuotaResource
+    from products.enterprise.backend.billing.quota_limiting import QuotaResource
 
 
 logger = structlog.get_logger(__name__)
@@ -218,7 +218,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
         Returns a tuple with (billing_plan_key, billing_realm)
         """
         try:
-            from ee.models.license import License
+            from products.enterprise.backend.models.license import License
         except ImportError:
             License = None  # type: ignore
         # Demo gets all features
@@ -238,7 +238,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
             return self.available_product_features or []
 
         try:
-            from ee.models.license import License
+            from products.enterprise.backend.models.license import License
         except ImportError:
             self.available_product_features = []
             return []
@@ -277,7 +277,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
         Limit a resource for all teams of this organization until the end of the current billing cycle.
         Updates the organization's usage data with the quota_limited_until timestamp.
         """
-        from ee.billing.quota_limiting import (
+        from products.enterprise.backend.billing.quota_limiting import (
             QuotaLimitingCaches,
             add_limited_team_tokens,
             update_organization_usage_fields,
@@ -307,7 +307,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
         Remove limiting for a resource for all teams of this organization.
         Removes teams from the limiting cache and clears quota_limited_until from usage data.
         """
-        from ee.billing.quota_limiting import (
+        from products.enterprise.backend.billing.quota_limiting import (
             QuotaLimitingCaches,
             remove_limited_team_tokens,
             update_organization_usage_fields,
@@ -347,7 +347,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
             ...
         }
         """
-        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, get_client
+        from products.enterprise.backend.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, get_client
 
         team_tokens = [t for t in self.teams.values_list("api_token", flat=True) if t]
 

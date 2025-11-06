@@ -792,8 +792,10 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
 
 def cleanup_materialized_columns():
     try:
-        from ee.clickhouse.materialized_columns.columns import get_materialized_columns
-        from ee.clickhouse.materialized_columns.test.test_columns import EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
+        from products.enterprise.backend.clickhouse.materialized_columns.columns import get_materialized_columns
+        from products.enterprise.backend.clickhouse.materialized_columns.test.test_columns import (
+            EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS,
+        )
     except:
         # EE not available? Skip
         return
@@ -825,7 +827,10 @@ def cleanup_materialized_columns():
 def materialized(table, property, create_minmax_index: bool = False) -> Iterator[MaterializedColumn]:
     """Materialize a property within the managed block, removing it on exit."""
     try:
-        from ee.clickhouse.materialized_columns.columns import get_minmax_index_name, materialize
+        from products.enterprise.backend.clickhouse.materialized_columns.columns import (
+            get_minmax_index_name,
+            materialize,
+        )
     except ModuleNotFoundError as e:
         pytest.xfail(str(e))
 
@@ -859,7 +864,7 @@ def also_test_with_materialized_columns(
     if event_properties is None:
         event_properties = []
     try:
-        from ee.clickhouse.materialized_columns.analyze import materialize
+        from products.enterprise.backend.clickhouse.materialized_columns.analyze import materialize
     except:
         # EE not available? Just run the main test
         return lambda fn: fn

@@ -1489,7 +1489,11 @@ class FeatureFlagViewSet(
         try:
             # Check if team is quota limited for feature flags
             if settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
-                from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+                from products.enterprise.backend.billing.quota_limiting import (
+                    QuotaLimitingCaches,
+                    QuotaResource,
+                    list_limited_team_attributes,
+                )
 
                 limited_tokens_flags = list_limited_team_attributes(
                     QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY

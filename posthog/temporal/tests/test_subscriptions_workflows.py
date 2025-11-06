@@ -28,7 +28,7 @@ from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
     fetch_due_subscriptions_activity,
 )
 
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+from products.enterprise.backend.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 

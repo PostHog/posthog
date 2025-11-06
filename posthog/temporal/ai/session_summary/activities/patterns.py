@@ -25,20 +25,20 @@ from posthog.temporal.ai.session_summary.types.group import (
 )
 from posthog.temporal.common.client import async_connect
 
-from ee.hogai.session_summaries.constants import (
+from products.enterprise.backend.hogai.session_summaries.constants import (
     FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO,
     PATTERNS_ASSIGNMENT_CHUNK_SIZE,
     PATTERNS_EXTRACTION_MAX_TOKENS,
     SESSION_SUMMARIES_SYNC_MODEL,
     SINGLE_ENTITY_MAX_TOKENS,
 )
-from ee.hogai.session_summaries.llm.consume import (
+from products.enterprise.backend.hogai.session_summaries.llm.consume import (
     get_llm_session_group_patterns_assignment,
     get_llm_session_group_patterns_combination,
     get_llm_session_group_patterns_extraction,
 )
-from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
-from ee.hogai.session_summaries.session_group.patterns import (
+from products.enterprise.backend.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
+from products.enterprise.backend.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     RawSessionGroupPatternAssignmentsList,
     RawSessionGroupSummaryPattern,
@@ -49,13 +49,13 @@ from ee.hogai.session_summaries.session_group.patterns import (
     create_event_ids_mapping_from_ready_summaries,
     session_summary_to_serializer,
 )
-from ee.hogai.session_summaries.session_group.summarize_session_group import (
+from products.enterprise.backend.hogai.session_summaries.session_group.summarize_session_group import (
     generate_session_group_patterns_assignment_prompt,
     generate_session_group_patterns_combination_prompt,
     generate_session_group_patterns_extraction_prompt,
     remove_excessive_content_from_session_summary_for_llm,
 )
-from ee.hogai.session_summaries.utils import estimate_tokens_from_strings, logging_session_ids
+from products.enterprise.backend.hogai.session_summaries.utils import estimate_tokens_from_strings, logging_session_ids
 
 logger = structlog.get_logger(__name__)
 

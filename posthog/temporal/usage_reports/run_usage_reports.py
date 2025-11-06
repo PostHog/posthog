@@ -115,7 +115,7 @@ async def query_usage_reports(
         producer = None
         try:
             if settings.EE_AVAILABLE:
-                from ee.sqs.SQSProducer import get_sqs_producer
+                from products.enterprise.backend.sqs.SQSProducer import get_sqs_producer
 
                 producer = get_sqs_producer("usage_reports")
         except Exception:

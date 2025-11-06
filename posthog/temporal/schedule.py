@@ -29,7 +29,7 @@ from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingI
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
 
-from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
+from products.enterprise.backend.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
 logger = structlog.get_logger(__name__)
 

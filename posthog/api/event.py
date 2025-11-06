@@ -403,7 +403,7 @@ class EventViewSet(
     def _is_property_hidden(self, key: str, team: Team) -> bool:
         property_is_hidden = False
         try:
-            from ee.models.property_definition import EnterprisePropertyDefinition
+            from products.enterprise.backend.models.property_definition import EnterprisePropertyDefinition
 
             property_is_hidden = EnterprisePropertyDefinition.objects.filter(
                 team=team,

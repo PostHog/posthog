@@ -26,7 +26,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.utils import get_instance_realm
 
-from ee.models.rbac.access_control import AccessControl
+from products.enterprise.backend.models.rbac.access_control import AccessControl
 
 MOCK_GITLAB_SSO_RESPONSE = {
     "access_token": "123",
@@ -341,7 +341,7 @@ class TestSignupAPI(APIBaseTest):
     @pytest.mark.ee
     def test_signup_allowed_on_self_hosted_with_env_var(self):
         try:
-            from ee.models.license import License, LicenseManager
+            from products.enterprise.backend.models.license import License, LicenseManager
         except ImportError:
             pass
         else:
@@ -593,7 +593,7 @@ class TestSignupAPI(APIBaseTest):
         Organization.objects.create(name="Test org")
 
         try:
-            from ee.models.license import License, LicenseManager
+            from products.enterprise.backend.models.license import License, LicenseManager
         except ImportError:
             pass
         else:
@@ -629,7 +629,7 @@ class TestSignupAPI(APIBaseTest):
         Organization.objects.create(name="Test org")
         # Even with a valid license, because `MULTI_ORG_ENABLED` is not enabled, no new organizations will be allowed.
         try:
-            from ee.models.license import License, LicenseManager
+            from products.enterprise.backend.models.license import License, LicenseManager
         except ImportError:
             pass
         else:
@@ -1613,7 +1613,7 @@ class TestInviteSignupAPI(APIBaseTest):
         count = User.objects.count()
 
         try:
-            from ee.models.license import License, LicenseManager
+            from products.enterprise.backend.models.license import License, LicenseManager
         except ImportError:
             pass
         else:

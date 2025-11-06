@@ -333,7 +333,7 @@ class TestQueryRunner(BaseTest):
         try:
             from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
-            from ee.clickhouse.materialized_columns.analyze import materialize
+            from products.enterprise.backend.clickhouse.materialized_columns.analyze import materialize
 
             materialize("events", "$browser")
         except ModuleNotFoundError:

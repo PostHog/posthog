@@ -49,7 +49,7 @@ class CountedPlaylist:
 def _prepare_counted_playlists(qs: QuerySet) -> list[CountedPlaylist]:
     playlist_count_redis_prefix: str | None = None
     try:
-        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+        from products.enterprise.backend.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
             PLAYLIST_COUNT_REDIS_PREFIX,
         )
 

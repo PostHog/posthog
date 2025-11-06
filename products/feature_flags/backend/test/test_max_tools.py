@@ -6,9 +6,8 @@ from posthog.schema import FeatureFlagGroupType, GroupPropertyFilter, PersonProp
 from posthog.models import FeatureFlag
 from posthog.models.group_type_mapping import GroupTypeMapping
 
+from products.enterprise.backend.hogai.utils.types import AssistantState
 from products.feature_flags.backend.max_tools import CreateFeatureFlagTool, FeatureFlagCreationSchema
-
-from ee.hogai.utils.types import AssistantState
 
 
 class TestCreateFeatureFlagTool(APIBaseTest):

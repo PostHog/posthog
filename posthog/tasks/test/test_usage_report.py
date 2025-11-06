@@ -71,11 +71,10 @@ from products.data_warehouse.backend.models import (
     ExternalDataSource,
 )
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.enterprise.backend.api.test.base import LicensedTestMixin
+from products.enterprise.backend.clickhouse.materialized_columns.columns import materialize
+from products.enterprise.backend.models.license import License
 from products.error_tracking.backend.models import ErrorTrackingIssue
-
-from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.materialized_columns.columns import materialize
-from ee.models.license import License
 
 logger = structlog.get_logger(__name__)
 

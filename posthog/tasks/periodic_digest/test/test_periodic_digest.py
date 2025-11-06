@@ -26,8 +26,7 @@ from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_dige
 from posthog.tasks.periodic_digest.playlist_digests import get_teams_with_interesting_playlists
 
 from products.data_warehouse.backend.models import ExternalDataSource
-
-from ee.models.rbac.access_control import AccessControl
+from products.enterprise.backend.models.rbac.access_control import AccessControl
 
 
 @freeze_time("2024-01-01T00:01:00Z")  # A Monday

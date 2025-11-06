@@ -16,7 +16,7 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel, sane_repr
 from posthog.utils import absolute_uri
 
-from ee.models.rbac.access_control import AccessControl
+from products.enterprise.backend.models.rbac.access_control import AccessControl
 
 if TYPE_CHECKING:
     from posthog.models import User

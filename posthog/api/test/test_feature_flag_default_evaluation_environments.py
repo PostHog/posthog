@@ -9,7 +9,7 @@ from rest_framework import status
 from posthog.models import FeatureFlag, Tag
 from posthog.models.feature_flag import TeamDefaultEvaluationTag
 
-from ee.models.license import License, LicenseManager
+from products.enterprise.backend.models.license import License, LicenseManager
 
 
 class TestFeatureFlagDefaultEnvironments(APIBaseTest):

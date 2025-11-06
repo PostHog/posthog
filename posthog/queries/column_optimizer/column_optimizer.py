@@ -2,7 +2,7 @@
 from posthog.settings import EE_AVAILABLE
 
 if EE_AVAILABLE:
-    from ee.clickhouse.queries.column_optimizer import (
+    from products.enterprise.backend.clickhouse.queries.column_optimizer import (
         EnterpriseColumnOptimizer as ColumnOptimizer,
     )
 else:

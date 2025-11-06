@@ -761,7 +761,7 @@ def recompute_materialized_columns_enabled() -> bool:
 def clickhouse_materialize_columns() -> None:
     if recompute_materialized_columns_enabled():
         try:
-            from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+            from products.enterprise.backend.clickhouse.materialized_columns.analyze import materialize_properties_task
         except ImportError:
             pass
         else:
@@ -778,7 +778,9 @@ def send_org_usage_reports() -> None:
 @shared_task(ignore_result=True)
 def schedule_all_subscriptions() -> None:
     try:
-        from ee.tasks.subscriptions import schedule_all_subscriptions as _schedule_all_subscriptions
+        from products.enterprise.backend.tasks.subscriptions import (
+            schedule_all_subscriptions as _schedule_all_subscriptions,
+        )
     except ImportError:
         pass
     else:
@@ -789,7 +791,7 @@ def schedule_all_subscriptions() -> None:
 def clickhouse_send_license_usage() -> None:
     try:
         if not is_cloud():
-            from ee.tasks.send_license_usage import send_license_usage
+            from products.enterprise.backend.tasks.send_license_usage import send_license_usage
 
             send_license_usage()
     except ImportError:
@@ -799,7 +801,7 @@ def clickhouse_send_license_usage() -> None:
 @shared_task(ignore_result=True)
 def check_flags_to_rollback() -> None:
     try:
-        from ee.tasks.auto_rollback_feature_flag import check_flags_to_rollback
+        from products.enterprise.backend.tasks.auto_rollback_feature_flag import check_flags_to_rollback
 
         check_flags_to_rollback()
     except ImportError:
@@ -809,7 +811,7 @@ def check_flags_to_rollback() -> None:
 @shared_task(ignore_result=True)
 def ee_persist_single_recording_v2(id: str, team_id: int) -> None:
     try:
-        from ee.session_recordings.persistence_tasks import persist_single_recording_v2
+        from products.enterprise.backend.session_recordings.persistence_tasks import persist_single_recording_v2
 
         persist_single_recording_v2(id, team_id)
     except ImportError:
@@ -819,7 +821,7 @@ def ee_persist_single_recording_v2(id: str, team_id: int) -> None:
 @shared_task(ignore_result=True)
 def ee_persist_finished_recordings_v2() -> None:
     try:
-        from ee.session_recordings.persistence_tasks import persist_finished_recordings_v2
+        from products.enterprise.backend.session_recordings.persistence_tasks import persist_finished_recordings_v2
     except ImportError:
         pass
     else:
@@ -832,7 +834,7 @@ def ee_persist_finished_recordings_v2() -> None:
 )
 def count_items_in_playlists() -> None:
     try:
-        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+        from products.enterprise.backend.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
             enqueue_recordings_that_match_playlist_filters,
         )
     except ImportError as ie:

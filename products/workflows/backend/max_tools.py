@@ -7,8 +7,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
-from ee.hogai.tool import MaxTool
+from products.enterprise.backend.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from products.enterprise.backend.hogai.tool import MaxTool
 
 
 class CreateTemplateArgs(BaseModel):

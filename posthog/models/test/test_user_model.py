@@ -4,7 +4,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 
-from ee.models.rbac.access_control import AccessControl
+from products.enterprise.backend.models.rbac.access_control import AccessControl
 
 
 class TestUser(BaseTest):

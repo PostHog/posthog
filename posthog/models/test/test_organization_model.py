@@ -14,7 +14,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
 
-from ee.billing.quota_limiting import QuotaResource
+from products.enterprise.backend.billing.quota_limiting import QuotaResource
 
 
 class TestOrganization(BaseTest):
@@ -348,7 +348,7 @@ class TestOrganization(BaseTest):
 
     @patch("ee.billing.quota_limiting.get_client")
     def test_get_limited_products_with_redis_limits(self, mock_get_client):
-        from ee.billing.quota_limiting import QuotaResource
+        from products.enterprise.backend.billing.quota_limiting import QuotaResource
 
         future_timestamp = (timezone.now() + timedelta(days=1)).timestamp()
 
@@ -379,7 +379,7 @@ class TestOrganization(BaseTest):
 
     @patch("ee.billing.quota_limiting.get_client")
     def test_get_limited_products_redis_vs_usage_mismatch(self, mock_get_client):
-        from ee.billing.quota_limiting import QuotaResource
+        from products.enterprise.backend.billing.quota_limiting import QuotaResource
 
         future_timestamp = (timezone.now() + timedelta(days=1)).timestamp()
 
@@ -408,7 +408,7 @@ class TestOrganization(BaseTest):
 
     @patch("ee.billing.quota_limiting.get_client")
     def test_get_limited_products_multiple_teams(self, mock_get_client):
-        from ee.billing.quota_limiting import QuotaResource
+        from products.enterprise.backend.billing.quota_limiting import QuotaResource
 
         second_team = self.organization.teams.create(name="Second Team", api_token="second_token")
 

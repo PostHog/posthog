@@ -12,7 +12,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
 try:
-    from ee.models.rbac.access_control import AccessControl
+    from products.enterprise.backend.models.rbac.access_control import AccessControl
 except ImportError:
     pass
 

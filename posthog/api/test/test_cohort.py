@@ -37,7 +37,7 @@ from posthog.tasks.calculate_cohort import (
     increment_version_and_enqueue_calculate_cohort,
 )
 
-from ee.clickhouse.materialized_columns.analyze import materialize
+from products.enterprise.backend.clickhouse.materialized_columns.analyze import materialize
 
 
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

@@ -38,7 +38,7 @@ def get_user_blast_radius(
 
     if group_type_index is not None:
         try:
-            from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
+            from products.enterprise.backend.clickhouse.queries.groups_join_query import GroupsJoinQuery
         except Exception:
             return 0, 0
 

@@ -28,9 +28,8 @@ from products.cdp.backend.prompts import (
     HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT,
     HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT,
 )
-
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
-from ee.hogai.tool import MaxTool
+from products.enterprise.backend.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from products.enterprise.backend.hogai.tool import MaxTool
 
 
 class CreateHogTransformationFunctionArgs(BaseModel):

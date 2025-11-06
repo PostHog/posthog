@@ -70,7 +70,7 @@ from posthog.models.insight_variable import InsightVariable
 from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
 
-from ee.models.rbac.access_control import AccessControl
+from products.enterprise.backend.models.rbac.access_control import AccessControl
 
 
 class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -3613,7 +3613,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         """
         from posthog.models.organization import OrganizationMembership
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
 
         # Create insights with different access levels
         filter_dict = {"events": [{"id": "$pageview"}]}

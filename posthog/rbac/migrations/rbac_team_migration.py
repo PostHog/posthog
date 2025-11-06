@@ -5,8 +5,8 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationMembership
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.models.rbac.access_control import AccessControl
+from products.enterprise.backend.models.explicit_team_membership import ExplicitTeamMembership
+from products.enterprise.backend.models.rbac.access_control import AccessControl
 
 logger = structlog.get_logger(__name__)
 

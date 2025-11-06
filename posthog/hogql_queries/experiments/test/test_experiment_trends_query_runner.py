@@ -49,8 +49,10 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
-
-from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns, materialize
+from products.enterprise.backend.clickhouse.materialized_columns.columns import (
+    get_enabled_materialized_columns,
+    materialize,
+)
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
 

@@ -6,8 +6,9 @@ from posthog.management.commands.migrate_hooks import migrate_hooks
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
 
+from products.enterprise.backend.models.hook import Hook
+
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
-from ee.models.hook import Hook
 
 
 class TestMigrateHooks(BaseTest):

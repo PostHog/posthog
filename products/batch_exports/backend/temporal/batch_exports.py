@@ -48,8 +48,11 @@ from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
 )
-
-from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+from products.enterprise.backend.billing.quota_limiting import (
+    QuotaLimitingCaches,
+    QuotaResource,
+    list_limited_team_attributes,
+)
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")

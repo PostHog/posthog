@@ -1041,7 +1041,7 @@ def get_instance_available_sso_providers() -> dict[str, bool]:
     license = None
     if not bypass_license:
         try:
-            from ee.models.license import License
+            from products.enterprise.backend.models.license import License
         except ImportError:
             pass
         else:

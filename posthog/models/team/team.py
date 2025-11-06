@@ -780,8 +780,8 @@ class Team(UUIDTClassicModel):
         from posthog.models.organization import OrganizationMembership
         from posthog.models.user import User
 
-        from ee.models.rbac.access_control import AccessControl
-        from ee.models.rbac.role import RoleMembership
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.role import RoleMembership
 
         # First, check if the team is private
         team_is_private = AccessControl.objects.filter(

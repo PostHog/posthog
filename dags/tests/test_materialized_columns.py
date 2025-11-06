@@ -137,7 +137,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
                 assert shard_mutations == {}
 
             # XXX: if ee.* not importable, this text should have been xfailed by the materialize context manager
-            from ee.clickhouse.materialized_columns.columns import get_minmax_index_name
+            from products.enterprise.backend.clickhouse.materialized_columns.columns import get_minmax_index_name
 
             materialize_column_and_index_config = MaterializationConfig(
                 table="sharded_events",

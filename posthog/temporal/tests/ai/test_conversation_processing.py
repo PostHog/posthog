@@ -11,9 +11,9 @@ from posthog.temporal.ai.conversation import (
     process_conversation_activity,
 )
 
-from ee.hogai.stream.redis_stream import CONVERSATION_STREAM_PREFIX
-from ee.hogai.utils.types import AssistantMode
-from ee.models import Conversation
+from products.enterprise.backend.hogai.stream.redis_stream import CONVERSATION_STREAM_PREFIX
+from products.enterprise.backend.hogai.utils.types import AssistantMode
+from products.enterprise.backend.models import Conversation
 
 
 class TestProcessConversationActivity:

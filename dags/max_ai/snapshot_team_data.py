@@ -28,9 +28,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import GroupTypeMapping, Team
 from posthog.models.property_definition import PropertyDefinition
 
-from dags.common import JobOwners
-from dags.max_ai.utils import check_dump_exists, compose_clickhouse_dump_path, compose_postgres_dump_path, dump_model
-from ee.hogai.eval.schema import (
+from products.enterprise.backend.hogai.eval.schema import (
     ActorsPropertyTaxonomySnapshot,
     BaseSnapshot,
     ClickhouseTeamDataSnapshot,
@@ -42,6 +40,9 @@ from ee.hogai.eval.schema import (
     TeamSnapshot,
     TeamTaxonomyItemSnapshot,
 )
+
+from dags.common import JobOwners
+from dags.max_ai.utils import check_dump_exists, compose_clickhouse_dump_path, compose_postgres_dump_path, dump_model
 
 DEFAULT_RETRY_POLICY = dagster.RetryPolicy(
     max_retries=4,

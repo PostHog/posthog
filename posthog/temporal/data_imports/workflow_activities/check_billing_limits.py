@@ -11,7 +11,11 @@ from posthog.models.team.team import Team
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_logger
 
-from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+from products.enterprise.backend.billing.quota_limiting import (
+    QuotaLimitingCaches,
+    QuotaResource,
+    list_limited_team_attributes,
+)
 
 LOGGER = get_logger(__name__)
 

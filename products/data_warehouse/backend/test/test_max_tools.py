@@ -8,10 +8,9 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AssistantHogQLQuery, AssistantToolCall
 
 from products.data_warehouse.backend.max_tools import FinalAnswerArgs, HogQLGeneratorTool
-
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
-from ee.hogai.graph.sql.mixins import SQLSchemaGeneratorOutput
-from ee.hogai.utils.types import AssistantState
+from products.enterprise.backend.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from products.enterprise.backend.hogai.graph.sql.mixins import SQLSchemaGeneratorOutput
+from products.enterprise.backend.hogai.utils.types import AssistantState
 
 
 class TestDataWarehouseMaxTools(NonAtomicBaseTest):

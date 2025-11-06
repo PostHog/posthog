@@ -9,8 +9,8 @@ from posthog.models.user import User
 from posthog.rbac.migrations.rbac_dashboard_migration import rbac_dashboard_access_control_migration
 
 try:
-    from ee.models.dashboard_privilege import DashboardPrivilege
-    from ee.models.rbac.access_control import AccessControl
+    from products.enterprise.backend.models.dashboard_privilege import DashboardPrivilege
+    from products.enterprise.backend.models.rbac.access_control import AccessControl
 except ImportError:
     pass
 

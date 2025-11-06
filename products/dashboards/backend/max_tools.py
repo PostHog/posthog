@@ -13,9 +13,9 @@ from posthog.rbac.user_access_control import UserAccessControl, access_level_sat
 from posthog.sync import database_sync_to_async
 from posthog.user_permissions import UserPermissions
 
-from ee.hogai.graph.dashboards.nodes import DashboardCreationNode
-from ee.hogai.tool import MaxTool
-from ee.hogai.utils.types.base import AssistantState, InsightQuery
+from products.enterprise.backend.hogai.graph.dashboards.nodes import DashboardCreationNode
+from products.enterprise.backend.hogai.tool import MaxTool
+from products.enterprise.backend.hogai.utils.types.base import AssistantState, InsightQuery
 
 logger = structlog.get_logger(__name__)
 

@@ -11,9 +11,8 @@ from rest_framework.test import APIRequestFactory
 from posthog.models import Dashboard, Experiment, FeatureFlag, Insight, Project, Team, User
 from posthog.models.file_system.file_system import FileSystem
 
+from products.enterprise.backend.models.rbac.access_control import AccessControl
 from products.notebooks.backend.models import Notebook
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestFileSystemAPI(APIBaseTest):

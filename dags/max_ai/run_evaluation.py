@@ -12,6 +12,7 @@ from dagster_slack import SlackResource
 from pydantic import BaseModel, Field, ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from products.enterprise.backend.hogai.eval.schema import DatasetInput, EvalsDockerImageConfig, TeamEvaluationSnapshot
 from products.llm_analytics.backend.models import Dataset, DatasetItem
 
 from dags.common import JobOwners
@@ -22,7 +23,6 @@ from dags.max_ai.snapshot_team_data import (
     snapshot_postgres_team_data,
 )
 from dags.max_ai.utils import EvaluationResults, format_results
-from ee.hogai.eval.schema import DatasetInput, EvalsDockerImageConfig, TeamEvaluationSnapshot
 
 
 def get_object_storage_endpoint() -> str:

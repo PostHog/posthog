@@ -14,7 +14,7 @@ class MaterializedColumn(Protocol):
 
 
 if EE_AVAILABLE:
-    from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns
+    from products.enterprise.backend.clickhouse.materialized_columns.columns import get_enabled_materialized_columns
 
     def get_materialized_column_for_property(
         table: TablesWithMaterializedColumns, table_column: TableColumn, property_name: PropertyName

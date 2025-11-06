@@ -40,7 +40,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from ee.clickhouse.models.test.test_cohort import get_person_ids_by_cohort_id
+from products.enterprise.backend.clickhouse.models.test.test_cohort import get_person_ids_by_cohort_id
 
 
 @parameterized_class([{"allow_event_property_expansion": True}, {"allow_event_property_expansion": False}])

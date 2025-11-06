@@ -43,7 +43,7 @@ class TestTaggedItem(BaseTest):
 
     def test_uniqueness_constraint_event_definition(self):
         try:
-            from ee.models import EnterpriseEventDefinition
+            from products.enterprise.backend.models import EnterpriseEventDefinition
         except ImportError:
             pass
         else:
@@ -58,7 +58,7 @@ class TestTaggedItem(BaseTest):
 
     def test_uniqueness_constraint_property_definition(self):
         try:
-            from ee.models import EnterprisePropertyDefinition
+            from products.enterprise.backend.models import EnterprisePropertyDefinition
         except ImportError:
             pass
         else:

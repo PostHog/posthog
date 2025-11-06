@@ -16,7 +16,7 @@ from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQuer
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.utils import get_instance_region
 
-from ee.models.assistant import CoreMemory
+from products.enterprise.backend.models.assistant import CoreMemory
 
 
 class SuggestedQuestionsQueryRunner(QueryRunner):

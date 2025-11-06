@@ -54,27 +54,32 @@ from posthog.temporal.ai.session_summary.types.single import SingleSessionSummar
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 
-from ee.hogai.session_summaries.constants import (
+from products.enterprise.backend.hogai.session_summaries.constants import (
     FAILED_PATTERNS_EXTRACTION_MIN_RATIO,
     FAILED_SESSION_SUMMARIES_MIN_RATIO,
     SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS,
     SESSION_SUMMARIES_SYNC_MODEL,
 )
-from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events, get_team
-from ee.hogai.session_summaries.session.summarize_session import (
+from products.enterprise.backend.hogai.session_summaries.session.input_data import (
+    add_context_and_filter_events,
+    get_team,
+)
+from products.enterprise.backend.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SessionSummaryDBData,
     prepare_data_for_single_session_summary,
     prepare_single_session_summary_input,
 )
-from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
-from ee.hogai.session_summaries.session_group.summary_notebooks import (
+from products.enterprise.backend.hogai.session_summaries.session_group.patterns import (
+    EnrichedSessionGroupSummaryPatternsList,
+)
+from products.enterprise.backend.hogai.session_summaries.session_group.summary_notebooks import (
     format_extracted_patterns_status,
     format_patterns_assignment_progress,
     format_single_sessions_status,
 )
-from ee.hogai.session_summaries.utils import logging_session_ids
-from ee.models.session_summaries import SingleSessionSummary
+from products.enterprise.backend.hogai.session_summaries.utils import logging_session_ids
+from products.enterprise.backend.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 

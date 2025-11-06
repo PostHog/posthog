@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
 
-from ee.models.license import License
+from products.enterprise.backend.models.license import License
 
 
 class TestCloudUtils(BaseTest):

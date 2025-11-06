@@ -212,7 +212,7 @@ class User(AbstractUser, UUIDTClassicModel):
             org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features]
             if AvailableFeature.ADVANCED_PERMISSIONS in org_available_product_feature_keys:
                 try:
-                    from ee.models.rbac.access_control import AccessControl
+                    from products.enterprise.backend.models.rbac.access_control import AccessControl
                 except ImportError:
                     pass
                 else:
@@ -237,7 +237,7 @@ class User(AbstractUser, UUIDTClassicModel):
 
                     # Get teams where user has role-based access
                     try:
-                        from ee.models.rbac.role import RoleMembership
+                        from products.enterprise.backend.models.rbac.role import RoleMembership
 
                         user_roles = RoleMembership.objects.filter(
                             user=self, organization_member__in=[membership.id for membership in org_memberships]
@@ -333,7 +333,7 @@ class User(AbstractUser, UUIDTClassicModel):
         # Auto-assign default role if configured
         if organization.default_role_id:
             try:
-                from ee.models import RoleMembership
+                from products.enterprise.backend.models import RoleMembership
 
                 RoleMembership.objects.create(
                     role_id=organization.default_role_id, user=self, organization_member=membership
@@ -375,7 +375,7 @@ class User(AbstractUser, UUIDTClassicModel):
         self.update_billing_organization_users(organization)
 
     def update_billing_organization_users(self, organization: Organization) -> None:
-        from ee.billing.billing_manager import BillingManager  # avoid circular import
+        from products.enterprise.backend.billing.billing_manager import BillingManager  # avoid circular import
 
         if is_cloud() and get_cached_instance_license() is not None:
             BillingManager(get_cached_instance_license()).update_billing_organization_users(organization)

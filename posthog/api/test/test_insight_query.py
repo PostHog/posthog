@@ -5,7 +5,7 @@ from rest_framework import status
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models.insight import Insight
 
-from ee.api.test.base import LicensedTestMixin
+from products.enterprise.backend.api.test.base import LicensedTestMixin
 
 
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):

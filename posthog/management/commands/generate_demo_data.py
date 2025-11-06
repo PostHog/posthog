@@ -19,7 +19,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 
-from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+from products.enterprise.backend.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
 

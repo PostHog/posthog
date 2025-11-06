@@ -37,8 +37,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
 from products.early_access_features.backend.models import EarlyAccessFeature
-
-from ee.models.rbac.access_control import AccessControl
+from products.enterprise.backend.models.rbac.access_control import AccessControl
 
 
 def team_api_test_factory():
@@ -1513,7 +1512,7 @@ def team_api_test_factory():
         def test_can_complete_product_onboarding_as_member(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
-            from ee.models.rbac.access_control import AccessControl
+            from products.enterprise.backend.models.rbac.access_control import AccessControl
 
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()

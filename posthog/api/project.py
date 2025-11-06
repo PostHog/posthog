@@ -53,7 +53,7 @@ from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
-from ee.api.rbac.access_control import AccessControlViewSetMixin
+from products.enterprise.backend.api.rbac.access_control import AccessControlViewSetMixin
 
 MAX_ALLOWED_PROJECTS_PER_ORG = 1500
 

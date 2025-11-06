@@ -6,9 +6,8 @@ from posthog.schema import AssistantToolCallMessage
 from posthog.models import Dashboard
 
 from products.dashboards.backend.max_tools import EditCurrentDashboardTool
-
-from ee.hogai.graph.dashboards.nodes import DashboardCreationNode
-from ee.hogai.utils.types.base import InsightQuery
+from products.enterprise.backend.hogai.graph.dashboards.nodes import DashboardCreationNode
+from products.enterprise.backend.hogai.utils.types.base import InsightQuery
 
 
 class TestEditCurrentDashboardTool:

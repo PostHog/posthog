@@ -30,6 +30,7 @@ from posthog.schema import (
 
 from posthog.models.utils import uuid7
 
+from products.enterprise.backend.models.rbac.role import Role
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import (
     ErrorTrackingQueryRunner,
     search_tokenizer,
@@ -41,8 +42,6 @@ from products.error_tracking.backend.models import (
     override_error_tracking_issue_fingerprint,
     update_error_tracking_issue_fingerprints,
 )
-
-from ee.models.rbac.role import Role
 
 
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):

@@ -11,8 +11,8 @@ from posthog.rbac.migrations.rbac_dashboard_migration import rbac_dashboard_acce
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 
-from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
-from ee.models.rbac.role import Role
+from products.enterprise.backend.models.rbac.organization_resource_access import OrganizationResourceAccess
+from products.enterprise.backend.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)

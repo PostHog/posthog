@@ -9,7 +9,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
-from ee.models.dashboard_privilege import DashboardPrivilege
+from products.enterprise.backend.models.dashboard_privilege import DashboardPrivilege
 
 
 class WithPermissionsBase:
@@ -50,7 +50,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             assert permissions.team(self.team).effective_membership_level is None
 
     def test_team_effective_membership_level_with_explicit_membership_returns_current_level(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
 
         # Make the team private using new access control system
         AccessControl.objects.create(
@@ -71,7 +71,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         assert self.team.id in self.permissions().team_ids_visible_for_user
 
     def test_team_ids_visible_for_user_no_explicit_permissions(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
 
         # Make the team private using new access control system
         AccessControl.objects.create(
@@ -86,7 +86,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         assert self.team.id not in self.permissions().team_ids_visible_for_user
 
     def test_team_ids_visible_for_user_explicit_permission(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
 
         # Make the team private using new access control system
         AccessControl.objects.create(
@@ -99,7 +99,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         )
 
         # ExplicitTeamMembership deprecated - now using AccessControl for granular permissions
-        from ee.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
 
         AccessControl.objects.create(
             team=self.team,
@@ -127,7 +127,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
 
     def test_team_effective_membership_level_new_access_control_private_team_admin(self):
         """Test that organization admins have access to a private team with the new access control system"""
-        from ee.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
 
         # Set up team with new access control system
         # Team is not private (no AccessControl objects), so organization level is used
@@ -152,7 +152,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
 
     def test_team_effective_membership_level_new_access_control_private_team_member_no_access(self):
         """Test that regular members don't have access to a private team with the new access control system"""
-        from ee.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
 
         # Set up team with new access control system
         # Team is not private (no AccessControl objects), so organization level is used
@@ -177,7 +177,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
 
     def test_team_effective_membership_level_new_access_control_private_team_with_member_access(self):
         """Test that users with specific member access have access to a private team with the new access control system"""
-        from ee.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
 
         # Set up team with new access control system
         # Team is not private (no AccessControl objects), so organization level is used
@@ -211,8 +211,8 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
 
     def test_team_effective_membership_level_new_access_control_private_team_with_role_access(self):
         """Test that users with role-based access have access to a private team with the new access control system"""
-        from ee.models.rbac.access_control import AccessControl
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.role import Role, RoleMembership
 
         # Set up team with new access control system
         # Team is not private (no AccessControl objects), so organization level is used

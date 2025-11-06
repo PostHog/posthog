@@ -9,7 +9,7 @@ from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 
 if TYPE_CHECKING:
-    from ee.models.license import License
+    from products.enterprise.backend.models.license import License
 
 is_cloud_cached: Optional[bool] = None
 is_instance_licensed_cached: Optional[bool] = None
@@ -36,7 +36,7 @@ def get_cached_instance_license() -> Optional["License"]:
     global is_instance_licensed_cached
 
     try:
-        from ee.models.license import License
+        from products.enterprise.backend.models.license import License
     except ProgrammingError:
         # TRICKY - The license table may not exist if a migration is running
         pass

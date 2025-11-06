@@ -35,23 +35,26 @@ from posthog.temporal.ai.session_summary.types.single import SingleSessionSummar
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 
-from ee.hogai.session_summaries import ExceptionToRetry
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL, SESSION_SUMMARIES_SYNC_MODEL
-from ee.hogai.session_summaries.llm.consume import (
+from products.enterprise.backend.hogai.session_summaries import ExceptionToRetry
+from products.enterprise.backend.hogai.session_summaries.constants import (
+    SESSION_SUMMARIES_STREAMING_MODEL,
+    SESSION_SUMMARIES_SYNC_MODEL,
+)
+from products.enterprise.backend.hogai.session_summaries.llm.consume import (
     get_exception_event_ids_from_summary,
     get_llm_single_session_summary,
     stream_llm_single_session_summary,
 )
-from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
-from ee.hogai.session_summaries.session.summarize_session import (
+from products.enterprise.backend.hogai.session_summaries.session.output_data import SessionSummarySerializer
+from products.enterprise.backend.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SingleSessionSummaryLlmInputs,
     get_session_data_from_db,
     prepare_data_for_single_session_summary,
     prepare_single_session_summary_input,
 )
-from ee.hogai.session_summaries.utils import serialize_to_sse_event
-from ee.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
+from products.enterprise.backend.hogai.session_summaries.utils import serialize_to_sse_event
+from products.enterprise.backend.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 

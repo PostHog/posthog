@@ -30,7 +30,7 @@ class TestRowTracking(BaseTest):
 
     @contextlib.contextmanager
     def _setup_limits(self, limit: int):
-        from ee.api.test.test_billing import create_billing_customer
+        from products.enterprise.backend.api.test.test_billing import create_billing_customer
 
         with mock.patch("ee.api.billing.requests.get") as mock_billing_request:
             mock_res = create_billing_customer()
@@ -62,7 +62,7 @@ class TestRowTracking(BaseTest):
             finish_row_tracking(t_id, schema_id)
 
     def _run(self, source: ExternalDataSource, limit: int) -> bool:
-        from ee.models.license import License
+        from products.enterprise.backend.models.license import License
 
         License.objects.create(
             key="12345::67890",

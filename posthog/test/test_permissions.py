@@ -19,8 +19,8 @@ from posthog.permissions import AccessControlPermission
 from posthog.rbac.user_access_control import UserAccessControl
 
 try:
-    from ee.models.rbac.access_control import AccessControl
-    from ee.models.rbac.role import Role, RoleMembership
+    from products.enterprise.backend.models.rbac.access_control import AccessControl
+    from products.enterprise.backend.models.rbac.role import Role, RoleMembership
 except ImportError:
     pass
 

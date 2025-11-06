@@ -1225,7 +1225,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         from posthog.constants import AvailableFeature
 
-        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+        from products.enterprise.backend.billing.quota_limiting import (
+            QuotaLimitingCaches,
+            QuotaResource,
+            list_limited_team_attributes,
+        )
 
         if self.team.api_token in list_limited_team_attributes(
             QuotaResource.API_QUERIES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY

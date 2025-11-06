@@ -17,13 +17,13 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import FeatureFlag, Survey, Team, User
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.tool import MaxTool
+from products.enterprise.backend.hogai.graph.taxonomy.agent import TaxonomyAgent
+from products.enterprise.backend.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from products.enterprise.backend.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
+from products.enterprise.backend.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
+from products.enterprise.backend.hogai.graph.taxonomy.types import TaxonomyAgentState
+from products.enterprise.backend.hogai.llm import MaxChatOpenAI
+from products.enterprise.backend.hogai.tool import MaxTool
 
 from .prompts import SURVEY_ANALYSIS_SYSTEM_PROMPT, SURVEY_CREATION_SYSTEM_PROMPT
 

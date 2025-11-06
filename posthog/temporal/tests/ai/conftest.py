@@ -15,15 +15,19 @@ from posthog.temporal.ai.session_summary.summarize_session_group import SessionG
 from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
-from ee.hogai.session_summaries.constants import (
+from products.enterprise.backend.hogai.session_summaries.constants import (
     SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
     SESSION_SUMMARIES_STREAMING_MODEL,
     SESSION_SUMMARIES_SYNC_MODEL,
 )
-from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
-from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
-from ee.hogai.session_summaries.tests.conftest import *
-from ee.models.session_summaries import ExtraSummaryContext, SessionSummaryRunMeta, SingleSessionSummary
+from products.enterprise.backend.hogai.session_summaries.session.output_data import SessionSummarySerializer
+from products.enterprise.backend.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
+from products.enterprise.backend.hogai.session_summaries.tests.conftest import *
+from products.enterprise.backend.models.session_summaries import (
+    ExtraSummaryContext,
+    SessionSummaryRunMeta,
+    SingleSessionSummary,
+)
 
 
 @pytest.fixture

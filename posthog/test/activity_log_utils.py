@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from ee.api.test.base import APILicensedTest
+from products.enterprise.backend.api.test.base import APILicensedTest
 
 if TYPE_CHECKING:
     pass

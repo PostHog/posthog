@@ -59,7 +59,7 @@ def noop(*args, **kwargs) -> None:
 
 
 try:
-    from ee.models.license import get_licensed_users_available
+    from products.enterprise.backend.models.license import get_licensed_users_available
 except ImportError:
     get_licensed_users_available = noop
 

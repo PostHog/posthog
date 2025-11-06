@@ -14,14 +14,14 @@ from posthog.schema import HumanMessage, MaxBillingContext
 from posthog.models import Team, User
 from posthog.temporal.common.base import PostHogWorkflow
 
-from ee.hogai.assistant import Assistant
-from ee.hogai.stream.redis_stream import (
+from products.enterprise.backend.hogai.assistant import Assistant
+from products.enterprise.backend.hogai.stream.redis_stream import (
     CONVERSATION_STREAM_TIMEOUT,
     ConversationRedisStream,
     get_conversation_stream_key,
 )
-from ee.hogai.utils.types import AssistantMode
-from ee.models import Conversation
+from products.enterprise.backend.hogai.utils.types import AssistantMode
+from products.enterprise.backend.models import Conversation
 
 logger = structlog.get_logger(__name__)
 

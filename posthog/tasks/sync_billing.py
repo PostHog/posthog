@@ -25,7 +25,7 @@ def sync_from_billing(organization_id: str) -> None:
     from posthog.cloud_utils import get_cached_instance_license
     from posthog.models import Organization
 
-    from ee.billing.billing_manager import BillingManager
+    from products.enterprise.backend.billing.billing_manager import BillingManager
 
     license = get_cached_instance_license()
     billing_manager = BillingManager(license, None)

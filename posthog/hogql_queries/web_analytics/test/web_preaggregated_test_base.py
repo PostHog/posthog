@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, cleanup_materialized_columns
 
-from ee.clickhouse.materialized_columns.columns import materialize
+from products.enterprise.backend.clickhouse.materialized_columns.columns import materialize
 
 
 class WebAnalyticsPreAggregatedTestBase(ClickhouseTestMixin, APIBaseTest, ABC):

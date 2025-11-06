@@ -120,7 +120,7 @@ def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", logger: F
         return False
 
     try:
-        from ee.billing.billing_manager import BillingManager
+        from products.enterprise.backend.billing.billing_manager import BillingManager
 
         logger.debug("Running will_hit_billing_limit")
 

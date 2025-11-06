@@ -460,7 +460,7 @@ class TestPrinter(BaseTest):
 
     def test_hogql_properties_materialized_json_access(self):
         try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
+            from products.enterprise.backend.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
             # EE not available? Assume we're good
             self.assertEqual(1 + 2, 3)
@@ -484,7 +484,7 @@ class TestPrinter(BaseTest):
 
     def test_materialized_fields_and_properties(self):
         try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
+            from products.enterprise.backend.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
             # EE not available? Assume we're good
             self.assertEqual(1 + 2, 3)
@@ -1757,7 +1757,7 @@ class TestPrinter(BaseTest):
             team=self.team, name="is_boolean", property_type="Boolean", type=PropertyDefinition.Type.EVENT
         )
         try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
+            from products.enterprise.backend.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
             # EE not available? Assume we're good
             self.assertEqual(1 + 2, 3)
@@ -1792,7 +1792,10 @@ class TestPrinter(BaseTest):
     def test_ai_trace_id_optimizations(self, mock_get_mat_col):
         """Test that $ai_trace_id gets special treatment for bloom filter index optimization"""
 
-        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+        from products.enterprise.backend.clickhouse.materialized_columns.columns import (
+            MaterializedColumn,
+            MaterializedColumnDetails,
+        )
 
         mock_mat_col = MaterializedColumn(
             name="mat_$ai_trace_id",
@@ -1855,7 +1858,10 @@ class TestPrinter(BaseTest):
     def test_ai_session_id_optimizations(self, mock_get_mat_col):
         """Test that $ai_session_id gets special treatment for bloom filter index optimization"""
 
-        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+        from products.enterprise.backend.clickhouse.materialized_columns.columns import (
+            MaterializedColumn,
+            MaterializedColumnDetails,
+        )
 
         mock_mat_col = MaterializedColumn(
             name="mat_$ai_session_id",
@@ -2152,7 +2158,7 @@ class TestPrinter(BaseTest):
 
     def test_print_hidden_aliases_properties(self):
         try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
+            from products.enterprise.backend.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
             # EE not available? Assume we're good
             self.assertEqual(1 + 2, 3)
@@ -2172,7 +2178,7 @@ class TestPrinter(BaseTest):
 
     def test_print_hidden_aliases_double_property(self):
         try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
+            from products.enterprise.backend.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
             # EE not available? Assume we're good
             self.assertEqual(1 + 2, 3)

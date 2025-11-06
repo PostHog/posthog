@@ -815,7 +815,7 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
         from posthog.constants import AvailableFeature
         from posthog.models import OrganizationMembership
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
@@ -859,7 +859,7 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
         from posthog.constants import AvailableFeature
         from posthog.models import OrganizationMembership
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
@@ -909,7 +909,7 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
         from posthog.constants import AvailableFeature
         from posthog.models import OrganizationMembership
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}

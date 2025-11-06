@@ -227,7 +227,7 @@ class TestModifiers(BaseTest):
 
     def test_modifiers_materialization_mode(self):
         try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
+            from products.enterprise.backend.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
             # EE not available? Assume we're good
             self.assertEqual(1 + 2, 3)

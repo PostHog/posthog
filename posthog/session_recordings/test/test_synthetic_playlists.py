@@ -15,7 +15,7 @@ from posthog.session_recordings.models.session_recording_event import SessionRec
 from posthog.session_recordings.synthetic_playlists import NewUrlsSyntheticPlaylistSource
 
 try:
-    from ee.models.session_summaries import SingleSessionSummary
+    from products.enterprise.backend.models.session_summaries import SingleSessionSummary
 
     HAS_EE = True
 except ImportError:

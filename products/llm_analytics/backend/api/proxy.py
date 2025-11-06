@@ -28,14 +28,13 @@ from posthog.rate_limit import LLMGatewayBurstRateThrottle, LLMGatewaySustainedR
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
+from products.enterprise.backend.hogai.utils.asgi import SyncIterableToAsync
 from products.llm_analytics.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
 from products.llm_analytics.backend.providers.codestral import CodestralConfig, CodestralProvider
 from products.llm_analytics.backend.providers.formatters.tools_handler import LLMToolsHandler, ToolFormat
 from products.llm_analytics.backend.providers.gemini import GeminiConfig, GeminiProvider
 from products.llm_analytics.backend.providers.inkeep import InkeepConfig, InkeepProvider
 from products.llm_analytics.backend.providers.openai import OpenAIConfig, OpenAIProvider
-
-from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = logging.getLogger(__name__)
 

@@ -15,8 +15,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team.team import Team
 
-from ee.models import Role, RoleMembership
-from ee.models.rbac.access_control import AccessControl
+from products.enterprise.backend.models import Role, RoleMembership
+from products.enterprise.backend.models.rbac.access_control import AccessControl
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 

@@ -11,14 +11,14 @@ from posthog.schema import ErrorTrackingIssueFilteringToolOutput, ErrorTrackingI
 
 from posthog.models import Team, User
 
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from ee.hogai.tool import MaxTool
+from products.enterprise.backend.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from products.enterprise.backend.hogai.graph.taxonomy.agent import TaxonomyAgent
+from products.enterprise.backend.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from products.enterprise.backend.hogai.graph.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
+from products.enterprise.backend.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
+from products.enterprise.backend.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
+from products.enterprise.backend.hogai.graph.taxonomy.types import TaxonomyAgentState
+from products.enterprise.backend.hogai.tool import MaxTool
 
 from .prompts import (
     ERROR_TRACKING_FILTER_INITIAL_PROMPT,

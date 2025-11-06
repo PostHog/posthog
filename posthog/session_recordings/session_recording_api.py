@@ -77,8 +77,8 @@ from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 
-from ee.hogai.session_summaries.llm.call import get_openai_client
-from ee.hogai.session_summaries.session.stream import stream_recording_summary
+from products.enterprise.backend.hogai.session_summaries.llm.call import get_openai_client
+from products.enterprise.backend.hogai.session_summaries.session.stream import stream_recording_summary
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters

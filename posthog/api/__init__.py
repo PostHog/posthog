@@ -32,6 +32,7 @@ from products.data_warehouse.backend.api import (
 )
 from products.data_warehouse.backend.api.lineage import LineageViewSet
 from products.desktop_recordings.backend.api import DesktopRecordingViewSet
+from products.enterprise.backend.api.vercel import vercel_installation, vercel_product, vercel_resource
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
     ErrorTrackingExternalReferenceViewSet,
@@ -54,8 +55,6 @@ from products.llm_analytics.backend.api import (
 from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
-
-from ee.api.vercel import vercel_installation, vercel_product, vercel_resource
 
 from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -586,12 +585,19 @@ register_grandfathered_environment_nested_viewset(r"saved", SavedHeatmapViewSet,
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
-    from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
-    from ee.clickhouse.views.experiment_saved_metrics import ExperimentSavedMetricViewSet
-    from ee.clickhouse.views.experiments import EnterpriseExperimentsViewSet
-    from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet, GroupUsageMetricViewSet
-    from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
-    from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
+    from products.enterprise.backend.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
+    from products.enterprise.backend.clickhouse.views.experiment_saved_metrics import ExperimentSavedMetricViewSet
+    from products.enterprise.backend.clickhouse.views.experiments import EnterpriseExperimentsViewSet
+    from products.enterprise.backend.clickhouse.views.groups import (
+        GroupsTypesViewSet,
+        GroupsViewSet,
+        GroupUsageMetricViewSet,
+    )
+    from products.enterprise.backend.clickhouse.views.insights import EnterpriseInsightsViewSet
+    from products.enterprise.backend.clickhouse.views.person import (
+        EnterprisePersonViewSet,
+        LegacyEnterprisePersonViewSet,
+    )
 
     projects_router.register(r"experiments", EnterpriseExperimentsViewSet, "project_experiments", ["project_id"])
     projects_router.register(

@@ -39,7 +39,7 @@ def ensure_only_new_column_exists(database, table_name, old_column_name, new_col
 
 def materialize_session_and_window_id(database):
     try:
-        from ee.clickhouse.materialized_columns.columns import materialize
+        from products.enterprise.backend.clickhouse.materialized_columns.columns import materialize
     except ImportError:
         return
 

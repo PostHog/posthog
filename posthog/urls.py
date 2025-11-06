@@ -65,7 +65,7 @@ logger = structlog.get_logger(__name__)
 
 ee_urlpatterns: list[Any] = []
 try:
-    from ee.urls import (
+    from products.enterprise.backend.urls import (
         extend_api_router,
         urlpatterns as ee_urlpatterns,
     )

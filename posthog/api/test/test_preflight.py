@@ -230,7 +230,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
     @pytest.mark.skip_on_multitenancy
     def test_ee_preflight_with_users_limit(self):
         try:
-            from ee.models.license import License, LicenseManager
+            from products.enterprise.backend.models.license import License, LicenseManager
         except ImportError:
             pass
         else:
@@ -267,7 +267,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         assert response.json()["can_create_org"] is False
 
         try:
-            from ee.models.license import License, LicenseManager
+            from products.enterprise.backend.models.license import License, LicenseManager
         except ImportError:
             pass
         else:

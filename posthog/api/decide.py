@@ -168,7 +168,11 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
     if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
         with tracer.start_as_current_span("quota_check"):
-            from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+            from products.enterprise.backend.billing.quota_limiting import (
+                QuotaLimitingCaches,
+                QuotaResource,
+                list_limited_team_attributes,
+            )
 
             limited_tokens_recordings = list_limited_team_attributes(
                 QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
@@ -405,7 +409,11 @@ def get_feature_flags_response_or_body(
 
     # Check if team is quota limited for feature flags
     if settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
-        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+        from products.enterprise.backend.billing.quota_limiting import (
+            QuotaLimitingCaches,
+            QuotaResource,
+            list_limited_team_attributes,
+        )
 
         limited_tokens_flags = list_limited_team_attributes(
             QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY

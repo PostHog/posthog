@@ -15,7 +15,12 @@ from posthog.models import OrganizationDomain
 from posthog.models.organization import Organization
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
-from ee.api.scim.utils import disable_scim_for_domain, enable_scim_for_domain, get_scim_base_url, regenerate_scim_token
+from products.enterprise.backend.api.scim.utils import (
+    disable_scim_for_domain,
+    enable_scim_for_domain,
+    get_scim_base_url,
+    regenerate_scim_token,
+)
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
 

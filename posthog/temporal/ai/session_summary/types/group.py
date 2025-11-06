@@ -3,7 +3,7 @@ from enum import Enum
 
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
-from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
+from products.enterprise.backend.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 
 
 class SessionSummaryStreamUpdate(Enum):

@@ -10,8 +10,8 @@ from posthog.schema import MaxExperimentSummaryContext
 
 from posthog.exceptions_capture import capture_exception
 
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.tool import MaxTool
+from products.enterprise.backend.hogai.llm import MaxChatOpenAI
+from products.enterprise.backend.hogai.tool import MaxTool
 
 from .prompts import EXPERIMENT_SUMMARY_BAYESIAN_PROMPT, EXPERIMENT_SUMMARY_FREQUENTIST_PROMPT
 

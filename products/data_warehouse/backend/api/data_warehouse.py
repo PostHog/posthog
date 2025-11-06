@@ -17,8 +17,7 @@ from posthog.cloud_utils import get_cached_instance_license
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
-
-from ee.billing.billing_manager import BillingManager
+from products.enterprise.backend.billing.billing_manager import BillingManager
 
 logger = structlog.get_logger(__name__)
 

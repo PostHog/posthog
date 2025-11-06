@@ -3,7 +3,7 @@ from infi.clickhouse_orm import migrations
 
 def create_materialized_columns(database):
     try:
-        from ee.clickhouse.materialized_columns.columns import materialize
+        from products.enterprise.backend.clickhouse.materialized_columns.columns import materialize
     except ImportError:
         return
 

@@ -31,7 +31,7 @@ async def run_quota_limiting_all_orgs(
 ) -> None:
     async with Heartbeater():
         try:
-            from ee.billing.quota_limiting import update_all_orgs_billing_quotas
+            from products.enterprise.backend.billing.quota_limiting import update_all_orgs_billing_quotas
 
             @database_sync_to_async(thread_sensitive=True)
             def async_update_all_orgs_billing_quotas():

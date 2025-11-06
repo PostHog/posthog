@@ -9,14 +9,14 @@ from posthog.schema import MaxRecordingUniversalFilters
 
 from posthog.models import Team, User
 
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import base_final_answer
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from ee.hogai.tool import MaxTool
-from ee.hogai.utils.types.base import AssistantNodeName
-from ee.hogai.utils.types.composed import MaxNodeName
+from products.enterprise.backend.hogai.graph.taxonomy.agent import TaxonomyAgent
+from products.enterprise.backend.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from products.enterprise.backend.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
+from products.enterprise.backend.hogai.graph.taxonomy.tools import base_final_answer
+from products.enterprise.backend.hogai.graph.taxonomy.types import TaxonomyAgentState
+from products.enterprise.backend.hogai.tool import MaxTool
+from products.enterprise.backend.hogai.utils.types.base import AssistantNodeName
+from products.enterprise.backend.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     DATE_FIELDS_PROMPT,

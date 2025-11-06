@@ -58,17 +58,17 @@ from posthog.temporal.ai.session_summary.types.group import (
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext
 
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
-from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
-from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
-from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
-from ee.hogai.session_summaries.session_group.patterns import (
+from products.enterprise.backend.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
+from products.enterprise.backend.hogai.session_summaries.session.output_data import SessionSummarySerializer
+from products.enterprise.backend.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
+from products.enterprise.backend.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
+from products.enterprise.backend.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPattern,
     EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPatternStats,
     RawSessionGroupSummaryPatternsList,
 )
-from ee.models.session_summaries import SingleSessionSummary
+from products.enterprise.backend.models.session_summaries import SingleSessionSummary
 
 pytestmark = pytest.mark.django_db
 

@@ -16,7 +16,7 @@ from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
 if TYPE_CHECKING:
     from posthog.models.file_system.file_system import FileSystem
 
-    from ee.models import AccessControl
+    from products.enterprise.backend.models import AccessControl
 
     _AccessControl = AccessControl
 else:
@@ -24,7 +24,7 @@ else:
 
 
 try:
-    from ee.models.rbac.access_control import AccessControl
+    from products.enterprise.backend.models.rbac.access_control import AccessControl
 except ImportError:
     pass
 

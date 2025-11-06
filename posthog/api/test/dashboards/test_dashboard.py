@@ -26,7 +26,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from ee.models.rbac.access_control import AccessControl
+from products.enterprise.backend.models.rbac.access_control import AccessControl
 
 valid_template: dict = {
     "template_name": "Sign up conversion template with variables",

@@ -58,7 +58,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
-from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
+from products.enterprise.backend.surveys.summaries.summarize_surveys import summarize_survey_responses
 
 # Constants for better maintainability
 logger = structlog.get_logger(__name__)

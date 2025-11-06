@@ -10,8 +10,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.models.rbac.access_control import AccessControl
+from products.enterprise.backend.models.explicit_team_membership import ExplicitTeamMembership
+from products.enterprise.backend.models.rbac.access_control import AccessControl
 
 
 class TestOrganizationInvite(BaseTest):

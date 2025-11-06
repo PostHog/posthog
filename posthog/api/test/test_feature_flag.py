@@ -3941,7 +3941,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.api.feature_flag.settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK", True)
     def test_local_evaluation_quota_limited(self):
         """Test that local evaluation returns 402 Payment Required when over quota."""
-        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource
+        from products.enterprise.backend.billing.quota_limiting import QuotaLimitingCaches, QuotaResource
 
         # Set up a feature flag
         self.client.post(
@@ -3984,7 +3984,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.api.feature_flag.settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK", True)
     def test_local_evaluation_not_quota_limited(self):
         """Test that local evaluation returns normal response when not over quota."""
-        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource
+        from products.enterprise.backend.billing.quota_limiting import QuotaLimitingCaches, QuotaResource
 
         # Set up a feature flag
         self.client.post(
@@ -8423,7 +8423,7 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         from datetime import datetime as dt
         from typing import cast
 
-        from ee.models.license import License, LicenseManager
+        from products.enterprise.backend.models.license import License, LicenseManager
 
         # Use a date that's always 50 years in the future to avoid expiration
         future_year = dt.now().year + 50

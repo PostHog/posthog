@@ -97,7 +97,7 @@ class UserPermissions:
     @cached_property
     def dashboard_privileges(self) -> dict[int, Dashboard.PrivilegeLevel]:
         try:
-            from ee.models import DashboardPrivilege
+            from products.enterprise.backend.models import DashboardPrivilege
 
             rows = DashboardPrivilege.objects.filter(user=self.user).values_list("dashboard_id", "level")
             return {dashboard_id: cast(Dashboard.PrivilegeLevel, level) for dashboard_id, level in rows}
@@ -110,7 +110,7 @@ class UserPermissions:
         Prefetch all AccessControl entries for teams in user's organizations.
         Returns a dict mapping team_id to list of access control entries.
         """
-        from ee.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
 
         organization_ids = list(self.organizations.keys())
         # Get all access controls for teams in these organizations
@@ -133,7 +133,7 @@ class UserPermissions:
         Prefetch all role memberships for the user.
         Returns a dict mapping organization_member_id to list of role_ids.
         """
-        from ee.models.rbac.role import RoleMembership
+        from products.enterprise.backend.models.rbac.role import RoleMembership
 
         memberships = RoleMembership.objects.filter(user=self.user).values("organization_member_id", "role_id")
 

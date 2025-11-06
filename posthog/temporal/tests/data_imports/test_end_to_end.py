@@ -2422,8 +2422,8 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_billing_limits_too_many_rows(team, postgres_config, postgres_connection):
-    from ee.api.test.test_billing import create_billing_customer
-    from ee.models.license import License
+    from products.enterprise.backend.api.test.test_billing import create_billing_customer
+    from products.enterprise.backend.models.license import License
 
     await postgres_connection.execute(
         "CREATE TABLE IF NOT EXISTS {schema}.billing_limits (id integer)".format(schema=postgres_config["schema"])
@@ -2492,8 +2492,8 @@ async def test_billing_limits_too_many_rows(team, postgres_config, postgres_conn
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_billing_limits_too_many_rows_previously(team, postgres_config, postgres_connection):
-    from ee.api.test.test_billing import create_billing_customer
-    from ee.models.license import License
+    from products.enterprise.backend.api.test.test_billing import create_billing_customer
+    from products.enterprise.backend.models.license import License
 
     await postgres_connection.execute(
         "CREATE TABLE IF NOT EXISTS {schema}.billing_limits (id integer)".format(schema=postgres_config["schema"])

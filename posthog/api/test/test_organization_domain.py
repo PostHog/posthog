@@ -607,7 +607,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertNotEqual(original_token, new_token)
 
     def test_cannot_regenerate_scim_token_without_available_feature(self):
-        from ee.api.scim.auth import generate_scim_token
+        from products.enterprise.backend.api.scim.auth import generate_scim_token
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
+from products.enterprise.backend.models.explicit_team_membership import ExplicitTeamMembership
 
 
 class TestTeam(BaseTest):
@@ -48,7 +48,7 @@ class TestTeam(BaseTest):
 
     def test_all_users_with_access_new_access_control_private_team(self):
         """Test that only users with specific access have access to a private team with the new access control system"""
-        from ee.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
 
         # Make the team private
         AccessControl.objects.create(
@@ -81,7 +81,7 @@ class TestTeam(BaseTest):
 
     def test_all_users_with_access_new_access_control_private_team_with_member_access(self):
         """Test that users with specific member access have access to a private team with the new access control system"""
-        from ee.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
 
         # Make the team private
         AccessControl.objects.create(
@@ -124,8 +124,8 @@ class TestTeam(BaseTest):
 
     def test_all_users_with_access_new_access_control_private_team_with_role_access(self):
         """Test that users with role-based access have access to a private team with the new access control system"""
-        from ee.models.rbac.access_control import AccessControl
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.enterprise.backend.models.rbac.access_control import AccessControl
+        from products.enterprise.backend.models.rbac.role import Role, RoleMembership
 
         # Make the team private
         AccessControl.objects.create(

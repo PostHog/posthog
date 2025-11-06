@@ -7,11 +7,10 @@ from langchain_core.runnables import RunnableConfig
 from posthog.models import Dashboard, Insight, Organization, OrganizationMembership, Team, User
 
 from products.dashboards.backend.max_tools import EditCurrentDashboardTool
-
-from ee.hogai.graph.dashboards.nodes import QueryMetadata
-from ee.hogai.utils.types.base import InsightQuery
-from ee.models.assistant import Conversation
-from ee.models.rbac.access_control import AccessControl
+from products.enterprise.backend.hogai.graph.dashboards.nodes import QueryMetadata
+from products.enterprise.backend.hogai.utils.types.base import InsightQuery
+from products.enterprise.backend.models.assistant import Conversation
+from products.enterprise.backend.models.rbac.access_control import AccessControl
 
 
 @sync_to_async
@@ -54,7 +53,7 @@ def _create_dashboard_setup(org_name, user_email, create_permissions=True):
             access_level="editor",
         )
         # Also create DashboardPrivilege for legacy system
-        from ee.models import DashboardPrivilege
+        from products.enterprise.backend.models import DashboardPrivilege
 
         DashboardPrivilege.objects.create(user=user, dashboard=dashboard, level=Dashboard.PrivilegeLevel.CAN_EDIT)
 

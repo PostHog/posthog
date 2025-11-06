@@ -7,7 +7,7 @@ from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRun
 from posthog.rbac.user_access_control import UserAccessControlError
 
 try:
-    from ee.models.rbac.access_control import AccessControl
+    from products.enterprise.backend.models.rbac.access_control import AccessControl
 except ImportError:
     pass
 
