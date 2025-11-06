@@ -104,6 +104,7 @@ from . import (
     team,
     uploaded_media,
     user,
+    user_home_settings,
     web_vitals,
 )
 from .dashboards import dashboard, dashboard_templates
@@ -521,6 +522,11 @@ router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_p
 router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet, "users")
+router.register(
+    r"user_home_settings",
+    user_home_settings.UserHomeSettingsViewSet,
+    "user_home_settings",
+)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")

@@ -148,17 +148,15 @@ export function createMaxToolExperimentSurveyConfig(
 }
 
 export function VariantTag({
-    experimentId,
     variantKey,
     fontSize,
     className,
 }: {
-    experimentId: ExperimentIdType
     variantKey: string
     fontSize?: number
     className?: string
 }): JSX.Element {
-    const { experiment, legacyPrimaryMetricsResults, usesNewQueryRunner } = useValues(experimentLogic({ experimentId }))
+    const { experiment, legacyPrimaryMetricsResults, usesNewQueryRunner } = useValues(experimentLogic)
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
@@ -815,7 +813,7 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
                                     value: key,
                                     label: (
                                         <div className="deprecated-space-x-2 inline-flex">
-                                            <VariantTag experimentId={experimentId} variantKey={key} />
+                                            <VariantTag variantKey={key} />
                                         </div>
                                     ),
                                 })) || []
