@@ -26,11 +26,18 @@ export interface SessionEventsListProps {
 }
 
 export function SessionEventsList(): JSX.Element {
-    const { sessionEvents, totalEventCount, isInitialLoading, isLoadingMore, hasMoreEvents, sortOrder } =
-        useValues(sessionProfileLogic)
-    const { loadEventDetails, loadMoreSessionEvents, setSortOrder } = useActions(sessionProfileLogic)
+    const {
+        sessionEvents,
+        totalEventCount,
+        isInitialLoading,
+        isLoadingMore,
+        hasMoreEvents,
+        sortOrder,
+        eventsListFolded,
+    } = useValues(sessionProfileLogic)
+    const { loadEventDetails, loadMoreSessionEvents, setSortOrder, setEventsListFolded } =
+        useActions(sessionProfileLogic)
     const [expandedIndices, setExpandedIndices] = useState<Set<number>>(new Set())
-    const [isFolded, setIsFolded] = useState(false)
 
     const handleToggleExpand = (index: number): void => {
         setExpandedIndices((prev) => {
@@ -93,8 +100,8 @@ export function SessionEventsList(): JSX.Element {
                 <div className="flex items-center gap-3">
                     <LemonButton
                         size="small"
-                        icon={isFolded ? <IconExpand /> : <IconCollapse />}
-                        onClick={() => setIsFolded((state) => !state)}
+                        icon={eventsListFolded ? <IconExpand /> : <IconCollapse />}
+                        onClick={() => setEventsListFolded(!eventsListFolded)}
                     />
                     <div>
                         <h3 className="text-lg font-semibold">
@@ -130,7 +137,7 @@ export function SessionEventsList(): JSX.Element {
             </div>
 
             {/* Events List */}
-            {!isFolded && (
+            {!eventsListFolded && (
                 <div className="p-4 space-y-2 max-h-[600px] overflow-y-auto" onScroll={handleScroll}>
                     {sessionEvents?.map((event, index) => (
                         <SessionEventItem

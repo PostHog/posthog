@@ -2,7 +2,9 @@ import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonDivider, LemonTag, Link } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
 
 import { SessionData, sessionProfileLogic } from '../sessionProfileLogic'
 
@@ -58,7 +60,7 @@ export interface SessionDetailsCardProps {
 }
 
 export function SessionDetailsCard(): JSX.Element | null {
-    const { sessionData, isInitialLoading } = useValues(sessionProfileLogic)
+    const { sessionData, isInitialLoading, supportTicketEvents } = useValues(sessionProfileLogic)
 
     if (!sessionData || isInitialLoading) {
         return null
@@ -75,6 +77,8 @@ export function SessionDetailsCard(): JSX.Element | null {
         sessionData.end_current_url ||
         sessionData.last_external_click_url ||
         (sessionData.urls && sessionData.urls.length > 0)
+
+    const hasSupportTickets = supportTicketEvents.length > 0
 
     return (
         <LemonCard className="overflow-hidden" hoverEffect={false}>
@@ -163,6 +167,35 @@ export function SessionDetailsCard(): JSX.Element | null {
                             </div>
                         </div>
                     )}
+                </DetailSection>
+            )}
+
+            {hasSupportTickets && (
+                <DetailSection title="Support tickets" defaultExpanded={false}>
+                    {supportTicketEvents.map((event, index) => {
+                        const ticketId = event.properties?.zendesk_ticket_id
+                        const zendeskUrl = ticketId ? `https://posthoghelp.zendesk.com/agent/tickets/${ticketId}` : null
+
+                        return (
+                            <div key={event.id} className="flex flex-col gap-1">
+                                {index > 0 && <LemonDivider className="my-2" />}
+                                <div className="flex gap-2 items-center">
+                                    <span className="text-secondary min-w-32">
+                                        <TZLabel time={event.timestamp} formatDate="MMM DD, h:mm A" />:
+                                    </span>
+                                    <div className="flex gap-2 items-center">
+                                        {zendeskUrl ? (
+                                            <Link to={zendeskUrl} target="_blank">
+                                                Ticket #{ticketId}
+                                            </Link>
+                                        ) : (
+                                            <span className="text-muted-alt">No ticket ID</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )
+                    })}
                 </DetailSection>
             )}
         </LemonCard>

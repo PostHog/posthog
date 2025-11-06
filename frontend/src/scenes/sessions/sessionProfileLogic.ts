@@ -52,6 +52,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
         loadTotalEventCount: true,
         setSortOrder: (sortOrder: 'asc' | 'desc') => ({ sortOrder }),
         loadRecordingAvailability: true,
+        setEventsListFolded: (isFolded: boolean) => ({ isFolded }),
+        loadSupportTicketEvents: true,
     }),
     reducers({
         hasMoreEvents: [
@@ -74,6 +76,12 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             'asc' as 'asc' | 'desc',
             {
                 setSortOrder: (_, { sortOrder }) => sortOrder,
+            },
+        ],
+        eventsListFolded: [
+            false,
+            {
+                setEventsListFolded: (_, { isFolded }) => isFolded,
             },
         ],
     }),
@@ -436,6 +444,46 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                 },
             },
         ],
+        supportTicketEvents: [
+            [] as SessionEventType[],
+            {
+                loadSupportTicketEvents: async () => {
+                    const ticketsQuery = hogql`
+                        SELECT
+                            uuid,
+                            event,
+                            timestamp,
+                            properties.zendesk_ticket_id,
+                            distinct_id
+                        FROM events
+                        WHERE timestamp >= UUIDv7ToDateTime(toUUID(${props.sessionId}))
+                            AND timestamp <= UUIDv7ToDateTime(toUUID(${props.sessionId})) + INTERVAL 2 DAY
+                            AND \`$session_id\` = ${props.sessionId}
+                            AND event = 'support_ticket'
+                        ORDER BY timestamp DESC
+                    `
+
+                    const response = await api.queryHogQL(ticketsQuery)
+
+                    return (response.results || []).map((row: any): SessionEventType => {
+                        const properties: Record<string, any> = {}
+
+                        if (row[3] != null) {
+                            properties.zendesk_ticket_id = row[3]
+                        }
+
+                        return {
+                            id: row[0],
+                            event: row[1],
+                            timestamp: row[2],
+                            properties,
+                            distinct_id: row[4],
+                            fullyLoaded: false,
+                        }
+                    })
+                },
+            },
+        ],
     })),
     selectors({
         sessionId: [() => [(_, props) => props.sessionId], (sessionId) => sessionId],
@@ -497,6 +545,7 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             actions.loadSessionEvents()
             actions.loadTotalEventCount()
             actions.loadRecordingAvailability()
+            actions.loadSupportTicketEvents()
         },
         setSortOrder: () => {
             // Reset hasMoreEvents when changing sort order
