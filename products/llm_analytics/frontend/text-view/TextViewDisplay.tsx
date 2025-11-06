@@ -2,18 +2,19 @@
  * Text view display component for generation events
  * Shows a formatted text representation with copy functionality and expandable truncated sections
  */
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconCopy, IconExternal } from '@posthog/icons'
 import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+
+import { textViewLogic } from './textViewLogic'
 
 interface TextSegment {
     type: 'text' | 'truncated' | 'gen_expandable' | 'tools_expandable'
@@ -636,20 +637,32 @@ export function TextViewDisplay({
     lineNumber?: number | null
 }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
+
+    // Use Kea logic for text representation fetching
+    const { textRepr, textReprLoading } = useValues(
+        textViewLogic({ trace, event, tree, teamId: currentTeamId, onFallback })
+    )
+    const { fetchTextRepr } = useActions(textViewLogic({ trace, event, tree, teamId: currentTeamId, onFallback }))
+
+    // UI state
     const [copied, setCopied] = useState(false)
-    const [textRepr, setTextRepr] = useState<string>('')
-    const [loading, setLoading] = useState<boolean>(true)
-    const [error, setError] = useState<string | null>(null)
-    const [fallbackTriggered, setFallbackTriggered] = useState<boolean>(false)
     const [expandedSegments, setExpandedSegments] = useState<Set<number | string>>(new Set())
     const [popoutSegment, setPopoutSegment] = useState<number | string | null>(null)
 
     // Get trace ID for event links
     const traceId = trace?.id
 
+    // Fetch text representation when component mounts or key props change
+    useEffect(() => {
+        // Reset expanded state when switching events
+        setExpandedSegments(new Set())
+        setPopoutSegment(null)
+        fetchTextRepr()
+    }, [event?.id, trace?.id, fetchTextRepr])
+
     // Scroll to line when lineNumber changes
     useEffect(() => {
-        if (lineNumber && !loading) {
+        if (lineNumber && !textReprLoading) {
             // Small delay to ensure the content is rendered
             setTimeout(() => {
                 const element = document.getElementById(`line-${lineNumber}`)
@@ -663,108 +676,9 @@ export function TextViewDisplay({
                 }
             }, 100)
         }
-    }, [lineNumber, loading])
+    }, [lineNumber, textReprLoading])
 
-    // Fetch text representation from API
-    useEffect(() => {
-        const fetchTextRepr = async (): Promise<void> => {
-            try {
-                setLoading(true)
-                setError(null)
-                setFallbackTriggered(false)
-                // Reset expanded state when switching events
-                setExpandedSegments(new Set())
-                setPopoutSegment(null)
-
-                // Prepare request based on what data we have
-                let requestData: any
-
-                if (trace && tree) {
-                    // Full trace view - need to send tree structure with children
-                    // Recursively convert tree nodes to { event, children } format
-                    const convertTreeNode = (node: TraceTreeNode): any => ({
-                        event: node.event,
-                        children: node.children ? node.children.map(convertTreeNode) : [],
-                    })
-
-                    requestData = {
-                        event_type: '$ai_trace',
-                        data: {
-                            trace: {
-                                ...trace,
-                                trace_id: trace.id,
-                                name: trace.traceName || 'Trace',
-                            },
-                            hierarchy: tree.map(convertTreeNode),
-                        },
-                        options: {
-                            truncated: true,
-                            include_markers: true,
-                            include_line_numbers: true,
-                        },
-                    }
-                } else if (event) {
-                    // Single event view
-                    requestData = {
-                        event_type: event.event,
-                        data: event,
-                        options: {
-                            truncated: true,
-                            include_markers: true,
-                            include_line_numbers: true,
-                        },
-                    }
-                } else {
-                    setTextRepr('')
-                    setLoading(false)
-                    return
-                }
-
-                // Create abort controller for timeout
-                const abortController = new AbortController()
-                const timeoutId = setTimeout(() => abortController.abort(), 10000) // 10 second timeout
-
-                try {
-                    // Call Django API with timeout
-                    const response = await api.create(
-                        `api/environments/${currentTeamId}/llm_analytics/text_repr/`,
-                        requestData,
-                        { signal: abortController.signal }
-                    )
-                    clearTimeout(timeoutId)
-                    setTextRepr(response.text || '')
-                } catch (apiErr) {
-                    clearTimeout(timeoutId)
-                    throw apiErr
-                }
-            } catch (err) {
-                console.error('Error fetching text representation:', err)
-                const isTimeout = err instanceof Error && err.name === 'AbortError'
-                const errorMessage = isTimeout
-                    ? 'Text view generation timed out'
-                    : err instanceof Error
-                      ? err.message
-                      : 'Failed to load text representation'
-
-                setError(errorMessage)
-
-                // Trigger fallback to standard view
-                setFallbackTriggered(true)
-                if (onFallback) {
-                    // Small delay to show the fallback message briefly
-                    setTimeout(() => {
-                        onFallback()
-                    }, 1500)
-                }
-            } finally {
-                setLoading(false)
-            }
-        }
-
-        void fetchTextRepr()
-    }, [event, trace, tree, currentTeamId, onFallback])
-
-    const segments = parseTextSegments(textRepr)
+    const segments = parseTextSegments(textRepr || '')
 
     // Get indices of all expandable segments (truncated, gen_expandable, tools_expandable)
     const truncatedIndices = segments
@@ -844,7 +758,7 @@ export function TextViewDisplay({
         setPopoutSegment((prev) => (prev === index ? null : index))
     }
 
-    if (loading) {
+    if (textReprLoading) {
         return (
             <div className="flex items-center justify-center p-8 bg-bg-light rounded border border-border">
                 <Spinner className="text-2xl" />
@@ -853,18 +767,7 @@ export function TextViewDisplay({
         )
     }
 
-    if (error) {
-        return (
-            <div className="p-4 bg-bg-light rounded border border-border">
-                <div className="flex items-start gap-2">
-                    <div className="flex-1">
-                        <div className="text-warning font-semibold mb-1">{error}</div>
-                        {fallbackTriggered && <div className="text-muted text-xs">Switching to standard view...</div>}
-                    </div>
-                </div>
-            </div>
-        )
-    }
+    // Error handling is done automatically by the logic through the fallback callback
 
     return (
         <div className="relative flex flex-col flex-1 min-h-0">
