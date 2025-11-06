@@ -55,6 +55,7 @@ class InterestingNoteSerializer(serializers.Serializer):
 
 
 class StructuredSummarySerializer(serializers.Serializer):
+    title = serializers.CharField(help_text="Concise title (no longer than 10 words) summarizing the trace/event")
     flow_diagram = serializers.CharField(help_text="Mermaid flowchart code showing the main flow")
     summary_bullets = SummaryBulletSerializer(many=True, help_text="Main summary bullets")
     interesting_notes = InterestingNoteSerializer(

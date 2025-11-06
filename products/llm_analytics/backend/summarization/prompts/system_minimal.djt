@@ -17,10 +17,12 @@ IMPORTANT GUIDELINES:
 - If there are errors or tool calls, prioritize those.
 - Strong emotions, either positive or negative, expressed by a user are always interesting.
 - For flow_diagram, create a simple ASCII/text-based flow showing 3-7 main steps in a clear, human-readable way. Focus only on important steps.
+- For title, create a concise title (no longer than 10 words) that captures the main purpose or outcome (e.g., "Product Search with Filtering", "Failed API Authentication Attempt", "Multi-step Customer Support Query").
 
 STRUCTURED OUTPUT:
 You must return valid JSON matching this schema:
 {
+  "title": "User Query Analysis and Response",
   "flow_diagram": "User Request\n    ↓\nLLM Call\n    ↓\nResponse",
   "summary_bullets": [
     {"text": "Most important aspect", "line_refs": "L10"},

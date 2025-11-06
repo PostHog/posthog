@@ -32,6 +32,9 @@ class SummarizationResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    title: str = Field(
+        description="A concise, descriptive title (no longer than 10 words) summarizing the main purpose or outcome of this trace/event"
+    )
     flow_diagram: str = Field(
         description="ASCII/text-based flow diagram showing the main steps in an easy, human-readable way. Use arrows (↓, →), branches (├─→, └─→), and symbols (✓, ✗)."
     )
