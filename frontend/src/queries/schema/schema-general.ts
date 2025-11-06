@@ -2328,6 +2328,8 @@ export interface ErrorTrackingRelationalIssue {
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
     last_seen: string
+    source?: string
+    function?: string
     first_event?: {
         uuid: string
         timestamp: string
