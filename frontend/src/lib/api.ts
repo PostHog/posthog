@@ -3534,7 +3534,11 @@ const api = {
             return await new ApiRequest().users(email).get()
         },
         async zendeskTickets(): Promise<{ tickets: ZendeskTicket[]; count: number; error?: string }> {
-            return await new ApiRequest().addPathComponent('users').addPathComponent('@me').addPathComponent('zendesk_tickets').get()
+            return await new ApiRequest()
+                .addPathComponent('users')
+                .addPathComponent('@me')
+                .addPathComponent('zendesk_tickets')
+                .get()
         },
     },
 

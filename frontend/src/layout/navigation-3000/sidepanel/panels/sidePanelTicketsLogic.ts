@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -33,7 +33,7 @@ export const sidePanelTicketsLogic = kea<sidePanelTicketsLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(() => ({
         ticketsResponse: [
             { tickets: [], count: 0 } as { tickets: ZendeskTicket[]; count: number; error?: string },
             {
@@ -52,13 +52,9 @@ export const sidePanelTicketsLogic = kea<sidePanelTicketsLogicType>([
         tickets: [(s) => [s.ticketsResponse], (ticketsResponse) => ticketsResponse.tickets],
         ticketsCount: [(s) => [s.ticketsResponse], (ticketsResponse) => ticketsResponse.count],
         hasError: [(s) => [s.ticketsResponse], (ticketsResponse) => !!ticketsResponse.error],
-        hasPendingTickets: [
-            (s) => [s.tickets],
-            (tickets) => tickets.some((ticket) => ticket.status === 'pending'),
-        ],
+        hasPendingTickets: [(s) => [s.tickets], (tickets) => tickets.some((ticket) => ticket.status === 'pending')],
     }),
     afterMount(({ actions }) => {
         actions.loadTickets()
     }),
 ])
-

@@ -67,10 +67,7 @@ export function TicketCard({ ticket }: TicketCardProps): JSX.Element {
                     {ticket.comments.map((comment) => {
                         const isAgent = comment.is_agent
                         return (
-                            <div
-                                key={comment.id}
-                                className={`flex ${isAgent ? 'justify-start' : 'justify-end'}`}
-                            >
+                            <div key={comment.id} className={`flex ${isAgent ? 'justify-start' : 'justify-end'}`}>
                                 <div
                                     className={`rounded p-3 border max-w-[85%] ${
                                         isAgent
@@ -105,4 +102,3 @@ export function TicketCard({ ticket }: TicketCardProps): JSX.Element {
         </div>
     )
 }
-

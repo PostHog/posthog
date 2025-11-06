@@ -46,4 +46,3 @@ export function SidePanelTickets(): JSX.Element {
         </BindLogic>
     )
 }
-
