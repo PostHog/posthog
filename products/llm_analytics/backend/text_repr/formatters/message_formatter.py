@@ -9,7 +9,6 @@ with truncation and interactive markers for frontend display.
 import json
 import base64
 from typing import Any, TypedDict
-from urllib.parse import quote
 
 from .constants import DEFAULT_TRUNCATE_BUFFER, MAX_UNABLE_TO_PARSE_REPR_LENGTH, MAX_UNPARSED_DISPLAY_LENGTH
 
@@ -81,8 +80,8 @@ def truncate_content(content: str, options: FormatterOptions | None = None) -> t
     if use_markers:
         # Frontend: encoded marker for expand/collapse UI
         middle_part = content[half:-half]
-        # Base64 encode the URL-encoded middle part
-        encoded_middle = base64.b64encode(quote(middle_part).encode()).decode()
+        # Base64 encode the middle part
+        encoded_middle = base64.b64encode(middle_part.encode()).decode()
         marker = f"<<<TRUNCATED|{encoded_middle}|{truncated_chars}>>>"
         return ([first_part, "", marker, "", last_part], True)
     else:

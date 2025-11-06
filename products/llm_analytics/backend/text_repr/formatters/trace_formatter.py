@@ -9,7 +9,6 @@ supports both interactive frontend markers and plain text for backend/LLM consum
 import json
 import base64
 from typing import Any
-from urllib.parse import quote
 
 from .constants import MAX_TREE_DEPTH, SEPARATOR
 from .event_formatter import format_event_text_repr
@@ -195,7 +194,7 @@ def _render_tree(
 
                 if include_markers:
                     # Encode content for frontend to expand
-                    encoded_content = base64.b64encode(quote(gen_content).encode()).decode()
+                    encoded_content = base64.b64encode(gen_content.encode()).decode()
                     display_text = f"{node_prefix} {summary}"
                     expandable_marker = f"<<<GEN_EXPANDABLE|{event_id}|{display_text}|{encoded_content}>>>"
                     lines.append(f"{prefix}{current_prefix}{expandable_marker}")
@@ -222,7 +221,7 @@ def _render_tree(
 
                 if include_markers:
                     # Encode content for frontend to expand
-                    encoded_content = base64.b64encode(quote(span_content).encode()).decode()
+                    encoded_content = base64.b64encode(span_content.encode()).decode()
                     display_text = f"{node_prefix} {summary}"
                     expandable_marker = f"<<<GEN_EXPANDABLE|{event_id}|{display_text}|{encoded_content}>>>"
                     lines.append(f"{prefix}{current_prefix}{expandable_marker}")
@@ -249,7 +248,7 @@ def _render_tree(
 
                 if include_markers:
                     # Encode content for frontend to expand
-                    encoded_content = base64.b64encode(quote(embedding_content).encode()).decode()
+                    encoded_content = base64.b64encode(embedding_content.encode()).decode()
                     display_text = f"{node_prefix} {summary}"
                     expandable_marker = f"<<<GEN_EXPANDABLE|{event_id}|{display_text}|{encoded_content}>>>"
                     lines.append(f"{prefix}{current_prefix}{expandable_marker}")

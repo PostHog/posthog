@@ -353,7 +353,7 @@ The response includes the formatted text and metadata about the rendering.
                 error=str(e),
             )
             return Response(
-                {"error": "Invalid data format", "detail": str(e)},
+                {"error": "Invalid data format"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception:

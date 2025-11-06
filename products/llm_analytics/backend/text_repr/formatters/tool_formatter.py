@@ -9,7 +9,6 @@ automatic collapsing for long tool lists.
 import json
 import base64
 from typing import Any, TypedDict
-from urllib.parse import quote
 
 from .constants import DEFAULT_TOOLS_COLLAPSE_THRESHOLD
 
@@ -149,7 +148,7 @@ def format_tools(ai_tools: Any, options: dict[str, Any] | None = None) -> list[s
             # Format all tools and encode for frontend to expand
             tools_content = _format_tools_list(tools_list)
             full_content = f"{display_text}\n{tools_content}"
-            encoded_content = base64.b64encode(quote(full_content).encode()).decode()
+            encoded_content = base64.b64encode(full_content.encode()).decode()
             expandable_marker = f"<<<TOOLS_EXPANDABLE|{display_text}|{encoded_content}>>>"
             lines.append(expandable_marker)
         else:
