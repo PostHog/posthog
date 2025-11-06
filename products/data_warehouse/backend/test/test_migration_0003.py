@@ -76,7 +76,25 @@ class BackfillWeekPartitions(NonAtomicTestMigrations):
         ExternalDataSchema: ExternalDataSchemaModel = apps.get_model("data_warehouse", "ExternalDataSchema")
         DataWarehouseTable: DataWarehouseTableModel = apps.get_model("data_warehouse", "DataWarehouseTable")
 
-        self.organization = Organization.objects.create(name="o1")
+        # Use raw SQL to create organization - at this migration state (0002),
+        # the Organization historical model doesn't have default_anonymize_ips field yet,
+        # but the database table does (migration framework doesn't roll back schema)
+        from django.db import connection
+
+        from posthog.models import UUIDT
+
+        org_id = UUIDT()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO posthog_organization
+                (id, name, slug, created_at, updated_at, plugins_access_level,
+                 for_internal_metrics, is_member_join_email_enabled, default_anonymize_ips)
+                VALUES (%s, %s, '', NOW(), NOW(), 9, FALSE, TRUE, FALSE)
+                """,
+                [org_id, "o1"],
+            )
+        self.organization = Organization.objects.get(id=org_id)
         self.project = Project.objects.create(organization=self.organization, name="p1", id=1000001)
         self.team = Team.objects.create(organization=self.organization, name="t1", project=self.project)
 
