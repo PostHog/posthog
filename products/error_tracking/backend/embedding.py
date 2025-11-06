@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
     timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
     inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+    content String DEFAULT '', -- The actual text content that was embedded
     embedding Array(Float64) -- The embedding itself
     {extra_fields}
 ) ENGINE = {engine}
@@ -86,6 +87,7 @@ rendering,
 document_id,
 timestamp,
 _timestamp as inserted_at,
+coalesce(content, '') as content,
 embedding,
 _timestamp,
 _offset,
