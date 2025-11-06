@@ -1,13 +1,11 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState, PartialAssistantState
 
 from .nodes import AgentRootNode, AgentRootToolsNode
-
-if TYPE_CHECKING:
-    from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 
 
 class AgentExecutorGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):

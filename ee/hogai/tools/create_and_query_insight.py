@@ -7,7 +7,7 @@ from posthog.schema import AssistantTool, AssistantToolCallMessage, Visualizatio
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.insights_graph.graph import InsightsGraph
 from ee.hogai.graph.schema_generator.nodes import SchemaGenerationException
-from ee.hogai.tool import MaxTool, MaxToolArgs, ToolMessagesArtifact
+from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantNodeName, AssistantState
 
@@ -508,7 +508,7 @@ The agent has encountered an unknown error while creating an insight.
 InsightType = Literal["trends", "funnel", "retention"]
 
 
-class CreateAndQueryInsightToolArgs(MaxToolArgs):
+class CreateAndQueryInsightToolArgs(BaseModel):
     query_description: str = Field(description="A plan of the query to generate based on the template.")
     insight_type: InsightType = Field(description="The type of insight to generate.")
 
@@ -521,7 +521,7 @@ class CreateAndQueryInsightTool(MaxTool):
     thinking_message: str = "Coming up with an insight"
 
     async def _arun_impl(
-        self, query_description: str, insight_type: InsightType, tool_call_id: str
+        self, query_description: str, insight_type: InsightType
     ) -> tuple[str, ToolMessagesArtifact | None]:
         graph_builder = InsightsGraph(self._team, self._user)
         match insight_type:
@@ -541,7 +541,7 @@ class CreateAndQueryInsightTool(MaxTool):
         graph = graph_builder.add_query_executor().compile()
         new_state = self._state.model_copy(
             update={
-                "root_tool_call_id": tool_call_id,
+                "root_tool_call_id": self.tool_call_id,
                 "plan": query_description,
             },
             deep=True,
