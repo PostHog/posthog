@@ -137,7 +137,7 @@ export function DistributionModal(): JSX.Element {
 
 export function DistributionTable(): JSX.Element {
     const { openDistributionModal } = useActions(modalsLogic)
-    const { experimentId, experiment } = useValues(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
     const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
 
     const onSelectElement = (variant: string): void => {
@@ -166,7 +166,7 @@ export function DistributionTable(): JSX.Element {
             key: 'key',
             title: 'Variant',
             render: function Key(_, item): JSX.Element {
-                return <VariantTag experimentId={experimentId} variantKey={item.key} />
+                return <VariantTag variantKey={item.key} />
             },
         },
         {
