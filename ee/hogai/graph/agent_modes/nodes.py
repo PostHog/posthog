@@ -250,7 +250,7 @@ class AgentNode(BaseAgentNode):
         if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
             return AssistantNodeName.END
         return [
-            Send(AssistantNodeName.ROOT_TOOLS, state.model_copy(update={"root_tool_call_id": tool_call.id}))
+            Send(AssistantNodeName.AGENT_EXECUTOR_TOOLS, state.model_copy(update={"root_tool_call_id": tool_call.id}))
             for tool_call in last_message.tool_calls
         ]
 
@@ -454,7 +454,9 @@ class AgentToolsNode(BaseAgentNode):
             # Tricky: set the node path to associated with the tool call
             node_path=(
                 *self.node_path[:-1],
-                NodePath(name=AssistantNodeName.ROOT_TOOLS, message_id=last_message.id, tool_call_id=tool_call.id),
+                NodePath(
+                    name=AssistantNodeName.AGENT_EXECUTOR_TOOLS, message_id=last_message.id, tool_call_id=tool_call.id
+                ),
             ),
             state=state,
             config=config,

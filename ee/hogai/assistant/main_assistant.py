@@ -44,6 +44,7 @@ VERBOSE_NODES: set["MaxNodeName"] = {
     AssistantNodeName.QUERY_EXECUTOR,
     AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
     AssistantNodeName.AGENT_EXECUTOR_TOOLS,
+    AssistantNodeName.ROOT,
     TaxonomyNodeName.TOOLS_NODE,
     TaxonomyNodeName.TASK_EXECUTOR,
 }

@@ -34,6 +34,10 @@ class AgentExecutorGraph(BaseAssistantGraph[AssistantState, PartialAssistantStat
         self._graph.add_conditional_edges(
             AssistantNodeName.AGENT_EXECUTOR_TOOLS,
             router or cast(Callable[[AssistantState], AssistantNodeName], agent_tools_node.router),
+            path_map={
+                "root": AssistantNodeName.AGENT_EXECUTOR,
+                "end": AssistantNodeName.END,
+            },
         )
         return self
 
