@@ -55,6 +55,8 @@ import {
     QueryStatus,
     QueryTiming,
     RefreshType,
+    SessionsQuery,
+    SessionsQueryResponse,
     TracesQuery,
     TracesQueryResponse,
 } from '~/queries/schema/schema-general'
@@ -68,6 +70,7 @@ import {
     isInsightQueryNode,
     isMarketingAnalyticsTableQuery,
     isPersonsNode,
+    isSessionsQuery,
     isTracesQuery,
 } from '~/queries/utils'
 import { TeamType } from '~/types'
@@ -413,6 +416,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isGroupsQuery(props.query) ||
                         isTracesQuery(props.query) ||
                         isErrorTrackingQuery(props.query) ||
+                        isSessionsQuery(props.query) ||
                         isMarketingAnalyticsTableQuery(props.query)
                     ) {
                         const newResponse =
@@ -428,6 +432,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             | GroupsQueryResponse
                             | ErrorTrackingQueryResponse
                             | TracesQueryResponse
+                            | SessionsQueryResponse
                             | MarketingAnalyticsTableQueryResponse
 
                         let results = [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])]
@@ -728,6 +733,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isGroupsQuery(query) ||
                         isErrorTrackingQuery(query) ||
                         isTracesQuery(query) ||
+                        isSessionsQuery(query) ||
                         isMarketingAnalyticsTableQuery(query)) &&
                     !responseError &&
                     !dataLoading
@@ -740,6 +746,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 | GroupsQueryResponse
                                 | ErrorTrackingQueryResponse
                                 | TracesQueryResponse
+                                | SessionsQueryResponse
                                 | MarketingAnalyticsTableQueryResponse
                         )?.hasMore
                     ) {
@@ -771,6 +778,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                     | GroupsQueryResponse
                                     | ErrorTrackingQueryResponse
                                     | TracesQueryResponse
+                                    | SessionsQueryResponse
                                     | MarketingAnalyticsTableQueryResponse
                             )?.results
                             return {
@@ -786,6 +794,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 | GroupsQuery
                                 | ErrorTrackingQuery
                                 | TracesQuery
+                                | SessionsQuery
                                 | MarketingAnalyticsTableQuery
                         }
                     }
