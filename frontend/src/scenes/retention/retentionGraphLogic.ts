@@ -64,12 +64,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
 
         intervalViewSeries: [
             (s) => [s.filteredResults, s.retentionFilter, s.hasValidBreakdown, s.breakdownDisplayNames],
-            (
-                filteredResults: ProcessedRetentionPayload[],
-                retentionFilter: any,
-                hasValidBreakdown: boolean,
-                breakdownDisplayNames: Record<string, string>
-            ): RetentionTrendPayload[] => {
+            (filteredResults, retentionFilter, hasValidBreakdown, breakdownDisplayNames): RetentionTrendPayload[] => {
                 const selectedInterval = retentionFilter?.selectedInterval ?? null
                 if (selectedInterval === null) {
                     return []
