@@ -20,7 +20,7 @@ export class Navigation {
     }
 
     async openHome(): Promise<void> {
-        await this.page.goto(urls.projectHomepage())
+        await this.page.goto(urls.projectRoot())
     }
 
     async openMenuItem(name: string): Promise<void> {

@@ -55,21 +55,13 @@ pub fn show_progress(task_id: Option<&Uuid>) -> Result<()> {
 }
 
 fn fetch_progress(task_id: &Uuid) -> Result<TaskProgressResponse> {
-    let token = context().token.clone();
-    let host = token.get_host();
     let client = context().client.clone();
 
-    let url = format!(
-        "{}/api/environments/{}/tasks/{}/progress/",
-        host, token.env_id, task_id
-    );
-
+    let path = format!("tasks/{task_id}/progress/");
     let response = client
-        .get(&url)
-        .header("Authorization", format!("Bearer {}", token.token))
+        .get(&path)?
         .send()
         .context("Failed to send request")?;
-
     let response = raise_for_err(response)?;
 
     let progress: TaskProgressResponse = response

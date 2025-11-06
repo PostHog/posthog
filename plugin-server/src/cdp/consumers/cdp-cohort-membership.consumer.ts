@@ -1,7 +1,9 @@
 import { Message } from 'node-rdkafka'
 import { z } from 'zod'
 
-import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '../../config/kafka-topics'
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
+import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
@@ -31,7 +33,23 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
         })
     }
 
-    private async handleBatchCohortMembership(changes: CohortMembershipChange[]): Promise<void> {
+    private async publishCohortMembershipTriggers(changes: CohortMembershipChange[]): Promise<void> {
+        if (!this.kafkaProducer || changes.length === 0) {
+            return
+        }
+
+        const messages = changes.map((change) => ({
+            value: JSON.stringify(change),
+            key: change.personId,
+        }))
+
+        await this.kafkaProducer.queueMessages({
+            topic: KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER,
+            messages,
+        })
+    }
+
+    private async persistCohortMembershipChanges(changes: CohortMembershipChange[]): Promise<void> {
         if (changes.length === 0) {
             return
         }
@@ -76,7 +94,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
         }
     }
 
-    private async handleBatch(messages: Message[]): Promise<void> {
+    private _parseAndValidateBatch(messages: Message[]): CohortMembershipChange[] {
         const cohortMembershipChanges: CohortMembershipChange[] = []
 
         // Process and validate all messages
@@ -111,7 +129,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
             }
         }
 
-        await this.handleBatchCohortMembership(cohortMembershipChanges)
+        return cohortMembershipChanges
     }
 
     public async start(): Promise<void> {
@@ -124,10 +142,20 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
                 size: messages.length,
             })
 
-            await this.handleBatch(messages)
-        })
+            return instrumentFn('cdpCohortMembershipConsumer.handleEachBatch', async () => {
+                const cohortMembershipChanges = this._parseAndValidateBatch(messages)
 
-        logger.info('✅', `${this.name} started successfully`)
+                // First persist changes to the database
+                await this.persistCohortMembershipChanges(cohortMembershipChanges)
+
+                // Then publish trigger events as a background task
+                const backgroundTask = this.publishCohortMembershipTriggers(cohortMembershipChanges).catch((error) => {
+                    logger.error('Failed to publish cohort membership triggers', { error })
+                })
+
+                return { backgroundTask }
+            })
+        })
     }
 
     public async stop(): Promise<void> {

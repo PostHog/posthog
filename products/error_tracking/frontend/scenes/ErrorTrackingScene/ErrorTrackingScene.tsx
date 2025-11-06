@@ -17,7 +17,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
@@ -150,7 +149,6 @@ const Header = (): JSX.Element => {
                     </>
                 }
             />
-            <SceneDivider />
         </>
     )
 }
