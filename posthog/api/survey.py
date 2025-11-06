@@ -89,19 +89,6 @@ else:
     READ_DB_FOR_SURVEYS = "default"
 
 
-COUNTER_SURVEYS_API_USE_REMOTE_CONFIG = Counter(
-    "posthog_surveys_api_use_remote_config",
-    "Number of times the surveys API has been used with remote config",
-    labelnames=["result"],
-)
-
-COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON = Counter(
-    "posthog_surveys_api_remote_config_comparison",
-    "Comparison of surveys response equality",
-    labelnames=["result"],
-)
-
-
 class EventStats(TypedDict):
     total_count: int
     total_count_only_seen: int
@@ -1639,56 +1626,7 @@ def surveys(request: Request):
             ),
         )
 
-    hypercache_response = None
-    response = None
-
-    if settings.SURVEYS_API_USE_HYPERCACHE_TOKENS and (
-        "*" in settings.SURVEYS_API_USE_HYPERCACHE_TOKENS or token in settings.SURVEYS_API_USE_HYPERCACHE_TOKENS
-    ):
-        try:
-            hypercache_response = surveys_hypercache.get_from_cache(token)
-            if not hypercache_response:
-                raise Exception("No hypercache response found")
-
-            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="found").inc()
-            response = hypercache_response
-
-        except Exception as e:
-            capture_exception(e)
-            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="not_found").inc()
-            pass  # For now fallback
-
-    # If we didn't get a hypercache response or we are comparing then load the normal response to compare
-    if not hypercache_response or settings.SURVEYS_API_USE_REMOTE_CONFIG_COMPARE:
-        team = Team.objects.get_team_from_cache_or_token(token)
-        if team is None:
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "surveys",
-                    "Project API key invalid. You can find your project API key in your PostHog project settings.",
-                    type="authentication_error",
-                    code="invalid_api_key",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
-        response = get_surveys_response(team)
-
-        if hypercache_response:
-            # Do the comparison here
-            try:
-                if hypercache_response == response:
-                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON.labels(result="same").inc()
-                else:
-                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON.labels(result="different").inc()
-                    logger.warning(
-                        "SurveyHypercacheResponseDifferentFromAPIResponse",
-                        hypercache_response=hypercache_response,
-                        response=response,
-                    )
-
-            except Exception as e:
-                capture_exception(e)
+    response = surveys_hypercache.get_from_cache(token)
 
     return cors_response(request, JsonResponse(response))
 
