@@ -53,10 +53,17 @@ export function createSessionsRowTransformer(query: DataTableNode): (rows: DataT
             return rows
         }
 
-        // Get the index of $start_timestamp column
-        const columns = query.columns || []
-        const startTimestampIndex = columns.findIndex(
-            (col) => col === '$start_timestamp' || (typeof col === 'string' && col.includes('$start_timestamp'))
+        if (rows.length === 0) {
+            return rows
+        }
+
+        // Get the select columns from the SessionsQuery source
+        const source = query.source as any
+        const select = source?.select || []
+
+        // Find the index of $start_timestamp in the select array
+        const startTimestampIndex = select.findIndex(
+            (col: string) => col === '$start_timestamp' || (typeof col === 'string' && col.includes('$start_timestamp'))
         )
 
         if (startTimestampIndex === -1) {
@@ -70,6 +77,7 @@ export function createSessionsRowTransformer(query: DataTableNode): (rows: DataT
         for (const row of rows) {
             if (row.result && Array.isArray(row.result)) {
                 const currentTimestamp = row.result[startTimestampIndex]
+
                 if (
                     lastResult &&
                     currentTimestamp &&
