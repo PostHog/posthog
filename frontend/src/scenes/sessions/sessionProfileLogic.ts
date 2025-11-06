@@ -438,6 +438,7 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
         ],
     })),
     selectors({
+        sessionId: [() => [(_, props) => props.sessionId], (sessionId) => sessionId],
         sessionDuration: [
             (s) => [s.sessionData],
             (sessionData: SessionData | null): number | null => {
