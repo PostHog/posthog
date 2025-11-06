@@ -1,7 +1,7 @@
 import { router } from 'kea-router'
 import { ReactNode, useEffect, useMemo, useRef } from 'react'
 
-import { IconEllipsis, IconFolder } from '@posthog/icons'
+import { IconArrowRightDown, IconEllipsis, IconFolder } from '@posthog/icons'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -82,7 +82,14 @@ export function ProjectFileBrowser({
                 {showParentButton ? (
                     <ButtonGroupPrimitive className="group w-full border-0">
                         <ListBox.Item asChild row={0} column={0} focusKey="project-browser-parent" index={0}>
-                            <ButtonPrimitive size="sm" className="w-full justify-start" onClick={handleParentClick}>
+                            <ButtonPrimitive
+                                size="sm"
+                                className="w-full justify-start gap-2"
+                                onClick={handleParentClick}
+                            >
+                                <span className="flex size-5 shrink-0 items-center justify-center text-muted ml-[-4px]">
+                                    <IconArrowRightDown className="size-4 rotate-180" />
+                                </span>
                                 <span className="text-sm">..</span>
                             </ButtonPrimitive>
                         </ListBox.Item>

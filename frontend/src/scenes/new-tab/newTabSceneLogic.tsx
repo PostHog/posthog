@@ -1507,11 +1507,20 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const showAll = newTabSceneDataInclude.includes('all')
 
                 const filteredProjectFolderItems = (() => {
+                    if (!projectFolderItems.length) {
+                        return projectFolderItems
+                    }
+
+                    const [projectRootItem, ...otherProjectFolderItems] = projectFolderItems
+
                     if (!searchLower) {
                         return projectFolderItems
                     }
-                    const filtered = filterBySearch(projectFolderItems.slice(1))
-                    return projectFolderItems.length > 0 ? [projectFolderItems[0], ...filtered] : filtered
+
+                    const projectRootMatches = filterBySearch([projectRootItem]).length > 0
+                    const filtered = filterBySearch(otherProjectFolderItems)
+
+                    return projectRootMatches ? [projectRootItem, ...filtered] : filtered
                 })()
                 const filteredPersonItems = filterBySearch(personSearchItems)
                 const filteredGroupItems = filterBySearch(groupSearchItems)
