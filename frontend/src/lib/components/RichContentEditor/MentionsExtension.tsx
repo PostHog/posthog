@@ -127,7 +127,7 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
                     active={index === selectedIndex}
                     onClick={() => void execute(member)}
                 >
-                    {`${member.user.first_name} <${member.user.email}>`}
+                    <span className="ph-no-capture">{`${member.user.first_name} <${member.user.email}>`}</span>
                 </LemonButton>
             ))}
 

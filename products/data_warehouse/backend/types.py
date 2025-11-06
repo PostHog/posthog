@@ -64,3 +64,7 @@ class ExternalDataSourceType(models.TextChoices):
     REDDITADS = "RedditAds", "RedditAds"
     TIKTOKADS = "TikTokAds", "TikTokAds"
     SHOPIFY = "Shopify", "Shopify"
+
+
+class DataWarehouseManagedViewSetKind(models.TextChoices):
+    REVENUE_ANALYTICS = "revenue_analytics", "Revenue Analytics"

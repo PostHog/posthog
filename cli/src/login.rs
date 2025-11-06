@@ -7,7 +7,10 @@ use tracing::info;
 
 use crate::{
     invocation_context::{context, init_context},
-    utils::auth::{host_validator, token_validator, CredentialProvider, HomeDirProvider, Token},
+    utils::auth::{
+        env_id_validator, host_validator, token_validator, CredentialProvider, HomeDirProvider,
+        Token,
+    },
 };
 
 #[derive(Debug, Deserialize)]
@@ -267,8 +270,9 @@ fn manual_login() -> Result<(), Error> {
         .with_validator(host_validator)
         .prompt()?;
 
-    let env_id =
-        Text::new("Enter your project ID (the number in your PostHog homepage URL)").prompt()?;
+    let env_id = Text::new("Enter your project ID (the number in your PostHog homepage URL)")
+        .with_validator(env_id_validator)
+        .prompt()?;
 
     let token = Text::new(
         "Enter your personal API token",

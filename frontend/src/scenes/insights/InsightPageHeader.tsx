@@ -63,7 +63,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { HogQLQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
@@ -571,7 +570,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     </>
                 }
             />
-            <SceneDivider />
         </>
     )
 }
