@@ -21,8 +21,7 @@ pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    // Create separate Redis clients for reading and writing
-    // NB: if either of these URLs don't exist in the config, we default to the writer
+    // Create separate Redis clients for shared Redis (non-critical path: analytics, billing)
     let redis_reader_client =
         match RedisClient::new(config.get_redis_reader_url().to_string()).await {
             Ok(client) => Arc::new(client),
@@ -43,6 +42,33 @@ where
                 tracing::error!(
                     "Failed to create Redis writer client for URL {}: {}",
                     config.get_redis_writer_url(),
+                    e
+                );
+                return;
+            }
+        };
+
+    // Create dedicated Redis clients for flags (critical path: team cache + flags cache)
+    let flags_redis_reader_client =
+        match RedisClient::new(config.get_flags_redis_reader_url().to_string()).await {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                tracing::error!(
+                    "Failed to create flags Redis reader client for URL {}: {}",
+                    config.get_flags_redis_reader_url(),
+                    e
+                );
+                return;
+            }
+        };
+
+    let flags_redis_writer_client =
+        match RedisClient::new(config.get_flags_redis_writer_url().to_string()).await {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                tracing::error!(
+                    "Failed to create flags Redis writer client for URL {}: {}",
+                    config.get_flags_redis_writer_url(),
                     e
                 );
                 return;
@@ -150,6 +176,8 @@ where
     let app = router::router(
         redis_reader_client,
         redis_writer_client,
+        flags_redis_reader_client,
+        flags_redis_writer_client,
         database_pools,
         cohort_cache,
         geoip_service,

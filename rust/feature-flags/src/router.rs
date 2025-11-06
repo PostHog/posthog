@@ -34,8 +34,12 @@ use crate::{
 
 #[derive(Clone)]
 pub struct State {
+    // Shared Redis for non-critical path (analytics counters, billing limits)
     pub redis_reader: Arc<dyn RedisClient + Send + Sync>,
     pub redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    // Dedicated Redis for critical path (team cache + flags cache)
+    pub flags_redis_reader: Arc<dyn RedisClient + Send + Sync>,
+    pub flags_redis_writer: Arc<dyn RedisClient + Send + Sync>,
     pub database_pools: Arc<DatabasePools>,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
@@ -50,9 +54,11 @@ pub struct State {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn router<RR, RW>(
+pub fn router<RR, RW, FRR, FRW>(
     redis_reader: Arc<RR>,
     redis_writer: Arc<RW>,
+    flags_redis_reader: Arc<FRR>,
+    flags_redis_writer: Arc<FRW>,
     database_pools: Arc<DatabasePools>,
     cohort_cache: Arc<CohortCacheManager>,
     geoip: Arc<GeoIpClient>,
@@ -65,6 +71,8 @@ pub fn router<RR, RW>(
 where
     RR: RedisClient + Send + Sync + 'static,
     RW: RedisClient + Send + Sync + 'static,
+    FRR: RedisClient + Send + Sync + 'static,
+    FRW: RedisClient + Send + Sync + 'static,
 {
     // Initialize flag definitions rate limiter with default and custom team rates
     let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
@@ -109,6 +117,8 @@ where
     let state = State {
         redis_reader,
         redis_writer,
+        flags_redis_reader,
+        flags_redis_writer,
         database_pools,
         cohort_cache_manager: cohort_cache,
         geoip,

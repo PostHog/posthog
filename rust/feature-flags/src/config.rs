@@ -193,6 +193,25 @@ pub struct Config {
     #[envconfig(default = "")]
     pub redis_reader_url: String,
 
+    #[envconfig(default = "")]
+    pub redis_writer_url: String,
+
+    // Dedicated Redis for feature flags (critical path: team cache + flags cache)
+    // When empty, falls back to shared Redis URLs above
+    #[envconfig(default = "")]
+    pub flags_redis_url: String,
+
+    #[envconfig(default = "")]
+    pub flags_redis_reader_url: String,
+
+    #[envconfig(default = "")]
+    pub flags_redis_writer_url: String,
+
+    // Enable dual-write mode: write to both shared and dedicated Redis
+    // Used during transition to warm up dedicated cache before cutover
+    #[envconfig(default = "false")]
+    pub flags_redis_enabled: FlexBool,
+
     // S3 configuration for HyperCache fallback
     #[envconfig(default = "posthog")]
     pub object_storage_bucket: String,
@@ -202,9 +221,6 @@ pub struct Config {
 
     #[envconfig(default = "")]
     pub object_storage_endpoint: String,
-
-    #[envconfig(default = "")]
-    pub redis_writer_url: String,
 
     // How long to wait for a connection from the pool before timing out
     // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
@@ -443,6 +459,10 @@ impl Config {
             redis_url: "redis://localhost:6379/".to_string(),
             redis_reader_url: "".to_string(),
             redis_writer_url: "".to_string(),
+            flags_redis_url: "".to_string(),
+            flags_redis_reader_url: "".to_string(),
+            flags_redis_writer_url: "".to_string(),
+            flags_redis_enabled: FlexBool(false),
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
                 .to_string(),
             read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
@@ -534,6 +554,30 @@ impl Config {
             &self.redis_url
         } else {
             &self.redis_writer_url
+        }
+    }
+
+    /// Get the Redis URL for flags cache reads (critical path: team cache + flags cache)
+    /// Falls back to shared Redis reader URL if dedicated flags Redis is not configured
+    pub fn get_flags_redis_reader_url(&self) -> &str {
+        if !self.flags_redis_reader_url.is_empty() {
+            &self.flags_redis_reader_url
+        } else if !self.flags_redis_url.is_empty() {
+            &self.flags_redis_url
+        } else {
+            self.get_redis_reader_url()
+        }
+    }
+
+    /// Get the Redis URL for flags cache writes (critical path: team cache + flags cache)
+    /// Falls back to shared Redis writer URL if dedicated flags Redis is not configured
+    pub fn get_flags_redis_writer_url(&self) -> &str {
+        if !self.flags_redis_writer_url.is_empty() {
+            &self.flags_redis_writer_url
+        } else if !self.flags_redis_url.is_empty() {
+            &self.flags_redis_url
+        } else {
+            self.get_redis_writer_url()
         }
     }
 
