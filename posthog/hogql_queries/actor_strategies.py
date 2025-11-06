@@ -1,8 +1,10 @@
+import time
 from typing import Literal, Optional, cast
 
 from django.db import connection, connections
 
 import orjson as json
+import structlog
 
 from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
 
@@ -13,6 +15,8 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Group, Team
+
+logger = structlog.get_logger(__name__)
 
 
 class ActorStrategy:
@@ -50,6 +54,11 @@ class PersonStrategy(ActorStrategy):
     def get_actors(self, actor_ids, order_by: str = "") -> dict[str, dict]:
         # If actor queries start quietly dying again, this might need batching at some point
         # but currently works with 800,000 persondistinctid entries (May 24, 2024)
+
+        # Convert generator to list to count actors
+        actor_ids_list = list(actor_ids)
+        actor_count = len(actor_ids_list)
+
         persons_query = """SELECT posthog_person.id, posthog_person.uuid, posthog_person.properties, posthog_person.is_identified, posthog_person.created_at
             FROM posthog_person
             WHERE posthog_person.uuid = ANY(%(uuids)s)
@@ -59,10 +68,12 @@ class PersonStrategy(ActorStrategy):
 
         conn = connections["persons_db_reader"] if "persons_db_reader" in connections else connection
 
+        start_time = time.perf_counter()
+
         with conn.cursor() as cursor:
             cursor.execute(
                 persons_query,
-                {"uuids": list(actor_ids), "team_id": self.team.pk},
+                {"uuids": actor_ids_list, "team_id": self.team.pk},
             )
             people = cursor.fetchall()
             cursor.execute(
@@ -73,6 +84,19 @@ class PersonStrategy(ActorStrategy):
                 {"people_ids": [x[0] for x in people], "team_id": self.team.pk},
             )
             distinct_ids = cursor.fetchall()
+
+        duration_ms = (time.perf_counter() - start_time) * 1000
+
+        # Log slow queries for debugging regional traffic patterns
+        if duration_ms > 1000:  # >1 second
+            logger.warning(
+                "postgres_get_actors_slow_query",
+                team_id=self.team.pk,
+                actor_count=actor_count,
+                duration_ms=duration_ms,
+                people_fetched=len(people),
+                distinct_ids_fetched=len(distinct_ids),
+            )
 
         person_id_to_raw_person_and_set: dict[int, tuple] = {person[0]: (person, []) for person in people}
 
