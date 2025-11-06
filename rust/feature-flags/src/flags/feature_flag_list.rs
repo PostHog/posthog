@@ -439,4 +439,51 @@ mod tests {
         assert!(tags.contains(&"marketing-site".to_string()));
         assert!(tags.contains(&"app".to_string()));
     }
+
+    #[test]
+    fn test_serialization_format_compatibility() {
+        // This test verifies that Vec<FeatureFlag> and FlagsWithMetadata
+        // have incompatible JSON formats, proving the cache format issue exists.
+        use crate::flags::flag_models::{FeatureFlag, FlagFilters};
+
+        // Old format: Just a Vec<FeatureFlag>
+        let old_format_flags = vec![FeatureFlag {
+            id: 1,
+            team_id: 123,
+            name: Some("Test Flag".to_string()),
+            key: "test_flag".to_string(),
+            filters: FlagFilters::default(),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(false),
+            version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
+        }];
+
+        let old_json = serde_json::to_string(&old_format_flags)
+            .expect("Failed to serialize old format");
+
+        println!("Old format JSON: {}", old_json);
+
+        // Try to deserialize old format as FlagsWithMetadata
+        let result = serde_json::from_str::<FlagsWithMetadata>(&old_json);
+
+        // For backward compatibility, this MUST succeed
+        // If it fails, we have a cache format incompatibility that will cause thundering herd
+        assert!(
+            result.is_ok(),
+            "FAILED: Cannot deserialize old cache format (Vec<FeatureFlag>) as FlagsWithMetadata. \
+             This will cause cache misses for all existing cache entries, leading to thundering herd. \
+             Old JSON: {}\nError: {:?}",
+            old_json,
+            result.unwrap_err()
+        );
+
+        // Verify the deserialized data is correct
+        let metadata = result.unwrap();
+        assert_eq!(metadata.flags.len(), 1);
+        assert_eq!(metadata.flags[0].key, "test_flag");
+        assert_eq!(metadata.flags[0].id, 1);
+    }
 }
