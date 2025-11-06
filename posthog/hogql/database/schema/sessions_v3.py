@@ -418,6 +418,7 @@ class SessionsTableV3(LazyTable):
                 "$exit_current_url",
                 "$exit_pathname",
                 "$has_autocapture",
+                "$entry_channel_type_properties",
             }
         )
 
@@ -467,7 +468,8 @@ def get_lazy_session_table_properties_v3(search: Optional[str]):
         "$num_uniq_urls",
         "$page_screen_autocapture_count_up_to",
         "$page_screen_count_up_to",
-        "$has_autocapture" "$entry_channel_type_properties",
+        "$has_autocapture",
+        "$entry_channel_type_properties",
         "session_timestamp",  # really people should be using $start_timestamp for most queries
         # aliases for people upgrading from v1 to v2/v3
         "$exit_current_url",
