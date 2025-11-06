@@ -567,6 +567,7 @@ function PatternCard({
     pattern: Pattern
     onViewDetails: (event: SessionEvent) => void
 }): JSX.Element {
+    const [visibleCount, setVisibleCount] = useState(3)
     const severityConfig = getSeverityConfig(pattern.severity)
 
     const header = (
@@ -595,7 +596,7 @@ function PatternCard({
         <div className="p-2 bg-bg-3000">
             <p className="mb-3 text-sm font-medium">Examples from sessions:</p>
             <div className="flex flex-col gap-3">
-                {pattern.events.map((event, index) => (
+                {pattern.events.slice(0, visibleCount).map((event, index) => (
                     <SessionExampleCard
                         key={`${pattern.pattern_id}-${index}`}
                         event={event}
@@ -603,9 +604,14 @@ function PatternCard({
                     />
                 ))}
             </div>
-            {pattern.events.length > 0 && (
+            {pattern.events.length > 3 && (
                 <div className="mt-4 flex justify-center">
-                    <LemonButton type="secondary" size="small">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => setVisibleCount((prev) => prev + 3)}
+                        disabled={visibleCount >= pattern.events.length}
+                    >
                         Show more examples
                     </LemonButton>
                 </div>
