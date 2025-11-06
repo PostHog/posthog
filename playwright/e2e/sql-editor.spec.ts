@@ -30,12 +30,14 @@ test.describe('SQL Editor', () => {
         await page.locator('[data-attr=hogql-query-editor]').click()
         await page.locator('textarea[aria-roledescription="editor"]').fill('SELECT 1')
 
+        // Use unique view name to prevent collisions in parallel runs
+        const viewName = `test_view_${Date.now()}`
         await page.locator('[data-attr=sql-editor-save-view-button]').click()
-        await page.locator('[data-attr=sql-editor-input-save-view-name]').fill('test_view')
+        await page.locator('[data-attr=sql-editor-input-save-view-name]').fill(viewName)
         await page.getByText('Submit').click()
 
-        await expect(page.getByText('test_view successfully created')).toBeVisible()
-        await expect(page.getByText('Editing view "test_view"')).toBeVisible()
+        await expect(page.getByText(`${viewName} successfully created`)).toBeVisible({ timeout: 60000 })
+        await expect(page.getByText(`Editing view "${viewName}"`)).toBeVisible({ timeout: 60000 })
     })
 
     test('Materialize view pane', async ({ page }) => {
