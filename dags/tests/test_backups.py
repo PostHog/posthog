@@ -76,14 +76,14 @@ def test_get_latest_backup(table: str):
 def test_get_latest_successful_backup_returns_latest_backup():
     config = BackupConfig(database="posthog", table="test", incremental=True)
     backup1 = Backup(database="posthog", date="2024-02-01T07:54:04Z", table="test")
-    backup1.is_done = MagicMock(return_value=True)
-    backup1.status = MagicMock(
+    backup1.is_done = MagicMock(return_value=True)  # type: ignore
+    backup1.status = MagicMock(  # type: ignore
         return_value=BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
     )
 
     backup2 = Backup(database="posthog", date="2024-01-01T07:54:04Z", table="test")
-    backup2.is_done = MagicMock(return_value=True)
-    backup2.status = MagicMock(
+    backup2.is_done = MagicMock(return_value=True)  # type: ignore
+    backup2.status = MagicMock(  # type: ignore
         return_value=BackupStatus(hostname="test", status="BACKUP_CREATED", event_time_microseconds=datetime.now())
     )
 
@@ -109,7 +109,7 @@ def test_get_latest_successful_backup_returns_latest_backup():
 def test_get_latest_successful_backup_fails():
     config = BackupConfig(database="posthog", table="test", incremental=True)
     backup1 = Backup(database="posthog", date="2024-02-01T07:54:04Z", table="test")
-    backup1.status = MagicMock(
+    backup1.status = MagicMock(  # type: ignore
         return_value=BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
     )
 

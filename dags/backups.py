@@ -411,7 +411,7 @@ def run_backup(
 
     context.add_output_metadata(
         {
-            "table": dagster.MetadataValue.text(backup.table),
+            "table": dagster.MetadataValue.text(str(backup.table)),
             "path": dagster.MetadataValue.text(backup.path),
             "incremental": dagster.MetadataValue.bool(config.incremental),
             "date": dagster.MetadataValue.text(backup.date),
@@ -425,7 +425,7 @@ def run_backup(
 def wait_for_backup(
     context: dagster.OpExecutionContext,
     config: BackupConfig,
-    backup: Optional[Backup],
+    backup: Backup,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
     """
@@ -448,7 +448,7 @@ def wait_for_backup(
             most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
             if most_recent_status and most_recent_status.status == "CREATING_BACKUP":
                 continue
-            if most_recent_status and most_recent_status.status == "BACKUP_CREATED":
+            if most_recent_status and most_recent_status.status == "BACKUP_CREATD":
                 context.log.info(f"Backup for table {backup.table} in path {backup.path} finished successfully")
                 done = True
             if (most_recent_status and most_recent_status.status != "BACKUP_CREATED") or (
@@ -462,7 +462,7 @@ def wait_for_backup(
 
     context.add_output_metadata(
         {
-            "table": dagster.MetadataValue.text(backup.table),
+            "table": dagster.MetadataValue.text(str(backup.table)),
             "path": dagster.MetadataValue.text(backup.path),
             "incremental": dagster.MetadataValue.bool(config.incremental),
             "date": dagster.MetadataValue.text(backup.date),
@@ -541,7 +541,6 @@ def run_backup_request(
     timestamp = datetime.now(UTC)
     config = BackupConfig(
         database=settings.CLICKHOUSE_DATABASE,
-        date=timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
         table=table,
         incremental=incremental,
     )
