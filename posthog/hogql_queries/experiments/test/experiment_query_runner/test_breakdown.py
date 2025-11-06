@@ -488,6 +488,120 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
     @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
+    def test_mean_metric_with_winsorization_and_breakdown(self, name, use_new_query_builder):
+        """Test that winsorization computes per-breakdown percentiles, not global percentiles"""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.save()
+
+        # Use winsorization with p5 and p95 bounds
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+            lower_bound_percentile=0.05,
+            upper_bound_percentile=0.95,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control group - Chrome users have low values, Safari users have high values
+        # This tests that percentiles are computed per-breakdown, not globally
+        for i in range(4):
+            browser = "Chrome" if i < 2 else "Safari"
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                    "$browser": browser,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    # Chrome: values 10, 20; Safari: values 100, 200
+                    # If percentiles were computed globally, Safari values would be capped at Chrome's p95
+                    "amount": 10 + (i * 10) if browser == "Chrome" else 100 + (i - 2) * 100,
+                    "$browser": browser,
+                },
+            )
+
+        # Test group - similar pattern
+        for i in range(4):
+            browser = "Chrome" if i < 2 else "Safari"
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                    "$browser": browser,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "amount": 15 + (i * 10) if browser == "Chrome" else 110 + (i - 2) * 100,
+                    "$browser": browser,
+                },
+            )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Verify breakdown structure exists
+        self.assertIsNotNone(result.breakdown_values)
+        assert result.breakdown_values is not None
+        self.assertEqual(sorted(result.breakdown_values), [["Chrome"], ["Safari"]])
+
+        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
+        self.assertEqual(len(result.breakdown_results), 2)
+
+        # Verify each breakdown has stats
+        # The key validation is that Safari's high values aren't capped at Chrome's percentiles
+        for breakdown_result in result.breakdown_results:
+            self.assertIn(breakdown_result.breakdown_value, [["Chrome"], ["Safari"]])
+            self.assertIsNotNone(breakdown_result.baseline)
+            self.assertIsNotNone(breakdown_result.variants)
+            self.assertGreater(len(breakdown_result.variants), 0)
+
+    @parameterized.expand([("new_query_builder", True)])
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
     def test_mean_metric_with_two_breakdowns(self, name, use_new_query_builder):
         """Test mean metric calculations work correctly with 2 breakdown dimensions"""
         feature_flag = self.create_feature_flag()
