@@ -292,24 +292,24 @@ jobs:
                   echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
                   echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
 
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+
+            - name: Install sqlx-cli
+              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
             - name: Apply postgres and clickhouse migrations and setup dev
               run: |
                   python manage.py migrate_clickhouse &
                   python manage.py migrate --noinput
 
-                  # Build and run Rust migrations using dedicated container
-                  docker build -f rust/Dockerfile.sqlx-migrate -t posthog-migrations:latest ./rust
-                  docker run --rm --network host \
-                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
-                    -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
-                    posthog-migrations:latest all
+                  # Run Rust migrations for persons database
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx migrate run --source rust/persons_migrations/
 
-                  # Build and run Rust migrations using dedicated container
-                  docker build -f rust/Dockerfile.sqlx-migrate -t posthog-migrations:latest ./rust
-                  docker run --rm --network host \
-                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_e2e_test" \
-                    -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
-                    posthog-migrations:latest all
+                  # Run Rust migrations for e2e test database
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_e2e_test" \
+                    sqlx migrate run --source rust/persons_migrations/
 
                   python manage.py setup_dev
                   wait
