@@ -124,7 +124,7 @@ export function SelectableProductCard({
                 {useCase && useCase !== 'pick_myself' && (
                     <div className="w-full max-w-[800px] mb-4">
                         <button
-                            className="text-muted hover:text-default text-sm flex items-center gap-1"
+                            className="text-muted hover:text-default text-sm flex items-center gap-1 cursor-pointer"
                             onClick={() => router.actions.push(urls.useCaseSelection())}
                         >
                             ← Go back to change my goal
@@ -143,90 +143,92 @@ export function SelectableProductCard({
                     </div>
 
                     <div className="flex flex-col-reverse sm:flex-col gap-6 md:gap-12 justify-center items-center w-full">
-                        {/* Recommended products - always shown if we have them */}
-                        {preSelectedProducts.length > 0 && (
-                            <div className="mb-6 max-w-[800px] w-full">
-                                <div className="flex flex-col gap-3">
-                                    {preSelectedProducts.map((productKey) => (
-                                        <SelectableProductCard
-                                            key={productKey}
-                                            product={availableOnboardingProducts[productKey]}
-                                            productKey={productKey}
-                                            onClick={() => toggleSelectedProduct(productKey)}
-                                            selected={selectedProducts.includes(productKey)}
-                                            orientation="horizontal"
-                                            showDescription={true}
-                                            className="w-full"
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-                        )}
+                        {useCase ? (
+                            // NEW LAYOUT: Horizontal cards with recommendations (when feature flag is ON)
+                            <>
+                                {/* Recommended products - always shown if we have them */}
+                                {preSelectedProducts.length > 0 && (
+                                    <div className="mb-6 max-w-[800px] w-full">
+                                        <div className="flex flex-col gap-3">
+                                            {preSelectedProducts.map((productKey) => (
+                                                <SelectableProductCard
+                                                    key={productKey}
+                                                    product={availableOnboardingProducts[productKey]}
+                                                    productKey={productKey}
+                                                    onClick={() => toggleSelectedProduct(productKey)}
+                                                    selected={selectedProducts.includes(productKey)}
+                                                    orientation="horizontal"
+                                                    showDescription={true}
+                                                    className="w-full"
+                                                />
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
 
-                        {/* Show all products button */}
-                        {preSelectedProducts.length > 0 && !showAllProducts && (
-                            <button
-                                onClick={() => {
-                                    setShowAllProducts(true)
-                                    if (window.posthog) {
-                                        window.posthog.capture('onboarding_show_all_products_clicked', {
-                                            use_case: useCase,
-                                            recommended_count: preSelectedProducts.length,
-                                        })
-                                    }
-                                }}
-                                className="text-muted hover:text-default text-sm mb-6 flex items-center gap-1 cursor-pointer"
-                            >
-                                Show all products ({otherProducts.length} more) <IconChevronDown className="text-xs" />
-                            </button>
-                        )}
+                                {/* Show all products button */}
+                                {preSelectedProducts.length > 0 && !showAllProducts && (
+                                    <button
+                                        onClick={() => {
+                                            setShowAllProducts(true)
+                                            if (window.posthog) {
+                                                window.posthog.capture('onboarding_show_all_products_clicked', {
+                                                    use_case: useCase,
+                                                    recommended_count: preSelectedProducts.length,
+                                                })
+                                            }
+                                        }}
+                                        className="text-muted hover:text-default text-sm mb-6 flex items-center gap-1 cursor-pointer"
+                                    >
+                                        Show all products ({otherProducts.length} more){' '}
+                                        <IconChevronDown className="text-xs" />
+                                    </button>
+                                )}
 
-                        {/* All other products - shown when expanded or if no use case selected */}
-                        {(showAllProducts || preSelectedProducts.length === 0) && otherProducts.length > 0 && (
-                            <div className="mb-6 max-w-[800px] w-full">
-                                <div className="flex flex-col gap-3 items-center">
-                                    {/* Collapse button - above product list */}
-                                    {showAllProducts && preSelectedProducts.length > 0 && (
-                                        <button
-                                            onClick={() => setShowAllProducts(false)}
-                                            className="text-muted hover:text-default text-sm mb-2 flex items-center gap-1 cursor-pointer"
-                                        >
-                                            <IconChevronDown className="rotate-180 text-xs" /> Hide other products
-                                        </button>
+                                {/* All other products - shown when expanded OR when no use case selected */}
+                                {((showAllProducts && preSelectedProducts.length > 0) ||
+                                    preSelectedProducts.length === 0) &&
+                                    otherProducts.length > 0 && (
+                                        <div className="mb-6 max-w-[800px] w-full">
+                                            <div className="flex flex-col gap-3 items-center">
+                                                {/* Collapse button - above product list */}
+                                                {showAllProducts && preSelectedProducts.length > 0 && (
+                                                    <button
+                                                        onClick={() => setShowAllProducts(false)}
+                                                        className="text-muted hover:text-default text-sm mb-2 flex items-center gap-1 cursor-pointer"
+                                                    >
+                                                        <IconChevronDown className="rotate-180 text-xs" /> Hide other
+                                                        products
+                                                    </button>
+                                                )}
+                                                {otherProducts.map((productKey) => (
+                                                    <SelectableProductCard
+                                                        key={productKey}
+                                                        product={availableOnboardingProducts[productKey as ProductKey]}
+                                                        productKey={productKey}
+                                                        onClick={() => toggleSelectedProduct(productKey as ProductKey)}
+                                                        selected={selectedProducts.includes(productKey as ProductKey)}
+                                                        orientation="horizontal"
+                                                        showDescription={true}
+                                                        className="w-full"
+                                                    />
+                                                ))}
+                                            </div>
+                                        </div>
                                     )}
-                                    {otherProducts.map((productKey) => (
-                                        <SelectableProductCard
-                                            key={productKey}
-                                            product={availableOnboardingProducts[productKey as ProductKey]}
-                                            productKey={productKey}
-                                            onClick={() => toggleSelectedProduct(productKey as ProductKey)}
-                                            selected={selectedProducts.includes(productKey as ProductKey)}
-                                            orientation="horizontal"
-                                            showDescription={true}
-                                            className="w-full"
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Original product grid for when no use case */}
-                        {preSelectedProducts.length === 0 && !showAllProducts && (
-                            <div className="flex flex-row flex-wrap gap-4 justify-center max-w-[680px]">
+                            </>
+                        ) : (
+                            // OLD LAYOUT: Vertical grid (when feature flag is OFF)
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6 justify-items-stretch w-full max-w-lg">
                                 {Object.keys(availableOnboardingProducts).map((productKey) => (
                                     <SelectableProductCard
-                                        product={
-                                            availableOnboardingProducts[
-                                                productKey as keyof typeof availableOnboardingProducts
-                                            ]
-                                        }
                                         key={productKey}
+                                        product={availableOnboardingProducts[productKey as ProductKey]}
                                         productKey={productKey}
-                                        onClick={() => {
-                                            toggleSelectedProduct(productKey as ProductKey)
-                                        }}
-                                        className="w-[160px]"
+                                        onClick={() => toggleSelectedProduct(productKey as ProductKey)}
                                         selected={selectedProducts.includes(productKey as ProductKey)}
+                                        orientation="vertical"
+                                        showDescription={false}
                                     />
                                 ))}
                             </div>
@@ -251,7 +253,7 @@ export function SelectableProductCard({
                                 )}
                                 {selectedProducts.length > 1 ? (
                                     <div className="flex gap-2 items-center justify-center">
-                                        <LemonLabel>Start first with</LemonLabel>
+                                        <LemonLabel>Start with</LemonLabel>
                                         <LemonSelect
                                             value={firstProductOnboarding}
                                             options={selectedProducts.map((productKey) => ({

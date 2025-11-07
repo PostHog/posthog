@@ -1,10 +1,13 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
+import { LemonButton } from '@posthog/lemon-ui'
 import { LemonCard } from '@posthog/lemon-ui'
 
+import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { USE_CASE_OPTIONS } from 'scenes/onboarding/productRecommendations'
 import { getProductIcon } from 'scenes/products/Products'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useCaseSelectionLogic } from './useCaseSelectionLogic'
 
@@ -14,6 +17,8 @@ export const scene: SceneExport = {
 
 export function UseCaseSelection(): JSX.Element {
     const { selectUseCase } = useActions(useCaseSelectionLogic)
+    const { skipOnboarding } = useActions(onboardingLogic)
+    const { hasIngestedEvent } = useValues(teamLogic)
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-primary">
@@ -42,7 +47,15 @@ export function UseCaseSelection(): JSX.Element {
                     ))}
                 </div>
 
-                <div className="text-center mt-6">
+                <div className="flex items-center justify-between w-full mt-6">
+                    {hasIngestedEvent ? (
+                        <LemonButton status="alt" onClick={() => skipOnboarding()}>
+                            Skip onboarding
+                        </LemonButton>
+                    ) : (
+                        <div /> // Spacer to keep "pick myself" on the right
+                    )}
+
                     <button
                         className="text-muted hover:text-default text-sm"
                         onClick={() => selectUseCase('pick_myself')}
