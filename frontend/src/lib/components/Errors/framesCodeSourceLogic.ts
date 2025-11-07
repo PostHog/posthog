@@ -84,6 +84,23 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
                         url,
                         provider: parsed.provider,
                     }
+                } else if (parsed?.provider === 'gitlab') {
+                    const result = await api.gitProviderFileLinks.resolveGitlab(
+                        parsed.owner,
+                        parsed.repository,
+                        codeSample,
+                        fileName
+                    )
+                    let url = result.found && result.url ? `${result.url}` : null
+
+                    if (url && lineNumber) {
+                        url = `${url}#L${lineNumber + 1}`
+                    }
+
+                    batchData[rawId] = {
+                        url,
+                        provider: parsed.provider,
+                    }
                 }
             })
 

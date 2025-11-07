@@ -9,7 +9,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration
 
 logger = structlog.get_logger(__name__)
 
@@ -71,6 +71,42 @@ def get_github_file_url(code_sample: str, token: str, owner: str, repository: st
         return None
 
 
+def get_gitlab_file_url(
+    code_sample: str, token: str, owner: str, repository: str, file_name: str, gitlab_url: str = "https://gitlab.com"
+) -> str | None:
+    """Search GitLab code using the Search API. Returns URL to first match or None."""
+    project_path = f"{owner}/{repository}"
+    encoded_project_path = urllib.parse.quote(project_path, safe="")
+    search_scope = "blobs"
+    encoded_search = urllib.parse.quote(code_sample)
+    url = f"{gitlab_url}/api/v4/projects/{encoded_project_path}/search?scope={search_scope}&search={encoded_search}"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+
+        if response.status_code == 200:
+            data = response.json()
+            if data:
+                for item in data:
+                    if file_name in item.get("path", ""):
+                        ref = item.get("ref", "main")
+                        path = item.get("path", "")
+                        return f"{gitlab_url}/{owner}/{repository}/-/blob/{ref}/{path}"
+                return None
+            return None
+        else:
+            logger.warning("gitlab_code_search_failed", status_code=response.status_code)
+            return None
+    except requests.exceptions.RequestException as e:
+        logger.exception("gitlab_code_search_request_failed", error=str(e))
+        return None
+
+
 class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
 
@@ -111,6 +147,39 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             if token:
                 url = get_github_file_url(
                     code_sample=code_sample, token=token, owner=owner, repository=repository, file_name=file_name
+                )
+                if url:
+                    return Response({"found": True, "url": url})
+
+        return Response({"found": False})
+
+    @action(methods=["GET"], detail=False, url_path="resolve_gitlab")
+    def resolve_gitlab(self, request, **kwargs):
+        owner = request.GET.get("owner")
+        repository = request.GET.get("repository")
+        code_sample = request.GET.get("code_sample")
+        file_name = request.GET.get("file_name")
+
+        if not owner or not repository or not code_sample or not file_name:
+            return Response({"found": False, "error": "owner, repository, code_sample, and file_name are required"})
+
+        url = None
+
+        integration = Integration.objects.filter(team_id=self.team.id, kind="gitlab").first()
+
+        if integration:
+            gitlab = GitLabIntegration(integration)
+            hostname = gitlab.hostname
+            token = gitlab.integration.sensitive_config.get("access_token")
+
+            if token:
+                url = get_gitlab_file_url(
+                    code_sample=code_sample,
+                    token=token,
+                    owner=owner,
+                    repository=repository,
+                    file_name=file_name,
+                    gitlab_url=hostname,
                 )
                 if url:
                     return Response({"found": True, "url": url})
