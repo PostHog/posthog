@@ -5,7 +5,7 @@ from typing import Optional
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, override_settings
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
@@ -699,7 +699,6 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert integration.config["name"] == "Test User"
         assert integration.config["verified"] is False
 
-    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
     def test_duplicate_domain_in_another_team(self):
         # Create an integration with a domain in another team
         other_team = Team.objects.create(organization=self.organization, name="other team")
@@ -711,7 +710,6 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
         assert "already exists in another project" in str(exc.value)
 
-    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
     def test_unsupported_email_domain(self):
         # Test with a free email domain
         config = {"email": "user@gmail.com", "name": "Test User"}

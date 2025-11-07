@@ -31,7 +31,7 @@ describe('EmailService', () => {
     let team: Team
     beforeEach(async () => {
         await resetTestDatabase()
-        hub = await createHub({ MAILJET_SECRET_KEY: 'mailjet-secret-key', MAILJET_PUBLIC_KEY: 'mailjet-public-key' })
+        hub = await createHub({})
         team = await getFirstTeam(hub)
         service = new EmailService(hub)
         mockFetch.mockClear()
@@ -50,7 +50,7 @@ describe('EmailService', () => {
                     name: 'Test User',
                     domain: 'posthog.com',
                     verified: true,
-                    provider: 'mailjet',
+                    provider: 'ses',
                 },
             })
             invocation = createExampleInvocation({ team_id: team.id, id: 'function-1' })
@@ -160,8 +160,6 @@ describe('EmailService', () => {
             mockFetch.mockImplementation((...args: any[]): Promise<any> => {
                 return actualFetch(...args) as any
             })
-            hub.MAILJET_PUBLIC_KEY = ''
-            hub.MAILJET_SECRET_KEY = ''
             await insertIntegration(hub.postgres, team.id, {
                 id: 1,
                 kind: 'email',
@@ -216,8 +214,6 @@ describe('EmailService', () => {
             mockFetch.mockImplementation((...args: any[]): Promise<any> => {
                 return actualFetch(...args) as any
             })
-            hub.MAILJET_PUBLIC_KEY = ''
-            hub.MAILJET_SECRET_KEY = ''
             await insertIntegration(hub.postgres, team.id, {
                 id: 1,
                 kind: 'email',
