@@ -699,7 +699,11 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert integration.config["name"] == "Test User"
         assert integration.config["verified"] is False
 
-    def test_duplicate_domain_in_another_team(self):
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    @patch("products.workflows.backend.providers.SESProvider.verify_email_domain")
+    def test_duplicate_domain_in_another_team(self, mock_create_email_domain, mock_verify_email_domain):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
+        mock_verify_email_domain.return_value = {"status": "verified", "domain": "example.com"}
         # Create an integration with a domain in another team
         other_team = Team.objects.create(organization=self.organization, name="other team")
         config = {"email": "user@example.com", "name": "Test User"}
