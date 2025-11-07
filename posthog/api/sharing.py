@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Any, Optional, cast
 from urllib.parse import urlparse, urlunparse
 
+from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Q
 from django.shortcuts import render
@@ -702,8 +703,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         elif resource.dashboard and not resource.dashboard.deleted:
             asset_title = resource.dashboard.name
             asset_description = resource.dashboard.description or ""
-            resource.dashboard.last_accessed_at = now()
-            resource.dashboard.save(update_fields=["last_accessed_at"])
+            if not settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
+                resource.dashboard.last_accessed_at = now()
+                resource.dashboard.save(update_fields=["last_accessed_at"])
 
             with task_chain_context():
                 dashboard_data = DashboardSerializer(resource.dashboard, context=context).data

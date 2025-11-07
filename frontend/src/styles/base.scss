@@ -1418,7 +1418,7 @@
 
         &.warning div {
             height: auto;
-            background: var(--danger);
+            background: var(--danger) !important; // Override .tricolor styling too
         }
 
         &.tricolor {

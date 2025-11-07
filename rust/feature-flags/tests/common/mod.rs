@@ -209,6 +209,7 @@ impl ServerHandle {
                 non_persons_writer: non_persons_writer.clone(),
                 persons_reader: persons_reader.clone(),
                 persons_writer: persons_writer.clone(),
+                test_before_acquire: *config.test_before_acquire,
             });
 
             let app = feature_flags::router::router(
