@@ -389,16 +389,16 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                             <LegacyMetricSourceModal experimentId={experimentId} isSecondary={false} />
                             <LegacySharedMetricModal experimentId={experimentId} isSecondary={true} />
                             <LegacySharedMetricModal experimentId={experimentId} isSecondary={false} />
-                            <LegacyMetricModal experimentId={experimentId} isSecondary={true} />
-                            <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
+                            <LegacyMetricModal isSecondary={true} />
+                            <LegacyMetricModal isSecondary={false} />
                         </>
                     )}
 
                     <DistributionModal />
                     <ReleaseConditionsModal />
 
-                    <StopExperimentModal experimentId={experimentId} />
-                    <EditConclusionModal experimentId={experimentId} />
+                    <StopExperimentModal />
+                    <EditConclusionModal />
 
                     <VariantDeltaTimeseries />
                 </>
