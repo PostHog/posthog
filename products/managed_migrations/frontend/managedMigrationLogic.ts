@@ -57,6 +57,8 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
     }),
     actions({
         editManagedMigration: (id: string | null) => ({ id }),
+        pauseMigration: (id: string) => ({ id }),
+        resumeMigration: (id: string) => ({ id }),
         startPolling: true,
         stopPolling: true,
     }),
@@ -177,6 +179,26 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                 lemonToast.error(error.message)
             } else {
                 lemonToast.error('Failed to create migration. Please try again.')
+            }
+        },
+        pauseMigration: async ({ id }) => {
+            try {
+                const projectId = ApiConfig.getCurrentProjectId()
+                await api.create(`api/projects/${projectId}/managed_migrations/${id}/pause/`)
+                lemonToast.success('Migration paused successfully')
+                actions.loadMigrations()
+            } catch (error: any) {
+                lemonToast.error(error?.message || 'Failed to pause migration')
+            }
+        },
+        resumeMigration: async ({ id }) => {
+            try {
+                const projectId = ApiConfig.getCurrentProjectId()
+                await api.create(`api/projects/${projectId}/managed_migrations/${id}/resume/`)
+                lemonToast.success('Migration resumed successfully')
+                actions.loadMigrations()
+            } catch (error: any) {
+                lemonToast.error(error?.message || 'Failed to resume migration')
             }
         },
         loadMigrationsSuccess: () => {
