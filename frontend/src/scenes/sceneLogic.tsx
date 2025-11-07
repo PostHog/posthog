@@ -270,6 +270,7 @@ const productsNotDependingOnEventIngestion: ProductKey[] = [ProductKey.DATA_WARE
 
 const pathPrefixesOnboardingNotRequiredFor = [
     urls.onboarding(''),
+    urls.useCaseSelection(),
     urls.products(),
     '/settings',
     urls.organizationBilling(),
