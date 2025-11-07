@@ -4,6 +4,8 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.stripe.stripe import StripeResumeConfig
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
@@ -63,22 +65,72 @@ async def test_stripe_source_full_refresh(
 
     We expect a single API call to be made to our mock Stripe API, which returns all the balance transactions.
     """
-    table_name = "stripe_balancetransaction"
-    expected_num_rows = len(BALANCE_TRANSACTIONS)
 
-    await run_external_data_job_workflow(
-        team=team,
-        external_data_source=external_data_source,
-        external_data_schema=external_data_schema_full_refresh,
-        table_name=table_name,
-        expected_rows_synced=expected_num_rows,
-        expected_total_rows=expected_num_rows,
-    )
+    with mock.patch.object(ResumableSourceManager, "save_state") as mock_save_state:
+        table_name = "stripe_balancetransaction"
+        expected_num_rows = len(BALANCE_TRANSACTIONS)
+
+        await run_external_data_job_workflow(
+            team=team,
+            external_data_source=external_data_source,
+            external_data_schema=external_data_schema_full_refresh,
+            table_name=table_name,
+            expected_rows_synced=expected_num_rows,
+            expected_total_rows=expected_num_rows,
+        )
+
+        # Check that the API was called as expected
+        api_calls_made = mock_stripe_api.get_all_api_calls()
+        assert len(api_calls_made) == 1
+        assert api_calls_made[0].url == "https://api.stripe.com/v1/balance_transactions?limit=100"
+
+        # Make sure the last balance transaction ID was saved as the resume point
+        assert mock_save_state.call_args[0][0].starting_after == BALANCE_TRANSACTIONS[-1]["id"]
+
+
+# mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating the
+# incremental field last value
+@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_source_resuming_full_refresh(
+    team, mock_stripe_api, external_data_source, external_data_schema_full_refresh
+):
+    """Test that resuming a full refresh sync works as expected.
+
+    We expect a single API call to be made to our mock Stripe API, which returns all the balance transactions with a filter.
+    """
+
+    starting_after = "customer_id_1"
+    with (
+        mock.patch.object(ResumableSourceManager, "can_resume", return_value=True),
+        mock.patch.object(
+            ResumableSourceManager, "load_state", return_value=StripeResumeConfig(starting_after=starting_after)
+        ),
+        mock.patch.object(ResumableSourceManager, "save_state") as mock_save_state,
+    ):
+        table_name = "stripe_balancetransaction"
+        expected_num_rows = len(BALANCE_TRANSACTIONS)
+
+        await run_external_data_job_workflow(
+            team=team,
+            external_data_source=external_data_source,
+            external_data_schema=external_data_schema_full_refresh,
+            table_name=table_name,
+            expected_rows_synced=expected_num_rows,
+            expected_total_rows=expected_num_rows,
+        )
 
     # Check that the API was called as expected
     api_calls_made = mock_stripe_api.get_all_api_calls()
     assert len(api_calls_made) == 1
-    assert api_calls_made[0].url == "https://api.stripe.com/v1/balance_transactions?limit=100"
+    assert (
+        api_calls_made[0].url
+        == f"https://api.stripe.com/v1/balance_transactions?limit=100&starting_after={starting_after}"
+    )
+
+    # Make sure the last balance transaction ID was saved as the resume point
+    assert mock_save_state.call_args[0][0].starting_after == BALANCE_TRANSACTIONS[-1]["id"]
 
 
 # mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating the

@@ -2846,3 +2846,20 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
         Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query/"
     )
     assert len(s3_objects_old_format.get("Contents", [])) == 0
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_resumable_source_shutdown(team, stripe_customer, mock_stripe_client):
+    with mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown") as mock_raise_if_is_worker_shutdown:
+        await _run(
+            team=team,
+            schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+            table_name="stripe_customer",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            mock_data_response=stripe_customer["data"],
+            ignore_assertions=True,
+        )
+
+        mock_raise_if_is_worker_shutdown.assert_called()

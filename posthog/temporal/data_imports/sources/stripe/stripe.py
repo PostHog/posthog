@@ -107,7 +107,7 @@ def get_rows(
     incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
     incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.is_resumable() else None
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     if (
         not should_use_incremental_field

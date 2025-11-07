@@ -90,7 +90,8 @@ class PipelineNonDLT(Generic[ResumableData]):
     def run(self):
         pa_memory_pool = pa.default_memory_pool()
 
-        should_resume = self._resumable_source_manager is not None and self._resumable_source_manager.is_resumable()
+        should_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
+        source_is_resumable = self._resumable_source_manager is not None
         if should_resume:
             self._logger.info("Resumable source detected - attempting to resume previous import")
 
@@ -162,13 +163,16 @@ class PipelineNonDLT(Generic[ResumableData]):
                 gc.collect()
 
                 # Only raise if we're not running in descending order, otherwise we'll often not
-                # complete the job before the incremental value can be updated
+                # complete the job before the incremental value can be updated. Or if the source is
+                # resumable
                 # TODO: raise when we're within `x` time of the worker being forced to shutdown
-                if (
+                # Raising during a full reset will reset our progress back to 0 rows
+                incremental_sync_raise_during_shutdown = (
                     self._schema.should_use_incremental_field
                     and self._resource.sort_mode != "desc"
-                    and not self._reset_pipeline  # Raising during a full reset will reset our progress back to 0 rows
-                ):
+                    and not self._reset_pipeline
+                )
+                if incremental_sync_raise_during_shutdown or source_is_resumable:
                     self._shutdown_monitor.raise_if_is_worker_shutdown()
 
             if self._batcher.should_yield(include_incomplete_chunk=True):

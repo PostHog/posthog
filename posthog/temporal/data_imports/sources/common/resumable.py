@@ -62,7 +62,7 @@ class ResumableSourceManager(Generic[ResumableData]):
             json_data = self._dump_json(data)
             redis.set(self._key, json_data, ex=60 * 60 * 24)  # 24 hours expiration
 
-    def is_resumable(self) -> bool:
+    def can_resume(self) -> bool:
         with self._get_redis() as redis:
             return redis.exists(self._key) == 1
 
