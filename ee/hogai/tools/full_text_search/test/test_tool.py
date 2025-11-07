@@ -104,7 +104,7 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
         assert "No search query was provided" in result
 
     @patch("ee.hogai.tools.full_text_search.tool.search_entities")
-    async def test_search_no_entity_types(self, mock_db_sync, mock_search_entities):
+    async def test_search_no_entity_types(self, mock_search_entities):
         all_results: list[dict] = [
             {"type": "cohort", "result_id": "123", "extra_fields": {"name": "Test cohort"}, "rank": 0.95},
             {"type": "dashboard", "result_id": "456", "extra_fields": {"name": "Test Dashboard"}, "rank": 0.90},
@@ -123,7 +123,7 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
         )
 
     @patch("ee.hogai.tools.full_text_search.tool.search_entities")
-    async def test_arun_with_results(self, mock_db_sync, mock_search_entities):
+    async def test_arun_with_results(self, mock_search_entities):
         all_results: list[dict] = [
             {
                 "kind": FTSKind.COHORTS,

@@ -74,8 +74,8 @@ class BaseExecutableAssistantNode(
     @property
     def node_name(self) -> str:
         config_name: str | None = None
-        if self._config:
-            config_name = self._config["metadata"].get("langgraph_node")
+        if self._config and (metadata := self._config.get("metadata")):
+            config_name = metadata.get("langgraph_node")
             if config_name is not None:
                 config_name = str(config_name)
         return config_name or self.__class__.__name__
