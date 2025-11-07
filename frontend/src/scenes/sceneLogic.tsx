@@ -1120,7 +1120,11 @@ export const sceneLogic = kea<sceneLogicType>([
                                     getRelativeNextPath(params.searchParams.next, location) ??
                                     removeProjectIdIfPresent(location.pathname)
 
-                                if (values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION]) {
+                                // Default to false (products page) if feature flags haven't loaded yet
+                                const useUseCaseSelection =
+                                    values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === true
+
+                                if (useUseCaseSelection) {
                                     console.warn('No onboarding completed, redirecting to /onboarding/use-case')
                                     router.actions.replace(
                                         urls.useCaseSelection(),

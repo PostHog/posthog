@@ -19,7 +19,6 @@ PERSISTED_FEATURE_FLAGS = [
     "artificial-hog",
     "recordings-blobby-v2-replay",
     "use-blob-v2-lts",
-    "onboarding-use-case-selection",
 ]
 
 # Per-team local evaluation rate limits, e.g. {"123": "1200/minute", "456": "2400/hour"}
