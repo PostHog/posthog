@@ -124,7 +124,6 @@ class SearchSessionRecordingsTool(MaxTool):
     """
     context_prompt_template: str = "Current recordings filters are: {current_filters}"
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
-    billable: bool = True
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         """
@@ -138,7 +137,7 @@ class SearchSessionRecordingsTool(MaxTool):
             "change": user_prompt,
             "output": None,
             "tool_progress_messages": [],
-            "billable": self.billable,
+            "billable": True,
             **self.context,
         }
         result = await graph.compile_full_graph().ainvoke(graph_context)

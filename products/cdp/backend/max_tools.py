@@ -101,7 +101,13 @@ class CreateHogTransformationFunctionTool(MaxTool):
     @property
     def _model(self):
         return MaxChatOpenAI(
-            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team, billable=True
+            model="gpt-4.1",
+            temperature=0.3,
+            disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
+            inject_context=False,
         )
 
     def _parse_output(self, output: str) -> HogTransformationOutput:

@@ -241,6 +241,7 @@ The newly updated query gave us this error:
             user=self._user,
             team=self._team,
             billable=True,
+            inject_context=False,
         ).with_structured_output(
             SQL_SCHEMA,
             method="function_calling",

@@ -435,4 +435,5 @@ class DashboardCreationNode(AssistantNode):
             user=self._user,
             team=self._team,
             billable=True,
+            inject_context=False,
         )
