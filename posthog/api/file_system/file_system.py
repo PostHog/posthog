@@ -732,10 +732,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             handler = _get_delete_handler(current.type)
 
             if handler is None:
-                if current.ref and remaining == 0:
-                    raise serializers.ValidationError(
-                        {"detail": f"Deletion for type '{current.type}' is not supported."}
-                    )
                 continue
 
             if remaining == 0 and not current.ref:
@@ -770,8 +766,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         handler = _get_delete_handler(entry.type)
         if handler is None:
-            if entry.ref and remaining == 0:
-                raise serializers.ValidationError({"detail": f"Deletion for type '{entry.type}' is not supported."})
             entry.delete()
             return deleted_objects
 
@@ -805,7 +799,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance = self.get_object()
         original_path = instance.path
         instance_created_by = instance.created_by
-        instance_team = instance.team
         deleted_objects: list[dict[str, Any]]
 
         with transaction.atomic():
@@ -816,7 +809,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/"))
             first_leftover = leftovers.first()
             if first_leftover:
-                self._assure_parent_folders(first_leftover.path, instance_created_by, instance_team)
+                created_by = first_leftover.created_by or instance_created_by or cast(User, self.request.user)
+                self._assure_parent_folders(first_leftover.path, created_by, first_leftover.team)
 
         if deleted_objects:
             return Response({"deleted": deleted_objects}, status=status.HTTP_200_OK)
