@@ -878,9 +878,10 @@ class ConcurrentS3Consumer(Consumer):
             Body=json.dumps({"files": files_uploaded}),
         )
 
-        await self._s3_client_ctx.__aexit__(None, None, None)
-        self._s3_client = None
-        self._s3_client_ctx = None
+        if self._s3_client is not None and self._s3_client_ctx is not None:
+            await self._s3_client_ctx.__aexit__(None, None, None)
+            self._s3_client = None
+            self._s3_client_ctx = None
 
     # TODO - maybe we can support upload small files without the need for multipart uploads
     # we just want to ensure we test both versions of the code path
