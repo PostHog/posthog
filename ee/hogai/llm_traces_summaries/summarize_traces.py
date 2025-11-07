@@ -67,7 +67,7 @@ class LLMTracesSummarizer:
             stringified_traces.update(stringified_trace)
         return stringified_traces
 
-    async def _summarize_stringified_traces(self, stringified_traces: dict[str, str]) -> dict[str, str]:
+    async def _summarize_stringified_traces(self, stringified_traces: dict[str, str]) -> None:
         # Summarize stringified traces
         summary_generator = LLMTraceSummarizerGenerator(team=self._team)
         summarized_traces = await summary_generator.summarize_stringified_traces(stringified_traces=stringified_traces)

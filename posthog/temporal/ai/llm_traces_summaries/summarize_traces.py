@@ -11,8 +11,8 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.schema import DateRange
 
-from posthog import constants
 from posthog.models.team.team import Team
+from posthog.settings.temporal import MAX_AI_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -77,6 +77,6 @@ async def execute_summarize_llm_traces(
         SummarizeLLMTracesInputs(date_to=date_range.date_to, date_from=date_range.date_from, team_id=team.id),
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=constants.MAX_AI_TASK_QUEUE,
+        task_queue=MAX_AI_TASK_QUEUE,
         retry_policy=retry_policy,
     )
