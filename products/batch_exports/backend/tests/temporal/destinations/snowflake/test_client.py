@@ -12,7 +12,8 @@ import pytest
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeClient,
     SnowflakeInsertInputs,
-    SnowflakeQueryTimeoutError,
+    SnowflakeQueryClientTimeoutError,
+    SnowflakeWarehouseUsageError,
 )
 from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils import SKIP_IF_MISSING_REQUIRED_ENV_VARS
 
@@ -49,12 +50,12 @@ async def snowflake_client(snowflake_config, database, schema):
 
 
 async def test_execute_async_query_with_timeout_raises_error(snowflake_client):
-    """Test that execute_async_query raises SnowflakeQueryTimeoutError when timeout is exceeded.
+    """Test that execute_async_query raises SnowflakeQueryClientTimeoutError when timeout is exceeded.
 
     This test uses a real Snowflake connection and runs a query that will take longer than
     the specified timeout. We use a SYSTEM$WAIT() call to simulate a long-running query.
     """
-    with pytest.raises(SnowflakeQueryTimeoutError) as exc_info:
+    with pytest.raises(SnowflakeQueryClientTimeoutError) as exc_info:
         await snowflake_client.execute_async_query(
             "CALL SYSTEM$WAIT(10)",  # Sleep for 10 seconds
             timeout=1.0,
@@ -121,3 +122,10 @@ async def test_execute_async_query_completes_within_timeout(snowflake_client):
     results, _description = result
     assert len(results) == 1
     assert results[0][0] == 1
+
+
+async def test_use_namespace_raises_error_if_warehouse_not_found_or_missing_usage_permissions(snowflake_client):
+    """Test that use_namespace raises an error if the warehouse is not found or we are missing 'USAGE' permissions on it."""
+    snowflake_client.warehouse = "garbage"
+    with pytest.raises(SnowflakeWarehouseUsageError):
+        await snowflake_client.use_namespace()

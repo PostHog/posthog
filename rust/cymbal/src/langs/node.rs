@@ -166,6 +166,7 @@ impl From<&RawNodeFrame> for Frame {
             synthetic: raw.meta.synthetic,
             suspicious: false,
             module: raw.module.clone(),
+            exception_type: None,
             code_variables: None,
         }
     }
@@ -211,6 +212,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: raw_frame.module.clone(),
+            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -256,6 +258,7 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: raw_frame.module.clone(),
+            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
