@@ -579,7 +579,12 @@ def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_c
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment, assigner: User) -> None:
+def send_error_tracking_issue_assigned(assignment_id: str, assigner_id: int) -> None:
+    assignment = ErrorTrackingIssueAssignment.objects.select_related("issue__team", "user", "role").get(
+        id=assignment_id
+    )
+    assigner = User.objects.get(pk=assigner_id)
+
     if not is_email_available(with_absolute_urls=True):
         return
 
@@ -621,7 +626,9 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_discussions_mentioned(comment: Comment, mentioned_user_ids: list[int], slug: str) -> None:
+def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], slug: str) -> None:
+    comment = Comment.objects.select_related("created_by", "team").get(id=comment_id)
+
     if not is_email_available(with_absolute_urls=True):
         return
 
