@@ -103,10 +103,13 @@ class ZendeskSource(BaseSource[ZendeskSourceConfig]):
             )
         )
 
+        incremental_field_config = ZENDESK_INCREMENTAL_FIELDS.get(inputs.schema_name, [])
+        incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
+
         zendesk_source_response.partition_count = 1
         zendesk_source_response.partition_size = 1
         zendesk_source_response.partition_mode = "datetime"
         zendesk_source_response.partition_format = "week"
-        zendesk_source_response.partition_keys = ["created_at"]
+        zendesk_source_response.partition_keys = [incremental_field_name]
 
         return zendesk_source_response
