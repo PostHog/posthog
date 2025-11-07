@@ -1178,6 +1178,12 @@
             "type": "String",
             "used_for_debug": true
         },
+        "$sdk_debug_replay_flushed_size": {
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "label": "Estimated bytes flushed",
+            "type": "Numeric",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_internal_buffer_length": {
             "description": "Useful for debugging. The internal buffer length for replay.",
             "examples": ["100"],
@@ -1733,6 +1739,18 @@
         "sccid": {
             "description": "Snapchat Click ID",
             "label": "sccid"
+        },
+        "sdk_debug_extensions_init_method": {
+            "description": "The method used to initialize PostHog.js extensions.",
+            "examples": ["deferred", "synchronous"],
+            "label": "PostHog.js extensions init method",
+            "used_for_debug": true
+        },
+        "sdk_debug_extensions_init_time_ms": {
+            "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
+            "examples": ["150"],
+            "label": "PostHog.js extensions init time (ms)",
+            "used_for_debug": true
         },
         "token": {
             "description": "Token used for authentication.",
@@ -3417,6 +3435,12 @@
             "type": "String",
             "used_for_debug": true
         },
+        "$sdk_debug_replay_flushed_size": {
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "label": "Estimated bytes flushed",
+            "type": "Numeric",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_internal_buffer_length": {
             "description": "Useful for debugging. The internal buffer length for replay.",
             "examples": ["100"],
@@ -4004,6 +4028,18 @@
         "sccid": {
             "description": "Snapchat Click ID Data from the last time this user was seen.",
             "label": "Latest sccid"
+        },
+        "sdk_debug_extensions_init_method": {
+            "description": "The method used to initialize PostHog.js extensions.",
+            "examples": ["deferred", "synchronous"],
+            "label": "PostHog.js extensions init method",
+            "used_for_debug": true
+        },
+        "sdk_debug_extensions_init_time_ms": {
+            "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
+            "examples": ["150"],
+            "label": "PostHog.js extensions init time (ms)",
+            "used_for_debug": true
         },
         "token": {
             "description": "Token used for authentication.",
