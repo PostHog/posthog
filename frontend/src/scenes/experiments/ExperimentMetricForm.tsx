@@ -4,6 +4,7 @@ import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -130,6 +131,8 @@ export function ExperimentMetricForm({
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
 
+    const isRetentionMetricEnabled = useFeatureFlag('EXPERIMENTS_RETENTION_METRICS')
+
     const getEventTypeLabel = (): string => {
         if (isExperimentMeanMetric(metric)) {
             return metric.source.kind === NodeKind.ActionsNode ? 'actions' : 'events'
@@ -221,12 +224,16 @@ export function ExperimentMetricForm({
             description:
                 'Calculates the ratio between two metrics. Useful when you want to use a different denominator than users exposed to the experiment.',
         },
-        {
-            value: ExperimentMetricType.RETENTION,
-            label: 'Retention',
-            description:
-                'Calculates the retention rate of users exposed to the experiment. Useful for measuring the percentage of users who return to the app after a certain period of time.',
-        },
+        ...(isRetentionMetricEnabled
+            ? [
+                  {
+                      value: ExperimentMetricType.RETENTION,
+                      label: 'Retention',
+                      description:
+                          'Calculates the retention rate of users exposed to the experiment. Useful for measuring the percentage of users who return to the app after a certain period of time.',
+                  },
+              ]
+            : []),
     ]
 
     const metricFilter = getFilter(metric)
@@ -425,7 +432,7 @@ export function ExperimentMetricForm({
                     </div>
                 )}
 
-                {isExperimentRetentionMetric(metric) && (
+                {isRetentionMetricEnabled && isExperimentRetentionMetric(metric) && (
                     <div className="space-y-4">
                         <div>
                             <LemonLabel className="mb-1">
