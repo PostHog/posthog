@@ -1435,7 +1435,7 @@ export function SessionSummariesScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Session Summaries Report - AI feedback sessions (last 3 days) "
+                name="Session Summaries Report - Active sessions (last 3 days) "
                 resourceType={{
                     type: sceneConfigurations[Scene.SessionSummaries]?.iconType || 'default_icon_type',
                 }}
