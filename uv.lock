@@ -3335,6 +3335,15 @@ wheels = [
 ]
 
 [[package]]
+name = "markdown-to-json"
+version = "2.1.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/b7/e333b0c8d3447b0e55a32a57beb15d456e33ea605312bfebb6e3dba29205/markdown_to_json-2.1.2.tar.gz", hash = "sha256:8fa5b4191c74a20297fe2622ee6dd202f82448d025af9c837732d45a64551d01", size = 51536, upload-time = "2024-09-20T20:38:57.557Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/0a/affeb612dcd97a6842e59b118b7facd6cfaf1dc7509ad7a4d986c974d2da/markdown_to_json-2.1.2-py3-none-any.whl", hash = "sha256:bda2c90082d93a6da051dbeda2ab46d79da5ed0590f5a5abba6c58dbc751be1b", size = 52645, upload-time = "2024-09-20T20:38:56.14Z" },
+]
+
+[[package]]
 name = "markupsafe"
 version = "3.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4282,6 +4291,7 @@ dependencies = [
     { name = "lxml" },
     { name = "lzstring" },
     { name = "markdown-it-py" },
+    { name = "markdown-to-json" },
     { name = "mimesis" },
     { name = "mistralai" },
     { name = "more-itertools" },
@@ -4528,6 +4538,7 @@ requires-dist = [
     { name = "lxml", specifier = "==5.2.1" },
     { name = "lzstring", specifier = "==1.0.4" },
     { name = "markdown-it-py", specifier = "~=3.0.0" },
+    { name = "markdown-to-json", specifier = ">=2.1.2" },
     { name = "mimesis", specifier = "==5.2.1" },
     { name = "mistralai", specifier = "==1.6.0" },
     { name = "more-itertools", specifier = "==9.0.0" },

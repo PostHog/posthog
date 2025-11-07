@@ -178,6 +178,7 @@ dependencies = [
     "cachetools>=5.5.2",
     "textcase>=0.4.5",
     "gitpython>=3.1.44",
+    "markdown-to-json>=2.1.2",
 ]
 
 [dependency-groups]

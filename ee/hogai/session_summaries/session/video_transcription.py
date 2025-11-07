@@ -63,8 +63,7 @@ class VideoTranscriptioner:
         media_part_duration_s: int,
         model_id: str = VIDEO_TRANSCRIPTION_MODEL_ID,
         media_resolution: MediaResolution = VIDEO_TRANSCRIPTION_MEDIA_RESOLUTION,
-        media_file_name: str | None = None,
-        media_file_path: str | None = None,
+        media_file: File | None = None,
     ):
         # LLM
         self._encoder = tiktoken.encoding_for_model("o3")
@@ -73,36 +72,49 @@ class VideoTranscriptioner:
         self._media_part_duration_s = media_part_duration_s
         self._model_id = model_id
         self._media_resolution = media_resolution
-        self._media_file = self._init_media_file(media_file_name, media_file_path)
+        self._media_file = media_file  # Accept pre-initialized file
         # Stats
-        self._input_output_tokens_per_part: list[tuple[int, int]] = (
-            []
-        )  # Static parts (nothing happened) should not have tokens counted
-        self._prompt_tokens = self._calculate_tokens_from_text(
-            BASE_PROMPT
-        )  # Defining once, no need to recalculate, as it's static
+        self._input_output_tokens_per_part: list[tuple[int, int]] = []
+        self._prompt_tokens = self._calculate_tokens_from_text(BASE_PROMPT)
 
-    def _get_client(self) -> Client:
-        # Initializing client on every call to avoid aiohttp "Uncloseed client session" errors for async call
-        # Could be fixed in later Gemini library versions
-        return Client(api_key=os.getenv("GEMINI_API_KEY"))
+    @classmethod
+    async def create(
+        cls,
+        media_duration_s: int,
+        media_part_duration_s: int,
+        model_id: str = VIDEO_TRANSCRIPTION_MODEL_ID,
+        media_resolution: MediaResolution = VIDEO_TRANSCRIPTION_MEDIA_RESOLUTION,
+        media_file_name: str | None = None,
+        media_file_path: str | None = None,
+    ):
+        """Async factory method to create VideoTranscriptioner"""
+        media_file = await cls._init_media_file(media_file_name=media_file_name, media_file_path=media_file_path)
+        return cls(
+            media_duration_s=media_duration_s,
+            media_part_duration_s=media_part_duration_s,
+            model_id=model_id,
+            media_resolution=media_resolution,
+            media_file=media_file,
+        )
 
-    def _init_media_file(self, media_file_name: str | None, media_file_path: str | None) -> File:
+    @classmethod
+    async def _init_media_file(cls, media_file_name: str | None, media_file_path: str | None) -> File:
         if not media_file_name and not media_file_path:
             raise ValueError("Either media_file_name or media_file_path must be provided")
         if media_file_name and media_file_path:
             raise ValueError("Only one of media_file_name or media_file_path must be provided")
         if media_file_name:
-            media_file = self._get_file_from_gemini_files(file_name=media_file_name)
+            media_file = await cls._get_file_from_gemini_files(file_name=media_file_name)
             if not media_file:
                 raise ValueError(f"File {media_file_name} not found when transcribing video")
             return media_file
         if media_file_path:
-            return self._upload_media_to_gemini_files(media_file_path=media_file_path)
+            return await cls._upload_media_to_gemini_files(media_file_path=media_file_path)
 
-    def _upload_media_to_gemini_files(self, media_file_path: str) -> File:
-        client = self._get_client()
-        uploaded_file = client.files.upload(file=media_file_path)
+    @classmethod
+    async def _upload_media_to_gemini_files(cls, media_file_path: str) -> File:
+        client = cls._get_client()
+        uploaded_file = await client.aio.files.upload(file=media_file_path)
         if not uploaded_file:
             raise ValueError("Failed to upload video to Gemini when transcribing video")
         if not uploaded_file.name:
@@ -111,18 +123,25 @@ class VideoTranscriptioner:
         # Check status if the file is in active state, or can be processed safely
         while uploaded_file.state != FileState.ACTIVE:
             time.sleep(1)
-            uploaded_file = client.files.get(name=uploaded_file.name)
+            uploaded_file = await client.aio.files.get(name=uploaded_file.name)
             if uploaded_file.state == FileState.FAILED:
                 raise ValueError(f"File {uploaded_file.name} failed to upload when transcribing video")
         logger.info(f"File {uploaded_file.name} is now active")
         return uploaded_file
 
-    def _get_file_from_gemini_files(self, file_name: str) -> File | None:
-        client = self._get_client()
-        file = client.files.get(name=file_name)
+    @classmethod
+    async def _get_file_from_gemini_files(cls, file_name: str) -> File | None:
+        client = cls._get_client()
+        file = await client.aio.files.get(name=file_name)
         if not file:
             raise ValueError(f"File {file_name} not found when transcribing video")
         return file
+
+    @staticmethod
+    def _get_client() -> Client:
+        # Initializing client on every call to avoid aiohttp "Uncloseed client session" errors for async call
+        # Could be fixed in later Gemini library versions
+        return Client(api_key=os.getenv("GEMINI_API_KEY"))
 
     def _calculate_tokens_from_text(self, text: str) -> int:
         if not text:
@@ -247,27 +266,54 @@ class VideoTranscriptioner:
         # Remove the file from the Files API
         # TODO: Suboptimal, but easier to handle in the current state
         client = self._get_client()
-        client.files.delete(name=self._media_file.name)
+        await client.aio.files.delete(name=self._media_file.name)
         logger.info(f"Analyzed and removed file {self._media_file.name} from the Files API")
         return transcription
 
 
-async def transcribe_videos(video_mapping: dict[str, Path], output_path: Path) -> dict[str, str]:
-    for session_uuid, input_video_path in tqdm(video_mapping.items(), desc="Transcribing videos"):
-        # Iterating as-is (without task group) as a single video generates lots of concurrent requests (one for 15s)
-        await _trascribe_video_task(
-            input_file_name=None,
-            input_video_path=input_video_path,
-            session_uuid=session_uuid,
-            output_path=output_path,
-        )
-    # tasks = {}
-    # async with asyncio.TaskGroup() as tg:
-    # for session_uuid, result in tasks.items():
-    #     if isinstance(result, Exception):
-    #         continue
-    #     logger.info(f"Successfully transcribed video {input_video_path}")
+async def transcribe_videos(video_mapping: dict[str, Path], output_path: Path) -> None:
+    # Split videos into chunks of 10s to process lots, but not oveload the API
+    chunk_size = 10
+    chunks = [list(video_mapping.items())[i : i + chunk_size] for i in range(0, len(video_mapping), chunk_size)]
+    for chunk in tqdm(chunks, desc="Transcribing videos"):
+        chunk_tasks = []
+        async with asyncio.TaskGroup() as tg:
+            for session_uuid, input_video_path in chunk:
+                chunk_tasks.append(
+                    tg.create_task(
+                        _trascribe_video_task(
+                            input_file_name=None,
+                            input_video_path=input_video_path,
+                            session_uuid=session_uuid,
+                            output_path=output_path,
+                        )
+                    )
+                )
+        for result in chunk_tasks:
+            if isinstance(result, Exception):
+                continue
+            logger.info(f"Successfully transcribed video {input_video_path}")
     return None
+
+
+# # Used this one initially, but makes it too easy to hit the rate limit
+# async def transcribe_videos_full_async(video_mapping: dict[str, Path], output_path: Path) -> None:
+#     tasks = {}
+#     async with asyncio.TaskGroup() as tg:
+#         for session_uuid, input_video_path in video_mapping.items():
+#             tasks[session_uuid] = tg.create_task(
+#                 _trascribe_video_task(
+#                     input_file_name=None,
+#                     input_video_path=input_video_path,
+#                     session_uuid=session_uuid,
+#                     output_path=output_path,
+#                 )
+#             )
+#     for session_uuid, result in tasks.items():
+#         if isinstance(result, Exception):
+#             continue
+#         logger.info(f"Successfully transcribed video {input_video_path}")
+#     return None
 
 
 def _get_webm_duration(video_bytes: bytes) -> int | None:
@@ -299,7 +345,7 @@ async def _trascribe_video_task(
         video_duration = _get_webm_duration(open(input_video_path, "rb").read())
         if not video_duration:
             raise ValueError("Failed to extract video duration when transcribing video")
-        transcriptioner = VideoTranscriptioner(
+        transcriptioner = await VideoTranscriptioner.create(
             media_duration_s=video_duration,
             media_part_duration_s=VIDEO_CHUNK_SIZE_FOR_ANALYSIS_S,
             media_file_name=input_file_name,
