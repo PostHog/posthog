@@ -2,10 +2,10 @@ from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantToolCallMessage, FailureMessage, VisualizationMessage
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, FailureMessage, VisualizationMessage
 
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.query_executor.query_executor import execute_and_format_query
+from ee.hogai.graph.query_executor.query_executor import QueryExecutorError, execute_and_format_query
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
@@ -23,7 +23,18 @@ class QueryExecutorNode(AssistantNode):
         if not tool_call_id:
             return None
 
-        formatted_query_result = await execute_and_format_query(self._team, viz_message.answer)
+        try:
+            formatted_query_result = await execute_and_format_query(self._team, viz_message.answer)
+        except QueryExecutorError as err:
+            # Handle known query execution errors (exposed to users)
+            return PartialAssistantState(
+                messages=[AssistantMessage(content=f"There was an error running this query: {err}", id=str(uuid4()))]
+            )
+        except Exception:
+            # Handle unknown errors
+            return PartialAssistantState(
+                messages=[AssistantMessage(content="There was an unknown error running this query.", id=str(uuid4()))]
+            )
 
         return PartialAssistantState(
             messages=[

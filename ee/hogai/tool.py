@@ -78,6 +78,8 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         self._user = user
         if node_path is None:
             self._node_path = get_node_path() or ()
+        else:
+            self._node_path = node_path
         self._state = state if state else AssistantState(messages=[])
         self._config = config if config else RunnableConfig(configurable={})
         self._context_manager = context_manager or AssistantContextManager(team, user, self._config)
@@ -170,11 +172,13 @@ class MaxSubtool(AssistantDispatcherMixin, ABC):
         state: AssistantState,
         config: RunnableConfig,
         context_manager: AssistantContextManager,
+        node_path: tuple[NodePath, ...] | None = None,
     ):
         self._team = team
         self._user = user
         self._state = state
         self._context_manager = context_manager
+        self._node_path = node_path or get_node_path() or ()
 
     @abstractmethod
     async def execute(self, *args, **kwargs) -> Any:
@@ -183,3 +187,7 @@ class MaxSubtool(AssistantDispatcherMixin, ABC):
     @property
     def node_name(self) -> str:
         return f"max_subtool.{self.__class__.__name__}"
+
+    @property
+    def node_path(self) -> tuple[NodePath, ...]:
+        return self._node_path
