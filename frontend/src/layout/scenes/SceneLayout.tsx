@@ -96,7 +96,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
 
             <div
                 className={cn(
-                    'relative p-4 bg-[var(--scene-layout-background)] min-h-[calc(100vh-var(--scene-layout-header-height))] lg:rounded-tl-lg border-t border-l border-primary ',
+                    'relative p-4 bg-[var(--scene-layout-background)] min-h-[calc(100vh-var(--scene-layout-header-height))] lg:rounded-tl-lg border-t border-l border-primary',
                     scenePanelIsPresent &&
                         scenePanelIsRelative &&
                         !forceScenePanelClosedWhenRelative &&
