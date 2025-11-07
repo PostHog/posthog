@@ -310,7 +310,7 @@ function NativeEmailTemplaterForm({
                     <>
                         {isWorkflowsProductEnabled && (
                             <div className="flex gap-2 items-center px-2 py-1 border-b">
-                                <span className="flex-1">Templates</span>
+                                <span className="flex-1">Start from a template (optional)</span>
                                 <LemonSelect
                                     size="xsmall"
                                     placeholder="Choose template"
