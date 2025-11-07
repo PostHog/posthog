@@ -1,4 +1,8 @@
-import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+
+import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
@@ -29,14 +33,16 @@ const parseValue = (value: string, variableType: string): any => {
 export const hogFlowManualTriggerButtonLogic = kea<hogFlowManualTriggerButtonLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'hogflows', 'hogFlowManualTriggerButtonLogic']),
     props({} as WorkflowLogicProps),
+    key((props) => props.id || 'new'),
     connect((props: WorkflowLogicProps) => ({
-        values: [workflowLogic(props), ['workflow']],
+        values: [userLogic, ['user'], teamLogic, ['timezone'], workflowLogic(props), ['workflow']],
         actions: [workflowLogic(props), ['triggerManualWorkflow']],
     })),
     actions({
         setInput: (key: string, value: string) => ({ key, value }),
         setPopoverVisible: (visible: boolean) => ({ visible }),
         clearInputs: () => ({}),
+        setScheduledDateTime: (date: any) => ({ date }),
     }),
     reducers({
         inputs: [
@@ -50,6 +56,12 @@ export const hogFlowManualTriggerButtonLogic = kea<hogFlowManualTriggerButtonLog
             false,
             {
                 setPopoverVisible: (_, { visible }) => visible,
+            },
+        ],
+        scheduledDateTime: [
+            null as dayjs.Dayjs | null,
+            {
+                setScheduledDateTime: (_: any, { date }: any) => date,
             },
         ],
     }),

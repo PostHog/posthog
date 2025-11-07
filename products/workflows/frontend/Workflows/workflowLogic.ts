@@ -435,7 +435,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
 
-            lemonToast.success('Workflow triggered', {
+            lemonToast.success(`Workflow ${scheduledAt ? 'scheduled' : 'triggered'}`, {
                 button: {
                     label: 'View logs',
                     action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),

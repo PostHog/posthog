@@ -209,17 +209,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
 
-            const scheduledAt = req.body?.$scheduled_at
-            if (scheduledAt) {
-                return await this.scheduleHogFlow({
-                    scheduledAt,
-                    hogFlow,
-                    hogFunction,
-                    req,
-                    addMetric,
-                })
-            }
-
             // Normal execution path (no $scheduled_at)
             const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
             const invocation = createInvocation(globalsWithInputs, hogFunction)
@@ -261,6 +250,12 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                     {} as HogFunctionFilterGlobals
                 )
 
+                const scheduledAt = req.body?.$scheduled_at
+                if (scheduledAt) {
+                    hogFlowInvocation.queueScheduledAt = DateTime.fromISO(scheduledAt)
+                    addLog('info', `Workflow run scheduled for ${scheduledAt}`)
+                }
+
                 hogFlowInvocation.id = invocationId // Keep the IDs consistent
 
                 addMetric({
@@ -283,84 +278,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                     count: 1,
                 })
             }
-            // Always set to false for hog flows as this triggers the flow to continue so we dont want metrics for this
-            functionResult.finished = false
-
-            return functionResult
-        } catch (error) {
-            logger.error('Error triggering hog flow', { error })
-            addMetric({
-                metric_kind: 'failure',
-                metric_name: 'trigger_failed',
-                count: 1,
-            })
-
-            addLog('error', `Error triggering flow: ${error.message}`)
-
-            // NOTE: We only return a hog function result. We track out own logs and errors here
-            return createInvocationResult(
-                createInvocation({} as any, hogFunction),
-                {},
-                {
-                    finished: false,
-                    error: error.message,
-                }
-            )
-        }
-    }
-
-    private async scheduleHogFlow({
-        scheduledAt,
-        hogFlow,
-        hogFunction,
-        req,
-        addMetric,
-    }: {
-        scheduledAt: string
-        hogFlow: HogFlow
-        hogFunction: HogFunctionType
-        req: ModifiedRequest
-        addMetric: (metric: Pick<MinimalAppMetric, 'metric_kind' | 'metric_name' | 'count'>) => void
-    }): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
-        const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
-        const invocation = createInvocation(globalsWithInputs, hogFunction)
-        const hogFlowInvocation = createHogFlowInvocation(
-            invocation.state.globals,
-            hogFlow,
-            {} as HogFunctionFilterGlobals
-        )
-        hogFlowInvocation.id = new UUIDT().toString()
-        // Set scheduledAt on invocation using extension property
-        hogFlowInvocation.queueScheduledAt = scheduledAt
-        try {
-            // Invoke the hogflow
-            const triggerGlobals: HogFunctionInvocationGlobals = {
-                ...invocation.state.globals,
-                event: {
-                    ...capturedPostHogEvent,
-                    uuid: new UUIDT().toString(),
-                    elements_chain: '',
-                    url: '',
-                },
-            }
-            const hogFlowInvocation = createHogFlowInvocation(triggerGlobals, hogFlow, {} as HogFunctionFilterGlobals)
-
-            hogFlowInvocation.id = invocationId // Keep the IDs consistent
-
-            addMetric({
-                metric_kind: 'other',
-                metric_name: 'triggered',
-                count: 1,
-            })
-
-            addMetric({
-                metric_kind: 'billing',
-                metric_name: 'billable_invocation',
-                count: 1,
-            })
-
-            await this.cyclotronJobQueue.queueInvocations([hogFlowInvocation])
             // Always set to false for hog flows as this triggers the flow to continue so we dont want metrics for this
             functionResult.finished = false
 
