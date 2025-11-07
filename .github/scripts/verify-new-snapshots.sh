@@ -57,6 +57,11 @@ failed_files=()
 for test_file in "${!test_files[@]}"; do
     echo "🔄 Verifying all tests in: $test_file"
 
+    # Find snapshot files related to this test file
+    test_dir=$(dirname "$test_file")
+    test_basename=$(basename "$test_file" .py)
+    test_snapshot="${test_dir}/__snapshots__/${test_basename}.ambr"
+
     # Clear previous checksums
     rm -f "$temp_dir"/checksums_run*.txt
 
@@ -64,24 +69,25 @@ for test_file in "${!test_files[@]}"; do
     for run in 1 2 3; do
         echo "  Run $run: pytest $test_file --snapshot-update"
 
-        # Remove new snapshots before each run to force regeneration
-        while IFS= read -r ambr_file; do
-            rm -f "$ambr_file"
-        done <<< "$new_snapshots"
+        # Remove only snapshots related to this test file before each run to force regeneration
+        rm -f "$test_snapshot"
 
         # Run the entire test file
-        if ! pytest "$test_file" --snapshot-update -v 2>&1 | tail -3; then
+        set +e  # Temporarily disable exit on error to capture pytest status
+        pytest "$test_file" --snapshot-update -v 2>&1 | tail -3
+        pytest_status=${PIPESTATUS[0]}
+        set -e
+
+        if [ $pytest_status -ne 0 ]; then
             echo "  ❌ Test execution failed on run $run"
             failed_files+=("$test_file (execution failed)")
             break
         fi
 
-        # Calculate checksums of all new .ambr files
-        while IFS= read -r ambr_file; do
-            if [ -f "$ambr_file" ]; then
-                sha256sum "$ambr_file" >> "$temp_dir/checksums_run${run}.txt"
-            fi
-        done <<< "$new_snapshots"
+        # Calculate checksums of snapshots related to this test file
+        if [ -f "$test_snapshot" ]; then
+            sha256sum "$test_snapshot" >> "$temp_dir/checksums_run${run}.txt"
+        fi
     done
 
     # Compare checksums across runs if all runs succeeded
