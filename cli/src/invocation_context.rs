@@ -6,6 +6,7 @@ use inquire::{
 use posthog_rs::Event;
 use reqwest::blocking::Client;
 use std::{
+    io::{self, IsTerminal},
     sync::{Mutex, OnceLock},
     thread::JoinHandle,
 };
@@ -22,6 +23,7 @@ pub static INVOCATION_CONTEXT: OnceLock<InvocationContext> = OnceLock::new();
 pub struct InvocationContext {
     pub config: InvocationConfig,
     pub client: PHClient,
+    pub is_terminal: bool,
 
     handles: Mutex<Vec<JoinHandle<()>>>,
 }
@@ -93,6 +95,7 @@ impl InvocationContext {
         Self {
             config,
             client,
+            is_terminal: io::stdout().is_terminal(),
             handles: Default::default(),
         }
     }

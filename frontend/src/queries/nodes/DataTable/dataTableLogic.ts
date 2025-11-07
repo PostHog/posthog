@@ -76,6 +76,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
     })),
     selectors({
+        context: [() => [(_, props) => props.context], (context) => context],
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
         sourceFeatures: [
             (_, p) => [p.query, (_, props) => props.context],
