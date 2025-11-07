@@ -11,14 +11,15 @@
 
 .scene-tab-active-indicator::before,
 .scene-tab-active-indicator::after {
-    content: '';
     position: absolute;
+    content: '';
     bottom: 0.2px;
     width: 12px;
     height: 12px;
     background-color: var(--color-bg-surface-tertiary);
     border-bottom: 1px solid var(--color-border-primary);
 }
+
 .scene-tab-active-indicator::before {
     left: 0.1px;
     border-right: 1px solid var(--color-border-primary);
