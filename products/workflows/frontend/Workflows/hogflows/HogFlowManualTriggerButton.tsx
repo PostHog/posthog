@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlayFilled } from '@posthog/icons'
+import { IconClock, IconPlayFilled } from '@posthog/icons'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCalendarSelectInput, LemonCheckbox, LemonInput, Popover } from '@posthog/lemon-ui'
 
@@ -22,6 +22,8 @@ const TriggerPopover = ({
     const logic = hogFlowManualTriggerButtonLogic(props)
     const { workflow, variableValues, inputs, scheduledDateTime } = useValues(logic)
     const { setInput, clearInputs, setScheduledDateTime, triggerManualWorkflow } = useActions(logic)
+
+    const isScheduleTrigger = workflow?.trigger?.type === 'schedule'
 
     const variablesSection =
         !workflow?.variables || workflow.variables.length === 0 ? (
@@ -75,7 +77,7 @@ const TriggerPopover = ({
             </>
         )
 
-    const scheduleSection = (
+    const scheduleSection = isScheduleTrigger ? null : (
         <>
             <LemonCheckbox
                 label="Schedule for later"
@@ -90,7 +92,6 @@ const TriggerPopover = ({
                     <LemonCalendarSelectInput
                         value={scheduledDateTime}
                         onChange={(date) => {
-                            // Interpret the selected wall-clock time in the team's timezone
                             setScheduledDateTime(date)
                         }}
                         granularity="minute"
@@ -111,15 +112,17 @@ const TriggerPopover = ({
                     type="primary"
                     status="alt"
                     onClick={() => {
-                        const scheduledAt = scheduledDateTime ? scheduledDateTime.toISOString() : undefined
+                        const scheduledAt = isScheduleTrigger
+                            ? (workflow?.trigger as any)?.scheduled_at
+                            : scheduledDateTime?.toISOString()
                         triggerManualWorkflow(variableValues, scheduledAt)
                         setPopoverVisible(false)
                         clearInputs()
                     }}
                     data-attr="run-workflow-btn"
-                    sideIcon={<IconPlayFilled />}
+                    sideIcon={isScheduleTrigger || scheduledDateTime ? <IconClock /> : <IconPlayFilled />}
                 >
-                    {scheduledDateTime ? 'Schedule workflow' : 'Run workflow'}
+                    {isScheduleTrigger ? 'Schedule workflow' : scheduledDateTime ? 'Schedule workflow' : 'Run workflow'}
                 </LemonButton>
             </div>
         </div>
@@ -131,6 +134,8 @@ export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.
     const { workflow, workflowChanged } = useValues(workflowLogic(props))
     const { popoverVisible } = useValues(logic)
     const { setPopoverVisible } = useActions(logic)
+
+    const isScheduleTrigger = workflow?.trigger?.type === 'schedule'
 
     const triggerButton = (
         <LemonButton
@@ -144,10 +149,10 @@ export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.
                       : undefined
             }
             sideIcon={<IconChevronDown className={`transition-transform ${popoverVisible ? 'rotate-180' : ''}`} />}
-            tooltip="Triggers workflow immediately"
+            tooltip={isScheduleTrigger ? 'Schedule workflow' : 'Triggers workflow immediately'}
             onClick={() => setPopoverVisible(!popoverVisible)}
         >
-            Trigger
+            {isScheduleTrigger ? 'Schedule' : 'Trigger'}
         </LemonButton>
     )
 
