@@ -1,4 +1,3 @@
-import { useActions } from 'kea'
 import { useState } from 'react'
 
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
@@ -19,7 +18,8 @@ export function useDraggableLink({ href, properties, onlyWithModifierKey }: Drag
     draggable: boolean
     elementProps: Pick<React.HTMLAttributes<HTMLElement>, 'onDragStart' | 'onDragEnd'>
 } {
-    const { startDropMode, endDropMode } = useActions(draggableLinkLogic)
+    // TRICKY: We do this instead of hooks as there is some weird cyclic issue in tests
+    const mountedDraggableLinkLogic = draggableLinkLogic.findMounted()
 
     const [isDragging, setIsDragging] = useState(false)
 
@@ -43,7 +43,7 @@ export function useDraggableLink({ href, properties, onlyWithModifierKey }: Drag
         elementProps: {
             onDragStart: (e: any) => {
                 setIsDragging(true)
-                startDropMode()
+                mountedDraggableLinkLogic?.actions.startDropMode()
                 if (href) {
                     const title: string = e.currentTarget?.title || e.currentTarget?.textContent || ''
                     const url = window.location.origin + href
@@ -65,7 +65,7 @@ export function useDraggableLink({ href, properties, onlyWithModifierKey }: Drag
             },
             onDragEnd: () => {
                 setIsDragging(false)
-                endDropMode()
+                mountedDraggableLinkLogic?.actions.endDropMode()
             },
         },
     }

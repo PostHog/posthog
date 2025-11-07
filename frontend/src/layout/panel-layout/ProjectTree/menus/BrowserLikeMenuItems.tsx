@@ -1,6 +1,7 @@
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { CustomMenuProps } from '../types'
@@ -10,22 +11,25 @@ interface BrowserLikeMenuProps extends CustomMenuProps {
     resetPanelLayout?: (animate: boolean) => void
 }
 
-export function BrowserLikeMenuItems({
+export const BrowserLikeMenuItems = ({
     MenuItem = DropdownMenuItem,
     href,
     resetPanelLayout,
-}: BrowserLikeMenuProps): JSX.Element {
+}: BrowserLikeMenuProps): JSX.Element => {
+    const handleOpenLinkInNewPostHogTab = (e: React.MouseEvent<HTMLElement>): void => {
+        e.stopPropagation()
+        const mountedSceneLogic = sceneLogic.findMounted()
+
+        if (mountedSceneLogic) {
+            const { newTab } = mountedSceneLogic.actions
+            newTab(href)
+        }
+        resetPanelLayout?.(false)
+    }
+
     return (
         <>
-            <MenuItem
-                asChild
-                onClick={(e) => {
-                    e.stopPropagation()
-                    sceneLogic.findMounted()?.actions.newTab(href)
-                    resetPanelLayout?.(false)
-                }}
-                data-attr="tree-item-menu-open-link-button"
-            >
+            <MenuItem asChild onClick={handleOpenLinkInNewPostHogTab} data-attr="tree-item-menu-open-link-button">
                 <ButtonPrimitive menuItem>Open link in new PostHog tab</ButtonPrimitive>
             </MenuItem>
             <MenuItem
@@ -52,3 +56,26 @@ export function BrowserLikeMenuItems({
         </>
     )
 }
+export const BrowserLikeMenuItemsLoading = (): JSX.Element => {
+    return (
+        <>
+            <WrappingLoadingSkeleton fullWidth>
+                <ButtonPrimitive menuItem inert>
+                    Open link in new PostHog tab
+                </ButtonPrimitive>
+            </WrappingLoadingSkeleton>
+            <WrappingLoadingSkeleton fullWidth>
+                <ButtonPrimitive menuItem inert>
+                    Open link in new browser tab
+                </ButtonPrimitive>
+            </WrappingLoadingSkeleton>
+            <WrappingLoadingSkeleton fullWidth>
+                <ButtonPrimitive menuItem inert>
+                    Copy link address
+                </ButtonPrimitive>
+            </WrappingLoadingSkeleton>
+        </>
+    )
+}
+
+BrowserLikeMenuItems.displayName = 'BrowserLikeMenuItems'

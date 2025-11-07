@@ -25,6 +25,7 @@ Default.args = {}
 export const ToLink: Story = BasicTemplate.bind({})
 ToLink.args = {
     to: urls.projectHomepage(),
+    children: 'Click me (or side click for browser like menu)',
 }
 
 export const DisabledWithReason: Story = BasicTemplate.bind({})
