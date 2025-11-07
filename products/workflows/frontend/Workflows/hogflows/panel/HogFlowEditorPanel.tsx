@@ -18,12 +18,21 @@ import { HogFlowEditorPanelVariables } from './HogFlowEditorPanelVariables'
 import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 
 export function HogFlowEditorPanel(): JSX.Element | null {
-    const { selectedNode, mode, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
+    const { selectedNode, mode, selectedNodeCanBeDeleted, workflow } = useValues(hogFlowEditorLogic)
     const { setMode, setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { deleteElements } = useReactFlow()
 
+    const variablesCount = workflow?.variables?.length || 0
+
     const tabs: LemonTab<HogFlowEditorMode>[] = HOG_FLOW_EDITOR_MODES.map((mode) => ({
-        label: capitalizeFirstLetter(mode),
+        label: (
+            <>
+                {capitalizeFirstLetter(mode)}
+                {mode === 'variables' && variablesCount > 0 && (
+                    <span className="ml-1 text-muted">({variablesCount})</span>
+                )}
+            </>
+        ),
         key: mode,
     }))
 
