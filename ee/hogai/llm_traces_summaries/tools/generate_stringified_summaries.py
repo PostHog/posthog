@@ -119,6 +119,8 @@ class LLMTraceSummarizerGenerator:
                 contents=prompt,
                 config=GenerateContentConfig(**config_kwargs),
             )
+            if not response.text:
+                raise ValueError(f"No trace summary was generated for trace {trace_id} from team {self._team.id}")
             # Avoid LLM returning excessive comments when no issues found
             if "no issues found" in response.text.lower() and response.text.lower() != "no issues found":
                 logger.info(

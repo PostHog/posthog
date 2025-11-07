@@ -92,6 +92,8 @@ class ClusterExplainer:
             model=self.model_id, contents=message, config=GenerateContentConfig(**config_kwargs)
         )
         response_text = response.text
+        if not response_text:
+            raise ValueError("No cluster name was generated")
         sentences = response.text.split(".")
         if len(sentences) > 1:
             # If LLM generated the explanation (should not) - use the last sentence
