@@ -1,6 +1,5 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
-import { Dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -42,7 +41,6 @@ export const hogFlowManualTriggerButtonLogic = kea<hogFlowManualTriggerButtonLog
         setInput: (key: string, value: string) => ({ key, value }),
         setPopoverVisible: (visible: boolean) => ({ visible }),
         clearInputs: () => ({}),
-        setScheduledDateTime: (date: any) => ({ date }),
     }),
     reducers({
         inputs: [
@@ -56,12 +54,6 @@ export const hogFlowManualTriggerButtonLogic = kea<hogFlowManualTriggerButtonLog
             false,
             {
                 setPopoverVisible: (_, { visible }) => visible,
-            },
-        ],
-        scheduledDateTime: [
-            null as Dayjs | null,
-            {
-                setScheduledDateTime: (_: any, { date }: any) => date,
             },
         ],
     }),

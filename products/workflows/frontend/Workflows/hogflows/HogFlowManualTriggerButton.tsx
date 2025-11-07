@@ -2,9 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { IconClock, IconPlayFilled } from '@posthog/icons'
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCalendarSelectInput, LemonCheckbox, LemonInput, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { CyclotronJobInputSchemaType } from '~/types'
@@ -21,7 +20,7 @@ const TriggerPopover = ({
 }): JSX.Element => {
     const logic = hogFlowManualTriggerButtonLogic(props)
     const { workflow, variableValues, inputs, scheduledDateTime } = useValues(logic)
-    const { setInput, clearInputs, setScheduledDateTime, triggerManualWorkflow } = useActions(logic)
+    const { setInput, clearInputs, triggerManualWorkflow } = useActions(logic)
 
     const isScheduleTrigger = workflow?.trigger?.type === 'schedule'
 
@@ -77,36 +76,9 @@ const TriggerPopover = ({
             </>
         )
 
-    const scheduleSection = isScheduleTrigger ? null : (
-        <>
-            <LemonCheckbox
-                label="Schedule for later"
-                checked={Boolean(scheduledDateTime)}
-                onChange={(value) => {
-                    setScheduledDateTime(value ? dayjs().add(5, 'minutes') : null)
-                }}
-            />
-            {Boolean(scheduledDateTime) && (
-                <div className="flex flex-col gap-1">
-                    <div className="text-xs text-muted">Timezone: {dayjs.tz.guess()}</div>
-                    <LemonCalendarSelectInput
-                        value={scheduledDateTime}
-                        onChange={(date) => {
-                            setScheduledDateTime(date)
-                        }}
-                        granularity="minute"
-                        selectionPeriod="upcoming"
-                        showTimeToggle={false}
-                    />
-                </div>
-            )}
-        </>
-    )
-
     return (
         <div className="flex flex-col gap-4 p-3 min-w-80 max-w-96">
             {variablesSection}
-            {scheduleSection}
             <div className="flex justify-end border-t pt-3">
                 <LemonButton
                     type="primary"
