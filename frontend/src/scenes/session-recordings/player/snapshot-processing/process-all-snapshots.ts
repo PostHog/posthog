@@ -4,7 +4,10 @@ import posthogEE from '@posthog/ee/exports'
 import { EventType, eventWithTime, fullSnapshotEvent } from '@posthog/rrweb-types'
 
 import { isEmptyObject, isObject } from 'lib/utils'
-import { getDecompressionWorkerManager } from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
+import {
+    type DecompressionMode,
+    getDecompressionWorkerManager,
+} from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 import {
     CHROME_EXTENSION_DENY_LIST,
     stripChromeExtensionDataFromNode,
@@ -17,6 +20,7 @@ import {
 } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { throttleCapture } from 'scenes/session-recordings/player/snapshot-processing/throttle-capturing'
+import { yieldToMain } from 'scenes/session-recordings/player/snapshot-processing/yield-scheduler'
 
 import {
     EncodedRecordingSnapshot,
@@ -117,8 +121,50 @@ export function processAllSnapshots(
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
     processingCache: ProcessingCache,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
+    sessionRecordingId: string,
+    enableYielding?: false
+): RecordingSnapshot[]
+export function processAllSnapshots(
+    sources: SessionRecordingSnapshotSource[] | null,
+    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
+    processingCache: ProcessingCache,
+    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
+    sessionRecordingId: string,
+    enableYielding: true
+): Promise<RecordingSnapshot[]>
+export function processAllSnapshots(
+    sources: SessionRecordingSnapshotSource[] | null,
+    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
+    processingCache: ProcessingCache,
+    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
+    sessionRecordingId: string,
+    enableYielding: boolean = false
+): RecordingSnapshot[] | Promise<RecordingSnapshot[]> {
+    if (enableYielding) {
+        return processAllSnapshotsAsync(
+            sources,
+            snapshotsBySource,
+            processingCache,
+            viewportForTimestamp,
+            sessionRecordingId
+        )
+    }
+    return processAllSnapshotsSync(
+        sources,
+        snapshotsBySource,
+        processingCache,
+        viewportForTimestamp,
+        sessionRecordingId
+    )
+}
+
+async function processAllSnapshotsAsync(
+    sources: SessionRecordingSnapshotSource[] | null,
+    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
+    processingCache: ProcessingCache,
+    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
     sessionRecordingId: string
-): RecordingSnapshot[] {
+): Promise<RecordingSnapshot[]> {
     if (!sources || !snapshotsBySource || isEmptyObject(snapshotsBySource)) {
         return []
     }
@@ -132,7 +178,8 @@ export function processAllSnapshots(
     // we loop over this data as little as possible,
     // since it could be large and processed more than once,
     // so we need to do as little as possible, as fast as possible
-    for (const source of sources) {
+    for (let sourceIdx = 0; sourceIdx < sources.length; sourceIdx++) {
+        const source = sources[sourceIdx]
         // const seenTimestamps: Set<number> = new Set()
         const sourceKey = keyForSource(source)
 
@@ -213,6 +260,7 @@ export function processAllSnapshots(
             return false
         }
 
+        const YIELD_BATCH_SIZE = 50
         while (snapshotIndex < sortedSnapshots.length) {
             let snapshot = sortedSnapshots[snapshotIndex]
             let currentTimestamp = snapshot.timestamp
@@ -301,12 +349,201 @@ export function processAllSnapshots(
             sourceResult.push(snapshot)
             previousTimestamp = currentTimestamp
             snapshotIndex++
+
+            if (snapshotIndex % YIELD_BATCH_SIZE === 0 && snapshotIndex < sortedSnapshots.length) {
+                await yieldToMain()
+            }
+        }
+
+        processingCache[sourceKey] = sourceResult
+
+        if (sourceIdx < sources.length - 1) {
+            await yieldToMain()
+        }
+    }
+
+    // sorting is very cheap for already sorted lists
+    result.sort((a, b) => a.timestamp - b.timestamp)
+
+    return result
+}
+
+function processAllSnapshotsSync(
+    sources: SessionRecordingSnapshotSource[] | null,
+    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
+    processingCache: ProcessingCache,
+    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
+    sessionRecordingId: string
+): RecordingSnapshot[] {
+    if (!sources || !snapshotsBySource || isEmptyObject(snapshotsBySource)) {
+        return []
+    }
+
+    const result: RecordingSnapshot[] = []
+    const matchedExtensions = new Set<string>()
+
+    let hasSeenMeta = false
+    const seenFullByWindow: Record<string, boolean> = {}
+
+    for (let sourceIdx = 0; sourceIdx < sources.length; sourceIdx++) {
+        const source = sources[sourceIdx]
+        const sourceKey = keyForSource(source)
+
+        if (sourceKey in processingCache) {
+            for (const snapshot of processingCache[sourceKey]) {
+                result.push(snapshot)
+            }
+            continue
+        }
+
+        if (!(sourceKey in snapshotsBySource)) {
+            continue
+        }
+
+        const sourceSnapshots = snapshotsBySource[sourceKey].snapshots || []
+        if (!sourceSnapshots.length) {
+            continue
+        }
+
+        const sourceResult: RecordingSnapshot[] = []
+        const sortedSnapshots = sourceSnapshots.sort((a, b) => a.timestamp - b.timestamp)
+        let snapshotIndex = 0
+        let previousTimestamp = null
+        let seenHashes = new Set<number>()
+
+        const pushPatchedMeta = (ts: number, winId?: string, fullSnapshot?: RecordingSnapshot): boolean => {
+            if (hasSeenMeta) {
+                return false
+            }
+
+            let viewport: ViewportResolution | undefined
+            if (fullSnapshot) {
+                viewport = extractDimensionsFromMobileSnapshot(fullSnapshot)
+            }
+
+            if (!viewport) {
+                viewport = viewportForTimestamp(ts)
+            }
+
+            if (viewport && viewport.width && viewport.height) {
+                const metaEvent: RecordingSnapshot = {
+                    type: EventType.Meta,
+                    timestamp: ts,
+                    windowId: winId as unknown as string,
+                    data: {
+                        width: parseInt(viewport.width, 10),
+                        height: parseInt(viewport.height, 10),
+                        href: viewport.href || 'unknown',
+                    },
+                }
+                result.push(metaEvent)
+                sourceResult.push(metaEvent)
+                throttleCapture(`${sessionRecordingId}-patched-meta`, () => {
+                    posthog.capture('patched meta into web recording', {
+                        throttleCaptureKey: `${sessionRecordingId}-patched-meta`,
+                        sessionRecordingId,
+                        sourceKey: sourceKey,
+                        feature: 'session-recording-meta-patching',
+                    })
+                })
+                return true
+            }
+            throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
+                posthog.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
+                    throttleCaptureKey: `${sessionRecordingId}-no-viewport-found`,
+                    sessionRecordingId,
+                    sourceKey: sourceKey,
+                    feature: 'session-recording-meta-patching',
+                })
+            })
+            return false
+        }
+
+        while (snapshotIndex < sortedSnapshots.length) {
+            let snapshot = sortedSnapshots[snapshotIndex]
+            let currentTimestamp = snapshot.timestamp
+
+            if (currentTimestamp === previousTimestamp) {
+                if (seenHashes.size === 0) {
+                    seenHashes.add(hashSnapshot(sortedSnapshots[snapshotIndex - 1]))
+                }
+                const snapshotHash = hashSnapshot(snapshot)
+                if (!seenHashes.has(snapshotHash)) {
+                    seenHashes.add(snapshotHash)
+                } else {
+                    throttleCapture(`${sessionRecordingId}-duplicate-snapshot`, () => {
+                        posthog.capture('session recording has duplicate snapshots', {
+                            sessionRecordingId,
+                            sourceKey: sourceKey,
+                        })
+                    })
+                    snapshotIndex++
+                    continue
+                }
+            } else {
+                seenHashes = new Set<number>()
+            }
+
+            if (snapshot.type === EventType.Meta) {
+                hasSeenMeta = true
+            }
+
+            const windowId = snapshot.windowId
+            const hasSeenFullForWindow = !!seenFullByWindow[windowId]
+
+            if (
+                snapshot.type === EventType.IncrementalSnapshot &&
+                !hasSeenFullForWindow &&
+                isLikelyMobileScreenshot(snapshot)
+            ) {
+                const syntheticTimestamp = Math.max(0, snapshot.timestamp - 1)
+                const imgNode = extractImgNodeFromMobileIncremental(snapshot)
+                const syntheticFull = createMinimalFullSnapshot(snapshot.windowId, syntheticTimestamp, imgNode)
+                const metaInserted = pushPatchedMeta(syntheticTimestamp, snapshot.windowId, syntheticFull)
+
+                result.push(syntheticFull)
+                sourceResult.push(syntheticFull)
+                seenFullByWindow[windowId] = true
+                hasSeenMeta = hasSeenMeta || metaInserted
+            }
+
+            if (snapshot.type === EventType.FullSnapshot) {
+                seenFullByWindow[snapshot.windowId] = true
+                pushPatchedMeta(snapshot.timestamp, snapshot.windowId, snapshot)
+                hasSeenMeta = false
+
+                const fullSnapshot = snapshot as RecordingSnapshot & fullSnapshotEvent & eventWithTime
+
+                if (
+                    stripChromeExtensionDataFromNode(
+                        fullSnapshot.data.node,
+                        Object.keys(CHROME_EXTENSION_DENY_LIST),
+                        matchedExtensions
+                    )
+                ) {
+                    result.unshift({
+                        type: EventType.Custom,
+                        data: {
+                            tag: 'chrome-extension-stripped',
+                            payload: {
+                                extensions: Array.from(matchedExtensions),
+                            },
+                        },
+                        timestamp: snapshot.timestamp,
+                        windowId: snapshot.windowId,
+                    })
+                }
+            }
+
+            result.push(snapshot)
+            sourceResult.push(snapshot)
+            previousTimestamp = currentTimestamp
+            snapshotIndex++
         }
 
         processingCache[sourceKey] = sourceResult
     }
 
-    // sorting is very cheap for already sorted lists
     result.sort((a, b) => a.timestamp - b.timestamp)
 
     return result
@@ -375,10 +612,10 @@ function isLengthPrefixedSnappy(uint8Data: Uint8Array): boolean {
 
 const lengthPrefixedSnappyDecompress = async (
     uint8Data: Uint8Array,
-    useWorker?: boolean,
+    mode?: string | DecompressionMode,
     posthogInstance?: PostHog
 ): Promise<string> => {
-    const workerManager = getDecompressionWorkerManager(useWorker, posthogInstance)
+    const workerManager = getDecompressionWorkerManager(mode, posthogInstance)
     const decompressedParts: string[] = []
     let offset = 0
 
@@ -422,10 +659,10 @@ const lengthPrefixedSnappyDecompress = async (
 
 const rawSnappyDecompress = async (
     uint8Data: Uint8Array,
-    useWorker?: boolean,
+    mode?: string | DecompressionMode,
     posthogInstance?: PostHog
 ): Promise<string> => {
-    const workerManager = getDecompressionWorkerManager(useWorker, posthogInstance)
+    const workerManager = getDecompressionWorkerManager(mode, posthogInstance)
 
     const decompressedData = await workerManager.decompress(uint8Data)
 
@@ -436,8 +673,9 @@ const rawSnappyDecompress = async (
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[] | ArrayBuffer | Uint8Array,
     sessionId: string,
-    useWorker?: boolean,
-    posthogInstance?: PostHog
+    decompressionMode?: string | DecompressionMode,
+    posthogInstance?: PostHog,
+    enableYielding: boolean = false
 ): Promise<RecordingSnapshot[]> => {
     if (!postHogEEModule) {
         postHogEEModule = await posthogEE()
@@ -449,10 +687,10 @@ export const parseEncodedSnapshots = async (
 
         if (isLengthPrefixedSnappy(uint8Data)) {
             try {
-                const combinedText = await lengthPrefixedSnappyDecompress(uint8Data, useWorker, posthogInstance)
+                const combinedText = await lengthPrefixedSnappyDecompress(uint8Data, decompressionMode, posthogInstance)
 
                 const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-                return parseEncodedSnapshots(lines, sessionId, useWorker, posthogInstance)
+                return parseEncodedSnapshots(lines, sessionId, decompressionMode, posthogInstance, enableYielding)
             } catch (error) {
                 console.error('Length-prefixed Snappy decompression failed:', error)
                 posthog.captureException(new Error('Failed to decompress length-prefixed snapshot data'), {
@@ -465,17 +703,17 @@ export const parseEncodedSnapshots = async (
         }
 
         try {
-            const combinedText = await rawSnappyDecompress(uint8Data, useWorker, posthogInstance)
+            const combinedText = await rawSnappyDecompress(uint8Data, decompressionMode, posthogInstance)
 
             const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-            return parseEncodedSnapshots(lines, sessionId, useWorker, posthogInstance)
+            return parseEncodedSnapshots(lines, sessionId, decompressionMode, posthogInstance, enableYielding)
         } catch (error) {
             try {
                 const textDecoder = new TextDecoder('utf-8')
                 const combinedText = textDecoder.decode(uint8Data)
 
                 const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-                return parseEncodedSnapshots(lines, sessionId, useWorker, posthogInstance)
+                return parseEncodedSnapshots(lines, sessionId, decompressionMode, posthogInstance, enableYielding)
             } catch (decodeError) {
                 console.error('Failed to decompress or decode binary data:', error, decodeError)
                 posthog.captureException(new Error('Failed to process snapshot data'), {
@@ -492,10 +730,14 @@ export const parseEncodedSnapshots = async (
     const lineCount = items.length
     const unparseableLines: string[] = []
 
-    const parsedLines: RecordingSnapshot[] = items.flatMap((l) => {
+    const parsedLines: RecordingSnapshot[] = []
+    const PARSE_BATCH_SIZE = 100
+
+    for (let i = 0; i < items.length; i++) {
+        const l = items[i]
         if (!l) {
             // blob files have an empty line at the end
-            return []
+            continue
         }
         try {
             let snapshotLine: { windowId: string } | EncodedRecordingSnapshot
@@ -521,7 +763,7 @@ export const parseEncodedSnapshots = async (
                 snapshotData = snapshotLine['data']
             }
 
-            return snapshotData.flatMap((d: unknown) => {
+            for (const d of snapshotData) {
                 const snap = coerceToEventWithTime(d, sessionId)
 
                 const baseSnapshot: RecordingSnapshot = {
@@ -530,15 +772,19 @@ export const parseEncodedSnapshots = async (
                 }
 
                 // Apply chunking to the snapshot if needed
-                return chunkMutationSnapshot(baseSnapshot)
-            })
+                const chunkedSnapshots = chunkMutationSnapshot(baseSnapshot)
+                parsedLines.push(...chunkedSnapshots)
+            }
         } catch {
             if (typeof l === 'string') {
                 unparseableLines.push(l)
             }
-            return []
         }
-    })
+
+        if (enableYielding && (i + 1) % PARSE_BATCH_SIZE === 0 && i < items.length - 1) {
+            await yieldToMain()
+        }
+    }
 
     if (unparseableLines.length) {
         const extra = {
