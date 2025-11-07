@@ -34,8 +34,6 @@
         "noUnusedParameters": true, // Report errors on unused parameters
         "experimentalDecorators": true, // Enables experimental support for ES decorators
         "noFallthroughCasesInSwitch": true, // Report errors for fallthrough cases in switch statement
-        // FIXME: suppressImplicitAnyIndexErrors is deprecated and will be removed in TS 5.5, but we have MANY of these
-        "suppressImplicitAnyIndexErrors": true, // Index objects by number
         "ignoreDeprecations": "5.0",
         "lib": ["dom", "es2023"]
     },
