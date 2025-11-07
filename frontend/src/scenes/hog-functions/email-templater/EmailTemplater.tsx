@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import EmailEditor from 'react-email-editor'
 
 import { IconExternal, IconEye } from '@posthog/icons'
@@ -257,6 +257,7 @@ function NativeEmailTemplaterForm({
     const isWorkflowsProductEnabled = featureFlags[FEATURE_FLAGS.WORKFLOWS]
 
     const [previewTemplate, setPreviewTemplate] = useState<(typeof templates)[0] | null>(null)
+    const isPreviewClick = useRef(false)
 
     return (
         <>
@@ -317,24 +318,27 @@ function NativeEmailTemplaterForm({
                                     size="xsmall"
                                     placeholder="Choose template"
                                     loading={templatesLoading}
-                                    value={appliedTemplate?.id}
+                                    value={appliedTemplate?.id ?? null}
                                     options={[
                                         {
                                             title: 'Templates',
                                             options: templates.map((template) => ({
-                                                label: (
+                                                label: template.name,
+                                                labelInMenu: (
                                                     <div className="flex items-center justify-between w-full gap-2">
                                                         <span className="flex-1">{template.name}</span>
                                                         <span
                                                             className="cursor-pointer text-muted hover:text-default"
-                                                            onClick={() => setPreviewTemplate(template)}
+                                                            onClick={() => {
+                                                                isPreviewClick.current = true
+                                                                setPreviewTemplate(template)
+                                                            }}
                                                             title="Preview template"
                                                         >
                                                             <IconEye className="text-lg" />
                                                         </span>
                                                     </div>
                                                 ),
-                                                labelString: template.name,
                                                 value: template.id,
                                             })),
                                         },
@@ -348,6 +352,12 @@ function NativeEmailTemplaterForm({
                                         },
                                     ]}
                                     onChange={(id) => {
+                                        // Check if this was a preview click
+                                        if (isPreviewClick.current) {
+                                            isPreviewClick.current = false
+                                            return
+                                        }
+
                                         if (id === 'save-as-template') {
                                             onSaveAsTemplate?.()
                                             return
