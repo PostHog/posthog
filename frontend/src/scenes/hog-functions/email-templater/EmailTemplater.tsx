@@ -4,7 +4,7 @@ import { Form } from 'kea-forms'
 import { useState } from 'react'
 import EmailEditor from 'react-email-editor'
 
-import { IconExternal } from '@posthog/icons'
+import { IconExternal, IconEye } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
@@ -256,6 +256,8 @@ function NativeEmailTemplaterForm({
     const { featureFlags } = useValues(featureFlagLogic)
     const isWorkflowsProductEnabled = featureFlags[FEATURE_FLAGS.WORKFLOWS]
 
+    const [previewTemplate, setPreviewTemplate] = useState<(typeof templates)[0] | null>(null)
+
     return (
         <>
             <Form
@@ -320,7 +322,19 @@ function NativeEmailTemplaterForm({
                                         {
                                             title: 'Templates',
                                             options: templates.map((template) => ({
-                                                label: template.name,
+                                                label: (
+                                                    <div className="flex items-center justify-between w-full gap-2">
+                                                        <span className="flex-1">{template.name}</span>
+                                                        <span
+                                                            className="cursor-pointer text-muted hover:text-default"
+                                                            onClick={() => setPreviewTemplate(template)}
+                                                            title="Preview template"
+                                                        >
+                                                            <IconEye className="text-lg" />
+                                                        </span>
+                                                    </div>
+                                                ),
+                                                labelString: template.name,
                                                 value: template.id,
                                             })),
                                         },
@@ -363,6 +377,19 @@ function NativeEmailTemplaterForm({
                                 customJS: isWorkflowsProductEnabled ? [unsubscribeLinkToolCustomJs] : [],
                             }}
                         />
+                        <LemonModal
+                            isOpen={!!previewTemplate}
+                            onClose={() => setPreviewTemplate(null)}
+                            title={`Preview: ${previewTemplate?.name}`}
+                            width="90vw"
+                        >
+                            <div className="h-[80vh] overflow-auto">
+                                <iframe
+                                    srcDoc={previewTemplate?.content.email.html}
+                                    className="w-full h-full border-0"
+                                />
+                            </div>
+                        </LemonModal>
                     </>
                 ) : (
                     <LemonField name="html" className="flex relative flex-col">
