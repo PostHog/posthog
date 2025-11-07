@@ -1196,40 +1196,13 @@ class EmailIntegration:
 
         return integration
 
-    @classmethod
-    def integration_from_keys(
-        cls, api_key: str, secret_key: str, team_id: int, created_by: User | None = None
-    ) -> Integration:
-        integration, created = Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="email",
-            integration_id=api_key,
-            defaults={
-                "config": {
-                    "api_key": api_key,
-                    "vendor": "mailjet",
-                },
-                "sensitive_config": {
-                    "secret_key": secret_key,
-                },
-                "created_by": created_by,
-            },
-        )
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
-
-        return integration
-
     def verify(self):
         domain = self.integration.config.get("domain")
-        provider = self.integration.config.get("provider", "mailjet")
+        provider = self.integration.config.get("provider", "ses")
 
         # Use the appropriate provider for verification
         if provider == "ses":
             verification_result = self.ses_provider.verify_email_domain(domain, team_id=self.integration.team_id)
-        elif provider == "mailjet":
-            verification_result = self.mailjet_provider.verify_email_domain(domain)
         elif provider == "maildev":
             verification_result = {
                 "status": "success",
