@@ -487,8 +487,8 @@ export function ExperimentMetricForm({
                                         handleSetMetric({ ...metric, completion_event: source })
                                     }
                                 }}
-                                typeKey="experiment-metric-start-event"
-                                buttonCopy="Add start event"
+                                typeKey="experiment-metric-completion-event"
+                                buttonCopy="Add completion event"
                                 showSeriesIndicator={false}
                                 hideRename={true}
                                 entitiesLimit={1}
