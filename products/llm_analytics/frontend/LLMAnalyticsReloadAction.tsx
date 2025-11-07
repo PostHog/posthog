@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 
+import { IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 
@@ -26,6 +26,7 @@ export function LLMAnalyticsReloadAction(): JSX.Element {
                 icon={isRefreshing ? <Spinner textColored /> : <IconRefresh />}
                 size="small"
                 disabledReason={isRefreshing ? 'Refreshing...' : undefined}
+                data-attr="llm-analytics-refresh-dashboard"
             >
                 <span className="dashboard-items-action-refresh-text">
                     {isRefreshing ? <>Refreshing...</> : <LastRefreshText />}

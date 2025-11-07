@@ -104,6 +104,7 @@ if settings.ADMIN_PORTAL_ENABLED:
             pass
 
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
+    from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
 
     admin_urlpatterns = [
         re_path(r"^admin/oauth2/callback$", admin_oauth2_callback, name="admin_oauth2_callback"),
@@ -115,6 +116,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/realtime-cohorts-calculation/",
             admin.site.admin_view(analyze_realtime_cohort_calculation_view),
             name="realtime-cohorts-calculation",
+        ),
+        path(
+            "admin/resave-cohorts/",
+            admin.site.admin_view(resave_cohorts_view),
+            name="resave-cohorts",
         ),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),

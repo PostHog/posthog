@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-11-03 20:02:08 UTC
+// Generated at: 2025-11-07 10:03:43 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -25,7 +25,6 @@ export type CanonicalProvider =
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
-    | 'crusoe'
     | 'crusoe-bf16'
     | 'crusoe-fp8'
     | 'deepinfra-base'
@@ -52,10 +51,6 @@ export type CanonicalProvider =
     | 'hyperbolic-bf16'
     | 'hyperbolic-fp8'
     | 'inception'
-    | 'inference-net'
-    | 'inference-net-bf16'
-    | 'inference-net-fp16'
-    | 'inference-net-fp8'
     | 'infermatic'
     | 'infermatic-bf16'
     | 'inflection'
@@ -101,6 +96,7 @@ export type CanonicalProvider =
     | 'sambanova-fp8'
     | 'sambanova-turbo'
     | 'siliconflow-fp8'
+    | 'stealth'
     | 'switchpoint'
     | 'targon-bf16'
     | 'targon-fp8'

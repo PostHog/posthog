@@ -248,12 +248,12 @@ services:
             service: otel-collector
         depends_on:
             - jaeger
-            - log-capture
+            - capture-logs
 
-    log-capture:
+    capture-logs:
         extends:
             file: docker-compose.base.yml
-            service: log-capture
+            service: capture-logs
         depends_on:
             - kafka
 

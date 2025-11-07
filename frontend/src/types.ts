@@ -468,6 +468,7 @@ export interface OrganizationType extends OrganizationBasicType {
     metadata?: OrganizationMetadata
     member_count: number
     default_experiment_stats_method: ExperimentStatsMethod
+    default_anonymize_ips?: boolean
     default_role_id?: string | null
 }
 
@@ -693,6 +694,7 @@ export interface TeamType extends TeamBasicType {
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
+    receive_org_level_activity_logs: boolean | null
 }
 
 export interface ProductIntentType {
@@ -1638,7 +1640,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     page: number
     pinned: boolean
     type?: 'collection' | 'saved_filters'
-    collectionType: 'custom' | 'synthetic' | null
+    collectionType: 'custom' | 'synthetic' | 'new-urls' | null
 }
 
 export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
@@ -2154,10 +2156,21 @@ export interface EndpointType extends WithAccessControl {
     updated_at: string
     created_by: UserBasicType | null
     cache_age_seconds: number
+    is_materialized: boolean
     /** Purely local value to determine whether the query endpoint should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /** Last execution time from ClickHouse query_log table */
     last_executed_at?: string
+    materialization?: EndpointMaterializationType
+}
+
+export interface EndpointMaterializationType {
+    can_materialize: boolean
+    reason?: string
+    status?: string
+    error?: string
+    last_materialized_at?: string
+    sync_frequency?: DataWarehouseSyncInterval
 }
 
 export interface DashboardBasicType extends WithAccessControl {
@@ -4473,6 +4486,8 @@ export interface ReplayExportContext {
 
 export interface HeatmapExportContext {
     heatmap_url: string
+    heatmap_data_url?: string
+    heatmap_type?: HeatmapType
     filename?: string
     heatmap_filters?: HeatmapFilters
     heatmap_color_palette?: string | null
@@ -4677,11 +4692,13 @@ export enum ActivityScope {
     BATCH_IMPORT = 'BatchImport',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
+    PERSONAL_API_KEY = 'PersonalAPIKey',
     GROUP = 'Group',
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',
     PLUGIN_CONFIG = 'PluginConfig',
     HOG_FUNCTION = 'HogFunction',
+    HOG_FLOW = 'HogFlow',
     DATA_MANAGEMENT = 'DataManagement',
     EVENT_DEFINITION = 'EventDefinition',
     PROPERTY_DEFINITION = 'PropertyDefinition',
@@ -4708,6 +4725,7 @@ export enum ActivityScope {
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
     ENDPOINT = 'Endpoint',
     HEATMAP = 'Heatmap',
+    USER = 'User',
 }
 
 export type CommentType = {
@@ -4753,6 +4771,7 @@ export interface DataWarehouseSavedQuery {
     last_run_at?: string
     sync_frequency?: string
     status?: string
+    managed_viewset_kind: DataWarehouseManagedViewsetKind | null
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean

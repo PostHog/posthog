@@ -208,8 +208,6 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             ]
         )
 
-        order_by = ",".join([f"step_{i+1} DESC" for i in reversed(range(self.context.max_steps))])
-
         other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
 
         use_breakdown_limit = self.context.breakdown and self.context.breakdownType in [
@@ -223,6 +221,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             if use_breakdown_limit
             else "breakdown"
         )
+        order_by = ",".join([f"step_{i + 1} DESC" for i in reversed(range(self.context.max_steps))])
 
         s = parse_select(
             f"""
@@ -252,6 +251,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             ]
         )
 
+        order_by = ",".join([f"step_{i + 1} DESC" for i in reversed(range(self.context.max_steps))])
         # Weird: unless you reference row_number in this outer block, it doesn't work correctly
         s = cast(
             ast.SelectQuery,
@@ -266,6 +266,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             FROM
                 {{s}}
             GROUP BY final_prop
+            ORDER BY {order_by}
             LIMIT {self.get_breakdown_limit() + 1 if use_breakdown_limit else DEFAULT_RETURNED_ROWS}
         """,
                 {"s": s},

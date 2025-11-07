@@ -28,7 +28,7 @@ self.addEventListener('message', async (event: MessageEvent<DecompressionRequest
     try {
         await initSnappy()
         const decompressed = decompress_raw(compressedData)
-        self.postMessage({ id, decompressedData: decompressed })
+        self.postMessage({ id, decompressedData: decompressed }, { transfer: [decompressed.buffer] })
     } catch (error) {
         console.error('Decompression error:', error)
         self.postMessage({

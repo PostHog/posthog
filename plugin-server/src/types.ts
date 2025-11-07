@@ -799,6 +799,7 @@ export interface RawOrganization {
     created_at: string
     updated_at: string
     available_product_features: ProductFeature[]
+    default_anonymize_ips: boolean
 }
 
 // NOTE: We don't need to list all options here - only the ones we use

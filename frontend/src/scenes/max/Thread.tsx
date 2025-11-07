@@ -66,12 +66,12 @@ import {
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isHogQLQuery } from '~/queries/utils'
+import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
-import { getToolDefinition } from './max-constants'
+import { ToolRegistration, getToolDefinition } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
@@ -173,7 +173,7 @@ interface MessageProps {
 }
 
 function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element {
-    const { editInsightToolRegistered } = useValues(maxGlobalLogic)
+    const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading } = useValues(maxThreadLogic)
 
@@ -259,6 +259,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                 <ToolCallsAnswer
                                     key={`${key}-tools`}
                                     toolCalls={message.tool_calls as EnhancedToolCall[]}
+                                    registeredToolMap={registeredToolMap}
                                 />
                             ) : null
 
@@ -834,9 +835,10 @@ function ReasoningAnswer({ content, completed, id, showCompletionIcon = true }: 
 
 interface ToolCallsAnswerProps {
     toolCalls: EnhancedToolCall[]
+    registeredToolMap: Record<string, ToolRegistration>
 }
 
-function ToolCallsAnswer({ toolCalls }: ToolCallsAnswerProps): JSX.Element {
+function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps): JSX.Element {
     // Separate todo_write tool calls from regular tool calls
     const todoWriteToolCalls = toolCalls.filter((tc) => tc.name === 'todo_write')
     const regularToolCalls = toolCalls.filter((tc) => tc.name !== 'todo_write')
@@ -867,7 +869,7 @@ function ToolCallsAnswer({ toolCalls }: ToolCallsAnswerProps): JSX.Element {
                         let description = `Executing ${toolCall.name}`
                         if (definition) {
                             if (definition.displayFormatter) {
-                                description = definition.displayFormatter(toolCall)
+                                description = definition.displayFormatter(toolCall, { registeredToolMap })
                             }
                             if (commentary) {
                                 description = commentary
@@ -1005,6 +1007,12 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     }, [isEditingInsight])
 
     const query = useMemo(() => visualizationTypeToQuery(message), [message])
+    const queryWithShowHeader = useMemo(() => {
+        if (query && isInsightVizNode(query)) {
+            return { ...query, showHeader: true }
+        }
+        return query
+    }, [query])
 
     return status !== 'completed'
         ? null
@@ -1014,9 +1022,13 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                       type="ai"
                       className="w-full"
                       wrapperClassName="w-full"
-                      boxClassName={clsx('flex flex-col w-full', isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96')}
+                      boxClassName="flex flex-col w-full"
                   >
-                      {!isCollapsed && <Query query={query} readOnly embedded />}
+                      {!isCollapsed && (
+                          <div className={clsx('overflow-auto', isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96')}>
+                              <Query query={query} readOnly embedded />
+                          </div>
+                      )}
                       <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
                           <div className="flex items-center gap-1.5">
                               <LemonButton
@@ -1040,7 +1052,11 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                                       to={
                                           message.short_id
                                               ? urls.insightView(message.short_id as InsightShortId)
-                                              : urls.insightNew({ query })
+                                              : urls.insightNew({
+                                                    query: queryWithShowHeader as
+                                                        | InsightVizNode
+                                                        | DataVisualizationNode,
+                                                })
                                       }
                                       icon={<IconOpenInNew />}
                                       size="xsmall"

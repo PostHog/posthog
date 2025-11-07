@@ -82,6 +82,7 @@ jobs:
                 package:
                     - batch-import-worker
                     - capture
+                    - capture-logs
                     - common-alloc
                     - common-cookieless
                     - common-compression
@@ -107,7 +108,6 @@ jobs:
                     - hook-worker
                     - kafka-deduplicator
                     - limiters
-                    - log-capture
                     - posthog-symbol-data
                     - property-defs-rs
                     - serve-metrics
@@ -176,10 +176,6 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
-
-            - name: Cache Rust dependencies
-              if: needs.changes.outputs.rust == 'true'
-              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
 
             - name: Install sqlx-cli
               if: needs.changes.outputs.rust == 'true'
