@@ -383,9 +383,10 @@ jobs:
 
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
+            # Run even if tests failed, as long as snapshots may have been updated
             - name: Create screenshot patch
               id: create-patch
-              if: needs.detect-snapshot-mode.outputs.mode == 'update' && success() && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.detect-snapshot-mode.outputs.mode == 'update' && (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               run: |
                   # Verify we're in a git repository before running git commands
                   if ! git rev-parse --git-dir > /dev/null 2>&1; then
