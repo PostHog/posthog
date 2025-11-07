@@ -527,13 +527,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     "value": str(value),
                     "user_id": user.id if user else None,
                     "team_id": getattr(user, "team_id", None) if user else None,
+                    "action": "ignored",
                 },
-            )
-
-            raise exceptions.ValidationError(
-                "The 'access_control' field has been deprecated and is no longer supported. "
-                "Please use the new access control system instead. "
-                "For more information, visit: https://posthog.com/docs/settings/access-control"
             )
         return None
 
@@ -557,6 +552,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.NotFound("Project not found.")
         validated_data["project_id"] = self.context["project_id"]
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
+
+        validated_data.pop("access_control", None)
 
         if "week_start_day" not in validated_data:
             country_code = get_geoip_properties(get_ip_address(request)).get("$geoip_country_code", None)
@@ -591,6 +588,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
         before_update = instance.__dict__.copy()
+
+        validated_data.pop("access_control", None)
 
         # Should be validated already, but let's be extra sure
         if config_data := validated_data.pop("revenue_analytics_config", None):
