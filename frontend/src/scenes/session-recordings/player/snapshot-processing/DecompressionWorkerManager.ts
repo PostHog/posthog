@@ -19,7 +19,7 @@ interface DecompressionStats {
 
 export type DecompressionMode = 'worker' | 'yielding' | 'blocking'
 
-function normalizeMode(mode?: string): DecompressionMode {
+export function normalizeMode(mode?: string | boolean): DecompressionMode {
     if (mode === 'worker' || mode === 'yielding') {
         return mode
     }
