@@ -6,11 +6,7 @@ from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.services.sandbox_environment import (
-    SandboxEnvironment,
-    SandboxEnvironmentConfig,
-    SandboxEnvironmentTemplate,
-)
+from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import SnapshotNotFoundError, SnapshotNotReadyError
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import get_sandbox_name_for_task
@@ -43,14 +39,14 @@ async def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) ->
                 {"snapshot_id": input.snapshot_id, "status": snapshot.status},
             )
 
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name=get_sandbox_name_for_task(input.task_id),
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
             environment_variables={},
             snapshot_id=str(snapshot.id),
             metadata={"task_id": input.task_id},
         )
 
-        sandbox = await SandboxEnvironment.create(config)
+        sandbox = await Sandbox.create(config)
 
         return sandbox.id

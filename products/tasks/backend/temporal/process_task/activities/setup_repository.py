@@ -2,8 +2,7 @@ from dataclasses import dataclass
 
 from temporalio import activity
 
-from products.tasks.backend.services.sandbox_agent import SandboxAgent
-from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.exceptions import RepositorySetupError
 from products.tasks.backend.temporal.observability import log_activity_execution
 
@@ -26,12 +25,10 @@ async def setup_repository(input: SetupRepositoryInput) -> str:
         sandbox_id=input.sandbox_id,
         repository=input.repository,
     ):
-        sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
-
-        agent = SandboxAgent(sandbox)
+        sandbox = await Sandbox.get_by_id(input.sandbox_id)
 
         try:
-            result = await agent.setup_repository(input.repository)
+            result = await sandbox.setup_repository(input.repository)
         except Exception as e:
             raise RepositorySetupError(
                 f"Failed to setup repository {input.repository}",
@@ -44,7 +41,7 @@ async def setup_repository(input: SetupRepositoryInput) -> str:
                 {"repository": input.repository, "exit_code": result.exit_code, "stderr": result.stderr[:500]},
             )
 
-        is_clean, status_output = await agent.is_git_clean(input.repository)
+        is_clean, status_output = await sandbox.is_git_clean(input.repository)
 
         if not is_clean:
             raise RepositorySetupError(

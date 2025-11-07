@@ -5,8 +5,7 @@ from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
 
-from products.tasks.backend.services.sandbox_agent import SandboxAgent
-from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.exceptions import SandboxExecutionError, TaskExecutionFailedError
 from products.tasks.backend.temporal.observability import log_activity_execution
 
@@ -39,12 +38,10 @@ async def execute_task_in_sandbox(input: ExecuteTaskInput) -> ExecuteTaskOutput:
         sandbox_id=input.sandbox_id,
         repository=input.repository,
     ):
-        sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
-
-        agent = SandboxAgent(sandbox)
+        sandbox = await Sandbox.get_by_id(input.sandbox_id)
 
         try:
-            result = await agent.execute_task(input.task_id, input.repository)
+            result = await sandbox.execute_task(input.task_id, input.repository)
         except Exception as e:
             raise SandboxExecutionError(
                 f"Failed to execute task in sandbox",

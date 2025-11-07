@@ -6,11 +6,7 @@ from asgiref.sync import sync_to_async
 
 from posthog.models import PersonalAPIKey
 
-from products.tasks.backend.services.sandbox_environment import (
-    SandboxEnvironment,
-    SandboxEnvironmentConfig,
-    SandboxEnvironmentTemplate,
-)
+from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import SandboxNotFoundError, TaskInvalidStateError
 from products.tasks.backend.temporal.process_task.activities.inject_personal_api_key import (
     InjectPersonalAPIKeyInput,
@@ -24,14 +20,14 @@ class TestInjectPersonalAPIKeyActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_inject_personal_api_key_success(self, activity_environment, test_task):
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-inject-api-key-success",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
         try:
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             input_data = InjectPersonalAPIKeyInput(
                 sandbox_id=sandbox.id,
@@ -64,14 +60,14 @@ class TestInjectPersonalAPIKeyActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_inject_personal_api_key_no_user(self, activity_environment, test_task):
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-inject-api-key-no-user",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
         try:
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             test_task.created_by = None
             await sync_to_async(test_task.save)()

@@ -12,7 +12,7 @@ from posthog.models.utils import generate_random_token_personal, mask_key_value
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import Task
-from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.exceptions import (
     PersonalAPIKeyError,
     SandboxExecutionError,
@@ -90,7 +90,7 @@ async def inject_personal_api_key(input: InjectPersonalAPIKeyInput) -> InjectPer
                 {"task_id": input.task_id, "error": str(e)},
             )
 
-        sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
+        sandbox = await Sandbox.get_by_id(input.sandbox_id)
 
         escaped_value = shlex.quote(value)
         escaped_api_url = shlex.quote(settings.SITE_URL)

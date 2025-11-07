@@ -3,11 +3,7 @@ import os
 import pytest
 from unittest.mock import patch
 
-from products.tasks.backend.services.sandbox_environment import (
-    SandboxEnvironment,
-    SandboxEnvironmentConfig,
-    SandboxEnvironmentTemplate,
-)
+from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import RepositoryCloneError, SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.clone_repository import (
     CloneRepositoryInput,
@@ -20,14 +16,14 @@ class TestCloneRepositoryActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_clone_repository_success_and_directory_structure(self, activity_environment, github_integration):
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-clone-success-and-structure",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
         try:
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             input_data = CloneRepositoryInput(
                 sandbox_id=sandbox.id,
@@ -73,14 +69,14 @@ class TestCloneRepositoryActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_clone_repository_idempotency(self, activity_environment, github_integration):
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-clone-repository-idempotent",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
         try:
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             input_data = CloneRepositoryInput(
                 sandbox_id=sandbox.id,
@@ -127,14 +123,14 @@ class TestCloneRepositoryActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_clone_repository_private_repo_no_token(self, activity_environment, github_integration):
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-clone-repository-auth-fail",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
         try:
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             input_data = CloneRepositoryInput(
                 sandbox_id=sandbox.id,
@@ -165,14 +161,14 @@ class TestCloneRepositoryActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_clone_repository_multiple_repos(self, activity_environment, github_integration):
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-clone-multiple-repos",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
         try:
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             repos = ["PostHog/posthog-js", "PostHog/posthog.com"]
 

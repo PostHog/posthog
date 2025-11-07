@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from temporalio import activity
 
-from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
 from products.tasks.backend.temporal.observability import log_activity_execution
 
@@ -22,7 +22,7 @@ async def cleanup_sandbox(input: CleanupSandboxInput) -> None:
         sandbox_id=input.sandbox_id,
     ):
         try:
-            sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
+            sandbox = await Sandbox.get_by_id(input.sandbox_id)
             await sandbox.destroy()
         except SandboxNotFoundError:
             pass

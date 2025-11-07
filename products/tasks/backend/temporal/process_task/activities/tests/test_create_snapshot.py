@@ -6,11 +6,7 @@ import pytest
 from asgiref.sync import sync_to_async
 
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.services.sandbox_environment import (
-    SandboxEnvironment,
-    SandboxEnvironmentConfig,
-    SandboxEnvironmentTemplate,
-)
+from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.create_snapshot import CreateSnapshotInput, create_snapshot
 
@@ -21,9 +17,9 @@ class TestCreateSnapshotActivity:
     @pytest.mark.django_db
     async def test_create_snapshot_real(self, activity_environment, github_integration, ateam):
         """Test real snapshot creation with actual sandbox."""
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-create-snapshot",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.BASE,
         )
 
         sandbox = None
@@ -31,7 +27,7 @@ class TestCreateSnapshotActivity:
         created_snapshot_external_id = None
         try:
             # Create a real sandbox
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             input_data = CreateSnapshotInput(
                 sandbox_id=sandbox.id,
@@ -58,7 +54,7 @@ class TestCreateSnapshotActivity:
             assert created_snapshot.status == SandboxSnapshot.Status.COMPLETE
 
             # Verify the snapshot exists in provider
-            snapshot_status = await SandboxEnvironment.get_snapshot_status(created_snapshot.external_id)
+            snapshot_status = await Sandbox.get_snapshot_status(created_snapshot.external_id)
             assert snapshot_status.value == "complete"
 
         finally:
@@ -69,7 +65,7 @@ class TestCreateSnapshotActivity:
                 await sync_to_async(created_snapshot.delete)()
 
             if created_snapshot_external_id:
-                await SandboxEnvironment.delete_snapshot(created_snapshot_external_id)
+                await Sandbox.delete_snapshot(created_snapshot_external_id)
 
     @pytest.mark.asyncio
     @pytest.mark.django_db
@@ -83,16 +79,16 @@ class TestCreateSnapshotActivity:
             status=SandboxSnapshot.Status.COMPLETE,
         )
 
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-create-snapshot-with-base",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
         created_snapshot = None
         created_snapshot_external_id = None
         try:
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             input_data = CreateSnapshotInput(
                 sandbox_id=sandbox.id,
@@ -114,7 +110,7 @@ class TestCreateSnapshotActivity:
             assert len(created_snapshot.repos) == 2
 
             # Verify the snapshot actually exists in Runloop
-            snapshot_status = await SandboxEnvironment.get_snapshot_status(created_snapshot.external_id)
+            snapshot_status = await Sandbox.get_snapshot_status(created_snapshot.external_id)
             assert snapshot_status.value == "complete"
 
         finally:
@@ -124,7 +120,7 @@ class TestCreateSnapshotActivity:
             if created_snapshot:
                 await sync_to_async(created_snapshot.delete)()
             if created_snapshot_external_id:
-                await SandboxEnvironment.delete_snapshot(created_snapshot_external_id)
+                await Sandbox.delete_snapshot(created_snapshot_external_id)
 
     @pytest.mark.asyncio
     @pytest.mark.django_db

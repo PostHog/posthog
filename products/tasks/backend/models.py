@@ -395,11 +395,11 @@ class SandboxSnapshot(UUIDModel):
 
     def delete(self, *args, **kwargs):
         if self.external_id:
-            from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+            from products.tasks.backend.services.sandbox import Sandbox
 
             if os.environ.get("RUNLOOP_API_KEY") and not settings.TEST:
                 try:
-                    async_to_sync(SandboxEnvironment.delete_snapshot)(self.external_id)
+                    async_to_sync(Sandbox.delete_snapshot)(self.external_id)
                 except Exception as e:
                     raise Exception(
                         f"Failed to delete external snapshot {self.external_id}: {str(e)}. "

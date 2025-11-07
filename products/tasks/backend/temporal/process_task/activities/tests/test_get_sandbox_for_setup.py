@@ -6,7 +6,7 @@ import pytest
 from asgiref.sync import sync_to_async
 
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_setup import (
     GetSandboxForSetupInput,
     get_sandbox_for_setup,
@@ -37,7 +37,7 @@ class TestGetSandboxForSetupActivity:
     async def _cleanup_sandbox(self, sandbox_id):
         """Helper method to clean up a sandbox."""
 
-        sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
+        sandbox = await Sandbox.get_by_id(sandbox_id)
         await sandbox.destroy()
 
     @pytest.mark.asyncio
@@ -61,7 +61,7 @@ class TestGetSandboxForSetupActivity:
             assert len(sandbox_id) > 0
 
             # Verify sandbox was created
-            sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
+            sandbox = await Sandbox.get_by_id(sandbox_id)
             assert sandbox.id == sandbox_id
             assert sandbox.status in ["pending", "initializing", "running"]
 
@@ -91,7 +91,7 @@ class TestGetSandboxForSetupActivity:
             assert len(sandbox_id) > 0
 
             # Verify sandbox was created
-            sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
+            sandbox = await Sandbox.get_by_id(sandbox_id)
             assert sandbox.id == sandbox_id
 
             assert sandbox.status in ["pending", "initializing", "running"]
@@ -127,7 +127,7 @@ class TestGetSandboxForSetupActivity:
             assert len(sandbox_id) > 0
 
             # Verify sandbox was created (should not use incomplete snapshots as base)
-            sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
+            sandbox = await Sandbox.get_by_id(sandbox_id)
             assert sandbox.id == sandbox_id
 
         finally:
@@ -155,7 +155,7 @@ class TestGetSandboxForSetupActivity:
             assert len(sandbox_id) > 0
 
             # Verify sandbox exists
-            sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
+            sandbox = await Sandbox.get_by_id(sandbox_id)
 
             assert sandbox.id == sandbox_id
             assert sandbox.name == get_sandbox_name_for_task(task_id)

@@ -15,7 +15,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.services.sandbox_environment import SandboxEnvironment, SandboxEnvironmentStatus
+from products.tasks.backend.services.sandbox import Sandbox, SandboxStatus
 from products.tasks.backend.temporal.process_task.activities.check_snapshot_exists_for_repository import (
     check_snapshot_exists_for_repository,
 )
@@ -56,10 +56,10 @@ class TestProcessTaskWorkflow:
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.setup_repository.SandboxAgent._get_setup_command"
+                "products.tasks.backend.temporal.process_task.activities.setup_repository.Sandbox._get_setup_command"
             ) as mock_setup,
             patch(
-                "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.SandboxAgent._get_task_command"
+                "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
             ) as mock_task,
         ):
             mock_setup.return_value = "pnpm install"
@@ -103,7 +103,7 @@ class TestProcessTaskWorkflow:
 
     async def _verify_file_in_sandbox(self, sandbox_id: str, filepath: str) -> bool:
         """Verify a file exists in a sandbox."""
-        sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
+        sandbox = await Sandbox.get_by_id(sandbox_id)
         result = await sandbox.execute(f"test -f {filepath} && echo 'exists' || echo 'missing'")
         return "exists" in result.stdout
 
@@ -161,7 +161,7 @@ class TestProcessTaskWorkflow:
             for snapshot in created_snapshots:
                 try:
                     if snapshot.external_id:
-                        await SandboxEnvironment.delete_snapshot(snapshot.external_id)
+                        await Sandbox.delete_snapshot(snapshot.external_id)
                     await sync_to_async(snapshot.delete)()
                 except Exception:
                     pass
@@ -202,8 +202,8 @@ class TestProcessTaskWorkflow:
             assert result.task_result is not None
             assert result.sandbox_id is not None
 
-            sandbox = await SandboxEnvironment.get_by_id(result.sandbox_id)
-            assert sandbox.status == SandboxEnvironmentStatus.SHUTDOWN.value
+            sandbox = await Sandbox.get_by_id(result.sandbox_id)
+            assert sandbox.status == SandboxStatus.SHUTDOWN.value
 
         finally:
             await sync_to_async(snapshot.delete)()
@@ -226,8 +226,8 @@ class TestProcessTaskWorkflow:
             assert result.sandbox_id is not None
             sandbox_id = result.sandbox_id
 
-            sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
-            assert sandbox.status == SandboxEnvironmentStatus.SHUTDOWN.value
+            sandbox = await Sandbox.get_by_id(sandbox_id)
+            assert sandbox.status == SandboxStatus.SHUTDOWN.value
 
         finally:
             await sync_to_async(snapshot.delete)()
@@ -278,7 +278,7 @@ class TestProcessTaskWorkflow:
             for snapshot in created_snapshots:
                 try:
                     if snapshot.external_id:
-                        await SandboxEnvironment.delete_snapshot(snapshot.external_id)
+                        await Sandbox.delete_snapshot(snapshot.external_id)
                     await sync_to_async(snapshot.delete)()
                 except Exception:
                     pass

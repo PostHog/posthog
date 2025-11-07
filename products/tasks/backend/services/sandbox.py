@@ -15,6 +15,7 @@ from runloop_api_client import (
     NotFoundError as RunloopNotFoundError,
 )
 
+from products.tasks.backend.constants import SETUP_REPOSITORY_PROMPT
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.exceptions import (
     SandboxCleanupError,
@@ -27,8 +28,12 @@ from products.tasks.backend.temporal.exceptions import (
 
 logger = logging.getLogger(__name__)
 
+WORKING_DIR = "/tmp/workspace"
+REPOSITORY_TARGET_DIR = "repo"
+DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 
-class SandboxEnvironmentStatus(str, Enum):
+
+class SandboxStatus(str, Enum):
     PROVISIONING = "provisioning"
     INITIALIZING = "initializing"
     RUNNING = "running"
@@ -39,13 +44,13 @@ class SandboxEnvironmentStatus(str, Enum):
     SHUTDOWN = "shutdown"
 
 
-class SandboxEnvironmentSnapshotStatus(str, Enum):
+class SandboxSnapshotStatus(str, Enum):
     IN_PROGRESS = "in_progress"
     COMPLETE = "complete"
     ERROR = "error"
 
 
-class SandboxEnvironmentTemplate(str, Enum):
+class SandboxTemplate(str, Enum):
     DEFAULT_BASE = "default_base"
 
 
@@ -56,9 +61,9 @@ class ExecutionResult(BaseModel):
     error: Optional[str] = None
 
 
-class SandboxEnvironmentConfig(BaseModel):
+class SandboxConfig(BaseModel):
     name: str
-    template: SandboxEnvironmentTemplate = SandboxEnvironmentTemplate.DEFAULT_BASE
+    template: SandboxTemplate = SandboxTemplate.DEFAULT_BASE
     default_execution_timeout_seconds: int = 10 * 60  # 10 minutes
     environment_variables: Optional[dict[str, str]] = None
     entrypoint: Optional[str] = None
@@ -78,31 +83,30 @@ def get_runloop_client() -> AsyncRunloop:
 
 
 TEMPLATE_TO_BLUEPRINT_NAME = {
-    SandboxEnvironmentTemplate.DEFAULT_BASE: "sandbox-base-1",
+    SandboxTemplate.DEFAULT_BASE: "sandbox-base-1",
 }
 
 BLUEPRINT_NAME_TO_TEMPLATE = {v: k for k, v in TEMPLATE_TO_BLUEPRINT_NAME.items()}
 
 
-class SandboxEnvironment:
+class Sandbox:
     """
-    Abstraction layer for sandbox environments.
-    Currently uses Runloop as the backend provider.
+    A box in the cloud. Sand optional.
     """
 
     id: str
-    status: SandboxEnvironmentStatus
-    config: SandboxEnvironmentConfig
+    status: SandboxStatus
+    config: SandboxConfig
     _client: AsyncRunloop
 
-    def __init__(self, id: str, status: SandboxEnvironmentStatus, config: SandboxEnvironmentConfig):
+    def __init__(self, id: str, status: SandboxStatus, config: SandboxConfig):
         self.id = id
         self.status = status
         self.config = config
         self._client = get_runloop_client()
 
     @staticmethod
-    async def create(config: SandboxEnvironmentConfig) -> "SandboxEnvironment":
+    async def create(config: SandboxConfig) -> "Sandbox":
         client = get_runloop_client()
 
         blueprint_name = TEMPLATE_TO_BLUEPRINT_NAME.get(config.template)
@@ -146,7 +150,7 @@ class SandboxEnvironment:
             logger.exception(f"Failed to create sandbox: {e}")
             raise SandboxProvisionError(f"Failed to create sandbox", {"config": config, "error": str(e)})
 
-        sandbox = SandboxEnvironment(id=devbox.id, status=SandboxEnvironmentStatus(devbox.status), config=config)
+        sandbox = Sandbox(id=devbox.id, status=SandboxStatus(devbox.status), config=config)
 
         assert sandbox.is_running
 
@@ -155,21 +159,21 @@ class SandboxEnvironment:
         return sandbox
 
     @staticmethod
-    async def get_by_id(sandbox_id: str) -> "SandboxEnvironment":
+    async def get_by_id(sandbox_id: str) -> "Sandbox":
         client = get_runloop_client()
 
         try:
             devbox = await client.devboxes.retrieve(sandbox_id)
 
-            template = SandboxEnvironmentTemplate.DEFAULT_BASE
+            template = SandboxTemplate.DEFAULT_BASE
 
             if devbox.blueprint_id:
                 blueprint = await client.blueprints.retrieve(devbox.blueprint_id)
-                template = BLUEPRINT_NAME_TO_TEMPLATE.get(blueprint.name, SandboxEnvironmentTemplate.DEFAULT_BASE)
+                template = BLUEPRINT_NAME_TO_TEMPLATE.get(blueprint.name, SandboxTemplate.DEFAULT_BASE)
 
-            config = SandboxEnvironmentConfig(name=devbox.name or f"sandbox-{sandbox_id}", template=template)
+            config = SandboxConfig(name=devbox.name or f"sandbox-{sandbox_id}", template=template)
 
-            sandbox = SandboxEnvironment(id=devbox.id, status=SandboxEnvironmentStatus(devbox.status), config=config)
+            sandbox = Sandbox(id=devbox.id, status=SandboxStatus(devbox.status), config=config)
 
             logger.info(f"Retrieved sandbox {sandbox_id} with status: {sandbox.status}")
 
@@ -220,6 +224,8 @@ class SandboxEnvironment:
             try:
                 api_timeout = min(remaining_time, 60)  # Runloop only supports 60 second timeouts
 
+                # TODO - unclear to me why we don't simply call wait_for_command with the
+                # full timeout_seconds, and await it? Pre-planning for temporal?
                 final_execution = await self._client.devboxes.wait_for_command(
                     execution_id=execution.execution_id,
                     devbox_id=self.id,
@@ -242,6 +248,77 @@ class SandboxEnvironment:
         )
 
         return result
+
+    async def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
+        if not self.is_running:
+            raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
+
+        org, repo = repository.lower().split("/")
+        repo_url = (
+            f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
+            if github_token
+            else f"https://github.com/{org}/{repo}.git"
+        )
+
+        target_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        # Wipe existing directory if present, then clone
+        clone_command = (
+            f"rm -rf {target_path} && "
+            f"mkdir -p /tmp/workspace/repos/{org} && "
+            f"cd /tmp/workspace/repos/{org} && "
+            f"git clone {repo_url} {repo}"
+        )
+
+        logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
+        return await self.execute(clone_command, timeout_seconds=5 * 60)
+
+    async def setup_repository(self, repository: str) -> ExecutionResult:
+        """Setup a repository for snapshotting using the PostHog Code Agent."""
+        if not self.is_running:
+            raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
+
+        org, repo = repository.lower().split("/")
+        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        check_result = await self.execute(f"test -d {repo_path} && echo 'exists' || echo 'missing'")
+        if "missing" in check_result.stdout:
+            raise RuntimeError(f"Repository path {repo_path} does not exist. Clone the repository first.")
+
+        setup_command = f"cd {repo_path} && {self._get_setup_command(repo_path)}"
+
+        logger.info(f"Running code agent setup for {repository} in sandbox {self.id}")
+        return await self.execute(setup_command, timeout_seconds=15 * 60)
+
+    async def is_git_clean(self, repository: str) -> tuple[bool, str]:
+        if not self.is_running:
+            raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
+
+        org, repo = repository.lower().split("/")
+        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        result = await self.execute(f"cd {repo_path} && git status --porcelain")
+        is_clean = not result.stdout.strip()
+
+        return is_clean, result.stdout
+
+    async def execute_task(self, task_id: str, repository: str) -> ExecutionResult:
+        if not self.is_running:
+            raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
+
+        org, repo = repository.lower().split("/")
+        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        command = f"cd {repo_path} && {self._get_task_command(task_id, repo_path)}"
+
+        logger.info(f"Executing task {task_id} in {repo_path} in sandbox {self.id}")
+        return await self.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
+
+    def _get_task_command(self, task_id: str, repo_path: str) -> str:
+        return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --repositoryPath {repo_path}"
+
+    def _get_setup_command(self, repo_path: str) -> str:
+        return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"
 
     async def initiate_snapshot(self, metadata: Optional[dict[str, str]] = None) -> str:
         if not self.is_running:
@@ -273,7 +350,7 @@ class SandboxEnvironment:
         logger.info(f"Deleted snapshot {external_id}")
 
     @staticmethod
-    async def get_snapshot_status(external_id: str) -> SandboxEnvironmentSnapshotStatus:
+    async def get_snapshot_status(external_id: str) -> SandboxSnapshotStatus:
         try:
             client = get_runloop_client()
 
@@ -283,7 +360,7 @@ class SandboxEnvironment:
 
             logger.info(f"Retrieved snapshot status for {external_id}: {snapshot.status}")
 
-            return SandboxEnvironmentSnapshotStatus(snapshot.status)
+            return SandboxSnapshotStatus(snapshot.status)
         except Exception as e:
             logger.exception(f"Failed to get snapshot status: {e}")
             raise SnapshotCreationError(
@@ -294,7 +371,7 @@ class SandboxEnvironment:
         try:
             await self._client.devboxes.shutdown(self.id)
 
-            self.status = SandboxEnvironmentStatus.SHUTDOWN
+            self.status = SandboxStatus.SHUTDOWN
 
             logger.info(f"Destroyed sandbox {self.id}")
 
@@ -310,7 +387,7 @@ class SandboxEnvironment:
 
     @property
     def is_running(self) -> bool:
-        return self.status == SandboxEnvironmentStatus.RUNNING
+        return self.status == SandboxStatus.RUNNING
 
     @property
     def name(self) -> str:

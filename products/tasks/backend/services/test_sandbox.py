@@ -2,16 +2,11 @@ import os
 
 import pytest
 
-from products.tasks.backend.services.sandbox_environment import (
-    SandboxEnvironment,
-    SandboxEnvironmentConfig,
-    SandboxEnvironmentStatus,
-    SandboxEnvironmentTemplate,
-)
+from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
 
 
 @pytest.mark.asyncio
-class TestSandboxEnvironmentIntegration:
+class TestSandboxIntegration:
     # We only run these tests when we have a Runloop API key set, we don't want to run them in CI since they create real sandbox environments and are slow.
     @pytest.fixture(scope="class", autouse=True)
     def check_api_key(self):
@@ -19,15 +14,15 @@ class TestSandboxEnvironmentIntegration:
             pytest.skip("RUNLOOP_API_KEY not set, skipping integration tests")
 
     async def test_create_execute_destroy_lifecycle(self):
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="posthog-test-lifecycle",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
-        sandbox = await SandboxEnvironment.create(config)
+        sandbox = await Sandbox.create(config)
 
         assert sandbox.id is not None
-        assert sandbox.status == SandboxEnvironmentStatus.RUNNING
+        assert sandbox.status == SandboxStatus.RUNNING
         assert sandbox.is_running
 
         result = await sandbox.execute("echo 'Hello World'")
@@ -36,7 +31,7 @@ class TestSandboxEnvironmentIntegration:
         assert result.stderr == ""
 
         await sandbox.destroy()
-        assert sandbox.status == SandboxEnvironmentStatus.SHUTDOWN  # type: ignore[comparison-overlap]
+        assert sandbox.status == SandboxStatus.SHUTDOWN  # type: ignore[comparison-overlap]
 
     @pytest.mark.parametrize(
         "command,expected_exit_code,expected_in_stdout",
@@ -47,25 +42,25 @@ class TestSandboxEnvironmentIntegration:
         ],
     )
     async def test_command_execution(self, command, expected_exit_code, expected_in_stdout):
-        config = SandboxEnvironmentConfig(name="posthog-test-commands")
+        config = SandboxConfig(name="posthog-test-commands")
 
-        async with await SandboxEnvironment.create(config) as sandbox:
+        async with await Sandbox.create(config) as sandbox:
             result = await sandbox.execute(command)
             assert result.exit_code == expected_exit_code
             assert expected_in_stdout in result.stdout
 
     async def test_error_command_handling(self):
-        config = SandboxEnvironmentConfig(name="posthog-test-error")
+        config = SandboxConfig(name="posthog-test-error")
 
-        async with await SandboxEnvironment.create(config) as sandbox:
+        async with await Sandbox.create(config) as sandbox:
             result = await sandbox.execute("nonexistent-command")
             assert result.exit_code == 127
             assert "command not found" in result.stderr.lower()
 
     async def test_working_directory_navigation(self):
-        config = SandboxEnvironmentConfig(name="posthog-test-workdir")
+        config = SandboxConfig(name="posthog-test-workdir")
 
-        async with await SandboxEnvironment.create(config) as sandbox:
+        async with await Sandbox.create(config) as sandbox:
             setup_result = await sandbox.execute("mkdir -p /tmp/test_dir && echo 'content' > /tmp/test_dir/file.txt")
             assert setup_result.exit_code == 0
 
@@ -75,33 +70,33 @@ class TestSandboxEnvironmentIntegration:
             assert "content" in result.stdout
 
     async def test_timeout_handling(self):
-        config = SandboxEnvironmentConfig(name="posthog-test-timeout")
+        config = SandboxConfig(name="posthog-test-timeout")
 
-        async with await SandboxEnvironment.create(config) as sandbox:
+        async with await Sandbox.create(config) as sandbox:
             result = await sandbox.execute("sleep 2 && echo 'completed'", timeout_seconds=5)
             assert result.exit_code == 0
             assert "completed" in result.stdout
 
     async def test_get_by_id(self):
-        config = SandboxEnvironmentConfig(name="posthog-test-get-id")
-        original = await SandboxEnvironment.create(config)
+        config = SandboxConfig(name="posthog-test-get-id")
+        original = await Sandbox.create(config)
 
         try:
-            retrieved = await SandboxEnvironment.get_by_id(original.id)
+            retrieved = await Sandbox.get_by_id(original.id)
             assert retrieved.id == original.id
-            assert retrieved.status == SandboxEnvironmentStatus.RUNNING
+            assert retrieved.status == SandboxStatus.RUNNING
             assert retrieved.is_running
         finally:
             await original.destroy()
 
     async def test_context_manager_auto_cleanup(self):
-        config = SandboxEnvironmentConfig(name="posthog-test-context")
+        config = SandboxConfig(name="posthog-test-context")
 
-        async with await SandboxEnvironment.create(config) as sandbox:
+        async with await Sandbox.create(config) as sandbox:
             assert sandbox.is_running
 
             result = await sandbox.execute("echo 'context test'")
             assert result.exit_code == 0
             assert "context test" in result.stdout
 
-        assert sandbox.status == SandboxEnvironmentStatus.SHUTDOWN
+        assert sandbox.status == SandboxStatus.SHUTDOWN

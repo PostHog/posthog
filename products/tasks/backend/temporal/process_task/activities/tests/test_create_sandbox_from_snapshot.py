@@ -6,7 +6,7 @@ import pytest
 from asgiref.sync import sync_to_async
 
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.exceptions import SandboxProvisionError, SnapshotNotFoundError
 from products.tasks.backend.temporal.process_task.activities.create_sandbox_from_snapshot import (
     CreateSandboxFromSnapshotInput,
@@ -31,7 +31,7 @@ class TestCreateSandboxFromSnapshotActivity:
         await sync_to_async(snapshot.delete)()
 
     async def _cleanup_sandbox(self, sandbox_id):
-        sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
+        sandbox = await Sandbox.get_by_id(sandbox_id)
         await sandbox.destroy()
 
     @pytest.mark.asyncio
@@ -50,7 +50,7 @@ class TestCreateSandboxFromSnapshotActivity:
             assert isinstance(sandbox_id, str)
             assert len(sandbox_id) > 0
 
-            sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
+            sandbox = await Sandbox.get_by_id(sandbox_id)
             assert sandbox.id == sandbox_id
             assert sandbox.status in ["pending", "initializing", "running"]
 

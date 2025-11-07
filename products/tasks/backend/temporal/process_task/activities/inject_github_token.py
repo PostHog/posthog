@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from temporalio import activity
 
-from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, SandboxExecutionError
 from products.tasks.backend.temporal.observability import log_activity_execution
 
@@ -35,7 +35,7 @@ async def inject_github_token(input: InjectGitHubTokenInput) -> None:
                 {"github_integration_id": input.github_integration_id, "error": str(e)},
             )
 
-        sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
+        sandbox = await Sandbox.get_by_id(input.sandbox_id)
 
         escaped_github_token = shlex.quote(github_token)
         result = await sandbox.execute(

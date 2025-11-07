@@ -3,11 +3,7 @@ import os
 import pytest
 from unittest.mock import patch
 
-from products.tasks.backend.services.sandbox_environment import (
-    SandboxEnvironment,
-    SandboxEnvironmentConfig,
-    SandboxEnvironmentTemplate,
-)
+from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import RepositorySetupError, SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.clone_repository import (
     CloneRepositoryInput,
@@ -24,14 +20,14 @@ class TestSetupRepositoryActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_setup_repository_success(self, activity_environment, github_integration):
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-setup-repository",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
         try:
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             clone_input = CloneRepositoryInput(
                 sandbox_id=sandbox.id,
@@ -54,7 +50,7 @@ class TestSetupRepositoryActivity:
 
             # We mock the _get_setup_command inside the setup_repository activity to just run pnpm install for the test, instead of using the coding agent
             with patch(
-                "products.tasks.backend.temporal.process_task.activities.setup_repository.SandboxAgent._get_setup_command"
+                "products.tasks.backend.temporal.process_task.activities.setup_repository.Sandbox._get_setup_command"
             ) as mock_setup_cmd:
                 mock_setup_cmd.return_value = "pnpm install"
 
@@ -82,14 +78,14 @@ class TestSetupRepositoryActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_setup_repository_without_clone(self, activity_environment):
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-setup-no-clone",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
         try:
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             setup_input = SetupRepositoryInput(
                 sandbox_id=sandbox.id,
@@ -120,14 +116,14 @@ class TestSetupRepositoryActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_setup_repository_fails_with_uncommitted_changes(self, activity_environment, github_integration):
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-setup-uncommitted",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
         try:
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             clone_input = CloneRepositoryInput(
                 sandbox_id=sandbox.id,
@@ -144,7 +140,7 @@ class TestSetupRepositoryActivity:
                 await activity_environment.run(clone_repository, clone_input)
 
             with patch(
-                "products.tasks.backend.temporal.process_task.activities.setup_repository.SandboxAgent._get_setup_command"
+                "products.tasks.backend.temporal.process_task.activities.setup_repository.Sandbox._get_setup_command"
             ) as mock_setup_cmd:
                 mock_setup_cmd.return_value = "pnpm install && echo 'test' > uncommitted_file.txt"
 

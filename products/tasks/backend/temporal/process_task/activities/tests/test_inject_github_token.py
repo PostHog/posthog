@@ -3,11 +3,7 @@ import os
 import pytest
 from unittest.mock import patch
 
-from products.tasks.backend.services.sandbox_environment import (
-    SandboxEnvironment,
-    SandboxEnvironmentConfig,
-    SandboxEnvironmentTemplate,
-)
+from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.inject_github_token import (
     InjectGitHubTokenInput,
@@ -20,14 +16,14 @@ class TestInjectGitHubTokenActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_inject_github_token_success(self, activity_environment, github_integration):
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-inject-token-success",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
         try:
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             input_data = InjectGitHubTokenInput(
                 sandbox_id=sandbox.id,

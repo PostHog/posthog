@@ -3,11 +3,7 @@ import os
 import pytest
 from unittest.mock import patch
 
-from products.tasks.backend.services.sandbox_environment import (
-    SandboxEnvironment,
-    SandboxEnvironmentConfig,
-    SandboxEnvironmentTemplate,
-)
+from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import SandboxNotFoundError, TaskExecutionFailedError
 from products.tasks.backend.temporal.process_task.activities.clone_repository import (
     CloneRepositoryInput,
@@ -25,14 +21,14 @@ class TestExecuteTaskInSandboxActivity:
     @pytest.mark.django_db
     async def test_execute_task_success(self, activity_environment, github_integration):
         """Test successful task execution in sandbox."""
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-execute-task",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
         try:
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             clone_input = CloneRepositoryInput(
                 sandbox_id=sandbox.id,
@@ -50,7 +46,7 @@ class TestExecuteTaskInSandboxActivity:
 
             # We mock the _get_task_command to run a simple command instead of the code agent
             with patch(
-                "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.SandboxAgent._get_task_command"
+                "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
             ) as mock_task_cmd:
                 mock_task_cmd.return_value = "echo 'Task executed successfully'"
 
@@ -73,14 +69,14 @@ class TestExecuteTaskInSandboxActivity:
     @pytest.mark.django_db
     async def test_execute_task_failure(self, activity_environment, github_integration):
         """Test task execution failure handling."""
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-execute-task-fail",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
         try:
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             clone_input = CloneRepositoryInput(
                 sandbox_id=sandbox.id,
@@ -98,7 +94,7 @@ class TestExecuteTaskInSandboxActivity:
 
             # We mock the _get_task_command to run a failing command
             with patch(
-                "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.SandboxAgent._get_task_command"
+                "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
             ) as mock_task_cmd:
                 mock_task_cmd.return_value = "exit 1"  # Command that fails
 
@@ -120,18 +116,18 @@ class TestExecuteTaskInSandboxActivity:
     @pytest.mark.django_db
     async def test_execute_task_repository_not_found(self, activity_environment):
         """Test task execution when repository doesn't exist in sandbox."""
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-execute-task-no-repo",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
         try:
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             # We don't clone any repository, just try to execute task
             with patch(
-                "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.SandboxAgent._get_task_command"
+                "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
             ) as mock_task_cmd:
                 mock_task_cmd.return_value = "ls -la"
 
@@ -165,14 +161,14 @@ class TestExecuteTaskInSandboxActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_execute_task_with_different_repositories(self, activity_environment, github_integration):
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-execute-different-repos",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
         try:
-            sandbox = await SandboxEnvironment.create(config)
+            sandbox = await Sandbox.create(config)
 
             repos_to_test = ["PostHog/posthog-js", "PostHog/posthog.com"]
 
@@ -193,7 +189,7 @@ class TestExecuteTaskInSandboxActivity:
 
                     # Execute task in each repository
                     with patch(
-                        "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.SandboxAgent._get_task_command"
+                        "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
                     ) as mock_task_cmd:
                         mock_task_cmd.return_value = f"echo 'Working in {repo}'"
 

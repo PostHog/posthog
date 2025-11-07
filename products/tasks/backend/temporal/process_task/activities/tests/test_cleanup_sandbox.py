@@ -3,11 +3,7 @@ import asyncio
 
 import pytest
 
-from products.tasks.backend.services.sandbox_environment import (
-    SandboxEnvironment,
-    SandboxEnvironmentConfig,
-    SandboxEnvironmentTemplate,
-)
+from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 
 
@@ -16,22 +12,22 @@ class TestCleanupSandboxActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_cleanup_sandbox_success(self, activity_environment):
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-cleanup-sandbox",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
-        sandbox = await SandboxEnvironment.create(config)
+        sandbox = await Sandbox.create(config)
         sandbox_id = sandbox.id
 
-        existing_sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
+        existing_sandbox = await Sandbox.get_by_id(sandbox_id)
         assert existing_sandbox.id == sandbox_id
 
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
 
         await activity_environment.run(cleanup_sandbox, input_data)
 
-        cleaned_sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
+        cleaned_sandbox = await Sandbox.get_by_id(sandbox_id)
         assert cleaned_sandbox.status.value == "shutdown"
 
     @pytest.mark.asyncio
@@ -45,12 +41,12 @@ class TestCleanupSandboxActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_cleanup_sandbox_idempotency(self, activity_environment):
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-cleanup-idempotent",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
-        sandbox = await SandboxEnvironment.create(config)
+        sandbox = await Sandbox.create(config)
         sandbox_id = sandbox.id
 
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
@@ -58,7 +54,7 @@ class TestCleanupSandboxActivity:
         # First cleanup - should succeed
         await activity_environment.run(cleanup_sandbox, input_data)
 
-        cleaned_sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
+        cleaned_sandbox = await Sandbox.get_by_id(sandbox_id)
         assert cleaned_sandbox.status.value == "shutdown"
 
         # Second cleanup - should still work on shutdown sandbox
@@ -67,12 +63,12 @@ class TestCleanupSandboxActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_cleanup_sandbox_during_execution(self, activity_environment):
-        config = SandboxEnvironmentConfig(
+        config = SandboxConfig(
             name="test-cleanup-during-execution",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
-        sandbox = await SandboxEnvironment.create(config)
+        sandbox = await Sandbox.create(config)
         sandbox_id = sandbox.id
 
         async def run_long_command():
@@ -95,6 +91,6 @@ class TestCleanupSandboxActivity:
         except asyncio.CancelledError:
             pass
 
-        remaining_sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
+        remaining_sandbox = await Sandbox.get_by_id(sandbox_id)
 
         assert remaining_sandbox.status.value in ["shutdown", "failure"]

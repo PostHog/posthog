@@ -6,7 +6,7 @@ from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.exceptions import SandboxTimeoutError, SnapshotCreationError
 from products.tasks.backend.temporal.observability import log_activity_execution
 
@@ -41,7 +41,7 @@ async def create_snapshot(input: CreateSnapshotInput) -> str:
         base_repos = base_snapshot.repos if base_snapshot else []
         new_repos: list[str] = list({*base_repos, input.repository})
 
-        sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
+        sandbox = await Sandbox.get_by_id(input.sandbox_id)
 
         snapshot_external_id = await sandbox.initiate_snapshot(
             {
@@ -54,7 +54,7 @@ async def create_snapshot(input: CreateSnapshotInput) -> str:
 
         max_polls = 80
         for _ in range(max_polls):
-            status = await SandboxEnvironment.get_snapshot_status(snapshot_external_id)
+            status = await Sandbox.get_snapshot_status(snapshot_external_id)
 
             if status.value == "complete":
                 break
