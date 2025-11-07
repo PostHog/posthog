@@ -59,11 +59,13 @@ where
     ) {
         (Some(reader_url), Some(writer_url)) => {
             // Dedicated flags Redis is configured
-            let Some(reader) = create_redis_client(reader_url, "dedicated flags reader").await else {
+            let Some(reader) = create_redis_client(reader_url, "dedicated flags reader").await
+            else {
                 return;
             };
 
-            let Some(writer) = create_redis_client(writer_url, "dedicated flags writer").await else {
+            let Some(writer) = create_redis_client(writer_url, "dedicated flags writer").await
+            else {
                 return;
             };
 

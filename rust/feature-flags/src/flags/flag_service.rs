@@ -24,8 +24,8 @@ pub struct FlagResult {
 
 /// Service layer for handling feature flag operations
 pub struct FlagService {
-    team_redis_reader: Arc<dyn RedisClient + Send + Sync>,
-    team_redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    shared_redis_reader: Arc<dyn RedisClient + Send + Sync>,
+    shared_redis_writer: Arc<dyn RedisClient + Send + Sync>,
     pg_client: PostgresReader,
     team_cache_ttl_seconds: u64,
     flags_cache: FlagsReadThroughCache,
@@ -53,10 +53,10 @@ impl FlagService {
             config,
         );
 
-        // Team cache always uses shared Redis (not part of the dedicated Redis migration)
+        // Shared Redis for team cache and other non-flags operations (not part of migration)
         Self {
-            team_redis_reader: shared_redis_reader,
-            team_redis_writer: shared_redis_writer,
+            shared_redis_reader,
+            shared_redis_writer,
             pg_client,
             team_cache_ttl_seconds,
             flags_cache,
@@ -67,7 +67,7 @@ impl FlagService {
     /// If the token is not found in the cache, it will be verified against the database,
     /// and the result will be cached in redis.
     pub async fn verify_token(&self, token: &str) -> Result<String, FlagError> {
-        let (result, cache_hit) = match Team::from_redis(self.team_redis_reader.clone(), token)
+        let (result, cache_hit) = match Team::from_redis(self.shared_redis_reader.clone(), token)
             .await
         {
             Ok(_) => (Ok(token.to_string()), true),
@@ -77,7 +77,7 @@ impl FlagService {
                         inc(DB_TEAM_READS_COUNTER, &[], 1);
                         // Token found in PostgreSQL, update Redis cache so that we can verify it from Redis next time
                         if let Err(e) = Team::update_redis_cache(
-                            self.team_redis_writer.clone(),
+                            self.shared_redis_writer.clone(),
                             &team,
                             Some(self.team_cache_ttl_seconds),
                         )
@@ -119,14 +119,14 @@ impl FlagService {
     /// Returns the team if found, otherwise an error.
     pub async fn get_team_from_cache_or_pg(&self, token: &str) -> Result<Team, FlagError> {
         let (team_result, cache_hit) =
-            match Team::from_redis(self.team_redis_reader.clone(), token).await {
+            match Team::from_redis(self.shared_redis_reader.clone(), token).await {
                 Ok(team) => (Ok(team), true),
                 Err(_) => match Team::from_pg(self.pg_client.clone(), token).await {
                     Ok(team) => {
                         inc(DB_TEAM_READS_COUNTER, &[], 1);
                         // If we have the team in postgres, but not redis, update redis so we're faster next time
                         if Team::update_redis_cache(
-                            self.team_redis_writer.clone(),
+                            self.shared_redis_writer.clone(),
                             &team,
                             Some(self.team_cache_ttl_seconds),
                         )
@@ -156,7 +156,7 @@ impl FlagService {
     }
 
     /// Fetches the flags from the cache or the database.
-    /// 
+    ///
     /// Uses the FlagsReadThroughCache pattern for automatic cache management
     /// and dual-write support during migration. FlagsReadThroughCache handles
     /// tracking cache metrics.
