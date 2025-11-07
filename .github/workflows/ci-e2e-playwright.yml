@@ -354,8 +354,9 @@ jobs:
 
                   if [ $EXIT_CODE -ne 0 ]; then
                     # Check if we should retry with snapshot update
-                    if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -q "Screenshot comparison failed" /tmp/playwright-output-attempt-1.log 2>/dev/null; then
-                      echo "Screenshot comparison failed - retrying with --update-snapshots"
+                    # Look for either "Screenshot comparison failed" or "snapshot doesn't exist" error messages
+                    if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -qE "(Screenshot comparison failed|snapshot doesn't exist)" /tmp/playwright-output-attempt-1.log 2>/dev/null; then
+                      echo "Screenshot-related failure detected - retrying with --update-snapshots"
 
                       # Preserve attempt 1 artifacts
                       echo "Preserving attempt 1 artifacts..."
