@@ -2,7 +2,10 @@
 import { Monaco } from '@monaco-editor/react'
 import { languages } from 'monaco-editor'
 
+import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
+
+import { HogLanguage } from '~/queries/schema/schema-general'
 
 import { conf as _conf, language as _language } from './hog'
 
@@ -135,6 +138,10 @@ export function initHogTemplateLanguage(monaco: Monaco): void {
         })
         monaco.languages.setLanguageConfiguration('hogTemplate', conf())
         monaco.languages.setMonarchTokensProvider('hogTemplate', language())
+        monaco.languages.registerCompletionItemProvider(
+            'hogTemplate',
+            hogQLAutocompleteProvider(HogLanguage.hogTemplate)
+        )
         monaco.languages.registerCodeActionProvider('hogTemplate', hogQLMetadataProvider())
     }
 }
