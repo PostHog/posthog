@@ -203,6 +203,7 @@ export const defaultMocks: Mocks = {
         '/api/organizations/:organization_id/proxy_records/': [],
         '/api/projects/:team_id/dashboard_templates/json_schema/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/domains/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/default_evaluation_tags/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/file_system/unfiled/': { count: 0 },
         '/api/environments/:team_id/file_system/log_view': {},
         '/api/environments/:team_id/file_system': EMPTY_PAGINATED_RESPONSE,
@@ -238,6 +239,7 @@ export const defaultMocks: Mocks = {
     patch: {
         '/api/projects/:team_id/session_recording_playlists/:playlist_id/': {},
         '/api/environments/:team_id/': MOCK_DEFAULT_TEAM,
+        '/api/environments/@current/add_product_intent/': {},
     },
     options: {
         'https://us.i.posthog.com/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
