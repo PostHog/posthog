@@ -28,6 +28,7 @@ from posthog.schema import (
     MaxBillingContextTrial,
 )
 
+from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 
 from products.replay.backend.max_tools import SearchSessionRecordingsTool
@@ -36,7 +37,7 @@ from ee.hogai.context import AssistantContextManager
 from ee.hogai.tools.read_taxonomy import ReadEvents
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AssistantMessageUnion
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName, NodePath
 
 from ..nodes import AgentNode, AgentToolkit, AgentToolsNode
 from ..prompts import (
@@ -56,6 +57,34 @@ def mock_contextual_tool(mock_tool):
         yield
 
 
+def _create_agent_node(
+    team: Team,
+    user: User,
+    *,
+    toolkit_class: type[AgentToolkit] | None = None,
+    node_path: tuple[NodePath, ...] | None = None,
+):
+    if toolkit_class is None:
+        toolkit_class = AgentToolkit
+    if node_path is None:
+        node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
+    return AgentNode(team=team, user=user, toolkit_class=toolkit_class, node_path=node_path)
+
+
+def _create_agent_tools_node(
+    team: Team,
+    user: User,
+    *,
+    toolkit_class: type[AgentToolkit] | None = None,
+    node_path: tuple[NodePath, ...] | None = None,
+):
+    if toolkit_class is None:
+        toolkit_class = AgentToolkit
+    if node_path is None:
+        node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
+    return AgentToolsNode(team=team, user=user, toolkit_class=toolkit_class, node_path=node_path)
+
+
 class TestAgentToolkit(BaseTest):
     @patch("ee.hogai.graph.agent_modes.nodes.AgentNode._get_model")
     @patch("ee.hogai.registry.get_contextual_tool_class")
@@ -67,7 +96,7 @@ class TestAgentToolkit(BaseTest):
         state = AssistantState(messages=[HumanMessage(content="Test")])
         config = RunnableConfig(configurable={"contextual_tools": {"unknown_tool": {"some": "config"}}})
         context_manager = AssistantContextManager(self.team, self.user, config)
-        node = AgentToolkit(self.team, self.user, context_manager)
+        node = AgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
 
         # Should not raise an error, just skip the unknown tool
         tools = await node.get_tools(state, config)
@@ -82,7 +111,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                 responses=[LangchainAIMessage(content="Why did the chicken cross the road? To get to the other side!")]
             ),
         ):
-            node = AgentNode(self.team, self.user, AgentToolkit)
+            node = _create_agent_node(self.team, self.user)
             state_1 = AssistantState(messages=[HumanMessage(content="Tell me a joke")])
             next_state = await node.arun(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
@@ -111,7 +140,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                 ],
             ),
         ):
-            node = AgentNode(self.team, self.user, AgentToolkit)
+            node = _create_agent_node(self.team, self.user)
             state_1 = AssistantState(messages=[HumanMessage(content="generate")])
             next_state = await node.arun(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
@@ -135,7 +164,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
 
     @patch("ee.hogai.graph.agent_modes.nodes.AgentNode._get_model", return_value=FakeChatOpenAI(responses=[]))
     async def test_node_reconstructs_conversation(self, mock_model):
-        node = AgentNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_node(self.team, self.user)
         state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
         result = node._construct_messages(
             state_1.messages, state_1.root_conversation_start_id, state_1.root_tool_calls_count
@@ -173,7 +202,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
 
     @patch("ee.hogai.graph.agent_modes.nodes.AgentNode._get_model", return_value=FakeChatAnthropic(responses=[]))
     async def test_node_reconstructs_conversation_with_tool_calls(self, mock_model):
-        node = AgentNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="Hello"),
@@ -217,7 +246,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
 
     @patch("ee.hogai.graph.agent_modes.nodes.AgentNode._get_model", return_value=FakeChatOpenAI(responses=[]))
     async def test_node_filters_tool_calls_without_responses(self, mock_model):
-        node = AgentNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="Hello"),
@@ -287,7 +316,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             "ee.hogai.graph.agent_modes.nodes.MaxChatAnthropic",
             return_value=mock_with_tokens,
         ):
-            node = AgentNode(self.team, self.user, AgentToolkit)
+            node = _create_agent_node(self.team, self.user)
 
             # Create a state that has hit the hard limit (4 tool calls)
             state = AssistantState(messages=[HumanMessage(content="Hello")], root_tool_calls_count=node.MAX_TOOL_CALLS)
@@ -322,7 +351,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                 return_value=("Success", {}),
             ),
         ):
-            node = AgentNode(self.team, self.user, AgentToolkit)
+            node = _create_agent_node(self.team, self.user)
             state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
 
             next_state = await node.arun(state, {})
@@ -343,7 +372,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                 responses=[LangchainAIMessage(content=[{"text": "I'll help with recordings", "type": "text"}])]
             ),
         ) as mock_get_model:
-            node = AgentNode(self.team, self.user, AgentToolkit)
+            node = _create_agent_node(self.team, self.user)
             state = AssistantState(
                 messages=[HumanMessage(content="show me long recordings", id="test-id")], start_id="test-id"
             )
@@ -389,7 +418,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                 llm_output={},
             )
 
-            node = AgentNode(self.team, self.user, AgentToolkit)
+            node = _create_agent_node(self.team, self.user)
             # Set config before calling arun
             config = RunnableConfig(configurable={})
             node._config = config
@@ -433,7 +462,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         membership.level = membership_level
         await membership.asave()
 
-        node = AgentNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_node(self.team, self.user)
 
         # Configure billing context if needed
         if add_context:
@@ -463,7 +492,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response after summary")])
         mock_model.return_value = mock_model_instance
 
-        node = AgentNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="First message", id="1"),
@@ -497,7 +526,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
         mock_model.return_value = mock_model_instance
 
-        node = AgentNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="First message", id="1"),
@@ -516,14 +545,14 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
     @patch("ee.hogai.graph.agent_modes.nodes.AgentNode._get_model", return_value=FakeChatOpenAI(responses=[]))
     async def test_construct_messages_empty_list(self, mock_model):
         """Test _construct_messages with empty message list"""
-        node = AgentNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_node(self.team, self.user)
         result = node._construct_messages([], None, None)
         self.assertEqual(result, [])
 
     @patch("ee.hogai.graph.agent_modes.nodes.AgentNode._get_model", return_value=FakeChatOpenAI(responses=[]))
     async def test_construct_messages_cache_control_only_on_last_eligible_message(self, mock_model):
         """Test that cache_control is only added to the last eligible message"""
-        node = AgentNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_node(self.team, self.user)
         messages: list[AssistantMessageUnion] = [
             HumanMessage(content="First", id="1"),
             AssistantMessage(content="Response", id="2"),
@@ -544,7 +573,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
     @patch("ee.hogai.graph.agent_modes.nodes.AgentNode._get_model", return_value=FakeChatOpenAI(responses=[]))
     async def test_construct_messages_with_hard_limit_reached(self, mock_model):
         """Test that hard limit prompt is added when tool calls reach MAX_TOOL_CALLS"""
-        node = AgentNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_node(self.team, self.user)
         messages = [HumanMessage(content="Test", id="1")]
         result = node._construct_messages(messages, None, node.MAX_TOOL_CALLS)
 
@@ -563,7 +592,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
     )
     def test_is_hard_limit_reached_boundary_conditions(self, tool_calls_count, expected):
         """Test _is_hard_limit_reached with boundary values"""
-        node = AgentNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_node(self.team, self.user)
         result = node._is_hard_limit_reached(tool_calls_count)
         self.assertEqual(result, expected)
 
@@ -586,7 +615,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                 ]
             ),
         ):
-            node = AgentNode(self.team, self.user, AgentToolkit)
+            node = _create_agent_node(self.team, self.user)
 
             # Test starting from no tool calls
             state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
@@ -607,7 +636,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             "ee.hogai.graph.agent_modes.nodes.AgentNode._get_model",
             return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Here's your answer")]),
         ):
-            node = AgentNode(self.team, self.user, AgentToolkit)
+            node = _create_agent_node(self.team, self.user)
 
             state = AssistantState(
                 messages=[HumanMessage(content="Hello")],
@@ -620,7 +649,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         """Test that router returns END when message has no tool calls"""
         from ee.hogai.utils.types import AssistantNodeName
 
-        node = AgentNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_node(self.team, self.user)
 
         state = AssistantState(
             messages=[
@@ -637,7 +666,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
 
         from ee.hogai.utils.types import AssistantNodeName
 
-        node = AgentNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_node(self.team, self.user)
 
         state = AssistantState(
             messages=[
@@ -669,7 +698,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
 
         from ee.hogai.utils.types import AssistantNodeName
 
-        node = AgentNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_node(self.team, self.user)
 
         state = AssistantState(
             messages=[
@@ -711,7 +740,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
 
 class TestAgentToolsNode(BaseTest):
     def test_node_tools_router(self):
-        node = AgentToolsNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_tools_node(self.team, self.user)
 
         # Test case 1: Last message is AssistantToolCallMessage - should return "root"
         state_1 = AssistantState(
@@ -736,7 +765,7 @@ class TestAgentToolsNode(BaseTest):
         self.assertEqual(node.router(state_4), "root")
 
     async def test_run_no_assistant_message(self):
-        node = AgentToolsNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_tools_node(self.team, self.user)
         state = AssistantState(messages=[HumanMessage(content="Hello")])
         result = await node.arun(state, {})
         self.assertEqual(result, PartialAssistantState(root_tool_call_id=None))
@@ -746,7 +775,7 @@ class TestAgentToolsNode(BaseTest):
         """Test that built-in tools can be called"""
         read_taxonomy_mock.return_value = ("Content", None)
 
-        node = AgentToolsNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_tools_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -773,7 +802,7 @@ class TestAgentToolsNode(BaseTest):
 
     async def test_invalid_tool_call_returns_error(self):
         """Test that invalid tool calls return an error message"""
-        node = AgentToolsNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_tools_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -799,7 +828,7 @@ class TestAgentToolsNode(BaseTest):
         self.assertIn("This tool does not exist", result.messages[0].content)
 
     async def test_run_valid_contextual_tool_call(self):
-        node = AgentToolsNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_tools_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -835,7 +864,7 @@ class TestAgentToolsNode(BaseTest):
 
     async def test_navigate_tool_call_raises_node_interrupt(self):
         """Test that navigate tool calls raise NodeInterrupt to pause graph execution"""
-        node = AgentToolsNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_tools_node(self.team, self.user)
 
         state = AssistantState(
             messages=[
@@ -869,7 +898,7 @@ class TestAgentToolsNode(BaseTest):
 
     async def test_arun_tool_returns_wrong_type_returns_error_message(self):
         """Test that tool returning wrong type returns an error message"""
-        node = AgentToolsNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_tools_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -896,7 +925,7 @@ class TestAgentToolsNode(BaseTest):
 
     async def test_arun_unknown_tool_returns_error_message(self):
         """Test that unknown tool name returns an error message"""
-        node = AgentToolsNode(self.team, self.user, AgentToolkit)
+        node = _create_agent_tools_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(

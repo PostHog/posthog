@@ -10,7 +10,7 @@ from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName, NodePath, PartialAssistantState
 
 from ..product_analytics import ProductAnalyticsAgentToolkit, product_analytics_agent
 
@@ -23,7 +23,9 @@ class TestProductAnalyticsAgentToolkit(BaseTest):
         mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
 
         node = ProductAnalyticsAgentToolkit(
-            self.team, self.user, AssistantContextManager(self.team, self.user, RunnableConfig(configurable={}))
+            team=self.team,
+            user=self.user,
+            context_manager=AssistantContextManager(self.team, self.user, RunnableConfig(configurable={})),
         )
         state = AssistantState(messages=[HumanMessage(content="Test")])
 
@@ -69,7 +71,14 @@ class TestProductAnalyticsAgentNode(BaseTest):
                 ],
             ),
         ):
-            node = product_analytics_agent.node_class(self.team, self.user, product_analytics_agent.toolkit_class)
+            node = product_analytics_agent.node_class(
+                team=self.team,
+                user=self.user,
+                toolkit_class=product_analytics_agent.toolkit_class,
+                node_path=(
+                    NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),
+                ),
+            )
             state_1 = AssistantState(messages=[HumanMessage(content=f"generate {insight_type}")])
             next_state = await node(state_1, {})
             assert isinstance(next_state, PartialAssistantState)
