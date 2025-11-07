@@ -207,8 +207,9 @@ pub struct Config {
     #[envconfig(default = "")]
     pub flags_redis_writer_url: String,
 
-    // Enable dual-write mode: write to both shared and dedicated Redis
-    // Used during transition to warm up dedicated cache before cutover
+    // Controls whether to read from dedicated Redis cache
+    // false = Mode 2: dual-write to both caches, read from shared (warming phase)
+    // true = Mode 3: read and write dedicated Redis only (cutover complete)
     #[envconfig(default = "false")]
     pub flags_redis_enabled: FlexBool,
 

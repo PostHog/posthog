@@ -167,12 +167,15 @@ impl FlagsReadThroughCache {
                 let key_clone = key.clone();
 
                 tokio::spawn(async move {
-                    let _unused = dedicated_cache
+                    if let Err(e) = dedicated_cache
                         .get_or_load(&key_clone, move |_| async move {
                             // Return the same value we got from the shared cache
                             Ok::<Option<V>, FlagError>(cached_value)
                         })
-                        .await;
+                        .await
+                    {
+                        tracing::warn!("Background warming failed for key {}: {:?}", key_clone, e);
+                    }
                 });
 
                 Ok(cache_result)

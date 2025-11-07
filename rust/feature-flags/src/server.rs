@@ -70,6 +70,12 @@ where
             tracing::info!("Dedicated flags Redis configured");
             (Some(reader), Some(writer))
         }
+        (Some(_), None) | (None, Some(_)) => {
+            tracing::warn!(
+                "Incomplete flags Redis configuration: both reader and writer URLs must be set. Falling back to shared Redis (Mode 1)."
+            );
+            (None, None)
+        }
         _ => {
             tracing::info!(
                 "Using shared Redis for flags cache (no dedicated flags Redis configured)"
