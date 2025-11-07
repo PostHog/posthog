@@ -168,11 +168,11 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                             onChange={(e) => setEditDescriptionValue(e.target.value)}
                             onBlur={(e) => {
                                 e.stopPropagation()
-                                const newDescription = editDescriptionValue.trim()
-                                if (newDescription !== (action.description || '')) {
+                                const trimmedDescription = editDescriptionValue.trim()
+                                if (trimmedDescription && trimmedDescription !== (action.description || '')) {
                                     setWorkflowAction(action.id, {
                                         ...action,
-                                        description: newDescription,
+                                        description: trimmedDescription,
                                     })
                                 } else {
                                     setEditDescriptionValue(action.description || '')
@@ -183,11 +183,11 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                 e.stopPropagation()
                                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                                     e.preventDefault()
-                                    const newDescription = editDescriptionValue.trim()
-                                    if (newDescription !== (action.description || '')) {
+                                    const trimmedDescription = editDescriptionValue.trim()
+                                    if (trimmedDescription && trimmedDescription !== (action.description || '')) {
                                         setWorkflowAction(action.id, {
                                             ...action,
-                                            description: newDescription,
+                                            description: trimmedDescription,
                                         })
                                     } else {
                                         setEditDescriptionValue(action.description || '')
@@ -209,7 +209,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     ) : (
                         <Tooltip title={action.description || ''}>
                             <div
-                                className="text-[0.3rem]/1.5 text-muted line-clamp-2 cursor-text hover:bg-fill-button-tertiary-hover rounded px-0.5 -mx-0.5 transition-colors pl-1 min-w-0"
+                                className="text-[0.3rem]/1.5 text-muted line-clamp-2 cursor-text hover:bg-fill-button-tertiary-hover rounded px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 overflow-hidden"
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     setIsEditingDescription(true)
