@@ -88,7 +88,7 @@ class ZendeskSource(BaseSource[ZendeskSourceConfig]):
         )
 
     def source_for_pipeline(self, config: ZendeskSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        return dlt_source_to_source_response(
+        zendesk_source_response = dlt_source_to_source_response(
             zendesk_source(
                 subdomain=config.subdomain,
                 api_key=config.api_key,
@@ -102,3 +102,11 @@ class ZendeskSource(BaseSource[ZendeskSourceConfig]):
                 else None,
             )
         )
+
+        zendesk_source_response.partition_count = 1
+        zendesk_source_response.partition_size = 1
+        zendesk_source_response.partition_mode = "datetime"
+        zendesk_source_response.partition_format = "week"
+        zendesk_source_response.partition_keys = ["created_at"]
+
+        return zendesk_source_response
