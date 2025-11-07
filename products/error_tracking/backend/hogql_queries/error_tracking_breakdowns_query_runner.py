@@ -150,9 +150,6 @@ class ErrorTrackingBreakdownsQueryRunner(AnalyticsQueryRunner[ErrorTrackingBreak
             ],
         )
 
-
-        raise Exception("Testing something aaaaa")
-
         return final_select
 
     def tuples_select_where(self) -> ast.Expr:

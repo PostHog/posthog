@@ -568,10 +568,6 @@ async def initialize_self_capture_api_token():
         posthoganalytics.disabled = False
         posthoganalytics.api_key = local_api_key
         posthoganalytics.host = settings.SITE_URL
-        posthoganalytics.capture_exception_code_variables = True
-        posthoganalytics.debug = True
-
-        print("Initialized self capture api token with api key: ", local_api_key)
 
 
 def get_default_event_name(team: "Team"):
