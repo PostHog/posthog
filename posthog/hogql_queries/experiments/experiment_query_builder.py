@@ -1,4 +1,3 @@
-from copy import deepcopy
 from typing import Optional, Union, cast
 
 from posthog.schema import (
@@ -156,8 +155,6 @@ class ExperimentQueryBuilder:
 
         num_steps = len(self.metric.series) + 1  #  +1 as we are including exposure criteria
 
-        exposure_predicate = self._build_exposure_predicate()
-
         metric_events_cte_str = """
                 metric_events AS (
                     SELECT
@@ -228,7 +225,7 @@ class ExperimentQueryBuilder:
             """
 
         placeholders: dict[str, ast.Expr | ast.SelectQuery] = {
-            "exposure_predicate": deepcopy(exposure_predicate),
+            "exposure_predicate": self._build_exposure_predicate(),
             "variant_property": self._build_variant_property(),
             "variant_expr": self._build_variant_expr_for_funnel(),
             "entity_key": parse_expr(self.entity_key),
@@ -272,9 +269,7 @@ class ExperimentQueryBuilder:
             metric_events_cte = query.ctes["metric_events"]
             if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
                 # Add step columns to the SELECT
-                step_columns = self._build_funnel_step_columns(
-                    deepcopy(exposure_predicate), include_exposure_condition=is_unordered_funnel
-                )
+                step_columns = self._build_funnel_step_columns()
                 metric_events_cte.expr.select.extend(step_columns)
 
         # Inject the additional selects we do for getting the data we need to render the funnel chart
@@ -934,31 +929,13 @@ class ExperimentQueryBuilder:
                 },
             )
 
-    def _build_funnel_step_columns(
-        self, exposure_condition: ast.Expr, include_exposure_condition: bool
-    ) -> list[ast.Alias]:
+    def _build_funnel_step_columns(self) -> list[ast.Alias]:
         """
-        Builds list of step column AST expressions: step_0, exposure_condition, step_1, etc.
+        Builds list of step column AST expressions: step_0, step_1, etc.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
-        step_columns: list[ast.Alias] = []
-
-        if include_exposure_condition:
-            step_columns.append(ast.Alias(alias="exposure_condition", expr=exposure_condition))
-            step_0_condition: ast.Expr = ast.Field(chain=["exposure_condition"])
-        else:
-            step_0_condition = deepcopy(exposure_condition)
-
-        step_columns.append(
-            ast.Alias(
-                alias="step_0",
-                expr=ast.Call(
-                    name="if",
-                    args=[step_0_condition, ast.Constant(value=1), ast.Constant(value=0)],
-                ),
-            ),
-        )
+        step_columns: list[ast.Alias] = [ast.Alias(alias="step_0", expr=self._build_exposure_predicate())]
 
         for i, funnel_step in enumerate(self.metric.series):
             step_filter = event_or_action_to_filter(self.team, funnel_step)
