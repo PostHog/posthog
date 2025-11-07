@@ -6,15 +6,10 @@ from posthog.schema import AssistantToolCallMessage, FailureMessage, Visualizati
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import execute_and_format_query
-from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
-from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
 class QueryExecutorNode(AssistantNode):
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.QUERY_EXECUTOR
-
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         viz_message = state.messages[-1]
         if isinstance(viz_message, FailureMessage):

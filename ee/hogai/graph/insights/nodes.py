@@ -27,7 +27,6 @@ from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor,
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AssistantNodeName
 
 from .prompts import (
     ITERATIVE_SEARCH_SYSTEM_PROMPT,
@@ -38,7 +37,7 @@ from .prompts import (
 )
 
 if TYPE_CHECKING:
-    from ee.hogai.utils.types.composed import MaxNodeName
+    pass
 
 
 logger = structlog.get_logger(__name__)
@@ -117,10 +116,6 @@ class InsightSearchNode(AssistantNode):
     MAX_EVALUATION_ITERATIONS = 3
     INSIGHTS_CUTOFF_DAYS = 180
     MAX_SERIES_TO_PROCESS = 3
-
-    @property
-    def node_name(self) -> "MaxNodeName":
-        return AssistantNodeName.INSIGHTS_SEARCH
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

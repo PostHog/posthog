@@ -48,12 +48,7 @@ class BaseExecutableAssistantNode(
         self._dispatcher = None
         self._config = config
 
-        try:
-            new_state = await self._arun_with_context(state, config)
-        except NotImplementedError:
-            new_state = await database_sync_to_async(self._run_with_context, thread_sensitive=False)(state, config)
-
-        return new_state
+        return await self._execute(state, config)
 
     def run(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """DEPRECATED. Use `arun` instead."""
@@ -61,14 +56,6 @@ class BaseExecutableAssistantNode(
 
     async def arun(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         raise NotImplementedError
-
-    def _run_with_context(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
-        with set_node_path(self.node_path):
-            return self.run(state, config)
-
-    async def _arun_with_context(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
-        with set_node_path(self.node_path):
-            return await self.arun(state, config)
 
     @property
     def context_manager(self) -> AssistantContextManager:
@@ -93,13 +80,36 @@ class BaseExecutableAssistantNode(
                 config_name = str(config_name)
         return config_name or self.__class__.__name__
 
+    @property
+    def node_path(self) -> tuple[NodePath, ...]:
+        return (*self._node_path, NodePath(name=self.node_name))
+
+    async def _execute(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
+        try:
+            return await self._arun_with_context(state, config)
+        except NotImplementedError:
+            pass
+        return await database_sync_to_async(self._run_with_context, thread_sensitive=False)(state, config)
+
+    def _run_with_context(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
+        with set_node_path(self.node_path):
+            return self.run(state, config)
+
+    async def _arun_with_context(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
+        with set_node_path(self.node_path):
+            return await self.arun(state, config)
+
 
 class BaseAssistantNode(BaseExecutableAssistantNode[StateType, PartialStateType]):
     """Assistant node with dispatching and conversation cancellation support."""
 
+    _is_context_path_used: bool = False
+    """Whether the constructor set the node path or the context path is used"""
+
     def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...] | None = None):
         if node_path is None:
-            node_path = (*(get_node_path() or ()), NodePath(name=self.node_name))
+            node_path = get_node_path() or ()
+            self._is_context_path_used = True
         super().__init__(team, user, node_path)
 
     async def __call__(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
@@ -107,7 +117,9 @@ class BaseAssistantNode(BaseExecutableAssistantNode[StateType, PartialStateType]
         Run the assistant node and handle cancelled conversation before the node is run.
         """
         # Reset the dispatcher on a new run
+        self._context_manager = None
         self._dispatcher = None
+        self._config = config
 
         self.dispatcher.dispatch(NodeStartAction())
 
@@ -115,11 +127,19 @@ class BaseAssistantNode(BaseExecutableAssistantNode[StateType, PartialStateType]
         if thread_id and await self._is_conversation_cancelled(thread_id):
             raise GenerationCanceled
 
-        new_state = await super().__call__(state, config)
+        new_state = await self._execute(state, config)
 
         self.dispatcher.dispatch(NodeEndAction(state=new_state))
 
         return new_state
+
+    @property
+    def node_path(self) -> tuple[NodePath, ...]:
+        # If the path is manually set, use it.
+        if not self._is_context_path_used:
+            return self._node_path
+        # Otherwise, construct the path from the context.
+        return (*self._node_path, NodePath(name=self.node_name))
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)

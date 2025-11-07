@@ -440,10 +440,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_new_conversation_handles_serialized_conversation(self):
         class TestNode(AssistantNode):
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
             async def arun(self, state, config):
                 return PartialAssistantState(messages=[AssistantMessage(content="Hello", id=str(uuid4()))])
 
@@ -474,10 +470,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_async_stream(self):
         class TestNode(AssistantNode):
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
             async def arun(self, state, config):
                 return PartialAssistantState(messages=[AssistantMessage(content="bar", id=str(uuid4()))])
 
@@ -1344,10 +1336,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 super().__init__(team, user)
                 self.call_count = 0
 
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
             async def arun(self, state, config):
                 self.call_count += 1
                 content = first_content if self.call_count == 1 else updated_content
@@ -1414,10 +1402,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 def __init__(self, team, user, message_to_return):
                     super().__init__(team, user)
                     self.message_to_return = message_to_return
-
-                @property
-                def node_name(self):
-                    return AssistantNodeName.ROOT
 
                 async def arun(self, state, config):
                     return PartialAssistantState(messages=[self.message_to_return])
@@ -1702,10 +1686,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         """Test ainvoke returns all messages at once without streaming."""
 
         class TestNode(AssistantNode):
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
             async def arun(self, state, config):
                 return PartialAssistantState(messages=[AssistantMessage(content="Response", id=str(uuid4()))])
 

@@ -18,8 +18,7 @@ from ee.hogai.graph.agent_modes.nodes import AgentNode, AgentToolkit
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.openai import convert_to_openai_messages
-from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName, AssistantState, PartialAssistantState
-from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, PartialAssistantState
 
 from .prompts import INKEEP_DATA_CONTINUATION_PHRASE, INKEEP_DOCS_SYSTEM_PROMPT
 
@@ -116,10 +115,6 @@ class InkeepExecutableNode(AgentNode):  # Inheriting from AgentNode to use the s
 
 class InkeepDocsNode(AssistantNode):
     """Node for searching PostHog documentation using Inkeep."""
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.INKEEP_DOCS
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         node = InkeepExecutableNode(

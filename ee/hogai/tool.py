@@ -77,9 +77,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         self._team = team
         self._user = user
         if node_path is None:
-            self._node_path = (*(get_node_path() or ()), NodePath(name=self.node_name))
-        else:
-            self._node_path = node_path
+            self._node_path = get_node_path() or ()
         self._state = state if state else AssistantState(messages=[])
         self._config = config if config else RunnableConfig(configurable={})
         self._context_manager = context_manager or AssistantContextManager(team, user, self._config)
@@ -125,6 +123,10 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     @property
     def node_name(self) -> str:
         return f"max_tool.{self.get_name()}"
+
+    @property
+    def node_path(self) -> tuple[NodePath, ...]:
+        return (*self._node_path, NodePath(name=self.node_name))
 
     @property
     def context(self) -> dict:
