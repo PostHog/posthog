@@ -109,12 +109,6 @@ impl FlagsReadThroughCache {
     ///    - Reads from shared cache (source of truth)
     ///    - Background writes to dedicated cache (warming)
     /// 3. Dedicated cache exists, flags_redis_enabled=true: Uses dedicated cache only
-    ///
-    /// # Type Parameters
-    /// - `K`: Cache key type (must be Display + Clone + Send + Sync + Hash + Serialize + for<'de> Deserialize<'de> + 'static)
-    /// - `V`: Cache value type (must be Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static)
-    /// - `F`: Async loader function type
-    /// - `Fut`: Future returned by loader
     pub async fn get_or_load<K, V, F, Fut>(
         &self,
         key: &K,
