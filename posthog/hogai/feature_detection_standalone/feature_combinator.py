@@ -7,87 +7,103 @@ import markdown_to_json
 from google.genai import Client
 import structlog
 from tqdm.asyncio import tqdm
+import openai
 
 logger = structlog.get_logger(__name__)
 
 FEATURE_DETECTION_MODEL_ID = "gemini-2.5-flash-preview-09-2025"
 
 BASE_FEATURE_COMBINATION_PROMPT = """
-- Combine the following feature
+<task>
+- Combine the list of feature names and synonyms into unified feature names list for the {platform_context}
+- For example: "Google Mail", "Gmail", "gmail mail", "Google Email" should all be combined into "Google Mail"
+- Return as a markdown with the final feature name and indexes of the combined feature names
+- Don't provide any comments, only return the result
+</task>
 
+<output_format_example>
+- Google Mail
+  * 10
+  * 5
+  * 4
+  ...
+</output_format_example>
+
+<feature_names_input>
+{features_to_combine_ordered}
+</feature_names_input>
 """
 
-def _get_client() -> Client:
-    # Initializing client on every call to avoid aiohttp "Uncloseed client session" errors for async call
-    # Could be fixed in later Gemini library versions
-    return Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+def _get_async_client() -> openai.AsyncOpenAI:
+    return openai.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
-# async def detect_features_task(session_id: str, transcription: str, output_path: Path) -> None:
-#     try:
-#         transcription_output_path_raw = (
-#             output_path / session_id / f"feature-detection_{FEATURE_DETECTION_MODEL_ID}_raw.txt"
-#         )
-#         transcription_output_path_json = (
-#             output_path / session_id / f"feature-detection_{FEATURE_DETECTION_MODEL_ID}_json.json"
-#         )
-#         # Check if the transcription already exists
-#         # if transcription_output_path_raw.exists() and transcription_output_path_json.exists():
-#         #     logger.info(f"Transcription for session {session_id} already exists, skipping")
-#         #     return None
-#         # Generate the transcription
-#         prompt = BASE_FEATURE_DECTION_PROMPT.format(transcription=transcription)
-#         client = _get_client()
-#         response = await client.aio.models.generate_content(
-#             model=FEATURE_DETECTION_MODEL_ID,
-#             contents=[prompt],
-#             config=GenerateContentConfig(
-#                 thinking_config=ThinkingConfig(thinking_budget=1024)
-#             ),
-#         )
-#         with open(transcription_output_path_raw, "w") as f:
-#             f.write(response.text)
-#         with open(transcription_output_path_json, "w") as f:
-#             json_data = markdown_to_json.dictify(response.text)
-#             json.dump(json_data, f)
-#         return None
-#     except Exception as e:
-#         logger.error(f"Error detecting features for session {session_id}: {e}")
-#         # Let handler catch the exception
-#         return e
+async def _combine_products(
+    products_to_combine: set[str], client: openai.AsyncOpenAI, output_path: Path
+) -> dict[str, list[str]]:
+    products_to_combine_output_path = output_path / "combination"
+    # Ensure to create the directory
+    products_to_combine_output_path.mkdir(parents=True, exist_ok=True)
+    products_to_combine_output_path_raw = products_to_combine_output_path / "products_combination_raw.txt"
+    products_to_combine_output_path_json = products_to_combine_output_path / "products_combination_raw.json"
+    products_to_combine_output_path_proper = products_to_combine_output_path / "products_combination.json"
+    # If files exists already - skip
+    if (
+        products_to_combine_output_path_raw.exists()
+        and products_to_combine_output_path_json.exists()
+        and products_to_combine_output_path_proper.exists()
+    ):
+        with open(products_to_combine_output_path_proper, "r") as f:
+            return json.load(f)
+    products_to_combine_ordered = list(products_to_combine)
+    products_to_combine_ordered_str = "\n".join(
+        [f"{i}. {product_name}" for i, product_name in enumerate(products_to_combine_ordered)]
+    )
+    combination_prompt = BASE_FEATURE_COMBINATION_PROMPT.format(
+        features_to_combine_ordered=products_to_combine_ordered_str, platform_context="PostHog platform"
+    )
+    response = await client.responses.create(
+        input=combination_prompt,
+        model="o3",
+        reasoning={"effort": "medium"},
+    )
+    # Load markdown to JSON
+    with open(products_to_combine_output_path_raw, "w") as f:
+        f.write(response.output_text)
+    dictified_response = markdown_to_json.dictify(response.output_text)
+    with open(products_to_combine_output_path_json, "w") as f:
+        json.dump(dictified_response, f)
+    # Create a product to synonyms naming mapping
+    product_name_to_similar_names_mapping = {}
+    product_mapping_data = dictified_response["root"][0]
+    for i in range(len(product_mapping_data)):
+        product_data = product_mapping_data[i]
+        if not isinstance(product_data, str):
+            continue
+        if i + 1 > len(product_mapping_data):
+            continue
+        next_product_data = product_mapping_data[i + 1]
+        if not isinstance(next_product_data, list):
+            continue
+        product_name_to_similar_names_mapping[product_data] = [
+            products_to_combine_ordered[int(x.strip())] for x in next_product_data
+        ]
+    with open(products_to_combine_output_path_proper, "w") as f:
+        json.dump(product_name_to_similar_names_mapping, f)
+    return product_name_to_similar_names_mapping
 
 
-async def detect_features(session_id_to_transcription: dict[str, str], output_path: Path) -> None:
-    # Split into chunks of 10 to process lots, but not oveload the API
-    chunk_size = 10
-    chunks = [
-        list(session_id_to_transcription.items())[i : i + chunk_size]
-        for i in range(0, len(session_id_to_transcription), chunk_size)
-    ]
-    for chunk in tqdm(chunks, desc="Detecting features in chunks"):
-        chunk_tasks = []
-        async with asyncio.TaskGroup() as tg:
-            for session_id, transcription in chunk:
-                chunk_tasks.append(
-                    tg.create_task(
-                        detect_features_task(
-                            session_id=session_id, transcription=transcription, output_path=output_path
-                        )
-                    )
-                )
-        for result in chunk_tasks:
-            if isinstance(result, Exception):
-                continue
-            logger.info(f"Successfully detected features for session {session_id}")
-    return None
-
-
-if __name__ == "__main__":
+async def combine_everything():
+    client = _get_async_client()
     base_transcriptions_path = Path("/Users/woutut/Documents/Code/posthog/playground/feature_detection/transcription/")
     # Iterate over session folders and pick feature detection files (starts with `feature-detection_` and have `json` extension)
     input_session_id_to_feature_detection = {}
-    # Pick the features
-    features_to_combine = set()
+    # Pick the names
+    products_to_combine = []
+    features_to_combine = []
+    products_to_features_to_combine_mapping = {}
+    features_to_actions_to_combine_mapping = {}
     for session_folder in base_transcriptions_path.iterdir():
         if not session_folder.is_dir():
             continue
@@ -101,14 +117,41 @@ if __name__ == "__main__":
                 feature_detection = json.load(f)["root"]
             session_id = session_folder.name
             input_session_id_to_feature_detection[session_id] = feature_detection
-            # Pick the features
-            for feature_data in feature_detection:
-                if not isinstance(feature_data, list):
+            # Pick the products
+            for i, product_data in enumerate(feature_detection):
+                if not isinstance(product_data, list):
                     continue
-                for feature_name in feature_data:
-                    if not isinstance(feature_name, str):
-                        continue
-                    features_to_combine.add(feature_name)
+                for product_part in product_data:
+                    if isinstance(product_part, str):
+                        # String - means product name
+                        products_to_combine.append(product_part)
+                    elif isinstance(product_part, list):
+                        # List - means features
+                        for feature_part in product_part:
+                            if isinstance(feature_part, str):
+                                # String - means feature name
+                                last_product_name = products_to_combine[-1]
+                                if products_to_features_to_combine_mapping.get(last_product_name) is None:
+                                    products_to_features_to_combine_mapping[last_product_name] = []
+                                products_to_features_to_combine_mapping[last_product_name].append(feature_part)
+                                features_to_combine.append(feature_part)
+                            elif isinstance(feature_part, list):
+                                # List - means actions
+                                for action_part in feature_part:
+                                    if isinstance(action_part, str):
+                                        # String - means action name
+                                        last_feature_name = features_to_combine[-1]
+                                        if features_to_actions_to_combine_mapping.get(last_feature_name) is None:
+                                            features_to_actions_to_combine_mapping[last_feature_name] = []
+                                        features_to_actions_to_combine_mapping[last_feature_name].append(action_part)
+
+    # Combine the products
+    product_name_to_similar_names_mapping = await _combine_products(
+        set(products_to_combine), client, base_transcriptions_path
+    )
+
     # Combine the features
-    features_to_combine_ordered = "\n".join([f"{i}. {feature_name}" for i, feature_name in enumerate(list(features_to_combine))])
-    print("")
+
+
+if __name__ == "__main__":
+    asyncio.run(combine_everything())
