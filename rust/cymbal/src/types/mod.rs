@@ -78,6 +78,10 @@ impl ExceptionList {
             .flat_map(Stacktrace::get_frames)
     }
 
+    fn get_in_app_frames(&self) -> impl Iterator<Item = &Frame> {
+        self.get_frames_iter().filter(|f| f.in_app)
+    }
+
     pub fn get_unique_messages(&self) -> Vec<String> {
         unique_by(self.iter(), |e| Some(e.exception_message.clone()))
     }
@@ -87,11 +91,11 @@ impl ExceptionList {
     }
 
     pub fn get_unique_sources(&self) -> Vec<String> {
-        unique_by(self.get_frames_iter(), |f| f.source.clone())
+        unique_by(self.get_in_app_frames(), |f| f.source.clone())
     }
 
     pub fn get_unique_functions(&self) -> Vec<String> {
-        unique_by(self.get_frames_iter(), |f| f.resolved_name.clone())
+        unique_by(self.get_in_app_frames(), |f| f.resolved_name.clone())
     }
 
     pub fn get_release_map(&self) -> HashMap<String, ReleaseInfo> {
@@ -439,6 +443,29 @@ impl Stacktrace {
             Stacktrace::Resolved { frames } => frames,
             _ => &[],
         }
+    }
+
+    // These two fn's are used for java, which mangles top level exception types. When
+    // we receive an exception, we push its type into the top frame, so when that frame's
+    // resolved, we can pop it
+    pub fn push_exception_type(&mut self, exception_type: String) {
+        let Self::Raw { frames } = self else {
+            return;
+        };
+        let Some(RawFrame::Java(f)) = frames.first_mut() else {
+            return;
+        };
+        f.exception_type = Some(exception_type);
+    }
+
+    pub fn pop_exception_type(&mut self) -> Option<String> {
+        let Self::Resolved { frames } = self else {
+            return None;
+        };
+        frames
+            .iter_mut()
+            .find(|f| f.exception_type.is_some())
+            .and_then(|f| f.exception_type.take())
     }
 }
 

@@ -12,15 +12,11 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     FILE_FORMAT_EXTENSIONS,
     SUPPORTED_COMPRESSIONS,
 )
-from products.batch_exports.backend.tests.temporal.destinations.s3.utils import run_s3_batch_export_workflow
+from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
+    has_valid_gcs_credentials,
+    run_s3_batch_export_workflow,
+)
 from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
-
-
-def has_valid_gcs_credentials() -> bool:
-    return (
-        "GCS_TEST_BUCKET" in os.environ and "AWS_ACCESS_KEY_ID" in os.environ and "AWS_SECRET_ACCESS_KEY" in os.environ
-    )
-
 
 pytestmark = [
     pytest.mark.asyncio,
