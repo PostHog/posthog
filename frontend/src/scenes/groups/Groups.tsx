@@ -16,7 +16,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
@@ -97,7 +96,6 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                     ) : undefined
                 }
             />
-            <SceneDivider />
 
             <Query
                 query={{ ...query, hiddenColumns }}

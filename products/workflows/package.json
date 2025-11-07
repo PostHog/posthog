@@ -6,7 +6,7 @@
         "kea-loaders": "^3.1.1",
         "kea-router": "^3.4.1",
         "kea-subscriptions": "^3.0.1",
-        "posthog-js": "1.285.0"
+        "posthog-js": "1.289.0"
     },
     "peerDependencies": {
         "@posthog/icons": "*",

@@ -138,11 +138,11 @@ When unsure, use this tool. Proactive task management shows attentiveness and he
 """.strip()
 
 
+# Has its unique schema that doesn't match the Deep Research schema
 class TodoItem(BaseModel):
     content: str = Field(..., min_length=1)
     status: Literal["pending", "in_progress", "completed"]
     id: str
-    priority: Literal["low", "medium", "high"]
 
 
 class TodoWriteToolArgs(BaseModel):

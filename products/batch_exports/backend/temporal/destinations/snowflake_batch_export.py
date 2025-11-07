@@ -54,7 +54,6 @@ from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_
 from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
-    cast_record_batch_schema_json_columns,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
@@ -98,6 +97,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     # We don't want to continually retry as it could consume a lot of compute resources in the user's account and can
     # lead to a lot of queries queuing up for a given warehouse.
     "SnowflakeQueryTimeoutError",
+    # Raised when either the warehouse does not exist or we are missing 'USAGE' permissions on it
+    "SnowflakeWarehouseUsageError",
 )
 
 
@@ -135,6 +136,13 @@ class SnowflakeWarehouseSuspendedError(Exception):
     """Raised when a Warehouse is suspended."""
 
     pass
+
+
+class SnowflakeWarehouseUsageError(Exception):
+    """Raised when either the warehouse does not exist or we are missing 'USAGE' permissions on it"""
+
+    def __init__(self, warehouse: str):
+        super().__init__(f"Warehouse '{warehouse}' does not exist or we are missing 'USAGE' permissions on it")
 
 
 class SnowflakeTableNotFoundError(Exception):
@@ -365,7 +373,8 @@ class SnowflakeClient:
                     warehouse=self.warehouse,
                     database=self.database,
                     schema=self.schema,
-                    role=self.role,
+                    # wrap role in quotes in case it contains lowercase or special characters
+                    role=f'"{self.role}"' if self.role is not None else None,
                     private_key=self.private_key,
                     login_timeout=5,
                 )
@@ -407,12 +416,19 @@ class SnowflakeClient:
         logger.setLevel(level)
 
     async def use_namespace(self) -> None:
-        """Switch to a namespace given by database and schema.
+        """Switch to a namespace given by database, schema, and warehouse.
 
         This allows all queries that follow to ignore database and schema.
+        It also ensures that we have permissions to use the warehouse.
         """
         await self.execute_async_query(f'USE DATABASE "{self.database}"', fetch_results=False)
         await self.execute_async_query(f'USE SCHEMA "{self.schema}"', fetch_results=False)
+        try:
+            await self.execute_async_query(f'USE WAREHOUSE "{self.warehouse}"', fetch_results=False)
+        except snowflake.connector.errors.ProgrammingError as exc:
+            if exc.msg is not None and "Object does not exist" in exc.msg:
+                raise SnowflakeWarehouseUsageError(self.warehouse)
+            raise
 
     async def get_query_status(self, query_id: str, throw_if_error: bool = True) -> QueryStatus:
         """Get the status of a query.
@@ -1162,18 +1178,14 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                 )
 
                 transformer = ParquetStreamTransformer(
-                    schema=cast_record_batch_schema_json_columns(
-                        record_batch_schema, json_columns=known_variant_columns
-                    ),
                     compression="zstd",
+                    max_file_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
                 )
                 result = await run_consumer_from_stage(
                     queue=queue,
                     consumer=consumer,
                     producer_task=producer_task,
                     transformer=transformer,
-                    schema=record_batch_schema,
-                    max_file_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
                 )
 

@@ -83,7 +83,9 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
 
             return (
                 <Tooltip title={value}>
-                    <Link to={`/llm-analytics/traces/${value}`}>{visualValue}</Link>
+                    <Link to={`/llm-analytics/traces/${value}`} data-attr="generation-trace-link">
+                        {visualValue}
+                    </Link>
                 </Tooltip>
             )
         },

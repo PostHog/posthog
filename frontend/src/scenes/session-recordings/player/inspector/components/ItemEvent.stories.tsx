@@ -1,6 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 
-import { now } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { uuid } from 'lib/utils'
 import {
@@ -33,6 +33,7 @@ function makeItem(
     dataOverrides: Partial<RecordingEventType> = {},
     propertiesOverrides: Record<string, any> = {}
 ): InspectorListItemEvent {
+    const mockDate = dayjs('2025-11-04')
     const data: RecordingEventType = {
         elements: [],
         event: '',
@@ -40,7 +41,7 @@ function makeItem(
         id: '',
         playerTime: 0,
 
-        timestamp: now().toISOString(),
+        timestamp: mockDate.toISOString(),
         ...dataOverrides,
         // this is last so that it overrides data overrides sensibly 🙃
         properties: {
@@ -51,7 +52,7 @@ function makeItem(
         data: data,
         search: '',
         timeInRecording: 0,
-        timestamp: now(),
+        timestamp: mockDate,
         type: 'events',
         key: `some-key-${uuid()}`,
         ...itemOverrides,

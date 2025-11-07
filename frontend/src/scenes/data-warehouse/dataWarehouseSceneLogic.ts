@@ -4,20 +4,16 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api, { PaginatedResponse } from 'lib/api'
-import { dayjs } from 'lib/dayjs'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
 import {
-    BillingPeriod,
+    BillingProductV2Type,
     DataWarehouseActivityRecord,
-    DataWarehouseDashboardDataSource,
     DataWarehouseJobStats,
     DataWarehouseJobStatsRequestPayload,
     DataWarehouseSourceRowCount,
-    ExternalDataSource,
 } from '~/types'
 
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
@@ -40,7 +36,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             externalDataSourcesLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             billingLogic,
-            ['billingPeriodUTC'],
+            ['billingPeriodUTC', 'billing'],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueryMapById'],
         ],
@@ -49,12 +45,17 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             ['loadDatabase'],
             externalDataSourcesLogic,
             ['loadSources', 'loadSourcesSuccess'],
+            billingLogic,
+            ['loadBilling'],
         ],
     })),
     actions({
-        loadMoreRecentActivity: true,
-        setActivityCurrentPage: (page: number) => ({ page }),
-        checkAutoLoadMore: true,
+        loadMoreRunningActivity: true,
+        loadMoreCompletedActivity: true,
+        setActivityRunningCurrentPage: (page: number) => ({ page }),
+        setActivityCompletedCurrentPage: (page: number) => ({ page }),
+        checkAutoLoadMoreRunning: true,
+        checkAutoLoadMoreCompleted: true,
         setActiveTab: (tab: DataWarehouseTab) => ({ tab }),
     }),
     loaders(() => ({
@@ -66,11 +67,19 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 },
             },
         ],
-        recentActivityResponse: [
+        runningActivityResponse: [
             null as PaginatedResponse<DataWarehouseActivityRecord> | null,
             {
-                loadRecentActivityResponse: async () => {
-                    return await api.dataWarehouse.recentActivity({ limit: 20, offset: 0 })
+                loadRunningActivityResponse: async () => {
+                    return await api.dataWarehouse.runningActivity({ limit: 20, offset: 0, cutoff_days: 30 })
+                },
+            },
+        ],
+        completedActivityResponse: [
+            null as PaginatedResponse<DataWarehouseActivityRecord> | null,
+            {
+                loadCompletedActivityResponse: async () => {
+                    return await api.dataWarehouse.completedActivity({ limit: 20, offset: 0, cutoff_days: 30 })
                 },
             },
         ],
@@ -90,30 +99,56 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
-        activityCurrentPage: [
+        activityRunningCurrentPage: [
             1 as number,
             {
-                setActivityCurrentPage: (_, { page }) => page,
-                loadRecentActivityResponse: () => 1,
+                setActivityRunningCurrentPage: (_, { page }) => page,
+                loadRunningActivityResponse: () => 1,
             },
         ],
-        recentActivityMoreLoading: [
+        activityCompletedCurrentPage: [
+            1 as number,
+            {
+                setActivityCompletedCurrentPage: (_, { page }) => page,
+                loadCompletedActivityResponse: () => 1,
+            },
+        ],
+        runningActivityMoreLoading: [
             false as boolean,
             {
-                loadMoreRecentActivity: () => true,
-                loadRecentActivityResponseSuccess: () => false,
+                loadMoreRunningActivity: () => true,
+                loadRunningActivityResponseSuccess: () => false,
+            },
+        ],
+        completedActivityMoreLoading: [
+            false as boolean,
+            {
+                loadMoreCompletedActivity: () => true,
+                loadCompletedActivityResponseSuccess: () => false,
             },
         ],
     })),
     selectors({
-        recentActivity: [
-            (s) => [s.recentActivityResponse],
+        recentActivityRunning: [
+            (s) => [s.runningActivityResponse],
             (response: PaginatedResponse<DataWarehouseActivityRecord> | null): DataWarehouseActivityRecord[] => {
                 return response?.results || []
             },
         ],
-        recentActivityHasMore: [
-            (s) => [s.recentActivityResponse],
+        recentActivityCompleted: [
+            (s) => [s.completedActivityResponse],
+            (response: PaginatedResponse<DataWarehouseActivityRecord> | null): DataWarehouseActivityRecord[] => {
+                return response?.results || []
+            },
+        ],
+        recentActivityRunningHasMore: [
+            (s) => [s.runningActivityResponse],
+            (response: PaginatedResponse<DataWarehouseActivityRecord> | null): boolean => {
+                return !!response?.next
+            },
+        ],
+        recentActivityCompletedHasMore: [
+            (s) => [s.completedActivityResponse],
             (response: PaginatedResponse<DataWarehouseActivityRecord> | null): boolean => {
                 return !!response?.next
             },
@@ -124,79 +159,46 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 return dataWarehouseTables.filter((table) => !table.source)
             },
         ],
-        computedAllSources: [
-            (s) => [
-                s.dataWarehouseSources,
-                s.recentActivity,
-                s.selfManagedTables,
-                s.billingPeriodUTC,
-                s.totalRowsStats,
-            ],
-            (
-                dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
-                recentActivity: DataWarehouseActivityRecord[],
-                selfManagedTables: DatabaseSchemaDataWarehouseTable[],
-                billingPeriodUTC: BillingPeriod,
-                totalRowsStats: DataWarehouseSourceRowCount
-            ): DataWarehouseDashboardDataSource[] => {
-                const billingPeriodStart = billingPeriodUTC?.start
-                const billingPeriodEnd = billingPeriodUTC?.end
-
-                const managed: DataWarehouseDashboardDataSource[] = (dataWarehouseSources?.results || []).map(
-                    (source: ExternalDataSource): DataWarehouseDashboardDataSource => {
-                        const sourceActivities = (recentActivity || []).filter(
-                            (a) =>
-                                !billingPeriodStart ||
-                                !billingPeriodEnd ||
-                                (dayjs(a.created_at).isAfter(billingPeriodStart.subtract(1, 'millisecond')) &&
-                                    dayjs(a.created_at).isBefore(billingPeriodEnd))
-                        )
-                        const totalRows = totalRowsStats?.breakdown_of_rows_by_source?.[source.id] ?? 0
-                        const sortedActivities = sourceActivities.sort(
-                            (a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf()
-                        )
-                        const lastSync = sortedActivities.length > 0 ? sortedActivities[0].created_at : null
-                        return {
-                            id: source.id,
-                            name: source.source_type,
-                            status: source.status,
-                            lastSync,
-                            rowCount: totalRows,
-                            url: urls.dataWarehouseSource(`managed-${source.id}`),
-                        }
-                    }
-                )
-
-                const selfManaged: DataWarehouseDashboardDataSource[] = (selfManagedTables || []).map((table) => ({
-                    id: table.id,
-                    name: table.name,
-                    status: null,
-                    lastSync: null,
-                    rowCount: table.row_count ?? null,
-                    url: urls.dataWarehouseSource(`self-managed-${table.id}`),
-                }))
-
-                return [...managed, ...selfManaged]
-            },
-        ],
-        activityPaginationState: [
-            (s) => [s.recentActivity, s.activityCurrentPage],
-            (recentActivity: DataWarehouseActivityRecord[], activityCurrentPage: number) => {
+        activityRunningPaginationState: [
+            (s) => [s.recentActivityRunning, s.activityRunningCurrentPage],
+            (recentActivityRunning: DataWarehouseActivityRecord[], activityRunningCurrentPage: number) => {
                 const pageSize = 8
-                const totalData = recentActivity.length
-                const pageCount = Math.ceil(totalData / pageSize)
-                const startIndex = (activityCurrentPage - 1) * pageSize
+                const totalData = recentActivityRunning.length
+                const pageCount = Math.max(Math.ceil(totalData / pageSize), 1)
+                const startIndex = (activityRunningCurrentPage - 1) * pageSize
                 const endIndex = Math.min(startIndex + pageSize, totalData)
-                const dataSourcePage = recentActivity.slice(startIndex, endIndex)
+                const dataSourcePage = recentActivityRunning.slice(startIndex, endIndex)
 
                 return {
-                    currentPage: activityCurrentPage,
+                    currentPage: activityRunningCurrentPage,
                     pageCount,
                     dataSourcePage,
                     currentStartIndex: startIndex,
                     currentEndIndex: endIndex,
                     entryCount: totalData,
-                    isOnLastPage: activityCurrentPage === pageCount,
+                    isOnLastPage: activityRunningCurrentPage === pageCount,
+                    hasDataOnCurrentPage: dataSourcePage.length > 0,
+                }
+            },
+        ],
+        activityCompletedPaginationState: [
+            (s) => [s.recentActivityCompleted, s.activityCompletedCurrentPage],
+            (recentActivityCompleted: DataWarehouseActivityRecord[], activityCompletedCurrentPage: number) => {
+                const pageSize = 8
+                const totalData = recentActivityCompleted.length
+                const pageCount = Math.max(Math.ceil(totalData / pageSize), 1)
+                const startIndex = (activityCompletedCurrentPage - 1) * pageSize
+                const endIndex = Math.min(startIndex + pageSize, totalData)
+                const dataSourcePage = recentActivityCompleted.slice(startIndex, endIndex)
+
+                return {
+                    currentPage: activityCompletedCurrentPage,
+                    pageCount,
+                    dataSourcePage,
+                    currentStartIndex: startIndex,
+                    currentEndIndex: endIndex,
+                    entryCount: totalData,
+                    isOnLastPage: activityCompletedCurrentPage === pageCount,
                     hasDataOnCurrentPage: dataSourcePage.length > 0,
                 }
             },
@@ -207,31 +209,82 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 return databaseLoading || dataWarehouseSourcesLoading
             },
         ],
+        materializedViews: [
+            (s) => [s.views, s.dataWarehouseSavedQueryMapById],
+            (views, dataWarehouseSavedQueryMapById) => {
+                return views.filter((view) => dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
+            },
+        ],
+        dataWarehouseProduct: [
+            (s) => [s.billing],
+            (billing): BillingProductV2Type | null => {
+                return billing?.products?.find((product) => product.type === 'data_warehouse') || null
+            },
+        ],
     }),
     listeners(({ values, actions, cache }) => ({
-        setActivityCurrentPage: () => {
-            actions.checkAutoLoadMore()
+        setActivityRunningCurrentPage: () => {
+            actions.checkAutoLoadMoreRunning()
         },
-        checkAutoLoadMore: () => {
-            const paginationState = values.activityPaginationState
+        setActivityCompletedCurrentPage: () => {
+            actions.checkAutoLoadMoreCompleted()
+        },
+        checkAutoLoadMoreRunning: () => {
+            const paginationState = values.activityRunningPaginationState
             const { isOnLastPage, hasDataOnCurrentPage } = paginationState
-            const { recentActivityHasMore, recentActivityResponseLoading } = values
+            const { recentActivityRunningHasMore, runningActivityResponseLoading } = values
 
-            if (isOnLastPage && hasDataOnCurrentPage && recentActivityHasMore && !recentActivityResponseLoading) {
-                actions.loadMoreRecentActivity()
+            if (
+                isOnLastPage &&
+                hasDataOnCurrentPage &&
+                recentActivityRunningHasMore &&
+                !runningActivityResponseLoading
+            ) {
+                actions.loadMoreRunningActivity()
             }
         },
-        loadMoreRecentActivity: async () => {
+        checkAutoLoadMoreCompleted: () => {
+            const paginationState = values.activityCompletedPaginationState
+            const { isOnLastPage, hasDataOnCurrentPage } = paginationState
+            const { recentActivityCompletedHasMore, completedActivityResponseLoading } = values
+
+            if (
+                isOnLastPage &&
+                hasDataOnCurrentPage &&
+                recentActivityCompletedHasMore &&
+                !completedActivityResponseLoading
+            ) {
+                actions.loadMoreCompletedActivity()
+            }
+        },
+        loadMoreRunningActivity: async () => {
             try {
-                const currentData = values.recentActivity
-                const response = await api.dataWarehouse.recentActivity({
+                const currentData = values.recentActivityRunning
+                const response = await api.dataWarehouse.runningActivity({
                     limit: 20,
                     offset: currentData.length,
+                    cutoff_days: 30,
                 })
                 const newData = [...currentData, ...(response.results || [])]
                 const newResponse = { ...response, results: newData }
 
-                actions.loadRecentActivityResponseSuccess(newResponse)
+                actions.loadRunningActivityResponseSuccess(newResponse)
+            } catch (error) {
+                posthog.captureException(error)
+            }
+        },
+        loadMoreCompletedActivity: async () => {
+            try {
+                const currentData = values.recentActivityCompleted
+                const response = await api.dataWarehouse.completedActivity({
+                    limit: 20,
+                    offset: currentData.length,
+                    cutoff_days: 30,
+                })
+                const newData = [...currentData, ...(response.results || [])]
+                const newResponse = { ...response, results: newData }
+
+                actions.loadCompletedActivityResponseSuccess(newResponse)
             } catch (error) {
                 posthog.captureException(error)
             }
@@ -252,8 +305,10 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadSources(null)
-        actions.loadRecentActivityResponse()
+        actions.loadRunningActivityResponse()
+        actions.loadCompletedActivityResponse()
         actions.loadTotalRowsStats()
         actions.loadJobStats({ days: 7 })
+        actions.loadBilling()
     }),
 ])

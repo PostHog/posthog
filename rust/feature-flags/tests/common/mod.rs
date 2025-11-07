@@ -57,7 +57,7 @@ impl ServerHandle {
             // Create a minimal valid Team object
             let team = Team {
                 id: team_id,
-                project_id: team_id as i64,
+                project_id: Some(team_id as i64),
                 name: "Test Team".to_string(),
                 api_token: token.clone(),
                 cookieless_server_hash_mode: Some(0),
@@ -209,6 +209,7 @@ impl ServerHandle {
                 non_persons_writer: non_persons_writer.clone(),
                 persons_reader: persons_reader.clone(),
                 persons_writer: persons_writer.clone(),
+                test_before_acquire: *config.test_before_acquire,
             });
 
             let app = feature_flags::router::router(

@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -31,6 +31,7 @@ import {
     ResultsInsightInfoBanner,
     ResultsQuery,
 } from '../components/ResultsBreakdown'
+import { SummarizeExperimentButton } from '../components/SummarizeExperimentButton'
 import { CreateExperiment } from '../create/CreateExperiment'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
@@ -63,6 +64,7 @@ const MetricsTab = (): JSX.Element => {
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
         usesNewQueryRunner,
+        featureFlags,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
@@ -92,8 +94,15 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric &&
         firstPrimaryMetricResult
 
+    const isAiSummaryEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENT_AI_SUMMARY] === 'test'
+
     return (
         <>
+            {isAiSummaryEnabled && (
+                <div className="mt-1 mb-4 flex justify-start">
+                    <SummarizeExperimentButton />
+                </div>
+            )}
             {usesNewQueryRunner && (
                 <div className="w-full mb-4">
                     <Exposures />
@@ -205,8 +214,15 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
-    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft, exposureCriteria } =
-        useValues(experimentLogic)
+    const {
+        experimentLoading,
+        experimentId,
+        experiment,
+        usesNewQueryRunner,
+        isExperimentDraft,
+        exposureCriteria,
+        featureFlags,
+    } = useValues(experimentLogic)
     const { setExperiment, updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment } =
         useActions(experimentLogic)
 
@@ -228,7 +244,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
      * We show the create form if the experiment is draft + has no primary metrics. Otherwise,
      * we show the experiment view.
      */
-    const isCreateFormEnabled = useFeatureFlag('EXPERIMENTS_CREATE_FORM', 'test')
     const allPrimaryMetrics = [
         ...(experiment.metrics || []),
         ...(experiment.saved_metrics || []).filter((sm) => sm.metadata.type === 'primary'),
@@ -236,9 +251,10 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
 
     if (
         !experimentLoading &&
-        isCreateFormEnabled &&
         getExperimentStatus(experiment) === ProgressStatus.Draft &&
-        allPrimaryMetrics.length === 0
+        experiment.type === 'product' &&
+        allPrimaryMetrics.length === 0 &&
+        featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_CREATE_FORM] === 'test'
     ) {
         return <CreateExperiment draftExperiment={experiment} tabId={tabId} />
     }
@@ -378,8 +394,8 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                         </>
                     )}
 
-                    <DistributionModal experimentId={experimentId} />
-                    <ReleaseConditionsModal experimentId={experimentId} />
+                    <DistributionModal />
+                    <ReleaseConditionsModal />
 
                     <StopExperimentModal experimentId={experimentId} />
                     <EditConclusionModal experimentId={experimentId} />

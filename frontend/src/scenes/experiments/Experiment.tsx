@@ -1,7 +1,6 @@
 import { BindLogic, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import type { SceneExport } from 'scenes/sceneTypes'
@@ -9,7 +8,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ExperimentForm } from './ExperimentForm'
 import { ExperimentView } from './ExperimentView/ExperimentView'
-import { CreateExperiment } from './create/CreateExperiment'
 import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
 import { type ExperimentSceneLogicProps, experimentSceneLogic } from './experimentSceneLogic'
 
@@ -29,7 +27,6 @@ export function Experiment({ tabId }: ExperimentSceneLogicProps): JSX.Element {
     }
     const { formMode, experimentMissing, experimentId } = useValues(experimentSceneLogic({ tabId }))
     const { currentTeamId } = useValues(teamLogic)
-    const isCreateFormEnabled = useFeatureFlag('EXPERIMENTS_CREATE_FORM', 'test')
 
     useFileSystemLogView({
         type: 'experiment',
@@ -43,14 +40,6 @@ export function Experiment({ tabId }: ExperimentSceneLogicProps): JSX.Element {
 
     if (experimentMissing) {
         return <NotFound object="experiment" />
-    }
-
-    if (isCreateFormEnabled && formMode === FORM_MODES.create) {
-        return (
-            <BindLogic logic={experimentLogic} props={logicProps}>
-                <CreateExperiment tabId={tabId} />
-            </BindLogic>
-        )
     }
 
     return (

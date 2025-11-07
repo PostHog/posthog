@@ -25,7 +25,7 @@ async fn it_handles_get_requests_with_minimal_response() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -73,7 +73,7 @@ async fn it_gets_legacy_response_for_v1_or_invalid_version(
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -103,7 +103,7 @@ async fn it_gets_legacy_response_for_v1_or_invalid_version(
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -144,7 +144,7 @@ async fn it_gets_v2_response_by_default_when_no_params() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -175,7 +175,7 @@ async fn it_gets_v2_response_by_default_when_no_params() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -232,7 +232,7 @@ async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) ->
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -263,7 +263,7 @@ async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) ->
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -316,7 +316,7 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -355,7 +355,7 @@ async fn it_accepts_empty_distinct_id() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
     let distinct_id = "user_distinct_id".to_string();
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -392,7 +392,7 @@ async fn it_rejects_missing_distinct_id() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
     let server = ServerHandle::for_config(config).await;
 
     let payload = json!({
@@ -478,7 +478,7 @@ async fn it_handles_base64_auto_detection_fallback() -> Result<()> {
     // Set up Redis and PostgreSQL clients
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -529,12 +529,12 @@ async fn it_handles_disable_flags_without_distinct_id() -> Result<()> {
     // Set up Redis and PostgreSQL clients
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_flags_for_team_in_redis(client.clone(), team.id, team.project_id, None)
+    insert_flags_for_team_in_redis(client.clone(), team.id, team.project_id(), None)
         .await
         .unwrap();
 
@@ -645,7 +645,7 @@ async fn it_handles_multivariate_flags() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -693,7 +693,7 @@ async fn it_handles_multivariate_flags() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -736,7 +736,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
     context
@@ -770,7 +770,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -839,7 +839,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(team.id)).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let flag_json = json!([{
         "id": 1,
@@ -870,7 +870,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -950,7 +950,7 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
     let team = insert_new_team_in_redis(redis_client.clone())
         .await
         .unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -995,7 +995,7 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
     insert_flags_for_team_in_redis(
         redis_client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1042,7 +1042,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         .insert_person(team.id, distinct_id.clone(), None)
         .await?;
 
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     // Create a group of type "organization" (group_type_index 1) with group_key "foo" and specific properties
     context
@@ -1104,7 +1104,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
     insert_flags_for_team_in_redis(
         redis_client.clone(),
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flags_json.to_string()),
     )
     .await?;
@@ -1204,7 +1204,7 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -1240,7 +1240,7 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1279,7 +1279,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
     context
@@ -1339,7 +1339,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1435,7 +1435,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
         .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     // Create a group with matching name
     context
@@ -1499,7 +1499,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     insert_flags_for_team_in_redis(
         redis_client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1575,7 +1575,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
     let team = insert_new_team_in_redis(redis_client.clone()).await?;
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await?;
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     // Insert person with just their stored properties from the DB
     context
@@ -1626,7 +1626,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
     insert_flags_for_team_in_redis(
         redis_client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1682,7 +1682,7 @@ async fn test_flag_matches_with_no_person_profile() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -1719,7 +1719,7 @@ async fn test_flag_matches_with_no_person_profile() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1810,7 +1810,7 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -1839,7 +1839,7 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1881,7 +1881,7 @@ async fn test_config_basic_fields() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -1905,7 +1905,7 @@ async fn test_config_basic_fields() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1950,7 +1950,7 @@ async fn test_config_analytics_enabled() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -1989,7 +1989,7 @@ async fn test_config_analytics_enabled_by_default() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -2027,7 +2027,7 @@ async fn test_config_analytics_disabled_debug_mode() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -2063,7 +2063,7 @@ async fn test_config_capture_performance_combinations() -> Result<()> {
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
 
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -2099,7 +2099,7 @@ async fn test_config_autocapture_exceptions() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -2135,7 +2135,7 @@ async fn test_config_optional_team_features() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -2179,7 +2179,7 @@ async fn test_config_site_apps_empty_by_default() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -2215,7 +2215,7 @@ async fn test_config_included_in_legacy_response() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -2239,7 +2239,7 @@ async fn test_config_included_in_legacy_response() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -3224,7 +3224,7 @@ async fn test_disable_flags_returns_empty_response() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -3255,7 +3255,7 @@ async fn test_disable_flags_returns_empty_response() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -3295,7 +3295,7 @@ async fn test_disable_flags_returns_empty_response_v2() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -3326,7 +3326,7 @@ async fn test_disable_flags_returns_empty_response_v2() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -3365,7 +3365,7 @@ async fn test_disable_flags_false_still_returns_flags() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -3396,7 +3396,7 @@ async fn test_disable_flags_false_still_returns_flags() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -3437,7 +3437,7 @@ async fn test_disable_flags_with_config_still_returns_config_data() -> Result<()
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -3468,7 +3468,7 @@ async fn test_disable_flags_with_config_still_returns_config_data() -> Result<()
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -3525,7 +3525,7 @@ async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -3556,7 +3556,7 @@ async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -3612,7 +3612,7 @@ async fn test_disable_flags_without_config_param_has_minimal_response() -> Resul
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -3643,7 +3643,7 @@ async fn test_disable_flags_without_config_param_has_minimal_response() -> Resul
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -3695,7 +3695,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
         .insert_person(team.id, distinct_id.clone(), None)
         .await?;
 
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     // Create a group with a numeric group_key (as a string in DB, but represents a number)
     context
@@ -3731,7 +3731,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
     insert_flags_for_team_in_redis(
         redis_client.clone(),
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flags_json.to_string()),
     )
     .await?;
@@ -3861,7 +3861,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -3909,7 +3909,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -4053,7 +4053,7 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -4127,7 +4127,7 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -4190,7 +4190,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -4245,7 +4245,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -4373,7 +4373,7 @@ async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -4438,7 +4438,7 @@ async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -4515,7 +4515,7 @@ async fn test_group_key_property_matching() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(team.id)).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     // Create a flag that filters on $group_key property
     let flag_json = json!([{
@@ -4547,7 +4547,7 @@ async fn test_group_key_property_matching() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -4640,7 +4640,7 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -4728,7 +4728,7 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -4854,7 +4854,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -4963,7 +4963,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -5086,7 +5086,7 @@ async fn test_flag_keys_to_evaluate_parameter() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -5151,7 +5151,7 @@ async fn test_flag_keys_to_evaluate_parameter() -> Result<()> {
     insert_flags_for_team_in_redis(
         client.clone(),
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flags.to_string()),
     )
     .await
@@ -5212,7 +5212,7 @@ async fn it_handles_empty_query_parameters() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -5262,7 +5262,7 @@ async fn it_handles_boolean_query_params_as_truthy() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -5344,7 +5344,7 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -5494,7 +5494,7 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -5756,7 +5756,7 @@ async fn test_empty_distinct_id_flag_matching() -> Result<()> {
     insert_flags_for_team_in_redis(
         client.clone(),
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flags_json.to_string()),
     )
     .await?;
@@ -6010,7 +6010,7 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     insert_flags_for_team_in_redis(
         client.clone(),
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -6138,7 +6138,7 @@ async fn test_date_string_property_matching_with_is_date_after() -> Result<()> {
     let team = insert_new_team_in_redis(redis_client.clone())
         .await
         .unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
@@ -6214,7 +6214,7 @@ async fn test_date_string_property_matching_with_is_date_after() -> Result<()> {
     insert_flags_for_team_in_redis(
         redis_client.clone(),
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await
