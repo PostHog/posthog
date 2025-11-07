@@ -9,7 +9,6 @@ import { LemonButton, LemonLabel, LemonSelect, Link, Tooltip } from '@posthog/le
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { getProductUri, onboardingLogic } from 'scenes/onboarding/onboardingLogic'
-import { getUseCaseLabel } from 'scenes/onboarding/productRecommendations'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -118,8 +117,6 @@ export function SelectableProductCard({
 }
     )
 
-    const useCaseLabel = getUseCaseLabel(useCase)
-
     return (
         <div className="flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">
             <>
@@ -140,7 +137,7 @@ export function SelectableProductCard({
                         <h2 className="text-center text-4xl">Which products would you like to use?</h2>
                         <p className="text-center text-muted">
                             {useCase && useCase !== 'pick_myself'
-                                ? `Based on your goal (${useCaseLabel}), we've pre-selected some products. You can change any of our recommendations or add more products.`
+                                ? `We've pre-selected some products based on your goal. Feel free to change or add more.`
                                 : "Don't worry – you can pick more than one! Please select all that apply."}
                         </p>
                     </div>

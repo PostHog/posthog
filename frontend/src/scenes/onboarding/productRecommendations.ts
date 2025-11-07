@@ -49,7 +49,7 @@ export function getRecommendedProducts(useCase: UseCaseOption | null | string): 
 
 export function getUseCaseLabel(useCase: UseCaseOption | null | string): string {
     const labels: Record<UseCaseOption, string> = {
-        see_user_behavior: 'See what users are doing',
+        see_user_behavior: 'Understand how users behave',
         fix_issues: 'Find and fix issues',
         launch_features: 'Launch features with confidence',
         collect_feedback: 'Collect user feedback',
