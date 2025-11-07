@@ -551,10 +551,9 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                     )
                     continue
                 finally:
-                    if not input.dry_run and partial:
+                        ph_client.flush()
                         messaging_record.sent_at = timezone.now()
                         await messaging_record.asave()
-                        ph_client.flush()
 
         if ph_client:
             ph_client.shutdown()
