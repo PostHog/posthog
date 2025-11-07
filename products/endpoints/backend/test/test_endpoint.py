@@ -858,7 +858,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # Update to different cache age
         updated_data: dict[str, int | None] = {"cache_age_seconds": 600}
-        response = self.client.patch(
+        response = self.client.put(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -869,7 +869,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # Update to None (use defaults)
         updated_data = {"cache_age_seconds": None}
-        response = self.client.patch(
+        response = self.client.put(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
