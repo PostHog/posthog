@@ -91,14 +91,13 @@ class ClusterExplainer:
         response = self.client.models.generate_content(
             model=self.model_id, contents=message, config=GenerateContentConfig(**config_kwargs)
         )
-        response_text = response.text
-        if not response_text:
+        if not response.text:
             raise ValueError("No cluster name was generated")
         sentences = response.text.split(".")
         if len(sentences) > 1:
             # If LLM generated the explanation (should not) - use the last sentence
             return sentences[-1]
-        return response_text
+        return response.text
 
     def _enrich_cluster_with_trace_ids(
         self, cluster_raw: dict[str, Any], cluster_label: str
