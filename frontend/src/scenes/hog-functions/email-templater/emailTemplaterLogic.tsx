@@ -53,6 +53,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         setEmailEditorRef: (emailEditorRef: EditorRef | null) => ({ emailEditorRef }),
         onEmailEditorReady: true,
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
+        setIsSaveTemplateModalOpen: (isOpen: boolean) => ({ isOpen }),
         applyTemplate: (template: MessageTemplate) => ({ template }),
         closeWithConfirmation: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
@@ -76,6 +77,12 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             false,
             {
                 setIsModalOpen: (_, { isModalOpen }) => isModalOpen,
+            },
+        ],
+        isSaveTemplateModalOpen: [
+            false,
+            {
+                setIsSaveTemplateModalOpen: (_, { isOpen }) => isOpen,
             },
         ],
         appliedTemplate: [
@@ -218,6 +225,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         applyTemplate: ({ template }) => {
             const emailTemplateContent = template.content.email
             actions.setEmailTemplateValues(emailTemplateContent)
+
+            // Load the design into the editor if it's ready and has a design
+            if (values.isEmailEditorReady && emailTemplateContent.design) {
+                values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
+            }
         },
 
         closeWithConfirmation: () => {
@@ -274,6 +286,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 await api.messaging.createTemplate(templateData)
                 lemonToast.success('Template saved successfully')
                 actions.loadTemplates()
+                actions.setIsSaveTemplateModalOpen(false)
             } catch (error) {
                 lemonToast.error('Failed to save template')
                 console.error(error)

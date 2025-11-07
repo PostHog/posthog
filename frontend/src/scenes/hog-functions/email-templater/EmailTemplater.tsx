@@ -420,21 +420,26 @@ function SaveTemplateModal({
     const [templateName, setTemplateName] = useState('')
     const [templateDescription, setTemplateDescription] = useState('')
 
+    const handleClose = (): void => {
+        setTemplateName('')
+        setTemplateDescription('')
+        onClose()
+    }
+
     return (
         <LemonModal
             isOpen={isOpen}
-            onClose={onClose}
+            onClose={handleClose}
             title="Save as template"
             description="Create a reusable template from this email"
             footer={
                 <>
-                    <LemonButton onClick={onClose}>Cancel</LemonButton>
+                    <LemonButton onClick={handleClose}>Cancel</LemonButton>
                     <LemonButton
                         type="primary"
                         onClick={() => {
                             if (templateName) {
                                 onSave(templateName, templateDescription)
-                                onClose()
                                 setTemplateName('')
                                 setTemplateDescription('')
                             }
@@ -471,9 +476,10 @@ function SaveTemplateModal({
 }
 
 function EmailTemplaterModal(): JSX.Element {
-    const { isModalOpen, isEmailEditorReady, emailTemplateChanged } = useValues(emailTemplaterLogic)
-    const { closeWithConfirmation, submitEmailTemplate, saveAsTemplate } = useActions(emailTemplaterLogic)
-    const [isSaveTemplateModalOpen, setIsSaveTemplateModalOpen] = useState(false)
+    const { isModalOpen, isEmailEditorReady, emailTemplateChanged, isSaveTemplateModalOpen } =
+        useValues(emailTemplaterLogic)
+    const { closeWithConfirmation, submitEmailTemplate, saveAsTemplate, setIsSaveTemplateModalOpen } =
+        useActions(emailTemplaterLogic)
 
     return (
         <>
