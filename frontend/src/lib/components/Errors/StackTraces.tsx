@@ -7,6 +7,7 @@ import { P, match } from 'ts-pattern'
 
 import { IconBox } from '@posthog/icons'
 import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
+import { PropertiesTable } from '@posthog/products-error-tracking/frontend/components/PropertiesTable'
 import { cancelEvent } from '@posthog/products-error-tracking/frontend/utils'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -138,7 +139,7 @@ function Trace({
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
     const panels = displayFrames.map((frame: ErrorTrackingStackFrame, idx) => {
-        const { raw_id, lang } = frame
+        const { raw_id, lang, code_variables } = frame
         const record = stackFrameRecords[raw_id]
         return {
             key: idx,
@@ -147,6 +148,9 @@ function Trace({
                 record && record.context ? (
                     <div onClick={(e) => onFrameContextClick?.(record.context!, e)}>
                         <FrameContext context={record.context} language={getLanguage(lang)} />
+                        {code_variables && Object.keys(code_variables).length > 0 && (
+                            <FrameVariables variables={code_variables} />
+                        )}
                     </div>
                 ) : null,
             className: 'p-0',
@@ -250,6 +254,16 @@ function FrameContextLine({
                         <CodeLine text={line} wrapLines={true} language={language} />
                     </div>
                 ))}
+        </div>
+    )
+}
+
+function FrameVariables({ variables }: { variables: Record<string, unknown> }): JSX.Element {
+    const entries = Object.entries(variables) as [string, unknown][]
+
+    return (
+        <div className="border-t border-border">
+            <PropertiesTable entries={entries} alternatingColors={false} />
         </div>
     )
 }

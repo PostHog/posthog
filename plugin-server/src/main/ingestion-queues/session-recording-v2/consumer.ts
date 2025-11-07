@@ -43,6 +43,7 @@ import { SessionMetadataStore } from './sessions/session-metadata-store'
 import { TeamFilter } from './teams/team-filter'
 import { TeamService } from './teams/team-service'
 import { MessageWithTeam } from './teams/types'
+import { TopTracker } from './top-tracker'
 import { CaptureIngestionWarningFn } from './types'
 import { LibVersionMonitor } from './versions/lib-version-monitor'
 
@@ -65,6 +66,8 @@ export class SessionRecordingIngester {
     private restrictionHandler?: SessionRecordingRestrictionHandler
     private kafkaOverflowProducer?: KafkaProducerWrapper
     private readonly overflowTopic: string
+    private readonly topTracker: TopTracker
+    private topTrackerLogInterval?: NodeJS.Timeout
 
     constructor(
         private hub: Hub,
@@ -116,7 +119,8 @@ export class SessionRecordingIngester {
             s3Client = new S3Client(s3Config)
         }
 
-        this.kafkaParser = new KafkaMessageParser()
+        this.topTracker = new TopTracker()
+        this.kafkaParser = new KafkaMessageParser(this.topTracker)
 
         this.redisPool = createRedisPool(this.hub, 'session-recording')
 
@@ -245,6 +249,8 @@ export class SessionRecordingIngester {
     }
 
     private async consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
+        const consumeStartTime = performance.now()
+
         // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
         // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
         SessionRecordingIngesterMetrics.resetSessionsRevoked()
@@ -272,7 +278,17 @@ export class SessionRecordingIngester {
         }
 
         SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
+
+        // Track message size per session_id
+        const trackingKey = `session_id:${parsedMessage.session_id}`
+        this.topTracker.increment('message_size_by_session_id', trackingKey, parsedMessage.metadata.rawSize)
+
         await batch.record(message)
+
+        // Track consume time per session_id
+        const consumeEndTime = performance.now()
+        const consumeDurationMs = consumeEndTime - consumeStartTime
+        this.topTracker.increment('consume_time_ms_by_session_id', trackingKey, consumeDurationMs)
     }
 
     public async start(): Promise<void> {
@@ -331,11 +347,22 @@ export class SessionRecordingIngester {
         this.kafkaConsumer.on('event.stats', (stats) => {
             logger.info('🪵', 'blob_ingester_consumer_v2 - kafka stats', { stats })
         })
+
+        // Start periodic logging of top tracked metrics (every 60 seconds)
+        this.topTrackerLogInterval = setInterval(() => {
+            this.topTracker.logAndReset(10)
+        }, 60000)
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
         logger.info('🔁', 'blob_ingester_consumer_v2 - stopping')
         this.isStopping = true
+
+        // Stop the top tracker interval and log final results
+        if (this.topTrackerLogInterval) {
+            clearInterval(this.topTrackerLogInterval)
+            this.topTracker.logAndReset(10)
+        }
 
         const assignedPartitions = this.assignedTopicPartitions
         await this.kafkaConsumer.disconnect()
