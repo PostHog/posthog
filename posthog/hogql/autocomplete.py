@@ -387,6 +387,20 @@ def gather_hog_variables_in_scope(root_node, node) -> list[str]:
 def get_hogql_autocomplete(
     query: HogQLAutocomplete, team: Team, database_arg: Optional[Database] = None
 ) -> HogQLAutocompleteResponse:
+    # Ensure 'request' global is present for webhook Hogflows
+    if isinstance(query.globals, dict):
+        event = query.globals.get("event", {})
+        if isinstance(event, dict) and event.get("event") == "$incoming_webhook":
+            if "request" not in query.globals:
+                # Match the structure from buildRequestGlobals in the backend
+                query.globals["request"] = {
+                    "method": "POST",
+                    "headers": {},
+                    "ip": "127.0.0.1",
+                    "body": {},
+                    "query": {},
+                    "stringBody": "",
+                }
     response = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
     timings = HogQLTimings()
 
