@@ -2804,6 +2804,7 @@ export const enum ExperimentMetricType {
     FUNNEL = 'funnel',
     MEAN = 'mean',
     RATIO = 'ratio',
+    RETENTION = 'retention',
 }
 
 export interface ExperimentMetricBaseProperties extends Node {
@@ -2863,6 +2864,28 @@ export type ExperimentRatioMetric = ExperimentMetricBaseProperties & {
 export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is ExperimentRatioMetric =>
     metric.metric_type === ExperimentMetricType.RATIO
 
+export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
+    metric_type: ExperimentMetricType.RETENTION
+    // Event that defines the start of the retention window
+    start_event: ExperimentMetricSource
+    // Event that defines the completion of the retention window
+    completion_event: ExperimentMetricSource
+
+    // Start of the retention window
+    retention_window_start: integer
+    // End of the retention window
+    retention_window_end: integer
+    retention_window_unit: FunnelConversionWindowTimeUnit
+
+    // How to handle the start of the retention window
+    start_handling: 'first_seen' | 'last_seen'
+    // How to handle incomplete retention windows
+    incomplete_retention_handling: 'exclude' | 'include'
+}
+
+export const isExperimentRetentionMetric = (metric: ExperimentMetric): metric is ExperimentRetentionMetric =>
+    metric.metric_type === ExperimentMetricType.RETENTION
+
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
@@ -2871,7 +2894,11 @@ export type ExperimentMetricTypeProps =
     | ExperimentFunnelMetricTypeProps
     | ExperimentRatioMetricTypeProps
 
-export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric
+export type ExperimentMetric =
+    | ExperimentMeanMetric
+    | ExperimentFunnelMetric
+    | ExperimentRatioMetric
+    | ExperimentRetentionMetric
 
 export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     kind: NodeKind.ExperimentQuery
