@@ -38,7 +38,7 @@ pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    // Create separate Redis clients for shared Redis (non-critical path: analytics, billing)
+    // Create separate Redis clients for shared Redis (non-critical path: analytics, billing, cookieless)
     let Some(redis_reader_client) =
         create_redis_client(config.get_redis_reader_url(), "shared reader").await
     else {
