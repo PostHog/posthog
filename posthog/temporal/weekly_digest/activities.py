@@ -524,7 +524,7 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         if input.dry_run:
                             logger.info(
                                 "DRY RUN - would send digest",
-                                digest=user_specific_digest.render_payload(),
+                                digest=user_specific_digest.render_payload(input.digest),
                                 user_email=user.email,
                             )
                         else:
@@ -535,7 +535,7 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                                 ph_client.capture(
                                     distinct_id=user.distinct_id,
                                     event="transactional email",
-                                    properties=user_specific_digest.render_payload(),
+                                    properties=user_specific_digest.render_payload(input.digest),
                                     groups={
                                         "organization": str(organization.id),
                                         "instance": settings.SITE_URL,
