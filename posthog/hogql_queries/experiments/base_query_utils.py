@@ -40,7 +40,7 @@ from posthog.models.team.team import Team
 
 
 def get_data_warehouse_metric_source(
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric],
 ) -> ExperimentDataWarehouseNode | None:
     if isinstance(metric, ExperimentMeanMetric) and isinstance(metric.source, ExperimentDataWarehouseNode):
         return metric.source
@@ -525,6 +525,9 @@ def get_metric_events_query(
     if isinstance(metric, ExperimentFunnelMetric):
         assert source_type is None
         return _get_metric_events_for_funnel_metric(metric, team, entity_key, experiment, date_range_query)
+
+    if isinstance(metric, ExperimentRetentionMetric):
+        raise NotImplementedError("Retention metrics are not yet supported in get_metric_events_query")
 
     # For ratio metrics, determine which source to use and delegate to source-based function
     if isinstance(metric, ExperimentRatioMetric):
