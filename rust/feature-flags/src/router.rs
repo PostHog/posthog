@@ -3,7 +3,7 @@ use std::{future::ready, sync::Arc};
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
-    http::Method,
+    http::{Method, StatusCode},
     routing::{any, get},
     Router,
 };
@@ -103,6 +103,9 @@ where
         )
     });
 
+    // Clone database_pools for readiness check before moving into State
+    let db_pools_for_readiness = database_pools.clone();
+
     let state = State {
         redis_reader,
         redis_writer,
@@ -130,7 +133,10 @@ where
     // liveness/readiness checks
     let status_router = Router::new()
         .route("/", get(index))
-        .route("/_readiness", get(index))
+        .route(
+            "/_readiness",
+            get(move || readiness(db_pools_for_readiness.clone())),
+        )
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
     // flags endpoint
@@ -168,6 +174,42 @@ where
     } else {
         router
     }
+}
+
+pub async fn readiness(
+    database_pools: Arc<DatabasePools>,
+) -> Result<&'static str, (StatusCode, String)> {
+    // Check all pools and collect errors
+    let pools = [
+        ("non_persons_reader", &database_pools.non_persons_reader),
+        ("non_persons_writer", &database_pools.non_persons_writer),
+        ("persons_reader", &database_pools.persons_reader),
+        ("persons_writer", &database_pools.persons_writer),
+    ];
+
+    for (name, pool) in pools {
+        let mut conn = pool.acquire().await.map_err(|e| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("{name} pool unavailable: {e}"),
+            )
+        })?;
+
+        // If test_before_acquire is false, explicitly test the connection
+        if !database_pools.test_before_acquire {
+            sqlx::query("SELECT 1")
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        format!("{name} connection test failed: {e}"),
+                    )
+                })?;
+        }
+    }
+
+    Ok("ready")
 }
 
 pub async fn index() -> &'static str {

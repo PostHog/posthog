@@ -112,16 +112,18 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     })),
     reducers(() => ({
         filters: {
-            setFilters: (_, { filters }) => {
-                // Only assign sort_keys to groups that don't have one
+            setFilters: (state, { filters }) => {
+                // Preserve sort_keys from previous state when possible
                 const groupsWithKeys = filters.groups.map(
-                    (group: FeatureFlagGroupType): FeatureFlagGroupTypeWithSortKey => {
+                    (group: FeatureFlagGroupType, index: number): FeatureFlagGroupTypeWithSortKey => {
                         if (group.sort_key) {
                             return group as FeatureFlagGroupTypeWithSortKey
                         }
+                        // Try to preserve sort_key from same index in previous state
+                        const previousSortKey = state?.groups?.[index]?.sort_key
                         return {
                             ...group,
-                            sort_key: uuidv4(),
+                            sort_key: previousSortKey ?? uuidv4(),
                         }
                     }
                 )
