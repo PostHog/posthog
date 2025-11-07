@@ -117,6 +117,7 @@ export function PersonScene(): JSX.Element | null {
         primaryDistinctId,
         eventsQuery,
         exceptionsQuery,
+        surveyResponsesQuery,
     } = useValues(personsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
@@ -267,6 +268,11 @@ export function PersonScene(): JSX.Element | null {
                         key: PersonsTabType.EXCEPTIONS,
                         label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
                         content: <Query query={exceptionsQuery} />,
+                    },
+                    {
+                        key: PersonsTabType.SURVEY_ANSWERS,
+                        label: <span data-attr="persons-survey-answers-tab">Survey Answers</span>,
+                        content: <Query query={surveyResponsesQuery} />,
                     },
                     {
                         key: PersonsTabType.COHORTS,
