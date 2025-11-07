@@ -1016,6 +1016,22 @@ class TestTimeSensitivePermissions(APIBaseTest):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
 
+    def test_user_can_update_theme_without_recent_authentication(self):
+        now = datetime.now()
+        with freeze_time(now):
+            res = self.client.patch("/api/users/@me", {"theme_mode": "dark"})
+            assert res.status_code == 200
+
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch("/api/users/@me", {"theme_mode": "light"})
+            assert res.status_code == 200
+
+            res = self.client.patch(
+                "/api/users/@me",
+                {"theme_mode": "system", "first_name": "still protected"},
+            )
+            assert res.status_code == 403
+
 
 class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
     def setUp(self):

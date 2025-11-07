@@ -156,7 +156,8 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
     -- As a performance optimisation, also keep track of the uniq events for all of these combined.
     -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
-    page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+    page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+    has_autocapture SimpleAggregateFunction(max, Boolean),
 
     -- Flags - store every seen value for each flag
     flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
@@ -338,7 +339,8 @@ SELECT
     initializeAggregation('uniqExactState', if(event='$screen', uuid, NULL)) as screen_uniq,
 
     -- perf
-    initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
+    initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen', uuid, NULL)) as page_screen_uniq_up_to,
+    event = '$autocapture' as has_autocapture,
 
     -- flags
     initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
@@ -455,7 +457,8 @@ SELECT
     initializeAggregation('uniqExactState', null_uuid) as screen_uniq,
 
     -- perf
-    initializeAggregation('uniqUpToState(1)', null_uuid) as page_screen_autocapture_uniq_up_to,
+    initializeAggregation('uniqUpToState(1)', null_uuid) as page_screen_uniq_up_to,
+    false as has_autocapture,
 
     -- flags
     initializeAggregation('groupUniqArrayMapState', CAST(map(), 'Map(String, String)')) as flag_values,
@@ -598,7 +601,8 @@ SELECT
     uniqExactMerge(screen_uniq) as screen_uniq,
 
     -- perf
-    uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) as page_screen_autocapture_uniq_up_to,
+    uniqUpToMerge(1)(page_screen_uniq_up_to) as page_screen_uniq_up_to,
+    max(has_autocapture) as has_autocapture,
 
     -- flags
     groupUniqArrayMapMerge(flag_values) as flag_values,

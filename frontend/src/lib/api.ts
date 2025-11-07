@@ -1986,6 +1986,7 @@ const api = {
                 [
                     ActivityScope.PLUGIN,
                     ActivityScope.HOG_FUNCTION,
+                    ActivityScope.HOG_FLOW,
                     ActivityScope.EXPERIMENT,
                     ActivityScope.TAG,
                     ActivityScope.ENDPOINT,
@@ -3827,13 +3828,23 @@ const api = {
             return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
         },
 
-        async recentActivity(
-            options?: ApiMethodOptions & { limit?: number; offset?: number }
+        async runningActivity(
+            options?: ApiMethodOptions & { limit?: number; offset?: number; cutoff_days?: number }
         ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
             return await new ApiRequest()
                 .dataWarehouse()
-                .withAction('recent_activity')
-                .withQueryString({ limit: options?.limit, offset: options?.offset })
+                .withAction('running_activity')
+                .withQueryString({ limit: options?.limit, offset: options?.offset, cutoff_days: options?.cutoff_days })
+                .get(options)
+        },
+
+        async completedActivity(
+            options?: ApiMethodOptions & { limit?: number; offset?: number; cutoff_days?: number }
+        ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('completed_activity')
+                .withQueryString({ limit: options?.limit, offset: options?.offset, cutoff_days: options?.cutoff_days })
                 .get(options)
         },
 

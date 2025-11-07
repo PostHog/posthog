@@ -25,7 +25,7 @@ import {
 } from './__mocks__/test-setup'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
-jest.mock('./TestWorkerManager')
+jest.mock('./snapshot-processing/DecompressionWorkerManager')
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
