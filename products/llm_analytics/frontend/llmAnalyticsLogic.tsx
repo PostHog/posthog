@@ -116,6 +116,14 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         toggleGenerationExpanded: (uuid: string, traceId: string) => ({ uuid, traceId }),
         setLoadedTrace: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
         clearExpandedGenerations: true,
+        toggleSessionExpanded: (sessionId: string) => ({ sessionId }),
+        toggleTraceExpanded: (traceId: string) => ({ traceId }),
+        loadSessionTraces: (sessionId: string) => ({ sessionId }),
+        loadSessionTracesSuccess: (sessionId: string, traces: LLMTrace[]) => ({ sessionId, traces }),
+        loadSessionTracesFailure: (sessionId: string, error: Error) => ({ sessionId, error }),
+        loadFullTrace: (traceId: string) => ({ traceId }),
+        loadFullTraceSuccess: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
+        loadFullTraceFailure: (traceId: string, error: Error) => ({ traceId, error }),
     }),
 
     reducers({
@@ -246,6 +254,102 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 setShouldFilterTestAccounts: () => ({}),
             },
         ],
+
+        expandedSessionIds: [
+            new Set<string>() as Set<string>,
+            {
+                toggleSessionExpanded: (state, { sessionId }) => {
+                    const newSet = new Set(state)
+                    if (newSet.has(sessionId)) {
+                        newSet.delete(sessionId)
+                    } else {
+                        newSet.add(sessionId)
+                    }
+                    return newSet
+                },
+                setDates: () => new Set<string>(),
+                setPropertyFilters: () => new Set<string>(),
+                setShouldFilterTestAccounts: () => new Set<string>(),
+            },
+        ],
+
+        expandedTraceIds: [
+            new Set<string>() as Set<string>,
+            {
+                toggleTraceExpanded: (state, { traceId }) => {
+                    const newSet = new Set(state)
+                    if (newSet.has(traceId)) {
+                        newSet.delete(traceId)
+                    } else {
+                        newSet.add(traceId)
+                    }
+                    return newSet
+                },
+                setDates: () => new Set<string>(),
+                setPropertyFilters: () => new Set<string>(),
+                setShouldFilterTestAccounts: () => new Set<string>(),
+            },
+        ],
+
+        sessionTraces: [
+            {} as Record<string, LLMTrace[]>,
+            {
+                loadSessionTracesSuccess: (state, { sessionId, traces }) => ({
+                    ...state,
+                    [sessionId]: traces,
+                }),
+                setDates: () => ({}),
+                setPropertyFilters: () => ({}),
+                setShouldFilterTestAccounts: () => ({}),
+            },
+        ],
+
+        fullTraces: [
+            {} as Record<string, LLMTrace>,
+            {
+                loadFullTraceSuccess: (state, { traceId, trace }) => ({
+                    ...state,
+                    [traceId]: trace,
+                }),
+                setDates: () => ({}),
+                setPropertyFilters: () => ({}),
+                setShouldFilterTestAccounts: () => ({}),
+            },
+        ],
+
+        loadingSessionTraces: [
+            new Set<string>() as Set<string>,
+            {
+                loadSessionTraces: (state, { sessionId }) => new Set(state).add(sessionId),
+                loadSessionTracesSuccess: (state, { sessionId }) => {
+                    const newSet = new Set(state)
+                    newSet.delete(sessionId)
+                    return newSet
+                },
+                loadSessionTracesFailure: (state, { sessionId }) => {
+                    const newSet = new Set(state)
+                    newSet.delete(sessionId)
+                    return newSet
+                },
+            },
+        ],
+
+        loadingFullTraces: [
+            new Set<string>() as Set<string>,
+            {
+                loadFullTrace: (state, { traceId }) => new Set(state).add(traceId),
+                loadFullTraceSuccess: (state, { traceId }) => {
+                    const newSet = new Set(state)
+                    newSet.delete(traceId)
+                    return newSet
+                },
+                loadFullTraceFailure: (state, { traceId }) => {
+                    const newSet = new Set(state)
+                    newSet.delete(traceId)
+                    return newSet
+                },
+            },
+        ],
     }),
 
     loaders({
@@ -293,6 +397,81 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 } catch (error) {
                     console.error('Failed to load trace:', error)
                 }
+            }
+        },
+
+        toggleSessionExpanded: async ({ sessionId }) => {
+            if (
+                values.expandedSessionIds.has(sessionId) &&
+                !values.sessionTraces[sessionId] &&
+                !values.loadingSessionTraces.has(sessionId)
+            ) {
+                actions.loadSessionTraces(sessionId)
+            }
+        },
+
+        loadSessionTraces: async ({ sessionId }) => {
+            const dateFrom = values.dateFilter.dateFrom || undefined
+            const dateTo = values.dateFilter.dateTo || undefined
+
+            const tracesQuerySource: import('~/queries/schema/schema-general').TracesQuery = {
+                kind: NodeKind.TracesQuery,
+                dateRange: {
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                },
+                properties: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$ai_session_id',
+                        operator: 'exact' as any,
+                        value: sessionId,
+                    },
+                ],
+            }
+
+            try {
+                const response = await api.query(tracesQuerySource)
+                if (response.results) {
+                    actions.loadSessionTracesSuccess(sessionId, response.results)
+                }
+            } catch (error) {
+                console.error('Error loading traces for session:', error)
+                actions.loadSessionTracesFailure(sessionId, error as Error)
+            }
+        },
+
+        toggleTraceExpanded: async ({ traceId }) => {
+            if (
+                values.expandedTraceIds.has(traceId) &&
+                !values.fullTraces[traceId] &&
+                !values.loadingFullTraces.has(traceId)
+            ) {
+                actions.loadFullTrace(traceId)
+            }
+        },
+
+        loadFullTrace: async ({ traceId }) => {
+            const dateFrom = values.dateFilter.dateFrom || undefined
+            const dateTo = values.dateFilter.dateTo || undefined
+
+            const traceQuery: TraceQuery = {
+                kind: NodeKind.TraceQuery,
+                traceId,
+                dateRange: {
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                },
+            }
+
+            try {
+                const response = await api.query(traceQuery)
+                if (response.results && response.results[0]) {
+                    actions.loadFullTraceSuccess(traceId, response.results[0])
+                }
+            } catch (error) {
+                console.error('Error loading full trace:', error)
+                actions.loadFullTraceFailure(traceId, error as Error)
             }
         },
     })),
@@ -922,32 +1101,22 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     kind: NodeKind.HogQLQuery,
                     query: `
                 SELECT
-                    ai_session_id as session_id,
-                    countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
-                    countIf(event_type = '$ai_span') as spans,
-                    countIf(event_type = '$ai_generation') as generations,
-                    countIf(event_type = '$ai_embedding') as embeddings,
-                    countIf(notEmpty(ai_error) OR ai_is_error = 'true') as errors,
-                    round(sum(toFloat(ai_total_cost_usd)), 4) as total_cost,
-                    round(sum(toFloat(ai_latency)), 2) as total_latency,
+                    properties.$ai_session_id as session_id,
+                    countDistinctIf(properties.$ai_trace_id, isNotNull(properties.$ai_trace_id)) as traces,
+                    countIf(event = '$ai_span') as spans,
+                    countIf(event = '$ai_generation') as generations,
+                    countIf(event = '$ai_embedding') as embeddings,
+                    countIf(isNotNull(properties.$ai_error) OR properties.$ai_is_error = 'true') as errors,
+                    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) as total_cost,
+                    round(sum(toFloat(properties.$ai_latency)), 2) as total_latency,
                     min(timestamp) as first_seen,
                     max(timestamp) as last_seen
-                FROM (
-                    SELECT
-                        event as event_type,
-                        timestamp,
-                        JSONExtractString(properties, '$ai_session_id') as ai_session_id,
-                        JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
-                        JSONExtractRaw(properties, '$ai_total_cost_usd') as ai_total_cost_usd,
-                        JSONExtractRaw(properties, '$ai_latency') as ai_latency,
-                        JSONExtractRaw(properties, '$ai_error') as ai_error,
-                        JSONExtractString(properties, '$ai_is_error') as ai_is_error
-                    FROM events
-                    WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
-                        AND notEmpty(JSONExtractString(properties, '$ai_session_id'))
-                        AND {filters}
-                )
-                GROUP BY ai_session_id
+                FROM events
+                WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
+                    AND isNotNull(properties.$ai_session_id)
+                    AND properties.$ai_session_id != ''
+                    AND {filters}
+                GROUP BY properties.$ai_session_id
                 ORDER BY ${sessionsSort.column} ${sessionsSort.direction}
                 LIMIT 50
                     `,

@@ -112,6 +112,10 @@ The user is a product engineer and will primarily request you perform product ma
 - Tool results and user messages may include <system_reminder> tags. <system_reminder> tags contain useful information and reminders. They are NOT part of the user's provided input or the tool result.
 </doing_tasks>
 
+<tool_usage_policy>
+- You can invoke multiple tools within a single response. When a request involves several independent pieces of information, batch your tool calls together for optimal performance
+</tool_usage_policy>
+
 {{{billing_context}}}
 
 {{{core_memory_prompt}}}

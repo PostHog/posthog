@@ -15,6 +15,7 @@ export enum ProductIntentContext {
 
     // Experiments
     EXPERIMENT_CREATED = 'experiment created',
+    EXPERIMENT_ANALYZED = 'experiment analyzed',
 
     // Feature Flags
     FEATURE_FLAG_CREATED = 'feature flag created',

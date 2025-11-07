@@ -34,7 +34,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -216,7 +215,10 @@ function LLMAnalyticsGenerations(): JSX.Element {
                             ) : (
                                 <strong>
                                     <Tooltip title={value}>
-                                        <Link to={`/llm-analytics/traces/${ids.traceId}?event=${value}`}>
+                                        <Link
+                                            to={`/llm-analytics/traces/${ids.traceId}?event=${value}`}
+                                            data-attr="generation-id-link"
+                                        >
                                             {visualValue}
                                         </Link>
                                     </Tooltip>
@@ -348,6 +350,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         checked={evaluation.enabled}
                         onChange={() => toggleEvaluationEnabled(evaluation.id)}
                         size="small"
+                        data-attr="toggle-evaluation-enabled"
                     />
                     <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
                         {evaluation.enabled ? 'Enabled' : 'Disabled'}
@@ -448,7 +451,12 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         Configure evaluation prompts and triggers to automatically assess your LLM generations.
                     </p>
                 </div>
-                <LemonButton type="primary" icon={<IconPlus />} to={urls.llmAnalyticsEvaluation('new')}>
+                <LemonButton
+                    type="primary"
+                    icon={<IconPlus />}
+                    to={urls.llmAnalyticsEvaluation('new')}
+                    data-attr="create-evaluation-button"
+                >
                     Create Evaluation
                 </LemonButton>
             </div>
@@ -459,6 +467,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                     type="search"
                     placeholder="Search evaluations..."
                     value={evaluationsFilter}
+                    data-attr="evaluations-search-input"
                     onChange={setEvaluationsFilter}
                     prefix={<IconSearch />}
                     className="max-w-sm"
@@ -491,6 +500,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             label: 'Dashboard',
             content: <LLMAnalyticsDashboard />,
             link: combineUrl(urls.llmAnalyticsDashboard(), searchParams).url,
+            'data-attr': 'dashboard-tab',
         },
         {
             key: 'traces',
@@ -501,6 +511,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsTraces(), searchParams).url,
+            'data-attr': 'traces-tab',
         },
         {
             key: 'generations',
@@ -511,6 +522,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsGenerations(), searchParams).url,
+            'data-attr': 'generations-tab',
         },
         {
             key: 'users',
@@ -521,19 +533,28 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsUsers(), searchParams).url,
+            'data-attr': 'users-tab',
         },
     ]
 
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]) {
         tabs.push({
             key: 'sessions',
-            label: 'Sessions',
+            label: (
+                <>
+                    Sessions{' '}
+                    <LemonTag className="ml-1" type="warning">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
             content: (
                 <LLMAnalyticsSetupPrompt>
                     <LLMAnalyticsSessionsScene />
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsSessions(), searchParams).url,
+            'data-attr': 'sessions-tab',
         })
     }
 
@@ -550,6 +571,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             ),
             content: <LLMAnalyticsPlaygroundScene />,
             link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
+            'data-attr': 'playground-tab',
         })
     }
 
@@ -609,7 +631,6 @@ export function LLMAnalyticsScene(): JSX.Element {
                         </>
                     }
                 />
-                <SceneDivider />
 
                 <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
             </SceneContent>

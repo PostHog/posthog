@@ -13,6 +13,7 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
     SnowflakeClient,
     SnowflakeInsertInputs,
     SnowflakeQueryTimeoutError,
+    SnowflakeWarehouseUsageError,
 )
 from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils import SKIP_IF_MISSING_REQUIRED_ENV_VARS
 
@@ -121,3 +122,10 @@ async def test_execute_async_query_completes_within_timeout(snowflake_client):
     results, _description = result
     assert len(results) == 1
     assert results[0][0] == 1
+
+
+async def test_use_namespace_raises_error_if_warehouse_not_found_or_missing_usage_permissions(snowflake_client):
+    """Test that use_namespace raises an error if the warehouse is not found or we are missing 'USAGE' permissions on it."""
+    snowflake_client.warehouse = "garbage"
+    with pytest.raises(SnowflakeWarehouseUsageError):
+        await snowflake_client.use_namespace()

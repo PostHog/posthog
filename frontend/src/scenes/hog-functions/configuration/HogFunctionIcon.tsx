@@ -3,9 +3,8 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { useInView } from 'react-intersection-observer'
 
+import { IconUpload } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, LemonSkeleton, Popover, Spinner, lemonToast } from '@posthog/lemon-ui'
-
-import { IconUploadFile } from 'lib/lemon-ui/icons'
 
 import { HogFunctionIconLogicProps, hogFunctionIconLogic } from './hogFunctionIconLogic'
 
@@ -52,7 +51,7 @@ export function HogFunctionIconEditable({
 
     const content = (
         <span
-            className="p-1 -m-1 rounded-sm transition-colors cursor-pointer hover:bg-fill-button-tertiary-hover"
+            className="p-1 -m-1 rounded-lg transition-colors cursor-pointer hover:bg-fill-button-tertiary-hover"
             onClick={() => setShowPopover(!showPopover)}
         >
             <HogFunctionIcon size={size} src={props.src} />
@@ -83,7 +82,7 @@ export function HogFunctionIconEditable({
                                     })
                             }}
                             callToAction={
-                                <LemonButton size="small" type="secondary" icon={<IconUploadFile />}>
+                                <LemonButton size="small" type="secondary" icon={<IconUpload />}>
                                     Upload image
                                 </LemonButton>
                             }
@@ -161,7 +160,7 @@ export function HogFunctionIcon({
                 <>
                     <img
                         className={clsx(
-                            'overflow-hidden w-full h-full rounded transition-opacity',
+                            'overflow-hidden w-full h-full rounded transition-opacity shadow',
                             loaded ? 'opacity-100' : 'opacity-0'
                         )}
                         src={src}

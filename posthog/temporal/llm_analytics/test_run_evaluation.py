@@ -60,7 +60,10 @@ class TestRunEvaluationWorkflow:
                 )
             ]
 
-            inputs = RunEvaluationInputs(evaluation_id=str(evaluation.id), target_event_id=event_id)
+            timestamp = datetime.now().isoformat()
+            inputs = RunEvaluationInputs(
+                evaluation_id=str(evaluation.id), target_event_id=event_id, timestamp=timestamp
+            )
 
             result = await fetch_target_event_activity(inputs, team.id)
 
@@ -80,7 +83,10 @@ class TestRunEvaluationWorkflow:
         evaluation = setup_data["evaluation"]
         team = setup_data["team"]
 
-        inputs = RunEvaluationInputs(evaluation_id=str(evaluation.id), target_event_id=str(uuid.uuid4()))
+        timestamp = datetime.now().isoformat()
+        inputs = RunEvaluationInputs(
+            evaluation_id=str(evaluation.id), target_event_id=str(uuid.uuid4()), timestamp=timestamp
+        )
 
         with patch("posthog.temporal.llm_analytics.run_evaluation.Evaluation.objects.get") as mock_get:
             mock_evaluation = MagicMock()
@@ -135,16 +141,20 @@ class TestRunEvaluationWorkflow:
             mock_client = MagicMock()
             mock_openai.return_value = mock_client
 
+            mock_parsed = MagicMock()
+            mock_parsed.verdict = True
+            mock_parsed.reasoning = "The answer is correct"
+
             mock_response = MagicMock()
             mock_response.choices = [MagicMock()]
-            mock_response.choices[0].message.content = '{"verdict": true, "reasoning": "The answer is correct"}'
-            mock_client.chat.completions.create.return_value = mock_response
+            mock_response.choices[0].message.parsed = mock_parsed
+            mock_client.beta.chat.completions.parse.return_value = mock_response
 
             result = await execute_llm_judge_activity(evaluation, event_data)
 
             assert result["verdict"] is True
             assert result["reasoning"] == "The answer is correct"
-            mock_client.chat.completions.create.assert_called_once()
+            mock_client.beta.chat.completions.parse.assert_called_once()
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

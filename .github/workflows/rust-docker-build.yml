@@ -51,7 +51,7 @@ jobs:
                     - image: batch-import-worker
                       dockerfile: ./rust/Dockerfile
                       project: 4ppc15q4bv
-                    - image: log-capture
+                    - image: capture-logs
                       dockerfile: ./rust/Dockerfile
                       project: c1bwj4j4qg
                     - image: kafka-deduplicator
@@ -76,7 +76,7 @@ jobs:
             cymbal_digest: ${{ steps.digest.outputs.cymbal_digest }}
             embedding-worker_digest: ${{ steps.digest.outputs.embedding-worker_digest }}
             feature-flags_digest: ${{ steps.digest.outputs.feature-flags_digest }}
-            log-capture_digest: ${{ steps.digest.outputs.log-capture_digest }}
+            capture-logs_digest: ${{ steps.digest.outputs.capture-logs_digest }}
             kafka-deduplicator_digest: ${{ steps.digest.outputs.kafka-deduplicator_digest }}
         defaults:
             run:
@@ -205,10 +205,10 @@ jobs:
                               sha: '${{ needs.build.outputs.hook-worker_digest }}'
                           migrator_image:
                               sha: '${{ needs.build.outputs.hook-migrator_digest }}'
-                    - release: log-capture
+                    - release: capture-logs
                       values:
                           image:
-                              sha: '${{ needs.build.outputs.log-capture_digest }}'
+                              sha: '${{ needs.build.outputs.capture-logs_digest }}'
                     - release: kafka-deduplicator
                       values:
                           image:

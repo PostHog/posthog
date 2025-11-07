@@ -272,7 +272,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         else:
             try:
                 team = Team.objects.get(id=self.team_id)
-            except Team.DoesNotExist:
+            except (Team.DoesNotExist, ValueError):
                 raise NotFound(
                     detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
                 )
@@ -306,7 +306,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             return team.project
         try:
             return Project.objects.get(id=self.project_id)
-        except Project.DoesNotExist:
+        except (Project.DoesNotExist, ValueError):
             raise NotFound(detail="Project not found.")
 
     @cached_property
@@ -332,10 +332,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     def organization(self) -> Organization:
         try:
             return Organization.objects.get(id=self.organization_id)
-        except Organization.DoesNotExist:
+        except (Organization.DoesNotExist, ValueError):
             raise NotFound(detail="Organization not found.")
 
     def _filter_queryset_by_parents_lookups(self, queryset):
+        if hasattr(self, "_should_skip_parents_filter") and callable(self._should_skip_parents_filter):
+            if self._should_skip_parents_filter():
+                return queryset
+
         parents_query_dict = self.parents_query_dict.copy()
 
         for source, destination in self.filter_rewrite_rules.items():

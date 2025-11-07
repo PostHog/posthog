@@ -2,9 +2,14 @@ import uuid
 import datetime as dt
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 from posthog.clickhouse.query_tagging import QueryTags
-from posthog.temporal.common.clickhouse import add_log_comment_param, encode_clickhouse_data
+from posthog.temporal.common.clickhouse import (
+    ClickHouseMemoryLimitExceededError,
+    add_log_comment_param,
+    encode_clickhouse_data,
+)
 
 
 @pytest.mark.parametrize(
@@ -55,3 +60,19 @@ def test_encode_clickhouse_data(data, expected):
 def test_add_log_comment_param(params, qt, want):
     add_log_comment_param(params, qt)
     assert params == want
+
+
+def test_clickhouse_memory_limit_exceeded_error(clickhouse_client):
+    """Simulate a ClickHouse memory limit exceeded error and verify that the correct error is raised."""
+    with patch(
+        "posthog.temporal.common.clickhouse.requests.Session.post",
+        return_value=(
+            MagicMock(
+                status_code=500,
+                text="Code: 241. DB::Exception: (total) memory limit exceeded: would use 99.97 GiB (attempt to allocate chunk of 12.26 MiB bytes), current RSS: 111.22 GiB, maximum: 111.19 GiB. OvercommitTracker decision: Query was selected to stop by OvercommitTracker: While executing MergeSortingTransform. (MEMORY_LIMIT_EXCEEDED) (version 25.6.13.41 (official build))",
+            )
+        ),
+    ):
+        with pytest.raises(ClickHouseMemoryLimitExceededError):
+            with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
+                pass
