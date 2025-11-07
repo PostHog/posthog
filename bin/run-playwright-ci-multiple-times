@@ -1,0 +1,210 @@
+#!/bin/bash
+set -e
+
+# Script to run the Playwright CI workflow multiple times to detect flakiness
+# Usage:
+#   ./bin/run-playwright-ci-multiple-times [iterations] [branch]
+#
+# Arguments:
+#   iterations: Number of times to run the workflow (default: 10)
+#   branch: Branch to run on (default: current branch)
+#
+# Examples:
+#   ./bin/run-playwright-ci-multiple-times 10
+#   ./bin/run-playwright-ci-multiple-times 5 my-feature-branch
+
+REPO="PostHog/posthog"
+ITERATIONS="${1:-10}"
+BRANCH="${2}"
+
+# Check if gh CLI is installed
+if ! command -v gh &> /dev/null; then
+    echo "Error: GitHub CLI (gh) is not installed"
+    echo "Install it from: https://cli.github.com/"
+    exit 1
+fi
+
+# Check if authenticated
+if ! gh auth status &> /dev/null; then
+    echo "Error: Not authenticated with GitHub CLI"
+    echo "Run: gh auth login"
+    exit 1
+fi
+
+# Determine branch
+if [ -z "$BRANCH" ]; then
+    BRANCH=$(git branch --show-current)
+    if [ -z "$BRANCH" ]; then
+        echo "Error: Not on a git branch and no branch specified"
+        exit 1
+    fi
+fi
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🔬 Playwright Flakiness Test (CI)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Iterations: $ITERATIONS"
+echo "Branch: $BRANCH"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Confirm before proceeding
+read -p "This will trigger $ITERATIONS CI runs. Continue? (y/N) " -n 1 -r
+echo
+echo ""
+
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Cancelled."
+    exit 0
+fi
+
+echo "🚀 Triggering $ITERATIONS workflow runs..."
+echo ""
+
+# Store run IDs
+declare -a RUN_IDS
+
+# Trigger multiple workflow runs
+for i in $(seq 1 $ITERATIONS); do
+    echo "[$i/$ITERATIONS] Triggering workflow run..."
+
+    gh workflow run ci-e2e-playwright.yml --ref "$BRANCH"
+
+    sleep 3
+
+    # Get the latest run ID (wait a moment for it to appear)
+    sleep 2
+    LATEST_RUN=$(gh run list --workflow=ci-e2e-playwright.yml --branch "$BRANCH" --limit 1 --json databaseId,status,createdAt --jq '.[0]')
+    RUN_ID=$(echo "$LATEST_RUN" | jq -r '.databaseId')
+    RUN_IDS+=("$RUN_ID")
+
+    echo "  ✓ Run ID: $RUN_ID"
+
+    # Add delay between triggers to avoid overwhelming CI
+    if [ $i -lt $ITERATIONS ]; then
+        sleep 5
+    fi
+done
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✅ All $ITERATIONS workflow runs triggered!"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "Run IDs:"
+for RUN_ID in "${RUN_IDS[@]}"; do
+    echo "  - $RUN_ID (https://github.com/$REPO/actions/runs/$RUN_ID)"
+done
+echo ""
+echo "Monitor progress:"
+echo "  gh run list --workflow=ci-e2e-playwright.yml --branch $BRANCH --limit $ITERATIONS"
+echo ""
+echo "Watch first run:"
+echo "  gh run watch ${RUN_IDS[0]}"
+echo ""
+echo "View all runs:"
+echo "  https://github.com/$REPO/actions/workflows/ci-e2e-playwright.yml"
+echo ""
+
+# Wait for all runs to complete and summarize results
+read -p "Wait for all runs to complete and show summary? (y/N) " -n 1 -r
+echo
+echo ""
+
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "⏳ Waiting for all runs to complete..."
+    echo "   (This may take a while - each run takes ~15 minutes)"
+    echo ""
+
+    SUCCESS_COUNT=0
+    FAILURE_COUNT=0
+    CANCELLED_COUNT=0
+    declare -a FAILED_RUN_IDS
+
+    for i in "${!RUN_IDS[@]}"; do
+        RUN_ID="${RUN_IDS[$i]}"
+        RUN_NUM=$((i + 1))
+
+        echo "[$RUN_NUM/$ITERATIONS] Waiting for run $RUN_ID..."
+
+        # Wait for run to complete
+        while true; do
+            RUN_INFO=$(gh api repos/$REPO/actions/runs/$RUN_ID)
+            STATUS=$(echo "$RUN_INFO" | jq -r '.status')
+            CONCLUSION=$(echo "$RUN_INFO" | jq -r '.conclusion')
+
+            if [ "$STATUS" = "completed" ]; then
+                break
+            fi
+
+            sleep 30
+        done
+
+        # Record result
+        if [ "$CONCLUSION" = "success" ]; then
+            SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+            echo "  ✅ Success"
+        elif [ "$CONCLUSION" = "cancelled" ]; then
+            CANCELLED_COUNT=$((CANCELLED_COUNT + 1))
+            echo "  ⏭️  Cancelled"
+        else
+            FAILURE_COUNT=$((FAILURE_COUNT + 1))
+            FAILED_RUN_IDS+=("$RUN_ID")
+            echo "  ❌ Failed ($CONCLUSION)"
+        fi
+    done
+
+    COMPLETED_COUNT=$((SUCCESS_COUNT + FAILURE_COUNT))
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📊 Flakiness Test Results"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Branch: $BRANCH"
+    echo "Total runs: $ITERATIONS"
+    echo ""
+
+    if [ $CANCELLED_COUNT -gt 0 ]; then
+        echo "⏭️  Cancelled: $CANCELLED_COUNT"
+        echo "Completed: $COMPLETED_COUNT"
+        echo ""
+    fi
+
+    if [ $COMPLETED_COUNT -gt 0 ]; then
+        SUCCESS_PCT=$((SUCCESS_COUNT * 100 / COMPLETED_COUNT))
+        FAILURE_PCT=$((FAILURE_COUNT * 100 / COMPLETED_COUNT))
+
+        echo "✅ Passed: $SUCCESS_COUNT ($SUCCESS_PCT%)"
+        echo "❌ Failed: $FAILURE_COUNT ($FAILURE_PCT%)"
+        echo ""
+
+        if [ $FAILURE_COUNT -gt 0 ] && [ $SUCCESS_COUNT -gt 0 ]; then
+            echo "⚠️  FLAKY TESTS DETECTED!"
+            echo ""
+            echo "The tests are unreliable with a $FAILURE_PCT% failure rate."
+            echo "This indicates flakiness that should be investigated and fixed."
+            echo ""
+            echo "Failed run IDs:"
+            for FAILED_ID in "${FAILED_RUN_IDS[@]}"; do
+                echo "  - https://github.com/$REPO/actions/runs/$FAILED_ID"
+            done
+        elif [ $FAILURE_COUNT -eq $COMPLETED_COUNT ]; then
+            echo "❌ Tests consistently fail - likely a real bug, not flakiness"
+            echo ""
+            echo "All runs failed. This suggests a persistent issue rather than flakiness."
+            echo "Check the first failure for details:"
+            echo "  https://github.com/$REPO/actions/runs/${RUN_IDS[0]}"
+        elif [ $SUCCESS_COUNT -eq $COMPLETED_COUNT ]; then
+            echo "✅ Tests are stable - no flakiness detected!"
+            echo ""
+            echo "All $COMPLETED_COUNT runs passed successfully."
+        fi
+    fi
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+fi
+
+echo ""
+echo "Done!"
