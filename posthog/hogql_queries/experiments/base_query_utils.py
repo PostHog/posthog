@@ -15,6 +15,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentRatioMetric,
+    ExperimentRetentionMetric,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
     MultipleVariantHandling,
@@ -289,7 +290,7 @@ def get_metric_time_window(
 
 
 def get_exposure_time_window_constraints(
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric],
     timestamp_field: ast.Field,
     exposure_time_field: ast.Field,
 ) -> list[ast.CompareOperation]:
@@ -355,7 +356,7 @@ def get_experiment_exposure_query(
     date_range_query: QueryDateRange,
     team: Team,
     entity_key: str,
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric],
     multiple_variant_handling: MultipleVariantHandling,
 ) -> ast.SelectQuery:
     """
@@ -508,7 +509,7 @@ def get_source_events_query(
 
 
 def get_metric_events_query(
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric],
     team: Team,
     entity_key: str,
     experiment: Experiment,
@@ -634,7 +635,7 @@ def get_source_aggregation_expr(
 
 def get_metric_aggregation_expr(
     experiment: Experiment,
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric],
     team: Team,
     source_type: Literal["numerator", "denominator"] | None = None,
 ) -> ast.Expr:

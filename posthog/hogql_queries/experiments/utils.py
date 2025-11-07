@@ -5,6 +5,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentQueryResponse,
     ExperimentRatioMetric,
+    ExperimentRetentionMetric,
     ExperimentStatsBase,
     ExperimentStatsBaseValidated,
     ExperimentStatsValidationFailure,
@@ -89,7 +90,7 @@ def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStats
 
 def validate_variant_result(
     variant_result: ExperimentStatsBase,
-    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric,
+    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     is_baseline=False,
 ) -> ExperimentStatsBaseValidated:
     validation_failures = []
@@ -127,7 +128,8 @@ def validate_variant_result(
 
 
 def metric_variant_to_statistic(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric, variant: ExperimentStatsBaseValidated
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    variant: ExperimentStatsBaseValidated,
 ) -> SampleMeanStatistic | ProportionStatistic | RatioStatistic:
     if isinstance(metric, ExperimentMeanMetric):
         return SampleMeanStatistic(
@@ -163,7 +165,7 @@ def metric_variant_to_statistic(
 
 
 def get_frequentist_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
 ) -> ExperimentQueryResponse:
@@ -222,7 +224,7 @@ def get_frequentist_experiment_result(
 
 
 def get_bayesian_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
 ) -> ExperimentQueryResponse:
