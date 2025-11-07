@@ -24,10 +24,6 @@ plugin-server/src/ingestion/ @PostHog/team-ingestion
 plugin-server/src/cdp/ @PostHog/team-workflows
 plugin-server/src/ingestion/ai-costs/ @PostHog/team-llm-analytics
 
-# ClickHouse team owns Clickhouse migrations
-
-posthog/clickhouse/migrations/** @PostHog/clickhouse
-
 # Web Analytics team owns web analytics code
 
 products/web_analytics/** @PostHog/team-web-analytics
@@ -56,12 +52,6 @@ posthog/tasks/exports/** @PostHog/team-analytics-platform
 products/revenue_analytics/** @PostHog/team-revenue-analytics
 
 # Feature Flags team
-
-# Platform (the `/flags` and `/decide` endpoints + associated utils)
-
-rust/feature-flags/ @PostHog/team-feature-flags
-posthog/api/decide.py @PostHog/team-feature-flags
-posthog/models/flag_matching.py @PostHog/team-feature-flags
 
 # Feature Flags CRUD operations
 
@@ -116,7 +106,11 @@ ee/session_recordings/**/*.py @PostHog/team-replay
 ee/frontend/mobile-replay @PostHog/team-replay
 
 # DevEx
-
-posthog/management/migration_analysis/ @PostHog/DevEx
-common/hogli/ @PostHog/DevEx
-bin/ @PostHog/DevEx
+Dockerfile @PostHog/team-devex
+docker-compose*.yml @PostHog/team-devex
+pyproject.toml @PostHog/team-devex
+.prettierrc @PostHog/team-devex
+mypy.ini @PostHog/team-devex
+posthog/management/migration_analysis/ @PostHog/team-devex
+common/hogli/ @PostHog/team-devex
+bin/ @PostHog/team-devex

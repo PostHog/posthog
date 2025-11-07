@@ -5,7 +5,7 @@ from braintrust import EvalCase
 
 from posthog.schema import AssistantMessage, HumanMessage
 
-from ee.hogai.graph import AssistantGraph
+from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
@@ -60,19 +60,7 @@ def call_root(demo_org_team_user):
     graph = (
         AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-        .add_root(
-            {
-                # Some requests will go via Inkeep, and this is realistic! Inkeep needs to adhere to our intended style too
-                "search_documentation": AssistantNodeName.INKEEP_DOCS,
-                "root": AssistantNodeName.ROOT,
-                "billing": AssistantNodeName.END,
-                "insights": AssistantNodeName.END,
-                "insights_search": AssistantNodeName.END,
-                "session_summarization": AssistantNodeName.END,
-                "end": AssistantNodeName.END,
-            }
-        )
-        .add_inkeep_docs()
+        .add_root(lambda state: AssistantNodeName.END)
         .compile()
     )
 

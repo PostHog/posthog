@@ -65,7 +65,7 @@ default_cookie_options = {
     "samesite": "Strict",
 }
 
-cookie_api_paths_to_ignore = {"decide", "api", "flags"}
+cookie_api_paths_to_ignore = {"decide", "api", "flags", "scim"}
 
 
 class OverridableAuthenticationMiddleware(AuthenticationMiddleware):
@@ -172,6 +172,10 @@ class AutoProjectMiddleware:
         self.token_allowlist = PROJECT_SWITCHING_TOKEN_ALLOWLIST
 
     def __call__(self, request: HttpRequest):
+        # Skip project switching for CLI authorization page
+        if request.path.startswith("/cli/authorize"):
+            return self.get_response(request)
+
         if request.user.is_authenticated:
             path_parts = request.path.strip("/").split("/")
             project_id_in_url = None
@@ -741,7 +745,8 @@ class CSPMiddleware:
                 "worker-src 'self'",
                 "child-src 'none'",
                 "object-src 'none'",
-                f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com",
+                "media-src https://res.cloudinary.com",
+                f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 "frame-ancestors https://posthog.com https://preview.posthog.com",
                 f"connect-src 'self' https://status.posthog.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # allow all sites for displaying heatmaps

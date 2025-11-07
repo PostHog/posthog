@@ -1,4 +1,4 @@
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import Any
 
 import structlog
@@ -30,6 +30,32 @@ def get_regional_ph_client():
 
 @contextmanager
 def ph_scoped_capture():
+    ph_client = get_client()
+
+    def capture_ph_event(*args: Any, **kwargs: Any) -> None:
+        if is_cloud() and ph_client:
+            ph_client.capture(*args, **kwargs)
+
+    yield capture_ph_event
+
+    ph_client.shutdown()
+
+
+@asynccontextmanager
+async def ph_async_scoped_capture():
+    """
+    Async context manager for PostHog event capture.
+
+    Use this when calling from async functions to ensure proper cleanup
+    after async operations complete.
+
+    Usage:
+        async with ph_async_scoped_capture() as capture_event:
+            # ... async operations
+            capture_event(distinct_id="user_id", event="event_name", properties={...})
+            # ... more async operations
+        # Client is shut down here after all async operations complete
+    """
     ph_client = get_client()
 
     def capture_ph_event(*args: Any, **kwargs: Any) -> None:

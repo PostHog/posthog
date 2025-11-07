@@ -182,7 +182,6 @@ where
         event_max_bytes,
         config.enable_historical_rerouting,
         config.historical_rerouting_threshold_days,
-        config.historical_tokens_keys,
         config.is_mirror_deploy,
         config.verbose_sample_percent,
         config.ai_max_sum_of_parts_bytes,
