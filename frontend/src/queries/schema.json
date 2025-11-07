@@ -9857,6 +9857,10 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "DataWarehouseSyncInterval": {
+            "enum": ["5min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
+            "type": "string"
+        },
         "DataWarehouseViewLink": {
             "additionalProperties": false,
             "properties": {
@@ -10757,6 +10761,10 @@
                 "is_active": {
                     "type": "boolean"
                 },
+                "is_materialized": {
+                    "description": "Whether this endpoint's query results are materialized to S3",
+                    "type": "boolean"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -10769,6 +10777,10 @@
                             "$ref": "#/definitions/InsightQueryNode"
                         }
                     ]
+                },
+                "sync_frequency": {
+                    "$ref": "#/definitions/DataWarehouseSyncInterval",
+                    "description": "How frequently should the underlying materialized view be updated"
                 }
             },
             "type": "object"
@@ -18535,6 +18547,9 @@
                 "pathsHogQLExpression": {
                     "type": "string"
                 },
+                "showFullUrls": {
+                    "type": "boolean"
+                },
                 "startPoint": {
                     "type": "string"
                 },
@@ -23713,6 +23728,17 @@
                 },
                 "returningEntity": {
                     "$ref": "#/definitions/RetentionEntity"
+                },
+                "selectedInterval": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The selected interval to display across all cohorts (null = show all intervals for each cohort)"
                 },
                 "showTrendLines": {
                     "type": "boolean"
