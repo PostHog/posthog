@@ -66,8 +66,8 @@ impl FlagsReadThroughCache {
     pub fn from_redis_clients(
         shared_redis_reader: Arc<dyn common_redis::Client + Send + Sync>,
         shared_redis_writer: Arc<dyn common_redis::Client + Send + Sync>,
-        flags_redis_reader: Option<Arc<dyn common_redis::Client + Send + Sync>>,
-        flags_redis_writer: Option<Arc<dyn common_redis::Client + Send + Sync>>,
+        dedicated_redis_reader: Option<Arc<dyn common_redis::Client + Send + Sync>>,
+        dedicated_redis_writer: Option<Arc<dyn common_redis::Client + Send + Sync>>,
         flags_cache_ttl_seconds: u64,
         config: Config,
     ) -> Self {
@@ -87,7 +87,7 @@ impl FlagsReadThroughCache {
         ));
 
         // Create dedicated cache only if dedicated Redis is configured
-        let dedicated_cache = match (flags_redis_reader, flags_redis_writer) {
+        let dedicated_cache = match (dedicated_redis_reader, dedicated_redis_writer) {
             (Some(reader), Some(writer)) => {
                 let dedicated_cache_inner = Arc::new(FeatureFlagList::create_cache(
                     reader,
@@ -108,26 +108,6 @@ impl FlagsReadThroughCache {
             shared_cache,
             dedicated_cache,
             config,
-        }
-    }
-
-    /// Returns the Redis clients that should be used for the team cache (critical path)
-    ///
-    /// Strategy:
-    /// - If dedicated cache exists: Use dedicated Redis (critical path isolation)
-    /// - Otherwise: Use shared Redis (fallback)
-    pub fn get_team_cache_clients(
-        shared_redis_reader: Arc<dyn common_redis::Client + Send + Sync>,
-        shared_redis_writer: Arc<dyn common_redis::Client + Send + Sync>,
-        flags_redis_reader: Option<Arc<dyn common_redis::Client + Send + Sync>>,
-        flags_redis_writer: Option<Arc<dyn common_redis::Client + Send + Sync>>,
-    ) -> (
-        Arc<dyn common_redis::Client + Send + Sync>,
-        Arc<dyn common_redis::Client + Send + Sync>,
-    ) {
-        match (flags_redis_reader, flags_redis_writer) {
-            (Some(reader), Some(writer)) => (reader, writer),
-            _ => (shared_redis_reader, shared_redis_writer),
         }
     }
 

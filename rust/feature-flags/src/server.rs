@@ -51,19 +51,19 @@ where
         return;
     };
 
-    // Create dedicated Redis clients for flags (critical path: team cache + flags cache)
+    // Create dedicated Redis clients for flags cache (critical path isolation)
     // Only create separate clients if dedicated flags Redis URLs are configured
-    let (flags_redis_reader_client, flags_redis_writer_client) = match (
+    let (dedicated_redis_reader_client, dedicated_redis_writer_client) = match (
         config.get_flags_redis_reader_url(),
         config.get_flags_redis_writer_url(),
     ) {
         (Some(reader_url), Some(writer_url)) => {
             // Dedicated flags Redis is configured
-            let Some(reader) = create_redis_client(reader_url, "flags reader").await else {
+            let Some(reader) = create_redis_client(reader_url, "dedicated flags reader").await else {
                 return;
             };
 
-            let Some(writer) = create_redis_client(writer_url, "flags writer").await else {
+            let Some(writer) = create_redis_client(writer_url, "dedicated flags writer").await else {
                 return;
             };
 
@@ -86,7 +86,7 @@ where
 
     // Log the cache migration mode based on configuration
     let cache_mode = match (
-        flags_redis_reader_client.is_some(),
+        dedicated_redis_reader_client.is_some(),
         *config.flags_redis_enabled,
     ) {
         (false, _) => "Mode 1 (Shared-only): All caches use shared Redis",
@@ -198,8 +198,8 @@ where
     let app = router::router(
         redis_reader_client,
         redis_writer_client,
-        flags_redis_reader_client,
-        flags_redis_writer_client,
+        dedicated_redis_reader_client,
+        dedicated_redis_writer_client,
         database_pools,
         cohort_cache,
         geoip_service,
