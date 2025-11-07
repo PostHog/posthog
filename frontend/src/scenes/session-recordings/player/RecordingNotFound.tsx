@@ -15,16 +15,17 @@ export function RecordingNotFound(): JSX.Element {
             object="Recording"
             caption={
                 <>
-                    The requested recording doesn't seem to exist. The recording may still be processing, deleted due to
-                    age or have not been enabled. Please check your{' '}
-                    <Link to={urls.settings('project-replay')}>project settings</Link> that recordings is turned on and
-                    enabled for the domain in question. Alternatively read the{' '}
+                    The requested recording could not be found. It may still be processing, may have been deleted due to
+                    age, or recording may not be enabled. Please check your{' '}
+                    <Link to={urls.settings('project-replay')}>project settings</Link>
+                    to ensure that recording is turned on and enabled for the relevant domain. You can also refer to the{' '}
                     <Link to="https://posthog.com/docs/session-replay/troubleshooting#recording-not-found">
                         troubleshooting guide
-                    </Link>
+                    </Link>{' '}
+                    for more information.
                     {currentTeam?.session_recording_opt_in ? (
                         <LemonBanner type="info" className="mt-4 max-w-xl mx-auto">
-                            <div className="justify-between flex items-center">
+                            <div className="flex justify-between items-center">
                                 <p>Session replay is enabled for this project</p>
                                 <LemonButton
                                     data-attr="recording-404-edit-settings"
@@ -38,7 +39,7 @@ export function RecordingNotFound(): JSX.Element {
                         </LemonBanner>
                     ) : (
                         <LemonBanner type="warning" className="mt-4 max-w-xl mx-auto">
-                            <div className="justify-between flex items-center">
+                            <div className="flex justify-between items-center">
                                 <p>Session replay is disabled for this project</p>
                                 <LemonButton
                                     data-attr="recording-404-edit-settings"
