@@ -254,7 +254,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
         getExperimentStatus(experiment) === ProgressStatus.Draft &&
         experiment.type === 'product' &&
         allPrimaryMetrics.length === 0 &&
-        featureFlags[FEATURE_FLAGS.EXPERIMENTS_CREATE_FORM] === 'test'
+        featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_CREATE_FORM] === 'test'
     ) {
         return <CreateExperiment draftExperiment={experiment} tabId={tabId} />
     }

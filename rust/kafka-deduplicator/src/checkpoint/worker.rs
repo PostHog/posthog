@@ -136,11 +136,17 @@ impl CheckpointWorker {
 
     /// Clean up the temporary checkpoint directory (step 3 of checkpoint process)
     pub async fn cleanup_checkpoint(&self) {
+        info!(
+            self.worker_id,
+            local_attempt_path = self.get_local_attempt_path().to_string_lossy().to_string(),
+            "Checkpoint worker: deleting local attempt directory",
+        );
+
         if let Err(e) = tokio::fs::remove_dir_all(&self.get_local_attempt_path()).await {
-            warn!(
+            error!(
                 self.worker_id,
                 local_attempt_path = self.get_local_attempt_path().to_string_lossy().to_string(),
-                "Failed to clean up temp checkpoint directory: {}",
+                "Checkpoint worker: failed to clean up local attempt directory: {}",
                 e
             );
         }
@@ -197,7 +203,7 @@ impl CheckpointWorker {
                     local_attempt_path = local_attempt_path.to_string_lossy().to_string(),
                     sst_file_count = rocks_metadata.sst_files.len(),
                     sequence = rocks_metadata.sequence,
-                    "Created local checkpoint",
+                    "Checkpoint worker: created local checkpoint",
                 );
 
                 Ok(rocks_metadata)
@@ -217,7 +223,7 @@ impl CheckpointWorker {
                 error!(
                     self.worker_id,
                     local_attempt_path = local_attempt_path.to_string_lossy().to_string(),
-                    "Local checkpoint failed: {}",
+                    "Checkpoint worker: local attempt failed: {}",
                     error_chain.join(" -> ")
                 );
 
@@ -232,9 +238,16 @@ impl CheckpointWorker {
         previous_metadata: Option<&CheckpointMetadata>,
     ) -> Result<Option<CheckpointInfo>> {
         let local_attempt_path_tag = self.get_local_attempt_path().to_string_lossy().to_string();
+        let attempt_type = if previous_metadata.is_some() {
+            "incremental"
+        } else {
+            "full"
+        };
+
         info!(
             self.worker_id,
             local_attempt_path = local_attempt_path_tag,
+            attempt_type,
             "Checkpoint worker: exporting remote checkpoint",
         );
 
@@ -259,10 +272,11 @@ impl CheckpointWorker {
                 info!(
                     self.worker_id,
                     local_attempt_path = local_attempt_path_tag,
+                    attempt_type,
                     total_files = plan.info.metadata.files.len(),
                     new_files = plan.files_to_upload.len(),
                     reused_files = plan.info.metadata.files.len() - plan.files_to_upload.len(),
-                    "Checkpoint plan created"
+                    "Checkpoint worker: plan created"
                 );
 
                 // Export checkpoint using the plan
@@ -274,7 +288,8 @@ impl CheckpointWorker {
                             self.worker_id,
                             local_attempt_path = local_attempt_path_tag,
                             remote_path = plan.info.get_remote_attempt_path(),
-                            "Checkpoint exported successfully"
+                            attempt_type,
+                            "Checkpoint worker: export successfully"
                         );
 
                         Ok(Some(plan.info))
@@ -286,7 +301,8 @@ impl CheckpointWorker {
                         error!(
                             self.worker_id,
                             local_attempt_path = local_attempt_path_tag,
-                            "Checkpoint failed to export: {}",
+                            attempt_type,
+                            "Checkpoint worker: export failed: {}",
                             e
                         );
 
@@ -301,7 +317,8 @@ impl CheckpointWorker {
                 warn!(
                     self.worker_id,
                     local_attempt_path = local_attempt_path_tag,
-                    "Checkpoint upload skipped: no exporter configured",
+                    attempt_type,
+                    "Checkpoint worker: export skipped: no exporter configured",
                 );
 
                 Ok(None)
