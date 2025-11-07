@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { IconInfo, IconPencil } from '@posthog/icons'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -30,8 +30,9 @@ import {
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
+    isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricGoal, ExperimentMetricMathType, FilterType } from '~/types'
+import { ExperimentMetricGoal, ExperimentMetricMathType, FilterType, FunnelConversionWindowTimeUnit } from '~/types'
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
@@ -164,6 +165,11 @@ export function ExperimentMetricForm({
             if (metric.denominator) {
                 sources.push(metric.denominator)
             }
+        } else if (isExperimentRetentionMetric(metric)) {
+            sources = [metric.start_event]
+            if (metric.completion_event) {
+                sources.push(metric.completion_event)
+            }
         }
 
         const newMetric = getDefaultExperimentMetric(newMetricType)
@@ -180,6 +186,11 @@ export function ExperimentMetricForm({
                 )
             } else if (newMetricType === ExperimentMetricType.RATIO && isExperimentRatioMetric(newMetric)) {
                 newMetric.numerator = sources[0]
+            } else if (newMetricType === ExperimentMetricType.RETENTION && isExperimentRetentionMetric(newMetric)) {
+                newMetric.start_event = sources[0]
+                if (sources[1]) {
+                    newMetric.completion_event = sources[1]
+                }
             }
         }
 
@@ -209,6 +220,12 @@ export function ExperimentMetricForm({
             label: 'Ratio',
             description:
                 'Calculates the ratio between two metrics. Useful when you want to use a different denominator than users exposed to the experiment.',
+        },
+        {
+            value: ExperimentMetricType.RETENTION,
+            label: 'Retention',
+            description:
+                'Calculates the retention rate of users exposed to the experiment. Useful for measuring the percentage of users who return to the app after a certain period of time.',
         },
     ]
 
@@ -403,6 +420,155 @@ export function ExperimentMetricForm({
                                 allowedMathTypes={allowedMathTypes}
                                 dataWarehousePopoverFields={dataWarehousePopoverFields}
                                 {...commonActionFilterProps}
+                            />
+                        </div>
+                    </div>
+                )}
+
+                {isExperimentRetentionMetric(metric) && (
+                    <div className="space-y-4">
+                        <div>
+                            <LemonLabel className="mb-1">
+                                Start event
+                                <Tooltip title="The event that triggers retention tracking. Retention is measured from when users perform this event.">
+                                    <IconInfo className="ml-1 text-muted" />
+                                </Tooltip>
+                            </LemonLabel>
+                            <ActionFilter
+                                bordered
+                                filters={createFilterForSource(metric.start_event)}
+                                setFilters={(filters) => {
+                                    const source = filterToMetricSource(
+                                        filters.actions,
+                                        filters.events,
+                                        filters.data_warehouse
+                                    )
+                                    if (source) {
+                                        handleSetMetric({ ...metric, start_event: source })
+                                    }
+                                }}
+                                typeKey="experiment-metric-start-event"
+                                buttonCopy="Add start event"
+                                showSeriesIndicator={false}
+                                hideRename={true}
+                                entitiesLimit={1}
+                                showNumericalPropsOnly={true}
+                                mathAvailability={mathAvailability}
+                                allowedMathTypes={allowedMathTypes}
+                                dataWarehousePopoverFields={dataWarehousePopoverFields}
+                                {...commonActionFilterProps}
+                            />
+                        </div>
+
+                        <div>
+                            <LemonLabel className="mb-1">
+                                Completion event
+                                <Tooltip title="The event that indicates a user was 'retained'. We check if users who performed the start event also perform this event within the retention window.">
+                                    <IconInfo className="ml-1 text-muted" />
+                                </Tooltip>
+                            </LemonLabel>
+                            <ActionFilter
+                                bordered
+                                filters={createFilterForSource(metric.completion_event)}
+                                setFilters={(filters) => {
+                                    const source = filterToMetricSource(
+                                        filters.actions,
+                                        filters.events,
+                                        filters.data_warehouse
+                                    )
+                                    if (source) {
+                                        handleSetMetric({ ...metric, completion_event: source })
+                                    }
+                                }}
+                                typeKey="experiment-metric-start-event"
+                                buttonCopy="Add start event"
+                                showSeriesIndicator={false}
+                                hideRename={true}
+                                entitiesLimit={1}
+                                showNumericalPropsOnly={true}
+                                mathAvailability={mathAvailability}
+                                allowedMathTypes={allowedMathTypes}
+                                dataWarehousePopoverFields={dataWarehousePopoverFields}
+                                {...commonActionFilterProps}
+                            />
+                        </div>
+
+                        <div>
+                            <LemonLabel className="mb-1">
+                                Retention window
+                                <Tooltip title="The time period after the start event during which we check for the completion event. For example, [7, 7] checks if users returned exactly on day 7, while [7, 14] checks if they returned between day 7 and 14.">
+                                    <IconInfo className="ml-1 text-muted" />
+                                </Tooltip>
+                            </LemonLabel>
+                            <div className="flex items-center gap-2">
+                                <span className="text-muted">From</span>
+                                <LemonInput
+                                    type="number"
+                                    min={0}
+                                    value={metric.retention_window_start}
+                                    onChange={(value) => {
+                                        handleSetMetric({
+                                            ...metric,
+                                            retention_window_start: Number(value),
+                                        })
+                                    }}
+                                    className="w-20"
+                                />
+                                <span className="text-muted">to</span>
+                                <LemonInput
+                                    type="number"
+                                    min={metric.retention_window_start || 0}
+                                    value={metric.retention_window_end}
+                                    onChange={(value) => {
+                                        handleSetMetric({
+                                            ...metric,
+                                            retention_window_end: Number(value),
+                                        })
+                                    }}
+                                    className="w-20"
+                                />
+                                <LemonSelect
+                                    value={metric.retention_window_unit || 'day'}
+                                    onChange={(value) => {
+                                        handleSetMetric({
+                                            ...metric,
+                                            retention_window_unit: value as FunnelConversionWindowTimeUnit,
+                                        })
+                                    }}
+                                    options={[
+                                        { label: 'days', value: FunnelConversionWindowTimeUnit.Day },
+                                        { label: 'hours', value: FunnelConversionWindowTimeUnit.Hour },
+                                    ]}
+                                />
+                            </div>
+                            <span className="text-muted text-xs">After the start event</span>
+                        </div>
+
+                        <div>
+                            <LemonLabel className="mb-1">
+                                When users have multiple start events
+                                <Tooltip title="Choose how to handle users who perform the start event multiple times during the experiment.">
+                                    <IconInfo className="ml-1 text-muted" />
+                                </Tooltip>
+                            </LemonLabel>
+                            <LemonSelect
+                                value={metric.start_handling || 'first_seen'}
+                                onChange={(value) => {
+                                    handleSetMetric({
+                                        ...metric,
+                                        start_handling: value as 'first_seen' | 'last_seen',
+                                    })
+                                }}
+                                options={[
+                                    {
+                                        label: 'Use first start event',
+                                        value: 'first_seen',
+                                    },
+                                    {
+                                        label: 'Use last start event',
+                                        value: 'last_seen',
+                                    },
+                                ]}
                             />
                         </div>
                     </div>
