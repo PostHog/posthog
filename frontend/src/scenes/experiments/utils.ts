@@ -459,12 +459,40 @@ export function getDefaultRatioMetric(): ExperimentMetric {
     }
 }
 
+export function getDefaultRetentionMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        uuid: uuid(),
+        metric_type: ExperimentMetricType.RETENTION,
+        goal: ExperimentMetricGoal.Increase,
+        start_event: {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+            math: ExperimentMetricMathType.TotalCount,
+        },
+        completion_event: {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+            math: ExperimentMetricMathType.TotalCount,
+        },
+        retention_window_start: 1,
+        retention_window_end: 1,
+        retention_window_unit: FunnelConversionWindowTimeUnit.Day,
+        start_handling: 'first_seen',
+        incomplete_retention_handling: 'exclude',
+    }
+}
+
 export function getDefaultExperimentMetric(metricType: ExperimentMetricType): ExperimentMetric {
     switch (metricType) {
         case ExperimentMetricType.FUNNEL:
             return getDefaultFunnelMetric()
         case ExperimentMetricType.RATIO:
             return getDefaultRatioMetric()
+        case ExperimentMetricType.RETENTION:
+            return getDefaultRetentionMetric()
         default:
             return getDefaultCountMetric()
     }
