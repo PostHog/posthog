@@ -274,6 +274,90 @@ class TestEventDefinitionAPI(APIBaseTest):
         # Verify the enterprise-only field was updated
         assert response.json()["verified"]
 
+    def test_create_event_definition_basic(self):
+        """Test creating a basic event definition with just a name"""
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {"name": "my_custom_event"},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["name"] == "my_custom_event"
+        assert response.json()["created_at"] is None
+        assert response.json()["last_seen_at"] is None
+
+        # Verify it was actually created in the database
+        event_def = EventDefinition.objects.get(name="my_custom_event", team=self.demo_team)
+        assert event_def.created_at is None
+        assert event_def.last_seen_at is None
+
+        # Verify activity log was created
+        activity_log = ActivityLog.objects.filter(
+            scope="EventDefinition", activity="created", item_id=str(event_def.id)
+        ).first()
+        assert activity_log is not None
+        assert activity_log.detail["name"] == "my_custom_event"
+
+    def test_create_event_definition_duplicate_name(self):
+        """Test that creating an event with a duplicate name fails"""
+        EventDefinition.objects.create(team=self.demo_team, name="existing_event")
+
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {"name": "existing_event"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_event_definition_missing_name(self):
+        """Test that creating an event without a name fails"""
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_event_definition_with_tags(self):
+        """Test creating an event definition with tags"""
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {"name": "tagged_event", "tags": ["important", "production"]},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["name"] == "tagged_event"
+        # Just verify the event was created successfully
+        # Tag handling is managed by TaggedItemSerializerMixin
+        event_def = EventDefinition.objects.get(name="tagged_event", team=self.demo_team)
+        assert event_def is not None
+
+    def test_create_event_definition_cross_team_isolation(self):
+        """Test that manually created events are isolated by team"""
+        # Create an event in demo_team
+        response1 = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {"name": "team_specific_event"},
+        )
+        assert response1.status_code == status.HTTP_201_CREATED
+
+        # Create a second team and try to access the event
+        other_team = create_team(organization=self.organization)
+        other_user = create_user("other_user", "pass", self.organization)
+        self.client.force_login(other_user)
+
+        # Switch to the other team's project
+        from posthog.models import Project
+
+        other_project = Project.objects.create(organization=self.organization, name="Other Project")
+        other_team.project = other_project
+        other_team.save()
+
+        # The event should not be visible in the other team
+        response2 = self.client.get("/api/projects/@current/event_definitions/")
+        event_names = [e["name"] for e in response2.json()["results"]]
+        assert "team_specific_event" not in event_names
+
 
 @dataclasses.dataclass
 class EventData:

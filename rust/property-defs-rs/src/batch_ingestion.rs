@@ -518,8 +518,9 @@ async fn write_event_definitions_batch(
                     $5::timestamptz[],
                     $5::timestamptz[]))
                 ON CONFLICT (coalesce(project_id, team_id::bigint), name) DO UPDATE
-                    SET last_seen_at=EXCLUDED.last_seen_at
-                    WHERE posthog_eventdefinition.last_seen_at < EXCLUDED.last_seen_at"#,
+                    SET last_seen_at=EXCLUDED.last_seen_at,
+                        created_at=COALESCE(posthog_eventdefinition.created_at, EXCLUDED.created_at)
+                    WHERE posthog_eventdefinition.last_seen_at IS NULL OR posthog_eventdefinition.last_seen_at < EXCLUDED.last_seen_at"#,
         )
         .bind(&batch.ids)
         .bind(&batch.names)

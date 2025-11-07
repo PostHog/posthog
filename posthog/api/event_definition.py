@@ -106,6 +106,16 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "post_to_slack",
         )
 
+    def validate_name(self, value):
+        # For creation, check if event definition with this name already exists
+        if not self.instance:  # Only for creation, not updates
+            view = self.context.get("view")
+            if view:
+                existing = EventDefinition.objects.filter(team_id=view.team_id, name=value).exists()
+                if existing:
+                    raise serializers.ValidationError(f"Event definition with name '{value}' already exists")
+        return value
+
     def validate(self, data):
         validated_data = super().validate(data)
 
@@ -114,6 +124,42 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
                 raise serializers.ValidationError("An event cannot be both hidden and verified")
 
         return validated_data
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        # Get viewset from context to access organization_id and team_id
+        view = self.context.get("view")
+        validated_data["team_id"] = view.team_id
+        validated_data["project_id"] = view.project_id
+        # Set timestamps to None - will be populated when first real event is ingested
+        validated_data["created_at"] = None
+        validated_data["last_seen_at"] = None
+
+        # Remove fields that don't exist on the model
+        validated_data.pop("post_to_slack", None)
+
+        event_definition = super().create(validated_data)
+
+        # Report user action for analytics
+        report_user_action(
+            cast(User, request.user),
+            "event definition created",
+            {"name": event_definition.name},
+        )
+
+        # Log activity for audit trail
+        log_activity(
+            organization_id=cast(UUIDT, view.organization_id),
+            team_id=view.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(event_definition.id),
+            scope="EventDefinition",
+            activity="created",
+            detail=Detail(name=event_definition.name, changes=None),
+        )
+
+        return event_definition
 
     def update(self, event_definition: EventDefinition, validated_data):
         request = self.context.get("request")
@@ -130,6 +176,7 @@ class EventDefinitionViewSet(
     TaggedItemViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
     mixins.UpdateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,

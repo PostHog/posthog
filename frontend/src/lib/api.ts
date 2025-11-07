@@ -2182,6 +2182,9 @@ const api = {
         async get({ eventDefinitionId }: { eventDefinitionId: EventDefinition['id'] }): Promise<EventDefinition> {
             return new ApiRequest().eventDefinitionDetail(eventDefinitionId).get()
         },
+        async create(eventDefinitionData: Partial<EventDefinition>): Promise<EventDefinition> {
+            return new ApiRequest().eventDefinitions().create({ data: eventDefinitionData })
+        },
         async update({
             eventDefinitionId,
             eventDefinitionData,

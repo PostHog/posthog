@@ -70,6 +70,14 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "created_by",
         ]
 
+    def get_fields(self):
+        fields = super().get_fields()
+        # Allow name to be writable during creation, read-only during updates
+        request = self.context.get("request")
+        if request and request.method == "POST":
+            fields["name"].read_only = False
+        return fields
+
     def validate(self, data):
         validated_data = super().validate(data)
 
@@ -78,6 +86,54 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
                 raise serializers.ValidationError("An event cannot be both hidden and verified")
 
         return validated_data
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        # Get viewset from context to access organization_id and team_id
+        view = self.context.get("view")
+
+        # Handle enterprise-specific fields
+        if "updated_by" not in validated_data:
+            validated_data["updated_by"] = request.user
+
+        # Set timestamps to None - will be populated when first real event is ingested
+        validated_data["team_id"] = view.team_id
+        validated_data["project_id"] = view.project_id
+        validated_data["created_at"] = None
+        validated_data["last_seen_at"] = None
+
+        # Handle verified status
+        if validated_data.get("verified", False):
+            validated_data["verified_by"] = request.user
+            validated_data["verified_at"] = timezone.now()
+            validated_data["hidden"] = False
+
+        # If hidden is set, ensure verified is false
+        if validated_data.get("hidden", False):
+            validated_data["verified"] = False
+            validated_data["verified_by"] = None
+            validated_data["verified_at"] = None
+
+        # Remove fields that don't exist on the model
+        validated_data.pop("post_to_slack", None)
+
+        event_definition = super().create(validated_data)
+
+        # Log activity for audit trail
+        from posthog.models.utils import UUIDT
+
+        log_activity(
+            organization_id=cast(UUIDT, view.organization_id),
+            team_id=view.team_id,
+            user=request.user,
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(event_definition.id),
+            scope="EventDefinition",
+            activity="created",
+            detail=Detail(name=event_definition.name, changes=None),
+        )
+
+        return event_definition
 
     def update(self, event_definition: EnterpriseEventDefinition, validated_data):
         validated_data["updated_by"] = self.context["request"].user

@@ -423,3 +423,106 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)
         self.assertEqual(response.json()["results"][0]["name"], "installed_app")
+
+    def test_create_event_definition_with_description(self):
+        """Test creating an event definition with enterprise fields"""
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {
+                "name": "conversion_event",
+                "description": "User completed a conversion action",
+                "owner": self.user.id,
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["name"] == "conversion_event"
+        assert response.json()["description"] == "User completed a conversion action"
+        assert response.json()["owner"]["id"] == self.user.id
+        assert response.json()["created_at"] is None
+        assert response.json()["last_seen_at"] is None
+
+        # Verify it's an EnterpriseEventDefinition in the database
+        event_def = EnterpriseEventDefinition.objects.get(name="conversion_event", team=self.demo_team)
+        assert event_def.description == "User completed a conversion action"
+        assert event_def.owner == self.user
+        assert event_def.created_at is None
+        assert event_def.last_seen_at is None
+
+        # Verify activity log was created
+        activity_log = ActivityLog.objects.filter(
+            scope="EventDefinition", activity="created", item_id=str(event_def.id)
+        ).first()
+        assert activity_log is not None
+
+    def test_create_event_definition_with_verified(self):
+        """Test creating a verified event definition"""
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {
+                "name": "verified_event",
+                "description": "This event is verified",
+                "verified": True,
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["verified"] is True
+        assert response.json()["verified_by"]["id"] == self.user.id
+        assert response.json()["verified_at"] is not None
+        assert response.json()["hidden"] is False
+
+        # Verify in database
+        event_def = EnterpriseEventDefinition.objects.get(name="verified_event", team=self.demo_team)
+        assert event_def.verified is True
+        assert event_def.verified_by == self.user
+        assert event_def.verified_at is not None
+
+    def test_create_event_definition_with_hidden(self):
+        """Test creating a hidden event definition"""
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {
+                "name": "hidden_event",
+                "description": "This event is hidden",
+                "hidden": True,
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["hidden"] is True
+        assert response.json()["verified"] is False
+
+        # Verify in database
+        event_def = EnterpriseEventDefinition.objects.get(name="hidden_event", team=self.demo_team)
+        assert event_def.hidden is True
+        assert event_def.verified is False
+
+    def test_create_event_definition_cannot_be_both_hidden_and_verified(self):
+        """Test that an event cannot be both hidden and verified"""
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {
+                "name": "conflicted_event",
+                "verified": True,
+                "hidden": True,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

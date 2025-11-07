@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconApps } from '@posthog/icons'
+import { IconApps, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -13,6 +14,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import { EventDefinitionModal } from 'scenes/data-management/events/EventDefinitionModal'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -42,6 +44,7 @@ export function EventDefinitionsTable(): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
     const { hasTagging } = useValues(organizationLogic)
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
 
     const columns: LemonTableColumns<EventDefinition> = [
         {
@@ -70,7 +73,7 @@ export function EventDefinitionsTable(): JSX.Element {
             key: 'last_seen_at',
             className: 'definition-column-last_seen_at',
             render: function Render(_, definition: EventDefinition) {
-                return definition.last_seen_at ? <TZLabel time={definition.last_seen_at} /> : null
+                return definition.last_seen_at ? <TZLabel time={definition.last_seen_at} /> : <span>-</span>
             },
             sorter: true,
         },
@@ -185,8 +188,25 @@ export function EventDefinitionsTable(): JSX.Element {
                         }}
                         size="small"
                     />
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        onClick={() => setIsCreateModalOpen(true)}
+                        data-attr="create-event-definition-button"
+                    >
+                        Create event
+                    </LemonButton>
                 </div>
             </div>
+
+            <EventDefinitionModal
+                isOpen={isCreateModalOpen}
+                onClose={() => setIsCreateModalOpen(false)}
+                onSuccess={() => {
+                    setIsCreateModalOpen(false)
+                    loadEventDefinitions()
+                }}
+            />
 
             <LemonTable
                 columns={columns}
