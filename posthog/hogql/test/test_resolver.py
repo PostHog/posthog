@@ -199,9 +199,9 @@ class TestResolver(BaseTest):
         assert printed == "WITH cte AS (SELECT event FROM events) SELECT event FROM cte LIMIT 50000"
 
     def test_ctes_loop(self):
-        with self.assertRaises(QueryError) as e:
+        with self.assertRaises(ResolutionError) as e:
             self._print_hogql("with cte as (select * from cte) select * from cte")
-        self.assertIn('Unknown table "cte".', str(e.exception))
+        self.assertIn("Unknown table `cte`.", str(e.exception))
 
     def test_ctes_basic_column(self):
         expr = self._print_hogql("with 1 as cte select cte from events")
