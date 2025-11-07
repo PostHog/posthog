@@ -141,7 +141,7 @@ def get_rows(
                         py_table = batcher.get_table()
                         yield py_table
 
-                        last_cur = py_table.column("id")[-1].as_py()
+                        last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
                         resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
         else:
             stripe_objects = resource.method(params={**default_params, **resource.params, **resume_params})
@@ -159,7 +159,11 @@ def get_rows(
             py_table = batcher.get_table()
             yield py_table
 
-            last_cur = py_table.column("id")[-1].as_py()
+            if isinstance(resource, StripeNestedResource):
+                last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
+            else:
+                last_cur = py_table.column("id")[-1].as_py()
+
             resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
 
         return
