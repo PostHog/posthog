@@ -21,6 +21,7 @@ import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionAttributesPreview } from '../../ExceptionAttributesPreview'
 import { ReleasePreviewPill } from '../../ExceptionAttributesPreview/ReleasesPreview/ReleasePreviewPill'
+import { useErrorTrackingExplainIssueMaxTool } from '../../ExplainIssueTool'
 import { FixModal } from '../FixModal'
 import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from '../Stacktrace/StacktraceBase'
 import { StacktraceGenericDisplay } from '../Stacktrace/StacktraceGenericDisplay'
@@ -45,6 +46,7 @@ export function StacktraceTab({
     const { exceptionAttributes, exceptionList } = useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
+    const { openMax } = useErrorTrackingExplainIssueMaxTool()
 
     return (
         <TabsPrimitiveContent {...props}>
@@ -62,6 +64,16 @@ export function StacktraceTab({
                         >
                             <IconMagicWand />
                             Get AI prompt
+                        </ButtonPrimitive>
+                    )}
+                    {openMax && (
+                        <ButtonPrimitive
+                            onClick={() => openMax()}
+                            className="px-2 h-[1.4rem]"
+                            tooltip="Ask PostHog AI for an explanation of this issue"
+                        >
+                            <IconMagicWand />
+                            Explain this issue
                         </ButtonPrimitive>
                     )}
                     <ShowDropDownMenu>

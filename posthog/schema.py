@@ -269,6 +269,7 @@ class AssistantTool(StrEnum):
     NAVIGATE = "navigate"
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
+    ERROR_TRACKING_EXPLAIN_ISSUE = "error_tracking_explain_issue"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
@@ -1123,6 +1124,14 @@ class Status(StrEnum):
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
     SUPPRESSED = "suppressed"
+
+
+class ErrorTrackingExplainIssueToolContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    issue_name: str
+    stacktrace: str
 
 
 class FirstEvent(BaseModel):

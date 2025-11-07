@@ -275,7 +275,18 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             return 'Finding impactful issues...'
         },
     },
-    explain_error_tracking_issue_cause: {},
+    error_tracking_explain_issue: {
+        name: 'Explain an issue',
+        description: 'Explain an issue by analyzing its stack trace',
+        product: Scene.ErrorTracking,
+        icon: iconForType('error_tracking'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Issue explained'
+            }
+            return 'Analyzing issue...'
+        },
+    },
     experiment_results_summary: {
         name: 'Summarize experiment results',
         description: 'Summarize experiment results for a comprehensive rundown',

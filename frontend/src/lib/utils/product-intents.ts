@@ -27,6 +27,7 @@ export enum ProductIntentContext {
     ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',
     ERROR_TRACKING_ISSUE_SORTING = 'error_tracking_issue_sorting',
     ERROR_TRACKING_DOCS_VIEWED = 'error_tracking_docs_viewed',
+    ERROR_TRACKING_ISSUE_EXPLAINED = 'error_tracking_issue_explained',
 
     // LLM Analytics
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',
