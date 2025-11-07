@@ -39,59 +39,76 @@ def _get_async_client() -> openai.AsyncOpenAI:
     return openai.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
-async def _combine_products(
-    products_to_combine: set[str], client: openai.AsyncOpenAI, output_path: Path
-) -> dict[str, list[str]]:
-    products_to_combine_output_path = output_path / "combination"
-    # Ensure to create the directory
-    products_to_combine_output_path.mkdir(parents=True, exist_ok=True)
-    products_to_combine_output_path_raw = products_to_combine_output_path / "products_combination_raw.txt"
-    products_to_combine_output_path_json = products_to_combine_output_path / "products_combination_raw.json"
-    products_to_combine_output_path_proper = products_to_combine_output_path / "products_combination.json"
-    # If files exists already - skip
-    if (
-        products_to_combine_output_path_raw.exists()
-        and products_to_combine_output_path_json.exists()
-        and products_to_combine_output_path_proper.exists()
-    ):
-        with open(products_to_combine_output_path_proper, "r") as f:
-            return json.load(f)
-    products_to_combine_ordered = list(products_to_combine)
-    products_to_combine_ordered_str = "\n".join(
-        [f"{i}. {product_name}" for i, product_name in enumerate(products_to_combine_ordered)]
-    )
-    combination_prompt = BASE_FEATURE_COMBINATION_PROMPT.format(
-        features_to_combine_ordered=products_to_combine_ordered_str, platform_context="PostHog platform"
-    )
-    response = await client.responses.create(
-        input=combination_prompt,
-        model="o3",
-        reasoning={"effort": "medium"},
-    )
-    # Load markdown to JSON
-    with open(products_to_combine_output_path_raw, "w") as f:
-        f.write(response.output_text)
-    dictified_response = markdown_to_json.dictify(response.output_text)
-    with open(products_to_combine_output_path_json, "w") as f:
-        json.dump(dictified_response, f)
-    # Create a product to synonyms naming mapping
-    product_name_to_similar_names_mapping = {}
-    product_mapping_data = dictified_response["root"][0]
-    for i in range(len(product_mapping_data)):
-        product_data = product_mapping_data[i]
-        if not isinstance(product_data, str):
-            continue
-        if i + 1 > len(product_mapping_data):
-            continue
-        next_product_data = product_mapping_data[i + 1]
-        if not isinstance(next_product_data, list):
-            continue
-        product_name_to_similar_names_mapping[product_data] = [
-            products_to_combine_ordered[int(x.strip())] for x in next_product_data
-        ]
-    with open(products_to_combine_output_path_proper, "w") as f:
-        json.dump(product_name_to_similar_names_mapping, f)
-    return product_name_to_similar_names_mapping
+# "PostHog platform"
+async def _combine_entities(
+    entities_to_combine: set[str],
+    entity_type: str,
+    label: str,
+    platform_context: str,
+    client: openai.AsyncOpenAI,
+    output_path: Path,
+) -> dict[str, list[str]] | Exception:
+    try:
+        entities_to_combine_output_path = output_path / "combination"
+        # Ensure to create the directory
+        entities_to_combine_output_path.mkdir(parents=True, exist_ok=True)
+        entities_to_combine_output_path_raw = (
+            entities_to_combine_output_path / f"{entity_type}_{label}_combination_raw.txt"
+        )
+        entities_to_combine_output_path_json = (
+            entities_to_combine_output_path / f"{entity_type}_{label}_combination_raw.json"
+        )
+        entities_to_combine_output_path_proper = (
+            entities_to_combine_output_path / f"{entity_type}_{label}_combination.json"
+        )
+        # If files exists already - skip
+        if (
+            entities_to_combine_output_path_raw.exists()
+            and entities_to_combine_output_path_json.exists()
+            and entities_to_combine_output_path_proper.exists()
+        ):
+            with open(entities_to_combine_output_path_proper, "r") as f:
+                return json.load(f)
+        entities_to_combine_ordered = list(entities_to_combine)
+        entities_to_combine_ordered_str = "\n".join(
+            [f"{i}. {entity_name}" for i, entity_name in enumerate(entities_to_combine_ordered)]
+        )
+        combination_prompt = BASE_FEATURE_COMBINATION_PROMPT.format(
+            features_to_combine_ordered=entities_to_combine_ordered_str, platform_context=platform_context
+        )
+        response = await client.responses.create(
+            input=combination_prompt,
+            model="o3",
+            reasoning={"effort": "medium"},
+        )
+        # Load markdown to JSON
+        with open(entities_to_combine_output_path_raw, "w") as f:
+            f.write(response.output_text)
+        dictified_response = markdown_to_json.dictify(response.output_text)
+        with open(entities_to_combine_output_path_json, "w") as f:
+            json.dump(dictified_response, f)
+        # Create a product to synonyms naming mapping
+        entity_name_to_similar_names_mapping = {}
+        entity_mapping_data = dictified_response["root"][0]
+        for i in range(len(entity_mapping_data)):
+            entity_data = entity_mapping_data[i]
+            if not isinstance(entity_data, str):
+                continue
+            if i + 1 > len(entity_mapping_data):
+                continue
+            next_entity_data = entity_mapping_data[i + 1]
+            if not isinstance(next_entity_data, list):
+                continue
+            entity_name_to_similar_names_mapping[entity_data] = [
+                entities_to_combine_ordered[int(x.strip())] for x in next_entity_data
+            ]
+        with open(entities_to_combine_output_path_proper, "w") as f:
+            json.dump(entity_name_to_similar_names_mapping, f)
+        return entity_name_to_similar_names_mapping
+    except Exception as e:
+        logger.error(f"Error combining entities for {entity_type} {label}: {e}")
+        # Let handler catch the exception
+        return e
 
 
 async def combine_everything():
@@ -146,11 +163,41 @@ async def combine_everything():
                                         features_to_actions_to_combine_mapping[last_feature_name].append(action_part)
 
     # Combine the products
-    product_name_to_similar_names_mapping = await _combine_products(
-        set(products_to_combine), client, base_transcriptions_path
+    product_combination_result = await _combine_entities(
+        entities_to_combine=set(products_to_combine),
+        entity_type="product",
+        label="",
+        platform_context="PostHog platform",
+        client=client,
+        output_path=base_transcriptions_path,
     )
+    if isinstance(product_combination_result, Exception):
+        logger.error(f"Error combining products: {product_combination_result}")
+        return
+    product_name_to_similar_names_mapping: dict[str, list[str]] = product_combination_result
 
-    # Combine the features
+    # Combine the features per product
+    feature_name_to_similar_names_mapping = {}
+    for product_name, features_to_combine in products_to_features_to_combine_mapping.items():
+        tasks = {}
+        async with asyncio.TaskGroup() as tg:
+            tasks[product_name] = tg.create_task(
+                _combine_entities(
+                    entities_to_combine=set(features_to_combine),
+                    entity_type="feature",
+                    label=product_name,
+                    platform_context=product_name,
+                    client=client,
+                    output_path=base_transcriptions_path,
+                )
+            )
+    for product_name, task in tasks.items():
+        result = task.result()
+        if isinstance(result, Exception):
+            logger.error(f"Error combining features for {product_name}: {result}")
+            continue
+        feature_name_to_similar_names_mapping[product_name] = result
+    print("")
 
 
 if __name__ == "__main__":
