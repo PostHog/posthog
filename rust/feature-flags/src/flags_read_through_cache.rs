@@ -13,7 +13,7 @@ use crate::config::Config;
 /// 1. No dedicated Redis configured (dedicated_cache=None): Uses shared cache only
 /// 2. Dedicated Redis configured, flags_redis_enabled=false: Dual-write mode
 ///    - Reads from shared cache (source of truth)
-///    - Fire-and-forget writes to dedicated cache (warming)
+///    - Inline writes to dedicated cache (warming) - adds ~1-2ms latency
 /// 3. Dedicated Redis configured, flags_redis_enabled=true: Uses dedicated cache only
 ///
 /// This allows us to:
@@ -117,7 +117,7 @@ impl FlagsReadThroughCache {
     /// 1. No dedicated cache: Uses shared cache only
     /// 2. Dedicated cache exists, flags_redis_enabled=false: Dual-write mode
     ///    - Reads from shared cache (source of truth)
-    ///    - Background writes to dedicated cache (warming)
+    ///    - Inline writes to dedicated cache (warming) - adds ~1-2ms latency
     /// 3. Dedicated cache exists, flags_redis_enabled=true: Uses dedicated cache only
     pub async fn get_or_load<K, V, F, Fut>(
         &self,
@@ -125,10 +125,10 @@ impl FlagsReadThroughCache {
         load: F,
     ) -> Result<CacheResult<V>, FlagError>
     where
-        K: Display + Clone + Send + Sync + Hash + Serialize + for<'de> Deserialize<'de> + 'static,
-        V: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-        F: FnOnce(&K) -> Fut + Clone + Send + 'static,
-        Fut: std::future::Future<Output = Result<Option<V>, FlagError>> + Send + 'static,
+        K: Display + Send + Sync + Hash + Serialize + for<'de> Deserialize<'de>,
+        V: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+        F: FnOnce(&K) -> Fut,
+        Fut: std::future::Future<Output = Result<Option<V>, FlagError>>,
     {
         match (&self.dedicated_cache, *self.config.flags_redis_enabled) {
             // Mode 3: Dedicated cache enabled, use it exclusively
@@ -141,22 +141,18 @@ impl FlagsReadThroughCache {
                 // Read from shared cache (source of truth)
                 let cache_result = self.shared_cache.get_or_load(key, load).await?;
 
-                // Fire-and-forget: warm up dedicated cache in background
+                // Warm dedicated cache inline to avoid unbounded task spawning
+                // This adds ~1-2ms latency but provides natural backpressure
                 let cached_value = cache_result.value.clone();
-                let dedicated_cache = Arc::clone(dedicated_cache);
-                let key_clone = key.clone();
-
-                tokio::spawn(async move {
-                    if let Err(e) = dedicated_cache
-                        .get_or_load(&key_clone, move |_| async move {
-                            // Return the same value we got from the shared cache
-                            Ok::<Option<V>, FlagError>(cached_value)
-                        })
-                        .await
-                    {
-                        tracing::warn!("Background warming failed for key {}: {:?}", key_clone, e);
-                    }
-                });
+                if let Err(e) = dedicated_cache
+                    .get_or_load(key, move |_| async move {
+                        // Return the same value we got from the shared cache
+                        Ok::<Option<V>, FlagError>(cached_value)
+                    })
+                    .await
+                {
+                    tracing::warn!("Dedicated cache warming failed for key {}: {:?}", key, e);
+                }
 
                 Ok(cache_result)
             }
@@ -263,9 +259,6 @@ mod tests {
             Some(vec!["dual_write_test".to_string()])
         );
 
-        // Give background task a moment to complete
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
         // Verify read came from shared cache (source of truth)
         let shared_reader_calls = shared_reader.get_calls();
         let dedicated_reader_calls = dedicated_reader.get_calls();
@@ -281,7 +274,7 @@ mod tests {
         assert!(
             !dedicated_reader_calls.is_empty()
                 && dedicated_reader_calls.iter().any(|call| call.op == "get"),
-            "Expected read attempt from dedicated cache (background warming). Calls: {dedicated_reader_calls:?}"
+            "Expected read attempt from dedicated cache (inline warming). Calls: {dedicated_reader_calls:?}"
         );
 
         // Verify writes went to BOTH caches
@@ -297,7 +290,7 @@ mod tests {
         assert!(
             !dedicated_writer_calls.is_empty()
                 && dedicated_writer_calls.iter().any(|call| call.op == "setex"),
-            "Expected write to dedicated cache (background dual-write). Calls: {dedicated_writer_calls:?}"
+            "Expected write to dedicated cache (inline dual-write). Calls: {dedicated_writer_calls:?}"
         );
     }
 
