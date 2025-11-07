@@ -2156,10 +2156,21 @@ export interface EndpointType extends WithAccessControl {
     updated_at: string
     created_by: UserBasicType | null
     cache_age_seconds: number
+    is_materialized: boolean
     /** Purely local value to determine whether the query endpoint should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /** Last execution time from ClickHouse query_log table */
     last_executed_at?: string
+    materialization?: EndpointMaterializationType
+}
+
+export interface EndpointMaterializationType {
+    can_materialize: boolean
+    reason?: string
+    status?: string
+    error?: string
+    last_materialized_at?: string
+    sync_frequency?: DataWarehouseSyncInterval
 }
 
 export interface DashboardBasicType extends WithAccessControl {
