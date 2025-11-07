@@ -30,7 +30,6 @@ def _import_max_tools() -> None:
 def get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
     """Get the tool class for a given tool name, handling circular import."""
     _import_max_tools()  # Ensure max_tools are imported
-    from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 
     try:
         return CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantTool(tool_name)]
