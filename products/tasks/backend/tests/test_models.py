@@ -1,3 +1,4 @@
+import json
 import uuid
 
 from unittest.mock import patch
@@ -8,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
+from posthog.storage import object_storage
 
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 
@@ -358,19 +360,11 @@ class TestTaskRun(TestCase):
         run.append_log(entries)
         run.refresh_from_db()
 
-        # Verify logs are stored in S3
         self.assertIsNotNone(run.log_storage_path)
         self.assertTrue(run.has_s3_logs)
-
-        # Read from S3 and verify content
-        import json
-
-        from posthog.storage import object_storage
-
         log_content = object_storage.read(run.log_storage_path)
         self.assertIsNotNone(log_content)
 
-        # Parse newline-delimited JSON
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
         self.assertEqual(len(log_entries), 1)
         self.assertEqual(log_entries[0]["type"], "info")
@@ -390,19 +384,12 @@ class TestTaskRun(TestCase):
         run.append_log(entries)
         run.refresh_from_db()
 
-        # Verify logs are stored in S3
         self.assertIsNotNone(run.log_storage_path)
         self.assertTrue(run.has_s3_logs)
-
-        # Read from S3 and verify content
-        import json
-
-        from posthog.storage import object_storage
 
         log_content = object_storage.read(run.log_storage_path)
         self.assertIsNotNone(log_content)
 
-        # Parse newline-delimited JSON
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
         self.assertEqual(len(log_entries), 3)
         self.assertEqual(log_entries[0]["type"], "info")
@@ -415,11 +402,9 @@ class TestTaskRun(TestCase):
             team=self.team,
         )
 
-        # Add first batch of entries
         first_entries = [{"type": "info", "message": "First entry"}]
         run.append_log(first_entries)
 
-        # Add second batch of entries
         new_entries = [
             {"type": "success", "message": "New entry 1"},
             {"type": "debug", "message": "New entry 2"},
@@ -427,19 +412,12 @@ class TestTaskRun(TestCase):
         run.append_log(new_entries)
         run.refresh_from_db()
 
-        # All logs should be stored in S3
         self.assertIsNotNone(run.log_storage_path)
         self.assertTrue(run.has_s3_logs)
-
-        # Read from S3 and verify all entries
-        import json
-
-        from posthog.storage import object_storage
 
         log_content = object_storage.read(run.log_storage_path)
         self.assertIsNotNone(log_content)
 
-        # Parse newline-delimited JSON
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
         self.assertEqual(len(log_entries), 3)
         self.assertEqual(log_entries[0]["message"], "First entry")

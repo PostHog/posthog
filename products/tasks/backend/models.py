@@ -308,7 +308,7 @@ class TaskRun(models.Model):
         try:
             existing_content = object_storage.read(self.log_storage_path) or ""
         except Exception as e:
-            # File doesn't exist yet, that's fine for first write
+            # File doesn't exist yet, that's fine for first write so we just ignore the error
             logger.debug(
                 "task_run.no_existing_logs",
                 task_run_id=str(self.id),
@@ -319,7 +319,6 @@ class TaskRun(models.Model):
         new_lines = "\n".join(json.dumps(entry) for entry in entries)
         content = existing_content + ("\n" if existing_content else "") + new_lines
 
-        # Write to S3
         object_storage.write(self.log_storage_path, content)
 
     def mark_completed(self):
