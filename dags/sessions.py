@@ -17,7 +17,7 @@ daily_partitions = DailyPartitionsDefinition(
 )
 
 
-def get_partion_where_clause(context: AssetExecutionContext, timestamp_field: str) -> str:
+def get_partition_where_clause(context: AssetExecutionContext, timestamp_field: str) -> str:
     start_incl = context.partition_time_window.start.strftime("%Y-%m-%d")
     end_excl = context.partition_time_window.end.strftime("%Y-%m-%d")
 
@@ -32,7 +32,7 @@ def get_partion_where_clause(context: AssetExecutionContext, timestamp_field: st
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
 )
 def sessions_v3_backfill(context: AssetExecutionContext) -> None:
-    where_clause = get_partion_where_clause(context, timestamp_field="timestamp")
+    where_clause = get_partition_where_clause(context, timestamp_field="timestamp")
 
     # note that this is idempotent, so we don't need to worry about running it multiple times for the same partition
     # as long as the backfill has run at least once for each partition, the data will be correct
@@ -60,7 +60,7 @@ def sessions_v3_backfill(context: AssetExecutionContext) -> None:
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
 )
 def sessions_v3_backfill_replay(context: AssetExecutionContext) -> None:
-    where_clause = get_partion_where_clause(context, timestamp_field="min_first_timestamp")
+    where_clause = get_partition_where_clause(context, timestamp_field="min_first_timestamp")
 
     # note that this is idempotent, so we don't need to worry about running it multiple times for the same partition
     # as long as the backfill has run at least once for each partition, the data will be correct
