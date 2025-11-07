@@ -3,7 +3,7 @@
     right: 50%;
     bottom: -6px;
     z-index: 11;
-    width: calc(100% + 24px);
+    width: calc(100% + 22px);
     height: 12px;
     background-color: var(--color-bg-primary);
     transform: translateX(50%);
