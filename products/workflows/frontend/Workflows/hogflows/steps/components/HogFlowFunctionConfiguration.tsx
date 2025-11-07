@@ -45,8 +45,25 @@ export function HogFlowFunctionConfiguration({
 
     const triggerType = workflow?.trigger?.type
 
+    // Build workflow variables object for autocomplete
+    const workflowVariables: Record<string, any> = {}
+    if (workflow?.variables) {
+        workflow.variables.forEach((variable) => {
+            // Use placeholder values based on variable type
+            if (variable.type === 'string') {
+                workflowVariables[variable.key] = 'example_value'
+            } else if (variable.type === 'number') {
+                workflowVariables[variable.key] = 123
+            } else if (variable.type === 'boolean') {
+                workflowVariables[variable.key] = true
+            } else {
+                workflowVariables[variable.key] = null
+            }
+        })
+    }
+
     const sampleGlobals: Record<string, any> = {
-        variables: workflow.variables || {},
+        variables: workflowVariables,
     }
 
     if (triggerType === 'webhook') {
