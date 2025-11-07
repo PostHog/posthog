@@ -180,7 +180,8 @@ async function expectStoryToMatchSnapshot(
 
     if (waitForLoadersToDisappear) {
         // The timeout is reduced so that we never allow toasts – they usually signify something wrong
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'detached', timeout: 3000 })
+        // Use 'hidden' instead of 'detached' because some elements (like toasts) may remain in DOM but be invisible
+        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout: 3000 })
     }
 
     if (typeof waitForSelector === 'string') {
