@@ -2887,10 +2887,13 @@ export const isExperimentRetentionMetric = (metric: ExperimentMetric): metric is
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
+export type ExperimentRetentionMetricTypeProps = Omit<ExperimentRetentionMetric, keyof ExperimentMetricBaseProperties>
+
 export type ExperimentMetricTypeProps =
     | ExperimentMeanMetricTypeProps
     | ExperimentFunnelMetricTypeProps
     | ExperimentRatioMetricTypeProps
+    | ExperimentRetentionMetricTypeProps
 
 export type ExperimentMetric =
     | ExperimentMeanMetric
