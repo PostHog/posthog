@@ -242,7 +242,13 @@ function LiquidSupportedText({
     )
 }
 
-function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
+function NativeEmailTemplaterForm({
+    mode,
+    onSaveAsTemplate,
+}: {
+    mode: EmailEditorMode
+    onSaveAsTemplate?: () => void
+}): JSX.Element {
     const { unlayerEditorProjectId, logicProps, appliedTemplate, templates, templatesLoading, mergeTags } =
         useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
@@ -304,24 +310,40 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                     <>
                         {isWorkflowsProductEnabled && (
                             <div className="flex gap-2 items-center px-2 py-1 border-b">
-                                <span className="flex-1">Start from a template (optional)</span>
+                                <span className="flex-1">Templates</span>
                                 <LemonSelect
                                     size="xsmall"
                                     placeholder="Choose template"
                                     loading={templatesLoading}
                                     value={appliedTemplate?.id}
-                                    options={templates.map((template) => ({
-                                        label: template.name,
-                                        value: template.id,
-                                    }))}
+                                    options={[
+                                        {
+                                            title: 'Templates',
+                                            options: templates.map((template) => ({
+                                                label: template.name,
+                                                value: template.id,
+                                            })),
+                                        },
+                                        {
+                                            options: [
+                                                {
+                                                    label: 'Save as new template',
+                                                    value: 'save-as-template',
+                                                },
+                                            ],
+                                        },
+                                    ]}
                                     onChange={(id) => {
+                                        if (id === 'save-as-template') {
+                                            onSaveAsTemplate?.()
+                                            return
+                                        }
                                         const template = templates.find((t) => t.id === id)
                                         if (template) {
                                             applyTemplate(template)
                                         }
                                     }}
                                     data-attr="email-template-selector"
-                                    disabledReason={templates.length > 0 ? undefined : 'No templates created yet'}
                                 />
                             </div>
                         )}
@@ -368,7 +390,13 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
     )
 }
 
-function EmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
+function EmailTemplaterForm({
+    mode,
+    onSaveAsTemplate,
+}: {
+    mode: EmailEditorMode
+    onSaveAsTemplate?: () => void
+}): JSX.Element {
     const { logicProps } = useValues(emailTemplaterLogic)
 
     switch (logicProps.type) {
@@ -376,7 +404,7 @@ function EmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
             return <DestinationEmailTemplaterForm mode={mode} />
         case 'native_email_template':
         case 'native_email':
-            return <NativeEmailTemplaterForm mode={mode} />
+            return <NativeEmailTemplaterForm mode={mode} onSaveAsTemplate={onSaveAsTemplate} />
     }
 }
 
@@ -443,7 +471,7 @@ function SaveTemplateModal({
 }
 
 function EmailTemplaterModal(): JSX.Element {
-    const { isModalOpen, isEmailEditorReady, emailTemplateChanged, logicProps } = useValues(emailTemplaterLogic)
+    const { isModalOpen, isEmailEditorReady, emailTemplateChanged } = useValues(emailTemplaterLogic)
     const { closeWithConfirmation, submitEmailTemplate, saveAsTemplate } = useActions(emailTemplaterLogic)
     const [isSaveTemplateModalOpen, setIsSaveTemplateModalOpen] = useState(false)
 
@@ -460,17 +488,8 @@ function EmailTemplaterModal(): JSX.Element {
                         <div className="shrink-0">
                             <h2>Editing email template</h2>
                         </div>
-                        <EmailTemplaterForm mode="full" />
+                        <EmailTemplaterForm mode="full" onSaveAsTemplate={() => setIsSaveTemplateModalOpen(true)} />
                         <div className="flex gap-2 items-center mt-2">
-                            {(logicProps.type === 'native_email' || logicProps.type === 'native_email_template') && (
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => setIsSaveTemplateModalOpen(true)}
-                                    disabledReason={isEmailEditorReady ? undefined : 'Loading email editor...'}
-                                >
-                                    Save as template
-                                </LemonButton>
-                            )}
                             <div className="flex-1" />
                             <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
                             <LemonButton
