@@ -8,7 +8,7 @@ import { Params } from 'scenes/sceneTypes'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb, PropertyFilterType } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
@@ -110,8 +110,73 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         ],
     }),
 
-    subscriptions(({ actions }) => ({
-        query: () => actions.setSelectedIssueIds([]),
+    subscriptions(({ actions, values }) => ({
+        query: (query, oldQuery) => {
+            // Clear selected issues when query changes
+            actions.setSelectedIssueIds([])
+
+            // Don't fire analytics if query hasn't actually changed
+            if (equal(query, oldQuery)) {
+                return
+            }
+
+            // Calculate filter properties
+            const filterGroup = values.filterGroup
+            const hasFilters =
+                filterGroup.values.length > 0 &&
+                filterGroup.values.some(
+                    (groupValue) =>
+                        'values' in groupValue && Array.isArray(groupValue.values) && groupValue.values.length > 0
+                )
+            const filterCount = filterGroup.values.reduce((count, groupValue) => {
+                if ('values' in groupValue && Array.isArray(groupValue.values)) {
+                    return count + groupValue.values.length
+                }
+                return count
+            }, 0)
+
+            // Analyze filter categories used
+            const filterCategories: string[] = []
+            filterGroup.values.forEach((groupValue) => {
+                if ('values' in groupValue && Array.isArray(groupValue.values)) {
+                    groupValue.values.forEach((filterValue) => {
+                        if ('type' in filterValue && typeof filterValue.type === 'string') {
+                            const type = filterValue.type as PropertyFilterType
+                            if (type === PropertyFilterType.Person && !filterCategories.includes('person_properties')) {
+                                filterCategories.push('person_properties')
+                            } else if (
+                                type === PropertyFilterType.Event &&
+                                !filterCategories.includes('event_properties')
+                            ) {
+                                filterCategories.push('event_properties')
+                            } else if (
+                                type === PropertyFilterType.ErrorTrackingIssue &&
+                                !filterCategories.includes('error_tracking_issues')
+                            ) {
+                                filterCategories.push('error_tracking_issues')
+                            } else if (type === PropertyFilterType.Cohort && !filterCategories.includes('cohorts')) {
+                                filterCategories.push('cohorts')
+                            } else if (
+                                type === PropertyFilterType.HogQL &&
+                                !filterCategories.includes('sql_expression')
+                            ) {
+                                filterCategories.push('sql_expression')
+                            }
+                        }
+                    })
+                }
+            })
+
+            posthog.capture('error_tracking_query_executed', {
+                has_filters: hasFilters,
+                filter_count: filterCount,
+                filter_categories_used: filterCategories,
+                has_search_query: !!values.searchQuery,
+                filter_test_accounts: values.filterTestAccounts,
+                sort_by: values.orderBy,
+                sort_direction: values.orderDirection,
+            })
+        },
     })),
 
     actionToUrl(({ values }) => {
