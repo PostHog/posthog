@@ -2343,7 +2343,7 @@ async def test_append_only_table(team, mock_stripe_client):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_worker_shutdown_desc_sort_order(team, stripe_price, mock_stripe_client):
+async def test_worker_shutdown_desc_sort_order(team, zendesk_brands):
     """Testing that a descending sort ordered source will not trigger the rescheduling"""
 
     def mock_raise_if_is_worker_shutdown(self):
@@ -2358,13 +2358,17 @@ async def test_worker_shutdown_desc_sort_order(team, stripe_price, mock_stripe_c
     ):
         _, inputs = await _run(
             team=team,
-            schema_name=STRIPE_PRICE_RESOURCE_NAME,
-            table_name="stripe_price",
-            source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
-            mock_data_response=stripe_price["data"],
+            schema_name="brands",
+            table_name="zendesk_brands",
+            source_type="Zendesk",
+            job_inputs={
+                "subdomain": "test",
+                "api_key": "test_api_key",
+                "email_address": "test@posthog.com",
+            },
+            mock_data_response=zendesk_brands["brands"],
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+            sync_type_config={"incremental_field": "created_at", "incremental_field_type": "datetime"},
             ignore_assertions=True,
         )
 
