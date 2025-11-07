@@ -2879,8 +2879,6 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
 
     // How to handle the start of the retention window
     start_handling: 'first_seen' | 'last_seen'
-    // How to handle incomplete retention windows
-    incomplete_retention_handling: 'exclude' | 'include'
 }
 
 export const isExperimentRetentionMetric = (metric: ExperimentMetric): metric is ExperimentRetentionMetric =>

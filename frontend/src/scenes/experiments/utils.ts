@@ -481,7 +481,6 @@ export function getDefaultRetentionMetric(): ExperimentMetric {
         retention_window_end: 1,
         retention_window_unit: FunnelConversionWindowTimeUnit.Day,
         start_handling: 'first_seen',
-        incomplete_retention_handling: 'exclude',
     }
 }
 

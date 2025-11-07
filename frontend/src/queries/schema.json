@@ -13276,10 +13276,6 @@
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
-                "incomplete_retention_handling": {
-                    "enum": ["exclude", "include"],
-                    "type": "string"
-                },
                 "isSharedMetric": {
                     "type": "boolean"
                 },
@@ -13326,7 +13322,6 @@
             },
             "required": [
                 "completion_event",
-                "incomplete_retention_handling",
                 "kind",
                 "metric_type",
                 "retention_window_end",
