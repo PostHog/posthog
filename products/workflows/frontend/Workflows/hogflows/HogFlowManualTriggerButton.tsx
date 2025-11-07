@@ -19,7 +19,7 @@ const TriggerPopover = ({
     props: WorkflowLogicProps
 }): JSX.Element => {
     const logic = hogFlowManualTriggerButtonLogic(props)
-    const { workflow, variableValues, inputs, scheduledDateTime } = useValues(logic)
+    const { workflow, variableValues, inputs } = useValues(logic)
     const { setInput, clearInputs, triggerManualWorkflow } = useActions(logic)
 
     const isScheduleTrigger = workflow?.trigger?.type === 'schedule'
@@ -84,17 +84,15 @@ const TriggerPopover = ({
                     type="primary"
                     status="alt"
                     onClick={() => {
-                        const scheduledAt = isScheduleTrigger
-                            ? (workflow?.trigger as any)?.scheduled_at
-                            : scheduledDateTime?.toISOString()
+                        const scheduledAt = isScheduleTrigger ? (workflow?.trigger as any)?.scheduled_at : undefined
                         triggerManualWorkflow(variableValues, scheduledAt)
                         setPopoverVisible(false)
                         clearInputs()
                     }}
                     data-attr="run-workflow-btn"
-                    sideIcon={isScheduleTrigger || scheduledDateTime ? <IconClock /> : <IconPlayFilled />}
+                    sideIcon={isScheduleTrigger ? <IconClock /> : <IconPlayFilled />}
                 >
-                    {isScheduleTrigger ? 'Schedule workflow' : scheduledDateTime ? 'Schedule workflow' : 'Run workflow'}
+                    {isScheduleTrigger ? 'Schedule workflow' : 'Run workflow'}
                 </LemonButton>
             </div>
         </div>
