@@ -99,13 +99,6 @@ export function Login(): JSX.Element {
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <div className="deprecated-space-y-4">
                 <h2>{isEmailVerificationSent ? 'Check your email' : 'Log in'}</h2>
-                {preflight?.is_debug === 'prod_data' && (
-                    <LemonBanner type="error">
-                        Login unavailable in production debug mode because of <code>SECRET_KEY</code> discrepancy.
-                        <br />
-                        Use env var <code>DEBUG_LOG_IN_AS_EMAIL</code>.
-                    </LemonBanner>
-                )}
                 {generalError && (
                     <LemonBanner type={generalError.code === 'email_verification_sent' ? 'warning' : 'error'}>
                         <>
