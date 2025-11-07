@@ -13069,6 +13069,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentRatioMetricTypeProps"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRetentionMetricTypeProps"
                 }
             ]
         },
@@ -13328,6 +13331,44 @@
                 "retention_window_start",
                 "retention_window_unit",
                 "start_event",
+                "start_handling"
+            ],
+            "type": "object"
+        },
+        "ExperimentRetentionMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "completion_event": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "metric_type": {
+                    "const": "retention",
+                    "type": "string"
+                },
+                "retention_window_end": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_start": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "start_event": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "start_handling": {
+                    "enum": ["first_seen", "last_seen"],
+                    "type": "string"
+                }
+            },
+            "required": [
+                "metric_type",
+                "start_event",
+                "completion_event",
+                "retention_window_start",
+                "retention_window_end",
+                "retention_window_unit",
                 "start_handling"
             ],
             "type": "object"
