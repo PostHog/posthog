@@ -1,9 +1,10 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
-import { router } from 'kea-router'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { router, urlToAction } from 'kea-router'
 
 import { getRelativeNextPath } from 'lib/utils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
+import { getRecommendedProducts } from 'scenes/onboarding/productRecommendations'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -20,6 +21,9 @@ export const productsLogic = kea<productsLogicType>([
         toggleSelectedProduct: (productKey: ProductKey) => ({ productKey }),
         setFirstProductOnboarding: (productKey: ProductKey) => ({ productKey }),
         handleStartOnboarding: () => true,
+        loadPreselectedProducts: () => true,
+        setPreselectedProducts: (productKeys: ProductKey[]) => ({ productKeys }),
+        setUseCase: (useCase: string | null) => ({ useCase }),
     })),
     reducers({
         selectedProducts: [
@@ -27,16 +31,50 @@ export const productsLogic = kea<productsLogicType>([
             {
                 toggleSelectedProduct: (state, { productKey }) =>
                     state.includes(productKey) ? state.filter((key) => key !== productKey) : [...state, productKey],
+                setPreselectedProducts: (_, { productKeys }) => productKeys,
             },
         ],
         firstProductOnboarding: [
             null as ProductKey | null,
             {
                 setFirstProductOnboarding: (_, { productKey }) => productKey,
+                setPreselectedProducts: (_, { productKeys }) => productKeys[0] || null,
+            },
+        ],
+        preSelectedProducts: [
+            [] as ProductKey[],
+            {
+                setPreselectedProducts: (_, { productKeys }) => productKeys,
+            },
+        ],
+        useCase: [
+            null as string | null,
+            {
+                setUseCase: (_, { useCase }) => useCase,
             },
         ],
     }),
+    afterMount(({ actions }) => {
+        actions.loadPreselectedProducts()
+    }),
     listeners(({ actions, values }) => ({
+        loadPreselectedProducts: () => {
+            const params = new URLSearchParams(window.location.search)
+            const useCase = params.get('useCase')
+            const recommendedProducts = getRecommendedProducts(useCase)
+
+            if (recommendedProducts.length > 0) {
+                actions.setPreselectedProducts(recommendedProducts)
+
+                // Track analytics if recommendations were modified
+                if (window.posthog) {
+                    window.posthog.capture('onboarding_products_preselected', {
+                        use_case: useCase,
+                        recommended_products: recommendedProducts,
+                    })
+                }
+            }
+        },
         handleStartOnboarding: () => {
             const nextUrl = getRelativeNextPath(router.values.searchParams['next'], location)
 
@@ -80,6 +118,17 @@ export const productsLogic = kea<productsLogicType>([
                 actions.setFirstProductOnboarding(productKey)
             } else if (!values.selectedProducts.includes(productKey) && values.firstProductOnboarding === productKey) {
                 actions.setFirstProductOnboarding(values.selectedProducts[0] || null)
+            }
+        },
+    })),
+    urlToAction(({ actions }) => ({
+        [urls.products()]: (_: any, searchParams: Record<string, any>) => {
+            if (searchParams.useCase) {
+                actions.setUseCase(searchParams.useCase)
+                const recommendedProducts = getRecommendedProducts(searchParams.useCase)
+                if (recommendedProducts.length > 0) {
+                    actions.setPreselectedProducts(recommendedProducts)
+                }
             }
         },
     })),

@@ -6,7 +6,7 @@ import { type AvailableOnboardingProducts, ProductKey } from '~/types'
 export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.PRODUCT_ANALYTICS]: {
         name: 'Product Analytics',
-        description: 'Track events, trends, and user behavior to understand how people use your product',
+        description: 'Understand what users do with funnels, trends, and retention analysis',
         icon: 'IconGraph',
         iconColor: 'rgb(47 128 250)',
         url: urls.insights(),
@@ -14,7 +14,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
     [ProductKey.WEB_ANALYTICS]: {
         name: 'Web Analytics',
-        description: 'Privacy-friendly analytics for your website with traffic, engagement, and conversion metrics',
+        description: 'Track website traffic and conversions with GA4-style analytics',
         icon: 'IconPieChart',
         iconColor: 'rgb(54 196 111)',
         url: urls.webAnalytics(),
@@ -22,7 +22,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
     [ProductKey.DATA_WAREHOUSE]: {
         name: 'Data Warehouse',
-        description: 'Connect and query data from external sources alongside your PostHog data',
+        description: 'Connect and query external data sources alongside your product data',
         icon: 'IconDatabase',
         iconColor: 'rgb(133 103 255)',
         breadcrumbsName: 'Data Warehouse',
@@ -31,7 +31,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
     [ProductKey.SESSION_REPLAY]: {
         name: 'Session Replay',
-        description: 'Watch recordings of user sessions to see exactly how people interact with your product',
+        description: 'Watch recordings of real user sessions to see exactly what happened',
         icon: 'IconRewindPlay',
         iconColor: 'rgb(247 165 1)',
         url: urls.replay(),
@@ -39,7 +39,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
     [ProductKey.FEATURE_FLAGS]: {
         name: 'Feature Flags',
-        description: 'Roll out features gradually and toggle functionality without deploying new code',
+        description: 'Control feature rollouts and target specific users or groups',
         breadcrumbsName: 'Feature Flags',
         icon: 'IconToggle',
         iconColor: 'rgb(48 171 198)',
@@ -48,7 +48,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
     [ProductKey.EXPERIMENTS]: {
         name: 'Experiments',
-        description: 'Run A/B tests and multivariate experiments to optimize your product',
+        description: 'Run A/B tests to see which features and changes perform best',
         breadcrumbsName: 'Experiments',
         icon: 'IconTestTube',
         iconColor: 'rgb(182 42 217)',
@@ -57,7 +57,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
     [ProductKey.SURVEYS]: {
         name: 'Surveys',
-        description: 'Collect qualitative feedback directly from users with in-app surveys',
+        description: 'Collect feedback from users with in-app surveys and forms',
         icon: 'IconMessage',
         iconColor: 'rgb(243 84 84)',
         url: urls.surveys(),
@@ -65,7 +65,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
     [ProductKey.ERROR_TRACKING]: {
         name: 'Error Tracking',
-        description: 'Monitor and debug errors and exceptions in your application',
+        description: 'Track and monitor errors to understand and fix issues faster',
         icon: 'IconWarning',
         iconColor: 'rgb(235 157 42)',
         url: urls.errorTracking(),
@@ -73,7 +73,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
     [ProductKey.LLM_ANALYTICS]: {
         name: 'LLM Analytics',
-        description: 'Track and analyze LLM usage, costs, and performance for AI-powered applications',
+        description: 'Monitor AI/LLM performance with traces, costs, and quality metrics',
         icon: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
         url: urls.llmAnalyticsDashboard(),
