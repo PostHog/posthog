@@ -6,7 +6,6 @@ import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
-import { parseJSON } from '~/utils/json-parse'
 
 import { Hub, Team } from '../../../types'
 import { EmailService } from './email.service'
@@ -41,6 +40,7 @@ describe('EmailService', () => {
     })
     describe('executeSendEmail', () => {
         let invocation: CyclotronJobInvocationHogFunction
+        let sendEmailSpy: jest.SpyInstance
         beforeEach(async () => {
             await insertIntegration(hub.postgres, team.id, {
                 id: 1,
@@ -59,6 +59,11 @@ describe('EmailService', () => {
                 stack: [],
             } as any
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1, email: 'test@posthog.com' } })
+
+            // Mock SES sendEmail to avoid actual AWS calls
+            sendEmailSpy = jest.spyOn(service.ses, 'sendEmail').mockReturnValue({
+                promise: () => Promise.resolve({ MessageId: 'test-message-id' }),
+            } as any)
         })
         describe('integration validation', () => {
             beforeEach(async () => {
@@ -106,14 +111,8 @@ describe('EmailService', () => {
                 })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                expect(parseJSON(mockFetch.mock.calls[0][1].body).Messages[0].From).toMatchInlineSnapshot(
-                    `
-                    {
-                      "Email": "test@posthog.com",
-                      "Name": "Test User",
-                    }
-                `
-                )
+                expect(sendEmailSpy).toHaveBeenCalled()
+                expect(sendEmailSpy.mock.calls[0][0].Source).toBe('"Test User" <test@posthog.com>')
             })
             it('should validate if the email domain is not verified', async () => {
                 invocation.queueParameters = createEmailParams({
@@ -134,21 +133,23 @@ describe('EmailService', () => {
             it('should send an email', async () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                expect(mockFetch.mock.calls[0]).toMatchInlineSnapshot(
-                    `
-                    [
-                      "https://api.mailjet.com/v3.1/send",
-                      {
-                        "body": "{"Messages":[{"From":{"Email":"test@posthog.com","Name":"Test User"},"To":[{"Email":"test@example.com","Name":"Test User"}],"Subject":"Test Subject","TextPart":"Test Text","HTMLPart":"Test HTML","EventPayload":"ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE"}]}",
-                        "headers": {
-                          "Authorization": "Basic bWFpbGpldC1wdWJsaWMta2V5Om1haWxqZXQtc2VjcmV0LWtleQ==",
-                          "Content-Type": "application/json",
+                expect(sendEmailSpy).toHaveBeenCalled()
+                expect(sendEmailSpy.mock.calls[0][0]).toMatchObject({
+                    Source: '"Test User" <test@posthog.com>',
+                    Destination: {
+                        ToAddresses: ['"Test User" <test@example.com>'],
+                    },
+                    Message: {
+                        Subject: {
+                            Data: 'Test Subject',
                         },
-                        "method": "POST",
-                      },
-                    ]
-                `
-                )
+                        Body: {
+                            Text: {
+                                Data: 'Test Text',
+                            },
+                        },
+                    },
+                })
             })
         })
     })
