@@ -21,6 +21,5 @@
 
 ## Changelog: (features only) Is this feature complete?
 
-<!-- Optional, but helpful for our content team! -->
 <!-- Yes if this is okay to go in the changelog. No if it's still hidden behind a feature flag, or part of a feature that's not complete yet, etc.  -->
 <!-- Removing this section does not mean the changelog bot won't pick it up, because *some people* like to not use the template, so we can't rely on it existing. -->
