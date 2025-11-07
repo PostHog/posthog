@@ -772,6 +772,7 @@ posthog/settings/__init__.py:0: error: Cannot determine type of "MAILJET_PUBLIC_
 posthog/settings/__init__.py:0: error: Cannot determine type of "MAILJET_SECRET_KEY"  [has-type]
 posthog/settings/__init__.py:0: error: Cannot determine type of "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY"  [has-type]
 posthog/settings/__init__.py:0: error: Cannot determine type of "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET"  [has-type]
+posthog/settings/data_stores.py:0: error: Name "DATABASE_URL" already defined on line 0  [no-redef]
 posthog/storage/team_access_cache.py:0: error: Need type annotation for "affected_teams" (hint: "affected_teams: set[<type>] = ...")  [var-annotated]
 posthog/storage/team_access_cache_signal_handlers.py:0: error: Argument 1 to "_warm_cache_for_teams" has incompatible type "QuerySet[Any, Any]"; expected "set[str] | list[str]"  [arg-type]
 posthog/storage/team_access_cache_signal_handlers.py:0: error: Argument 1 to "_warm_cache_for_teams" has incompatible type "QuerySet[Any, Any]"; expected "set[str] | list[str]"  [arg-type]
