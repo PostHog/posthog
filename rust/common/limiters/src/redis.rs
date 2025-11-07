@@ -143,6 +143,7 @@ impl RedisLimiter {
                         )
                         .set(set.len() as f64);
 
+                        limited.clear();
                         for item in set {
                             limited.insert(item, true);
                         }
