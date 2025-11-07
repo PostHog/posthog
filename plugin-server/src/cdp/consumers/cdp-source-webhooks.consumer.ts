@@ -209,7 +209,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
 
-            // Normal execution path (no $scheduled_at)
             const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
             const invocation = createInvocation(globalsWithInputs, hogFunction)
 
