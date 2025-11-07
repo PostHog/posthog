@@ -7,7 +7,7 @@ import time
 import asyncio
 from datetime import datetime
 import traceback
-
+from tqdm.asyncio import tqdm
 from pymediainfo import MediaInfo
 import tiktoken
 import structlog
@@ -253,7 +253,7 @@ class VideoTranscriptioner:
 
 
 async def transcribe_videos(video_mapping: dict[str, Path], output_path: Path) -> dict[str, str]:
-    for session_uuid, input_video_path in video_mapping.items():
+    for session_uuid, input_video_path in tqdm(video_mapping.items(), desc="Transcribing videos"):
         # Iterating as-is (without task group) as a single video generates lots of concurrent requests (one for 15s)
         await _trascribe_video_task(
             input_file_name=None,
