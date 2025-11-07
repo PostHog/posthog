@@ -4,10 +4,10 @@ set -e
 export OBJECT_STORAGE_ENDPOINT=http://localhost:19000
 export SESSION_RECORDING_V2_S3_ENDPOINT=http://localhost:19000
 
-export CLICKHOUSE_API_USER=${CLICKHOUSE_USER:-"api"}
-export CLICKHOUSE_API_PASSWORD=${CLICKHOUSE_PASSWORD:-"apipass"}
-export CLICKHOUSE_APP_USER=${CLICKHOUSE_USER:-"app"}
-export CLICKHOUSE_APP_PASSWORD=${CLICKHOUSE_PASSWORD:-"apppass"}
+export CLICKHOUSE_API_USER="api"
+export CLICKHOUSE_API_PASSWORD="apipass"
+export CLICKHOUSE_APP_USER="app"
+export CLICKHOUSE_APP_PASSWORD="apppass"
 
 # Suppress frozen modules warning since we only debug our code, not stdlib
 export PYDEVD_DISABLE_FILE_VALIDATION=1

@@ -15,7 +15,7 @@ import pydantic_core
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from opentelemetry import trace
-from rest_framework import exceptions, serializers, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -49,6 +49,8 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
+
+from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -608,6 +610,8 @@ class DashboardsViewSet(
     permission_classes = [CanEditDashboard]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
+    TEMPLATE_MAP = {"llm-analytics": get_llm_analytics_default_template}
+
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
@@ -695,14 +699,19 @@ class DashboardsViewSet(
         if self.action == "list" and self.request.query_params.get("exclude_generated") == "true":
             queryset = queryset.exclude(name__startswith=GENERATED_DASHBOARD_PREFIX)
 
+        # Filter unlisted dashboards from general list, but allow access via:
+        # - Direct ID lookup (detail action)
+        # - Tag-based queries (e.g. ?tags=llm-analytics for product dashboards)
+        if self.action == "list" and not self.request.query_params.get("tags"):
+            queryset = queryset.exclude(creation_mode="unlisted")
+
         return queryset
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
-        if not settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:  # In the special prod PG in debug mode, we can't write to PG!
-            dashboard.last_accessed_at = now()
-            dashboard.save(update_fields=["last_accessed_at"])
+        dashboard.last_accessed_at = now()
+        dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
         response = Response(serializer.data)
         return response
@@ -716,9 +725,8 @@ class DashboardsViewSet(
         dashboard = self.get_object()  # This will raise 404 if not found - let it bubble up normally
 
         # Do all database operations and data loading synchronously first
-        if not settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:  # In the special prod PG in debug mode, we can't write to PG!
-            dashboard.last_accessed_at = now()
-            dashboard.save(update_fields=["last_accessed_at"])
+        dashboard.last_accessed_at = now()
+        dashboard.save(update_fields=["last_accessed_at"])
 
         # Prepare metadata with initial tiles
         metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())
@@ -878,6 +886,61 @@ class DashboardsViewSet(
             raise
 
         return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
+
+    @action(methods=["POST"], detail=False)
+    def create_unlisted_dashboard(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Creates an unlisted dashboard from template by tag.
+        Enforces uniqueness (one per tag per team).
+        Returns 409 if unlisted dashboard with this tag already exists.
+        """
+        from django.db import transaction
+
+        from posthog.models.team import Team
+
+        tag = request.data.get("tag")
+
+        if not tag:
+            return Response(
+                {"error": "tag is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if tag not in self.TEMPLATE_MAP:
+            return Response(
+                {"error": f"Unknown template tag: {tag}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            Team.objects.select_for_update().filter(id=self.team_id).first()
+
+            existing = Dashboard.objects.filter(
+                team=self.team, deleted=False, creation_mode="unlisted", tagged_items__tag__name=tag
+            ).first()
+
+            if existing:
+                return Response(
+                    {"error": f"Unlisted dashboard with tag '{tag}' already exists"},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            template = self.TEMPLATE_MAP[tag]()
+            dashboard = Dashboard.objects.create(
+                team_id=self.team_id,
+                name=template.template_name,
+                description=template.dashboard_description or "",
+                filters={**(template.dashboard_filters or {}), "__template_version": 1},
+                created_by=cast(User, request.user),
+                creation_mode="unlisted",
+            )
+
+            create_from_template(dashboard, template, cast(User, request.user))
+
+            return Response(
+                DashboardSerializer(dashboard, context=self.get_serializer_context()).data,
+                status=status.HTTP_201_CREATED,
+            )
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):
