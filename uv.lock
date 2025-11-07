@@ -1411,16 +1411,16 @@ wheels = [
 
 [[package]]
 name = "django"
-version = "4.2.22"
+version = "4.2.26"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
     { name = "sqlparse" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/56/9e/37b909fa1c5e46ddb42ec37ec600a575d25dc47a6de86a1fce782a4a44ad/django-4.2.22.tar.gz", hash = "sha256:e726764b094407c313adba5e2e866ab88f00436cad85c540a5bf76dc0a912c9e", size = 10427236, upload-time = "2025-06-04T13:53:41.332Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bc/f2/5cab08b4174b46cd9d5b4d4439d211f5dd15bec256fb43e8287adbb79580/django-4.2.26.tar.gz", hash = "sha256:9398e487bcb55e3f142cb56d19fbd9a83e15bb03a97edc31f408361ee76d9d7a", size = 10433052, upload-time = "2025-11-05T14:08:23.522Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/dc/17/6afcbac3575992b22fda1ae7fffcdff15ff24d1aff69b3d36876bc0a47eb/django-4.2.22-py3-none-any.whl", hash = "sha256:0a32773b5b7f4e774a155ee253ab24a841fed7e9e9061db08bf2ce9711da404d", size = 7993908, upload-time = "2025-06-04T13:53:33.923Z" },
+    { url = "https://files.pythonhosted.org/packages/39/6f/873365d280002de462852c20bcf050564e2354770041bd950bfb4a16d91e/django-4.2.26-py3-none-any.whl", hash = "sha256:c96e64fc3c359d051a6306871bd26243db1bd02317472a62ffdbe6c3cae14280", size = 7994264, upload-time = "2025-11-05T14:08:20.328Z" },
 ]
 
 [[package]]
@@ -4476,7 +4476,7 @@ requires-dist = [
     { name = "deltalake", specifier = "==0.25.2" },
     { name = "disposable-email-domains", specifier = ">=0.0.140" },
     { name = "dj-database-url", specifier = "==0.5.0" },
-    { name = "django", specifier = "~=4.2.17" },
+    { name = "django", specifier = "~=4.2.26" },
     { name = "django-admin-inline-paginator", specifier = "===0.4.0" },
     { name = "django-axes", extras = ["ipware"], specifier = "==8.0.0" },
     { name = "django-cors-headers", specifier = "~=4.8.0" },
