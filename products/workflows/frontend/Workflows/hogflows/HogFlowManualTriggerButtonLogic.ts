@@ -1,6 +1,6 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
-import { dayjs } from 'lib/dayjs'
+import { Dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -59,7 +59,7 @@ export const hogFlowManualTriggerButtonLogic = kea<hogFlowManualTriggerButtonLog
             },
         ],
         scheduledDateTime: [
-            null as dayjs.Dayjs | null,
+            null as Dayjs | null,
             {
                 setScheduledDateTime: (_: any, { date }: any) => date,
             },
