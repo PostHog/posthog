@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { getRelativeNextPath } from 'lib/utils'
@@ -21,7 +21,6 @@ export const productsLogic = kea<productsLogicType>([
         toggleSelectedProduct: (productKey: ProductKey) => ({ productKey }),
         setFirstProductOnboarding: (productKey: ProductKey) => ({ productKey }),
         handleStartOnboarding: () => true,
-        loadPreselectedProducts: () => true,
         setPreselectedProducts: (productKeys: ProductKey[]) => ({ productKeys }),
         setUseCase: (useCase: string | null) => ({ useCase }),
     })),
@@ -54,27 +53,7 @@ export const productsLogic = kea<productsLogicType>([
             },
         ],
     }),
-    afterMount(({ actions }) => {
-        actions.loadPreselectedProducts()
-    }),
     listeners(({ actions, values }) => ({
-        loadPreselectedProducts: () => {
-            const params = new URLSearchParams(window.location.search)
-            const useCase = params.get('useCase')
-            const recommendedProducts = getRecommendedProducts(useCase)
-
-            if (recommendedProducts.length > 0) {
-                actions.setPreselectedProducts(recommendedProducts)
-
-                // Track analytics if recommendations were modified
-                if (window.posthog) {
-                    window.posthog.capture('onboarding_products_preselected', {
-                        use_case: useCase,
-                        recommended_products: recommendedProducts,
-                    })
-                }
-            }
-        },
         handleStartOnboarding: () => {
             const nextUrl = getRelativeNextPath(router.values.searchParams['next'], location)
 
@@ -127,7 +106,15 @@ export const productsLogic = kea<productsLogicType>([
                 actions.setUseCase(searchParams.useCase)
                 const recommendedProducts = getRecommendedProducts(searchParams.useCase)
                 if (recommendedProducts.length > 0) {
-                    actions.setPreselectedProducts(recommendedProducts)
+                    actions.setPreselectedProducts([...recommendedProducts])
+
+                    // Track analytics when products are preselected based on use case
+                    if (window.posthog) {
+                        window.posthog.capture('onboarding_products_preselected', {
+                            use_case: searchParams.useCase,
+                            recommended_products: recommendedProducts,
+                        })
+                    }
                 }
             }
         },

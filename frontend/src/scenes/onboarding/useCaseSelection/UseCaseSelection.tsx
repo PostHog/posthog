@@ -2,6 +2,7 @@ import { useActions } from 'kea'
 
 import { LemonCard } from '@posthog/lemon-ui'
 
+import { USE_CASE_OPTIONS } from 'scenes/onboarding/productRecommendations'
 import { getProductIcon } from 'scenes/products/Products'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -10,44 +11,6 @@ import { useCaseSelectionLogic } from './useCaseSelectionLogic'
 export const scene: SceneExport = {
     component: UseCaseSelection,
 }
-
-const USE_CASES = [
-    {
-        key: 'see_user_behavior',
-        iconKey: 'IconGraph',
-        iconColor: 'rgb(47 128 250)',
-        title: 'Understand how users behave',
-        description: 'Track, analyze, and understand what users do with funnels, trends, and session recordings',
-    },
-    {
-        key: 'fix_issues',
-        iconKey: 'IconWarning',
-        iconColor: 'rgb(235 157 42)',
-        title: 'Find and fix issues',
-        description: 'Track and monitor errors, then watch session recordings to see exactly what happened',
-    },
-    {
-        key: 'launch_features',
-        iconKey: 'IconToggle',
-        iconColor: 'rgb(48 171 198)',
-        title: 'Launch features with confidence',
-        description: 'Control feature rollouts and run A/B tests to see what performs best',
-    },
-    {
-        key: 'collect_feedback',
-        iconKey: 'IconMessage',
-        iconColor: 'rgb(243 84 84)',
-        title: 'Collect user feedback',
-        description: 'Collect feedback with in-app surveys and understand behavior with analytics',
-    },
-    {
-        key: 'monitor_ai',
-        iconKey: 'IconLlmAnalytics',
-        iconColor: 'rgb(182 42 217)',
-        title: 'Monitor AI applications',
-        description: 'Monitor AI/LLM performance with traces, costs, and quality metrics',
-    },
-]
 
 export function UseCaseSelection(): JSX.Element {
     const { selectUseCase } = useActions(useCaseSelectionLogic)
@@ -59,11 +22,11 @@ export function UseCaseSelection(): JSX.Element {
                 <p className="text-center text-muted mb-8">Select your primary goal to get started:</p>
 
                 <div className="flex flex-col gap-4">
-                    {USE_CASES.map((useCase) => (
+                    {USE_CASE_OPTIONS.map((useCase) => (
                         <LemonCard
                             key={useCase.key}
                             className="cursor-pointer hover:border-primary transition-colors hover:transform-none"
-                            onClick={() => selectUseCase(useCase.key as any)}
+                            onClick={() => selectUseCase(useCase.key)}
                             hoverEffect
                         >
                             <div className="flex items-start gap-4">

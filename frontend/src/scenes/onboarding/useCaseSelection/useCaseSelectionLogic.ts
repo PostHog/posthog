@@ -24,7 +24,7 @@ export const useCaseSelectionLogic = kea<useCaseSelectionLogicType>([
             }
 
             // Navigate with URL param - no API call needed!
-            router.actions.push(urls.products() + `?useCase=${useCase}`)
+            router.actions.push(urls.products(), { useCase })
         },
     })),
 ])
