@@ -9,6 +9,7 @@ from django.http import StreamingHttpResponse
 import litellm
 import posthoganalytics
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
+from litellm.llms.custom_httpx.http_handler import os
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -34,9 +35,6 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
-litellm.success_callback = ["posthog"]
-litellm.failure_callback = ["posthog"]
-
 
 class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
@@ -51,6 +49,13 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         response = await litellm.anthropic_messages(**data)
         async for chunk in response:
             yield chunk
+
+    def _setup_litellm(self):
+        os.environ["POSTHOG_API_KEY"] = posthoganalytics.api_key
+        os.environ["POSTHOG_API_URL"] = posthoganalytics.host
+
+        litellm.success_callback = ["posthog"]
+        litellm.failure_callback = ["posthog"]
 
     async def _openai_stream(self, data: dict) -> AsyncGenerator[bytes, None]:
         response = await litellm.acompletion(**data)
@@ -117,6 +122,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["POST"], url_path="v1/messages", required_scopes=["task:write"])
     def anthropic_messages(self, request: Request, *args, **kwargs):
+        self._setup_litellm()
         serializer = AnthropicMessagesRequestSerializer(data=request.data)
 
         if not serializer.is_valid():
@@ -133,9 +139,6 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "team_id": str(self.team.id),
             "organization_id": str(self.organization.id),
         }
-        data["posthog_api_key"] = posthoganalytics.api_key
-        if posthoganalytics.host:
-            data["posthog_api_url"] = posthoganalytics.host
 
         if is_streaming:
             sse_stream = self._format_as_sse(self._anthropic_stream(data), request)
@@ -199,6 +202,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["task:write"],
     )
     def chat_completions(self, request: Request, *args, **kwargs):
+        self._setup_litellm()
         serializer = ChatCompletionRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(
@@ -214,9 +218,6 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "team_id": str(self.team.id),
             "organization_id": str(self.organization.id),
         }
-        data["posthog_api_key"] = posthoganalytics.api_key
-        if posthoganalytics.host:
-            data["posthog_api_url"] = posthoganalytics.host
 
         if is_streaming:
             sse_stream = self._format_as_sse(self._openai_stream(data), request)
