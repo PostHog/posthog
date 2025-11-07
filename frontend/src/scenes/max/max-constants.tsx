@@ -1,13 +1,12 @@
-import { IconAtSign, IconBook, IconCompass, IconCreditCard, IconMemory, IconSearch, IconShuffle } from '@posthog/icons'
+import { IconAtSign, IconBook, IconCompass, IconCreditCard, IconMemory, IconSearch } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
+import { AssistantTool } from '~/queries/schema/schema-assistant-messages'
 
 import { EnhancedToolCall } from './Thread'
-import { isAgentMode } from './maxTypes'
 
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {
@@ -65,11 +64,6 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     suggestions?: string[]
     /** The callback function that will be executed with the LLM's tool call output */
     callback?: (toolOutput: any, conversationId: string) => void | Promise<void>
-}
-
-/** Static mode definition for display purposes. */
-export interface ModeDefinition {
-    name: string
 }
 
 export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, ToolDefinition> = {
@@ -375,30 +369,6 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             }
             return 'Creating feature flag...'
         },
-    },
-    switch_mode: {
-        name: 'Switch agent mode',
-        description: 'Switch the chat to a different mode',
-        icon: <IconShuffle />,
-        displayFormatter: (toolCall) => {
-            const modeName = isAgentMode(toolCall.args.mode) ? MODE_DEFINITIONS[toolCall.args.mode].name : null
-            const modeText = modeName ? ` to ${modeName}` : ''
-
-            if (toolCall.status === 'completed') {
-                return `Switched agent mode${modeText}`
-            }
-
-            return `Switching agent mode${modeText}...`
-        },
-    },
-}
-
-export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
-    [AgentMode.ProductAnalytics]: {
-        name: 'Product analytics',
-    },
-    [AgentMode.SQL]: {
-        name: 'SQL',
     },
 }
 
