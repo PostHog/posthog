@@ -200,6 +200,7 @@ export const FEATURE_FLAGS = {
     QUERY_CACHE_USE_S3: 'query-cache-use-s3', // owner: @aspicer #team-product-analytics
     DASHBOARD_THREADS: 'dashboard-threads', // owner: @aspicer #team-product-analytics
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
+    LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD: 'llm-analytics-customizable-dashboard', // owner: #team-llm-analytics
     BATCH_EXPORTS_DATABRICKS: 'databricks-batch-exports', // owner: @rossgray #team-batch-exports
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
     WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success
@@ -328,7 +329,6 @@ export const FEATURE_FLAGS = {
     DWH_FREE_SYNCS: 'dwh-free-syncs', // owner: @Gilbert09  #team-data-stack
     COPY_WEB_ANALYTICS_DATA: 'copy-web-analytics-data', // owner: @lricoy  #team-web-analytics
     REPLAY_FILTERS_REDESIGN: 'replay-filters-redesign', // owner: @ksvat #team-replay
-    REPLAY_PROGRESSIVE_LOADING: 'replay-progressive-loading', // owner: @pauldambra #team-replay
     REPLAY_NEW_DETECTED_URL_COLLECTIONS: 'replay-new-detected-url-collections', // owner: @ksvat #team-replay multivariate
     EXPERIMENTS_USE_NEW_CREATE_FORM: 'experiments-use-new-create-form', // owner: @rodrigoi #team-experiments
 } as const
