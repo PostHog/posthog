@@ -3,10 +3,12 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature, UserBasicType } from '~/types'
 
 import { eventDefinitionModalLogic } from './eventDefinitionModalLogic'
 
@@ -19,10 +21,10 @@ export interface EventDefinitionModalProps {
 export function EventDefinitionModal({ isOpen, onClose, onSuccess }: EventDefinitionModalProps): JSX.Element {
     const logic = eventDefinitionModalLogic({ onSuccess, onClose })
     const { eventDefinitionForm, isEventDefinitionFormSubmitting } = useValues(logic)
-    const { setEventDefinitionFormValue } = useActions(logic)
+    const { setEventDefinitionFormValue: setFormValue, submitEventDefinitionForm } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
 
-    const hasIngestionTaxonomy = hasAvailableFeature('ingestion_taxonomy')
+    const hasIngestionTaxonomy = hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)
 
     return (
         <LemonModal
@@ -37,7 +39,7 @@ export function EventDefinitionModal({ isOpen, onClose, onSuccess }: EventDefini
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        onClick={() => logic.actions.submitEventDefinitionForm()}
+                        onClick={submitEventDefinitionForm}
                         loading={isEventDefinitionFormSubmitting}
                     >
                         Create event
@@ -49,7 +51,7 @@ export function EventDefinitionModal({ isOpen, onClose, onSuccess }: EventDefini
                 <LemonField name="name" label="Event name">
                     <LemonInput
                         value={eventDefinitionForm.name}
-                        onChange={(value) => setEventDefinitionFormValue('name', value)}
+                        onChange={(value) => setFormValue('name', value)}
                         placeholder="e.g., user_signed_up"
                         autoFocus
                         data-attr="event-definition-name-input"
@@ -61,16 +63,16 @@ export function EventDefinitionModal({ isOpen, onClose, onSuccess }: EventDefini
                         <LemonField name="description" label="Description" showOptional>
                             <LemonTextArea
                                 value={eventDefinitionForm.description}
-                                onChange={(value) => setEventDefinitionFormValue('description', value)}
+                                onChange={(value) => setFormValue('description', value)}
                                 placeholder="What does this event represent?"
                                 data-attr="event-definition-description-input"
                             />
                         </LemonField>
 
                         <LemonField name="owner" label="Owner" showOptional>
-                            <UserSelectItem
-                                value={eventDefinitionForm.owner}
-                                onChange={(value) => setEventDefinitionFormValue('owner', value)}
+                            <MemberSelect
+                                value={eventDefinitionForm.owner ?? null}
+                                onChange={(user: UserBasicType | null) => setFormValue('owner', user?.id ?? null)}
                                 data-attr="event-definition-owner-select"
                             />
                         </LemonField>
@@ -80,7 +82,7 @@ export function EventDefinitionModal({ isOpen, onClose, onSuccess }: EventDefini
                 <LemonField name="tags" label="Tags" showOptional>
                     <ObjectTags
                         tags={eventDefinitionForm.tags || []}
-                        onChange={(tags) => setEventDefinitionFormValue('tags', tags)}
+                        onChange={(tags) => setFormValue('tags', tags)}
                         saving={false}
                         className="mb-2"
                         data-attr="event-definition-tags-input"

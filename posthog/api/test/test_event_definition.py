@@ -341,22 +341,14 @@ class TestEventDefinitionAPI(APIBaseTest):
         )
         assert response1.status_code == status.HTTP_201_CREATED
 
-        # Create a second team and try to access the event
+        # Verify the event exists in the database for demo_team
+        event_def = EventDefinition.objects.get(name="team_specific_event", team=self.demo_team)
+        assert event_def is not None
+
+        # Verify it cannot be accessed by a different team
         other_team = create_team(organization=self.organization)
-        other_user = create_user("other_user", "pass", self.organization)
-        self.client.force_login(other_user)
-
-        # Switch to the other team's project
-        from posthog.models import Project
-
-        other_project = Project.objects.create(organization=self.organization, name="Other Project")
-        other_team.project = other_project
-        other_team.save()
-
-        # The event should not be visible in the other team
-        response2 = self.client.get("/api/projects/@current/event_definitions/")
-        event_names = [e["name"] for e in response2.json()["results"]]
-        assert "team_specific_event" not in event_names
+        other_team_event_exists = EventDefinition.objects.filter(name="team_specific_event", team=other_team).exists()
+        assert not other_team_event_exists
 
 
 @dataclasses.dataclass

@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { kea, key, path, props } from 'kea'
 import { forms } from 'kea-forms'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -25,10 +25,7 @@ export const eventDefinitionModalLogic = kea<eventDefinitionModalLogicType>([
     path(['scenes', 'data-management', 'events', 'eventDefinitionModalLogic']),
     props({} as EventDefinitionModalLogicProps),
     key((props) => props.onSuccess?.toString() || 'default'),
-    actions({
-        setEventDefinitionFormValue: (key: keyof EventDefinitionFormType, value: any) => ({ key, value }),
-    }),
-    forms(() => ({
+    forms(({ props }) => ({
         eventDefinitionForm: {
             defaults: {
                 name: '',
@@ -40,50 +37,32 @@ export const eventDefinitionModalLogic = kea<eventDefinitionModalLogicType>([
                 name: !name ? 'Event name is required' : undefined,
             }),
             submit: async (formValues) => {
-                const payload: Partial<EventDefinition> = {
-                    name: formValues.name.trim(),
-                }
+                try {
+                    const payload: Partial<EventDefinition> = {
+                        name: formValues.name.trim(),
+                    }
 
-                if (formValues.description) {
-                    payload.description = formValues.description
-                }
-                if (formValues.owner) {
-                    payload.owner = { id: formValues.owner } as any
-                }
-                if (formValues.tags && formValues.tags.length > 0) {
-                    payload.tags = formValues.tags
-                }
+                    if (formValues.description) {
+                        payload.description = formValues.description
+                    }
+                    if (formValues.owner) {
+                        payload.owner = { id: formValues.owner } as any
+                    }
+                    if (formValues.tags && formValues.tags.length > 0) {
+                        payload.tags = formValues.tags
+                    }
 
-                const response = await api.eventDefinitions.create(payload)
-                return response
+                    await api.eventDefinitions.create(payload)
+
+                    lemonToast.success(`Event "${formValues.name}" created successfully`)
+                    props.onClose()
+                    props.onSuccess?.()
+                } catch (error: any) {
+                    const errorMessage = error?.detail || error?.message || 'Failed to create event definition'
+                    lemonToast.error(errorMessage)
+                    throw error
+                }
             },
         },
     })),
-    listeners(({ props }) => ({
-        submitEventDefinitionFormSuccess: ({ eventDefinitionForm }) => {
-            lemonToast.success(`Event "${eventDefinitionForm.name}" created successfully`)
-            props.onClose()
-            props.onSuccess?.()
-        },
-        submitEventDefinitionFormFailure: ({ error }) => {
-            const errorMessage = error?.detail || error?.message || 'Failed to create event definition'
-            lemonToast.error(errorMessage)
-        },
-    })),
-    reducers({
-        eventDefinitionForm: [
-            {
-                name: '',
-                description: '',
-                owner: null,
-                tags: [],
-            } as EventDefinitionFormType,
-            {
-                setEventDefinitionFormValue: (state, { key, value }) => ({
-                    ...state,
-                    [key]: value,
-                }),
-            },
-        ],
-    }),
 ])
