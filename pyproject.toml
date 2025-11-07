@@ -31,7 +31,7 @@ dependencies = [
     "dagster-webserver==1.10.18",
     "deltalake==0.25.2",
     "dj-database-url==0.5.0",
-    "django~=4.2.17",
+    "django~=4.2.26",
     "django-axes[ipware]==8.0.0",
     "django-cors-headers~=4.8.0",
     "django-deprecate-fields==0.1.1",

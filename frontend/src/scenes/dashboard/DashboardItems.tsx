@@ -138,6 +138,7 @@ export function DashboardItems(): JSX.Element {
                             showEditingControls: [
                                 DashboardPlacement.Dashboard,
                                 DashboardPlacement.ProjectHomepage,
+                                DashboardPlacement.Builtin,
                             ].includes(placement),
                             moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
                                 if (!dashboard) {
