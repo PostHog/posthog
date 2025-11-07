@@ -175,7 +175,7 @@ export function SelectableProductCard({
                                         })
                                     }
                                 }}
-                                className="text-muted hover:text-default text-sm mb-6 flex items-center gap-1"
+                                className="text-muted hover:text-default text-sm mb-6 flex items-center gap-1 cursor-pointer"
                             >
                                 Show all products ({otherProducts.length} more) <IconChevronDown className="text-xs" />
                             </button>
@@ -189,7 +189,7 @@ export function SelectableProductCard({
                                     {showAllProducts && preSelectedProducts.length > 0 && (
                                         <button
                                             onClick={() => setShowAllProducts(false)}
-                                            className="text-muted hover:text-default text-sm mb-2 flex items-center gap-1"
+                                            className="text-muted hover:text-default text-sm mb-2 flex items-center gap-1 cursor-pointer"
                                         >
                                             <IconChevronDown className="rotate-180 text-xs" /> Hide other products
                                         </button>
