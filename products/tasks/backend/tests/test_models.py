@@ -357,9 +357,24 @@ class TestTaskRun(TestCase):
         entries = [{"type": "info", "message": "First log entry"}]
         run.append_log(entries)
         run.refresh_from_db()
-        self.assertEqual(len(run.log), 1)
-        self.assertEqual(run.log[0]["type"], "info")
-        self.assertEqual(run.log[0]["message"], "First log entry")
+
+        # Verify logs are stored in S3
+        self.assertIsNotNone(run.log_storage_path)
+        self.assertTrue(run.has_s3_logs)
+
+        # Read from S3 and verify content
+        import json
+
+        from posthog.storage import object_storage
+
+        log_content = object_storage.read(run.log_storage_path)
+        self.assertIsNotNone(log_content)
+
+        # Parse newline-delimited JSON
+        log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
+        self.assertEqual(len(log_entries), 1)
+        self.assertEqual(log_entries[0]["type"], "info")
+        self.assertEqual(log_entries[0]["message"], "First log entry")
 
     def test_append_log_multiple_entries(self):
         run = TaskRun.objects.create(
@@ -374,28 +389,62 @@ class TestTaskRun(TestCase):
         ]
         run.append_log(entries)
         run.refresh_from_db()
-        self.assertEqual(len(run.log), 3)
-        self.assertEqual(run.log[0]["type"], "info")
-        self.assertEqual(run.log[1]["type"], "warning")
-        self.assertEqual(run.log[2]["type"], "error")
+
+        # Verify logs are stored in S3
+        self.assertIsNotNone(run.log_storage_path)
+        self.assertTrue(run.has_s3_logs)
+
+        # Read from S3 and verify content
+        import json
+
+        from posthog.storage import object_storage
+
+        log_content = object_storage.read(run.log_storage_path)
+        self.assertIsNotNone(log_content)
+
+        # Parse newline-delimited JSON
+        log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
+        self.assertEqual(len(log_entries), 3)
+        self.assertEqual(log_entries[0]["type"], "info")
+        self.assertEqual(log_entries[1]["type"], "warning")
+        self.assertEqual(log_entries[2]["type"], "error")
 
     def test_append_log_to_existing(self):
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
-            log=[{"type": "info", "message": "Existing entry"}],
         )
 
+        # Add first batch of entries
+        first_entries = [{"type": "info", "message": "First entry"}]
+        run.append_log(first_entries)
+
+        # Add second batch of entries
         new_entries = [
             {"type": "success", "message": "New entry 1"},
             {"type": "debug", "message": "New entry 2"},
         ]
         run.append_log(new_entries)
         run.refresh_from_db()
-        self.assertEqual(len(run.log), 3)
-        self.assertEqual(run.log[0]["message"], "Existing entry")
-        self.assertEqual(run.log[1]["message"], "New entry 1")
-        self.assertEqual(run.log[2]["message"], "New entry 2")
+
+        # All logs should be stored in S3
+        self.assertIsNotNone(run.log_storage_path)
+        self.assertTrue(run.has_s3_logs)
+
+        # Read from S3 and verify all entries
+        import json
+
+        from posthog.storage import object_storage
+
+        log_content = object_storage.read(run.log_storage_path)
+        self.assertIsNotNone(log_content)
+
+        # Parse newline-delimited JSON
+        log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
+        self.assertEqual(len(log_entries), 3)
+        self.assertEqual(log_entries[0]["message"], "First entry")
+        self.assertEqual(log_entries[1]["message"], "New entry 1")
+        self.assertEqual(log_entries[2]["message"], "New entry 2")
 
     def test_mark_completed(self):
         run = TaskRun.objects.create(
