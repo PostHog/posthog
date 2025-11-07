@@ -37,13 +37,15 @@ export function ExceptionLogicWrapper({
     children: JSX.Element
 }): JSX.Element {
     const properties = getEventProperties(eventName)
-    const { setLoading } = useActions(exceptionCardLogic)
+    const { setLoading } = useActions(exceptionCardLogic({ issueId: eventName }))
     useEffect(() => {
         setLoading(loading)
     }, [loading, setLoading])
     return (
         <BindLogic logic={errorPropertiesLogic} props={{ properties: properties, id: eventName }}>
-            {children}
+            <BindLogic logic={exceptionCardLogic} props={{ issueId: eventName }}>
+                {children}
+            </BindLogic>
         </BindLogic>
     )
 }

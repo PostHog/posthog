@@ -126,10 +126,8 @@ class HogQLGeneratorGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[F
 class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
     name: str = "generate_hogql_query"
     description: str = "Write or edit an SQL query to answer the user's question, and apply it to the current SQL editor only include the current change the user requested"
-    thinking_message: str = "Coming up with an SQL query"
     args_schema: type[BaseModel] = HogQLGeneratorArgs
     context_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
-    show_tool_call_message: bool = False
 
     async def _arun_impl(self, instructions: str) -> tuple[str, str]:
         current_query: str | None = self.context.get("current_query", "")

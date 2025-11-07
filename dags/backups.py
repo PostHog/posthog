@@ -15,7 +15,7 @@ from dagster_aws.s3 import S3Resource
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 
-from dags.common import JobOwners
+from dags.common import JobOwners, check_for_concurrent_runs
 
 NO_SHARD_PATH = "noshard"
 
@@ -35,14 +35,14 @@ def get_max_backup_bandwidth() -> str:
 
     if cloud_deployment == "US":
         # i7ie.metal-48xl instances - can handle higher bandwidth
-        # 3000 MB/s = 24 Gbps (24% of 100 Gbps network)
-        # For 208TB: ~20 hour backup time
-        return "3000000000"  # 3000MB/s
+        # 2400 MB/s = 19.2 Gbps (19% of 100 Gbps network)
+        # For 208TB: ~24 hour backup time
+        return "2400000000"  # 2400MB/s
     elif cloud_deployment == "EU":
         # m8g.8xlarge instances - moderate bandwidth
-        # 700 MB/s = 5.6 Gbps (47% of 12 Gbps network)
-        # For 48TB: ~20 hour backup time
-        return "700000000"  # 700MB/s
+        # 450 MB/s = 3.6 Gbps (30% of 12 Gbps network)
+        # For 48TB: ~29 hour backup time
+        return "450000000"  # 450MB/s
     else:
         # DEV/self-hosted - conservative limits
         return "100000000"  # 100MB/s to prevent resource exhaustion
@@ -474,7 +474,18 @@ def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
     )
 
 
-def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
+def run_backup_request(
+    table: str, incremental: bool, context: dagster.ScheduleEvaluationContext
+) -> dagster.RunRequest | dagster.SkipReason:
+    skip_reason = check_for_concurrent_runs(
+        context,
+        tags={
+            "table": table,
+        },
+    )
+    if skip_reason:
+        return skip_reason
+
     timestamp = datetime.now(UTC)
     config = BackupConfig(
         database=settings.CLICKHOUSE_DATABASE,
@@ -482,6 +493,7 @@ def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
         table=table,
         incremental=incremental,
     )
+
     return dagster.RunRequest(
         run_key=f"{timestamp.strftime('%Y%m%d')}-{table}",
         run_config=prepare_run_config(config),
@@ -498,10 +510,10 @@ def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
     cron_schedule=settings.CLICKHOUSE_FULL_BACKUP_SCHEDULE,
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
-def full_sharded_backup_schedule():
+def full_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch a full backup for sharded tables"""
     for table in SHARDED_TABLES:
-        yield run_backup_request(table, incremental=False)
+        yield run_backup_request(table, incremental=False, context=context)
 
 
 @dagster.schedule(
@@ -509,10 +521,10 @@ def full_sharded_backup_schedule():
     cron_schedule=settings.CLICKHOUSE_FULL_BACKUP_SCHEDULE,
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
-def full_non_sharded_backup_schedule():
+def full_non_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch a full backup for non-sharded tables"""
     for table in NON_SHARDED_TABLES:
-        yield run_backup_request(table, incremental=False)
+        yield run_backup_request(table, incremental=False, context=context)
 
 
 @dagster.schedule(
@@ -520,10 +532,10 @@ def full_non_sharded_backup_schedule():
     cron_schedule=settings.CLICKHOUSE_INCREMENTAL_BACKUP_SCHEDULE,
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
-def incremental_sharded_backup_schedule():
+def incremental_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch an incremental backup for sharded tables"""
     for table in SHARDED_TABLES:
-        yield run_backup_request(table, incremental=True)
+        yield run_backup_request(table, incremental=True, context=context)
 
 
 @dagster.schedule(
@@ -531,7 +543,7 @@ def incremental_sharded_backup_schedule():
     cron_schedule=settings.CLICKHOUSE_INCREMENTAL_BACKUP_SCHEDULE,
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
-def incremental_non_sharded_backup_schedule():
+def incremental_non_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch an incremental backup for non-sharded tables"""
     for table in NON_SHARDED_TABLES:
-        yield run_backup_request(table, incremental=True)
+        yield run_backup_request(table, incremental=True, context=context)

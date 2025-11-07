@@ -29,7 +29,7 @@
       
       
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
   
@@ -49,7 +49,7 @@
       metric_name String,
       count Int64
   )
-  ENGINE=Kafka('test.kafka.broker:9092', 'clickhouse_app_metrics2_test', 'group1', 'JSONEachRow')
+  ENGINE=Kafka(msk_cluster, kafka_topic_list = 'clickhouse_app_metrics2_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -70,7 +70,7 @@
       error_type String,
       error_details String CODEC(ZSTD(3))
   )
-  ENGINE=Kafka('test.kafka.broker:9092', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
+  ENGINE=Kafka(msk_cluster, kafka_topic_list = 'clickhouse_app_metrics_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -85,7 +85,7 @@
       person_id UUID,
       condition String,
       latest_event_is_match UInt8
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_behavioral_cohorts_matches', 'clickhouse_behavioral_cohorts_matches', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_behavioral_cohorts_matches', kafka_group_name = 'clickhouse_behavioral_cohorts_matches', kafka_format = 'JSONEachRow')
   SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
   
   '''
@@ -102,7 +102,7 @@
       inserted_at DateTime64(3, 'UTC'),
       embeddings Array(Float64) -- We could experiment with quantization, but if we do we can use a new column, for now we'll eat the inefficiency
        -- Unused, I think, but the above has it, so
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_error_tracking_issue_fingerprint_embeddings_test', 'clickhouse_error_tracking_fingerprint_embeddings', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_error_tracking_issue_fingerprint_embeddings_test', kafka_group_name = 'clickhouse_error_tracking_fingerprint_embeddings', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -117,7 +117,7 @@
       is_deleted Int8,
       version Int64
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_error_tracking_issue_fingerprint_test', 'clickhouse-error-tracking-issue-fingerprint-overrides', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_error_tracking_issue_fingerprint_test', kafka_group_name = 'clickhouse-error-tracking-issue-fingerprint-overrides', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -143,7 +143,7 @@
       error VARCHAR,
       tags Array(VARCHAR)
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'events_dead_letter_queue_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
    SETTINGS kafka_skip_broken_messages=1000
   '''
 # ---
@@ -177,7 +177,7 @@
       
       
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
   
@@ -213,7 +213,7 @@
       
       
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_events_json_test', 'group1_recent', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'group1_recent', kafka_format = 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100,  kafka_num_consumers = 2, kafka_thread_per_consumer = 1
   
@@ -230,7 +230,7 @@
       team_id Int64,
       group_properties VARCHAR
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_groups_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -255,7 +255,7 @@
       pointer_target_fixed Bool,
       current_url VARCHAR,
       type LowCardinality(String)
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_heatmap_events_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_heatmap_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -270,7 +270,7 @@
       details VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC')
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_ingestion_warnings_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -299,7 +299,7 @@
       -- The actual log message.
       message String
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'log_entries_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'log_entries_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -356,7 +356,7 @@
   unload_event_end Float64,
   unload_event_start Float64
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_performance_events_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_performance_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -373,7 +373,7 @@
       is_deleted Int8,
       version UInt64
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_person_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -388,7 +388,7 @@
       is_deleted Int8,
       version Int64
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_person_distinct_id_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -402,7 +402,7 @@
       team_id Int64,
       _sign Nullable(Int8),
       is_deleted Nullable(Int8)
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_person_unique_id_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -417,7 +417,7 @@
       is_deleted Int8,
       version Int64
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test', 'clickhouse-person-distinct-id-overrides', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_person_distinct_id_test', kafka_group_name = 'clickhouse-person-distinct-id-overrides', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -468,7 +468,7 @@
       message VARCHAR,
       instance_id UUID
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'plugin_log_entries_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -487,7 +487,7 @@
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
       embedding Array(Float64) -- The embedding itself
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_document_embeddings_test', 'clickhouse_document_embeddings', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_document_embeddings_test', kafka_group_name = 'clickhouse_document_embeddings', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -506,7 +506,7 @@
       created_at DateTime64(6, 'UTC')
       
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_recording_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -536,7 +536,7 @@
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1266,7 +1266,7 @@
       metric_name String,
       count Int64
   )
-  ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics2_test', 'group1', 'JSONEachRow')
+  ENGINE=Kafka(msk_cluster, kafka_topic_list = 'clickhouse_app_metrics2_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1287,7 +1287,7 @@
       error_type String,
       error_details String CODEC(ZSTD(3))
   )
-  ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
+  ENGINE=Kafka(msk_cluster, kafka_topic_list = 'clickhouse_app_metrics_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1302,7 +1302,7 @@
       person_id UUID,
       condition String,
       latest_event_is_match UInt8
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_behavioral_cohorts_matches', 'clickhouse_behavioral_cohorts_matches', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_behavioral_cohorts_matches', kafka_group_name = 'clickhouse_behavioral_cohorts_matches', kafka_format = 'JSONEachRow')
   SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
   
   '''
@@ -1319,7 +1319,7 @@
       inserted_at DateTime64(3, 'UTC'),
       embeddings Array(Float64) -- We could experiment with quantization, but if we do we can use a new column, for now we'll eat the inefficiency
        -- Unused, I think, but the above has it, so
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_error_tracking_issue_fingerprint_embeddings_test', 'clickhouse_error_tracking_fingerprint_embeddings', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_error_tracking_issue_fingerprint_embeddings_test', kafka_group_name = 'clickhouse_error_tracking_fingerprint_embeddings', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1334,7 +1334,7 @@
       is_deleted Int8,
       version Int64
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_error_tracking_issue_fingerprint_test', 'clickhouse-error-tracking-issue-fingerprint-overrides', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_error_tracking_issue_fingerprint_test', kafka_group_name = 'clickhouse-error-tracking-issue-fingerprint-overrides', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1360,7 +1360,7 @@
       error VARCHAR,
       tags Array(VARCHAR)
       
-  ) ENGINE = Kafka('kafka:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'events_dead_letter_queue_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
    SETTINGS kafka_skip_broken_messages=1000
   '''
 # ---
@@ -1394,7 +1394,7 @@
       
       
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
   
@@ -1430,7 +1430,7 @@
       
       
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1_recent', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'group1_recent', kafka_format = 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100,  kafka_num_consumers = 2, kafka_thread_per_consumer = 1
   
@@ -1447,7 +1447,7 @@
       team_id Int64,
       group_properties VARCHAR
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_groups_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1472,7 +1472,7 @@
       pointer_target_fixed Bool,
       current_url VARCHAR,
       type LowCardinality(String)
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_heatmap_events_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_heatmap_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1487,7 +1487,7 @@
       details VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC')
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_ingestion_warnings_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1516,7 +1516,7 @@
       -- The actual log message.
       message String
       
-  ) ENGINE = Kafka('kafka:9092', 'log_entries_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'log_entries_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1573,7 +1573,7 @@
   unload_event_end Float64,
   unload_event_start Float64
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_performance_events_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_performance_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1590,7 +1590,7 @@
       is_deleted Int8,
       version UInt64
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_person_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1605,7 +1605,7 @@
       is_deleted Int8,
       version Int64
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_person_distinct_id_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1619,7 +1619,7 @@
       team_id Int64,
       _sign Nullable(Int8),
       is_deleted Nullable(Int8)
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_person_unique_id_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1634,7 +1634,7 @@
       is_deleted Int8,
       version Int64
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'clickhouse-person-distinct-id-overrides', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_person_distinct_id_test', kafka_group_name = 'clickhouse-person-distinct-id-overrides', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1685,7 +1685,7 @@
       message VARCHAR,
       instance_id UUID
       
-  ) ENGINE = Kafka('kafka:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'plugin_log_entries_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1704,7 +1704,7 @@
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
       embedding Array(Float64) -- The embedding itself
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_document_embeddings_test', 'clickhouse_document_embeddings', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_document_embeddings_test', kafka_group_name = 'clickhouse_document_embeddings', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1723,7 +1723,7 @@
       created_at DateTime64(6, 'UTC')
       
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_recording_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1753,7 +1753,7 @@
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -2737,8 +2737,8 @@
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
+      -- it will still (or should still) map to the same person
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-      person_id AggregateFunction(argMax, UUID, DateTime64(6, 'UTC')),
       distinct_ids AggregateFunction(groupUniqArray, String),
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
@@ -2801,10 +2801,14 @@
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      has_autocapture SimpleAggregateFunction(max, Boolean),
   
       -- Flags - store every seen value for each flag
-      flag_values AggregateFunction(groupUniqArrayMap, Map(String, String))
+      flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+  
+      -- Replay
+      has_replay_events SimpleAggregateFunction(max, Boolean)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions_v3', cityHash64(session_id_v7))
   
   '''
@@ -2938,7 +2942,6 @@
       `$session_id_uuid` AS session_id_v7,
   
       initializeAggregation('argMaxState', source_table.distinct_id, timestamp) as distinct_id,
-      initializeAggregation('argMaxState', person_id, timestamp) as person_id,
       initializeAggregation('groupUniqArrayState', source_table.distinct_id) as distinct_ids,
   
       timestamp AS min_timestamp,
@@ -2996,12 +2999,105 @@
       initializeAggregation('uniqExactState', if(event='$screen', uuid, NULL)) as screen_uniq,
   
       -- perf
-      initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
+      initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen', uuid, NULL)) as page_screen_uniq_up_to,
+      event = '$autocapture' as has_autocapture,
   
-      --flags
-      initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values
+      -- flags
+      initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
+  
+      false as has_replay_events
   FROM posthog_test.sharded_events AS source_table
   WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+  AND TRUE
+      
+  
+  '''
+# ---
+# name: test_create_table_query[raw_sessions_v3_recordings_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS raw_sessions_v3_recordings_mv
+  TO posthog_test.writable_raw_sessions_v3
+  AS
+  
+  WITH
+      min_first_timestamp as timestamp,
+      CAST(fromUnixTimestamp64Milli(9223372036854775), 'DateTime64(6)') as max_ts_64, -- max positive Int64 / 1000
+      CAST(fromUnixTimestamp64Milli(-9223372036854775), 'DateTime64(6)') as min_ts_64, -- max negative Int64 / 1000
+      CAST(NULL, 'Nullable(String)') as null_s,
+      CAST(NULL, 'Nullable(Int64)') as null_i64,
+      CAST(NULL, 'Nullable(UUID)') as null_uuid
+  SELECT
+      team_id,
+      toUInt128(accurateCast(session_id, 'UUID')) AS session_id_v7,
+  
+      initializeAggregation('argMaxState', source_table.distinct_id, min_ts_64) as distinct_id,
+      initializeAggregation('groupUniqArrayState', source_table.distinct_id) as distinct_ids,
+  
+      timestamp AS min_timestamp,
+      timestamp AS max_timestamp,
+      fromUnixTimestamp(0) AS max_inserted_at,
+  
+      -- urls - only update if the event is a pageview or screen
+      CAST([], 'Array(String)') AS urls,
+      initializeAggregation('argMinState', null_s, max_ts_64) as entry_url,
+      initializeAggregation('argMaxState', null_s, min_ts_64) as end_url,
+      initializeAggregation('argMaxState', null_s, min_ts_64) as last_external_click_url,
+  
+      -- device
+      initializeAggregation('argMinState', null_s, max_ts_64) as browser,
+      initializeAggregation('argMinState', null_s, max_ts_64) as browser_version,
+      initializeAggregation('argMinState', null_s, max_ts_64) as os,
+      initializeAggregation('argMinState', null_s, max_ts_64) as os_version,
+      initializeAggregation('argMinState', null_s, max_ts_64) as device_type,
+      initializeAggregation('argMinState', null_i64, max_ts_64) as viewport_width,
+      initializeAggregation('argMinState', null_i64, max_ts_64) as viewport_height,
+  
+      -- geo ip
+      initializeAggregation('argMinState', null_s, max_ts_64) as geoip_country_code,
+      initializeAggregation('argMinState', null_s, max_ts_64) as geoip_subdivision_1_code,
+      initializeAggregation('argMinState', null_s, max_ts_64) as geoip_subdivision_1_name,
+      initializeAggregation('argMinState', null_s, max_ts_64) as geoip_subdivision_city_name,
+      initializeAggregation('argMinState', null_s, max_ts_64) as geoip_time_zone,
+  
+      -- attribution
+      initializeAggregation('argMinState', null_s, max_ts_64) as entry_referring_domain,
+      initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_source,
+      initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_campaign,
+      initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_medium,
+      initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_term,
+      initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_content,
+      initializeAggregation('argMinState', null_s, max_ts_64) as entry_gclid,
+      initializeAggregation('argMinState', null_s, max_ts_64) as entry_gad_source,
+      initializeAggregation('argMinState', null_s, max_ts_64) as entry_fbclid,
+  
+      -- has gclid/fbclid for reading fewer bytes when calculating channel type
+      initializeAggregation('argMinState', false, max_ts_64) as entry_has_gclid,
+      initializeAggregation('argMinState', false, max_ts_64) as entry_has_fbclid,
+  
+      -- other ad ids
+      initializeAggregation('argMinState', CAST(map(), 'Map(String, String)'), max_ts_64) as entry_ad_ids_map,
+      initializeAggregation('argMinState', CAST([], 'Array(String)'), max_ts_64) as entry_ad_ids_set,
+  
+      -- channel type
+      initializeAggregation('argMinState', tuple(null_s, null_s, null_s, null_s, false, false, null_s), max_ts_64) as entry_channel_type_properties,
+  
+      -- counts
+      initializeAggregation('uniqExactState', null_uuid) as pageview_uniq,
+      initializeAggregation('uniqExactState', null_uuid) as autocapture_uniq,
+      initializeAggregation('uniqExactState', null_uuid) as screen_uniq,
+  
+      -- perf
+      initializeAggregation('uniqUpToState(1)', null_uuid) as page_screen_uniq_up_to,
+      false as has_autocapture,
+  
+      -- flags
+      initializeAggregation('groupUniqArrayMapState', CAST(map(), 'Map(String, String)')) as flag_values,
+  
+      -- replay
+      true as has_replay_events
+  FROM posthog_test.sharded_session_replay_events AS source_table
+  WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
   AND TRUE
       
   
@@ -3783,8 +3879,8 @@
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
+      -- it will still (or should still) map to the same person
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-      person_id AggregateFunction(argMax, UUID, DateTime64(6, 'UTC')),
       distinct_ids AggregateFunction(groupUniqArray, String),
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
@@ -3847,10 +3943,14 @@
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      has_autocapture SimpleAggregateFunction(max, Boolean),
   
       -- Flags - store every seen value for each flag
-      flag_values AggregateFunction(groupUniqArrayMap, Map(String, String))
+      flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+  
+      -- Replay
+      has_replay_events SimpleAggregateFunction(max, Boolean)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
   
   PARTITION BY toYYYYMM(session_timestamp)
@@ -4937,8 +5037,8 @@
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
+      -- it will still (or should still) map to the same person
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-      person_id AggregateFunction(argMax, UUID, DateTime64(6, 'UTC')),
       distinct_ids AggregateFunction(groupUniqArray, String),
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
@@ -5001,10 +5101,14 @@
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      has_autocapture SimpleAggregateFunction(max, Boolean),
   
       -- Flags - store every seen value for each flag
-      flag_values AggregateFunction(groupUniqArrayMap, Map(String, String))
+      flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+  
+      -- Replay
+      has_replay_events SimpleAggregateFunction(max, Boolean)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions_v3', cityHash64(session_id_v7))
   
   '''
@@ -6244,8 +6348,8 @@
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
+      -- it will still (or should still) map to the same person
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-      person_id AggregateFunction(argMax, UUID, DateTime64(6, 'UTC')),
       distinct_ids AggregateFunction(groupUniqArray, String),
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
@@ -6308,10 +6412,14 @@
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      has_autocapture SimpleAggregateFunction(max, Boolean),
   
       -- Flags - store every seen value for each flag
-      flag_values AggregateFunction(groupUniqArrayMap, Map(String, String))
+      flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+  
+      -- Replay
+      has_replay_events SimpleAggregateFunction(max, Boolean)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
   
   PARTITION BY toYYYYMM(session_timestamp)

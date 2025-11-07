@@ -87,7 +87,8 @@ where
 
     let health = HealthRegistry::new("liveness");
 
-    // TODO - we don't have a more complex health check yet, but we should add e.g. some around DB operations
+    // Liveness checks only verify the process is alive (simple heartbeat loop).
+    // Readiness checks (in router.rs) verify DB connectivity before accepting traffic.
     let simple_loop = health
         .register(
             "simple_loop".to_string(),

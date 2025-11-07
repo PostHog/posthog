@@ -10,7 +10,7 @@ from posthog.models import Team, User
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types.base import AssistantState
+from ee.hogai.utils.types.base import AssistantState, NodePath
 
 NAVIGATION_TOOL_PROMPT = """
 Use the `navigate` tool to move between different pages in the PostHog application.
@@ -44,7 +44,6 @@ class NavigateTool(MaxTool):
         "You're currently on the {current_page} page. "
         "You can navigate around the PostHog app using the `navigate` tool."
     )
-    thinking_message: str = "Navigating"
     args_schema: type[BaseModel] = NavigateToolArgs
 
     def _run_impl(self, page_key: AssistantNavigateUrl) -> tuple[str, Any]:
@@ -58,15 +57,19 @@ class NavigateTool(MaxTool):
         *,
         team: Team,
         user: User,
+        node_path: tuple[NodePath, ...] | None = None,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
+        context_manager: AssistantContextManager | None = None,
     ) -> Self:
-        context_manager = AssistantContextManager(team, user, config)
+        if context_manager is None:
+            context_manager = AssistantContextManager(team, user, config)
         tool_context = context_manager.get_contextual_tools().get("navigate", {})
         tool_description = format_prompt_string(NAVIGATION_TOOL_PROMPT, **tool_context)
         return cls(
             team=team,
             user=user,
+            node_path=node_path,
             state=state,
             config=config,
             context_manager=context_manager,

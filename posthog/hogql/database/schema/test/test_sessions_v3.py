@@ -147,32 +147,6 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
             "Paid Search",
         )
 
-    # TODO: restore once #session_id_uuid is migrated properly
-    # @parameterized.expand([[SessionsV2JoinMode.STRING], [SessionsV2JoinMode.UUID]])
-    # def test_event_dot_session_dot_channel_type(self, join_mode):
-    #     session_id = str(uuid7())
-
-    #     _create_event(
-    #         event="$pageview",
-    #         team=self.team,
-    #         distinct_id="d1",
-    #         properties={"gad_source": "1", "$session_id": session_id},
-    #     )
-
-    #     response = self.__execute(
-    #         parse_select(
-    #             "select events.session.$channel_type from events where $session_id = {session_id}",
-    #             placeholders={"session_id": ast.Constant(value=session_id)},
-    #         ),
-    #         sessions_v2_join_mode=join_mode,
-    #     )
-
-    #     result = (response.results or [])[0]
-    #     self.assertEqual(
-    #         result[0],
-    #         "Paid Search",
-    #     )
-
     def test_session_dot_channel_type(self):
         session_id = str(uuid7())
 
@@ -366,7 +340,7 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": s3},
             timestamp="2023-12-02",
         )
-        # three pageviews (should still count as 2)
+        # >2 pageviews (should still count as 2)
         s4 = str(uuid7(time + 4))
         _create_event(
             event="$pageview",
@@ -405,17 +379,26 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": s5},
             timestamp="2023-12-02",
         )
+        # one autocapture
+        s6 = str(uuid7(time + 6))
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s6},
+            timestamp="2023-12-02",
+        )
 
         results = (
             self.__execute(
                 parse_select(
-                    "select $page_screen_autocapture_count_up_to from sessions ORDER BY session_id",
+                    "select $page_screen_count_up_to, $has_autocapture from sessions ORDER BY session_id",
                     placeholders={"session_id": ast.Constant(value=s1)},
                 ),
             ).results
             or []
         )
-        assert results == [(2,), (2,), (1,), (2,), (1,)]
+        assert results == [(2, False), (1, True), (1, False), (2, False), (1, False), (0, True)]
 
     def test_bounce_rate(self):
         time = time_ns() // (10**6)
@@ -426,6 +409,7 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         s3 = str(uuid7(time + 3))
         s4 = str(uuid7(time + 4))
         s5 = str(uuid7(time + 5))
+        s6 = str(uuid7(time + 6))
 
         # person with 2 different sessions
         _create_event(
@@ -502,6 +486,15 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": s5, "$current_url": "https://example.com/7"},
             timestamp="2023-12-11T12:00:11",
         )
+        # session with 1 autocapture
+        _create_event(
+            event="autocapture",
+            team=self.team,
+            distinct_id="d6",
+            properties={"$session_id": s6, "$current_url": "https://example.com/7"},
+            timestamp="2023-12-11T12:00:00",
+        )
+
         response = self.__execute(
             parse_select(
                 "select $is_bounce, session_id from sessions ORDER BY session_id",
@@ -514,6 +507,7 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
             (0, s3),
             (1, s4),
             (0, s5),
+            (None, s6),
         ]
 
     def test_custom_bounce_rate_duration(self):
@@ -744,6 +738,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                 "$screen_count",
                 "$session_duration",
                 "$start_timestamp",
+                "$has_replay_events",
             },
         )
         self.assertEqual(

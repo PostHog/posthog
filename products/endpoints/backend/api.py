@@ -1,4 +1,5 @@
 import re
+from datetime import timedelta
 from typing import Union, cast
 
 from django.core.cache import cache
@@ -13,6 +14,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import (
+    DataWarehouseSyncInterval,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
     EndpointRunRequest,
@@ -45,6 +47,14 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
+
+from products.data_warehouse.backend.data_load.saved_query_service import sync_saved_query_workflow
+from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+from products.data_warehouse.backend.models.external_data_schema import (
+    sync_frequency_interval_to_sync_frequency,
+    sync_frequency_to_sync_frequency_interval,
+)
+from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
 
 from common.hogvm.python.utils import HogVMException
 
@@ -83,49 +93,65 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             return new_val
         return False
 
+    def _serialize_endpoint(self, endpoint: Endpoint) -> dict:
+        result = {
+            "id": str(endpoint.id),
+            "name": endpoint.name,
+            "description": endpoint.description,
+            "query": endpoint.query,
+            "parameters": endpoint.parameters,
+            "is_active": endpoint.is_active,
+            "cache_age_seconds": endpoint.cache_age_seconds,
+            "endpoint_path": endpoint.endpoint_path,
+            "created_at": endpoint.created_at,
+            "updated_at": endpoint.updated_at,
+            "created_by": UserBasicSerializer(endpoint.created_by).data if hasattr(endpoint, "created_by") else None,
+            "is_materialized": endpoint.is_materialized,
+        }
+
+        if endpoint.is_materialized and endpoint.saved_query:
+            sync_freq_str = None
+            if endpoint.saved_query.sync_frequency_interval:
+                sync_freq_str = sync_frequency_interval_to_sync_frequency(endpoint.saved_query.sync_frequency_interval)
+
+            result["materialization"] = {
+                "status": endpoint.materialization_status,
+                "can_materialize": True,
+                "last_materialized_at": (
+                    endpoint.last_materialized_at.isoformat() if endpoint.last_materialized_at else None
+                ),
+                "error": endpoint.materialization_error,
+                "sync_frequency": sync_freq_str,
+            }
+        else:
+            can_mat, reason = endpoint.can_materialize()
+            result["materialization"] = {
+                "can_materialize": can_mat,
+                "reason": reason if not can_mat else None,
+            }
+
+        return result
+
     def list(self, request: Request, *args, **kwargs) -> Response:
         """List all endpoints for the team."""
-        queryset = self.filter_queryset(self.get_queryset())
-
-        results = []
-        for endpoint in queryset:
-            results.append(
-                {
-                    "id": str(endpoint.id),
-                    "name": endpoint.name,
-                    "description": endpoint.description,
-                    "query": endpoint.query,
-                    "parameters": endpoint.parameters,
-                    "is_active": endpoint.is_active,
-                    "cache_age_seconds": endpoint.cache_age_seconds,
-                    "endpoint_path": endpoint.endpoint_path,
-                    "created_at": endpoint.created_at,
-                    "updated_at": endpoint.updated_at,
-                    "created_by": UserBasicSerializer(endpoint.created_by).data,
-                }
-            )
-
+        queryset = self.filter_queryset(self.get_queryset()).select_related("saved_query")
+        results = [self._serialize_endpoint(endpoint) for endpoint in queryset]
         return Response({"results": results})
 
     def retrieve(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Retrieve an endpoint."""
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
-        return Response(
-            {
-                "id": str(endpoint.id),
-                "name": endpoint.name,
-                "description": endpoint.description,
-                "query": endpoint.query,
-                "parameters": endpoint.parameters,
-                "is_active": endpoint.is_active,
-                "cache_age_seconds": endpoint.cache_age_seconds,
-                "endpoint_path": endpoint.endpoint_path,
-                "created_at": endpoint.created_at,
-                "updated_at": endpoint.updated_at,
-                "created_by": UserBasicSerializer(endpoint.created_by).data,
-            },
-            status=status.HTTP_200_OK,
-        )
+        endpoint = get_object_or_404(Endpoint.objects.select_related("saved_query"), team=self.team, name=name)
+        return Response(self._serialize_endpoint(endpoint), status=status.HTTP_200_OK)
+
+    def _validate_cache_age_seconds(self, cache_age_seconds: float | None) -> None:
+        """Validate cache_age_seconds is within allowed range."""
+        if cache_age_seconds is not None:
+            if cache_age_seconds < MIN_CACHE_AGE_SECONDS or cache_age_seconds > MAX_CACHE_AGE_SECONDS:
+                raise ValidationError(
+                    {
+                        "cache_age_seconds": f"Cache age must be between {MIN_CACHE_AGE_SECONDS} and {MAX_CACHE_AGE_SECONDS} seconds."
+                    }
+                )
 
     def validate_request(self, data: EndpointRequest, strict: bool = True) -> None:
         query = data.query
@@ -143,13 +169,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "and be between 1 and 128 characters long."
             )
 
-        if data.cache_age_seconds is not None:
-            if data.cache_age_seconds < MIN_CACHE_AGE_SECONDS or data.cache_age_seconds > MAX_CACHE_AGE_SECONDS:
-                raise ValidationError(
-                    {
-                        "cache_age_seconds": f"Cache age must be between {MIN_CACHE_AGE_SECONDS} and {MAX_CACHE_AGE_SECONDS} seconds."
-                    }
-                )
+        self._validate_cache_age_seconds(data.cache_age_seconds)
 
     @extend_schema(
         request=EndpointRequest,
@@ -184,60 +204,53 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 detail=Detail(name=endpoint.name),
             )
 
-            return Response(
-                {
-                    "id": str(endpoint.id),
-                    "name": endpoint.name,
-                    "description": endpoint.description,
-                    "query": endpoint.query,
-                    "parameters": endpoint.parameters,
-                    "is_active": endpoint.is_active,
-                    "cache_age_seconds": endpoint.cache_age_seconds,
-                    "endpoint_path": endpoint.endpoint_path,
-                    "created_at": endpoint.created_at,
-                    "updated_at": endpoint.updated_at,
-                },
-                status=status.HTTP_201_CREATED,
-            )
+            return Response(self._serialize_endpoint(endpoint), status=status.HTTP_201_CREATED)
 
         # We should expose if the query name is duplicate
         except Exception as e:
             capture_exception(e)
             raise ValidationError("Failed to create endpoint.")
 
+    def validate_update_request(self, data: EndpointRequest, strict: bool = True) -> None:
+        self._validate_cache_age_seconds(data.cache_age_seconds)
+
+        if data.sync_frequency is not None:
+            if data.is_materialized is not None and not data.is_materialized:
+                raise ValidationError(
+                    {"sync_frequency": "sync_frequency can not be set when is_materialized is False."}
+                )
+
     @extend_schema(
         request=EndpointRequest,
         description="Update an existing endpoint. Parameters are optional.",
     )
-    def update(self, request: Request, name=None, *args, **kwargs) -> Response:
+    def update(self, request: Request, name: str | None = None, *args, **kwargs) -> Response:
         """Update an existing endpoint."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
-        # Capture a snapshot for diffing
-        try:
-            before_update = Endpoint.objects.get(pk=endpoint.id)
-        except Endpoint.DoesNotExist:
-            before_update = None
+        before_update = Endpoint.objects.get(pk=endpoint.id)
 
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, EndpointRequest)
-        self.validate_request(data, strict=False)
+        self.validate_update_request(data, strict=False)
 
         try:
-            if data.name is not None:
-                endpoint.name = data.name
             if data.query is not None:
                 endpoint.query = data.query.model_dump()
             if data.description is not None:
                 endpoint.description = data.description
             if data.is_active is not None:
                 endpoint.is_active = data.is_active
-            # Allow explicitly setting cache_age_seconds to None
             if "cache_age_seconds" in request.data:
                 endpoint.cache_age_seconds = data.cache_age_seconds
 
+            if data.is_materialized is False:
+                self._disable_materialization(endpoint)
+            elif data.is_materialized is True or (endpoint.is_materialized and data.sync_frequency):
+                sync_frequency = data.sync_frequency or DataWarehouseSyncInterval.FIELD_24HOUR
+                self._enable_materialization(endpoint, sync_frequency, request)
+
             endpoint.save()
 
-            # Activity log: updated with field diffs
             changes = changes_between("Endpoint", previous=before_update, current=endpoint)
             log_activity(
                 organization_id=self.organization.id,
@@ -250,41 +263,176 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 detail=Detail(name=endpoint.name, changes=changes),
             )
 
-            return Response(
-                {
-                    "id": str(endpoint.id),
-                    "name": endpoint.name,
-                    "description": endpoint.description,
-                    "query": endpoint.query,
-                    "parameters": endpoint.parameters,
-                    "is_active": endpoint.is_active,
-                    "endpoint_path": endpoint.endpoint_path,
-                    "created_at": endpoint.created_at,
-                    "updated_at": endpoint.updated_at,
-                    "cache_age_seconds": endpoint.cache_age_seconds,
-                }
-            )
+            return Response(self._serialize_endpoint(endpoint))
 
         except Exception as e:
             capture_exception(e)
             raise ValidationError("Failed to update endpoint.")
 
+    def _enable_materialization(
+        self,
+        endpoint: Endpoint,
+        sync_frequency: DataWarehouseSyncInterval,
+        request: Request,
+    ) -> None:
+        """Enable materialization for an endpoint."""
+        can_mat, reason = endpoint.can_materialize()
+        if not can_mat:
+            raise ValidationError(f"Cannot materialize endpoint: {reason}")
+
+        saved_query = DataWarehouseSavedQuery.objects.filter(name=endpoint.name, team=self.team, deleted=False).first()
+        if saved_query:
+            created = False
+        else:
+            saved_query = DataWarehouseSavedQuery(
+                name=endpoint.name, team=self.team, origin=DataWarehouseSavedQuery.Origin.ENDPOINT
+            )
+            created = True
+
+        saved_query.query = endpoint.query
+        saved_query.external_tables = saved_query.s3_tables
+        saved_query.is_materialized = True
+        saved_query.sync_frequency_interval = (
+            sync_frequency_to_sync_frequency_interval(sync_frequency.value) if sync_frequency else timedelta(hours=12)
+        )
+        saved_query.save()
+
+        endpoint.saved_query = saved_query
+
+        DataWarehouseModelPath.objects.create_or_update_from_saved_query(saved_query)
+
+        if created:
+            try:
+                sync_saved_query_workflow(saved_query, create=True)
+            except Exception as e:
+                capture_exception(e, {"endpoint_id": endpoint.id, "saved_query_id": saved_query.id})
+                saved_query.is_materialized = False
+                saved_query.save(update_fields=["is_materialized"])
+
+    def _disable_materialization(self, endpoint: Endpoint) -> None:
+        """Disable materialization for an endpoint."""
+        if endpoint.saved_query:
+            endpoint.saved_query.revert_materialization()
+            endpoint.saved_query.soft_delete()
+            endpoint.saved_query = None
+            endpoint.save()
+
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
-        """Delete a endpoint."""
+        """Delete an endpoint and clean up materialized query."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+
+        if endpoint.saved_query:
+            self._disable_materialization(endpoint)
+
         endpoint.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @extend_schema(
-        request=EndpointRunRequest,
-        description="Update an existing endpoint. Parameters are optional.",
-    )
-    @action(methods=["GET", "POST"], detail=True)
-    def run(self, request: Request, name=None, *args, **kwargs) -> Response:
-        """Execute a endpoint with optional parameters."""
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True)
-        data = self.get_model(request.data, EndpointRunRequest)
+    def _should_use_materialized_table(self, endpoint: Endpoint, data: EndpointRunRequest) -> bool:
+        """
+        Decide whether to use materialized table or inline execution.
 
+        Returns False if:
+        - Not materialized
+        - Materialization incomplete/failed
+        - User overrides present (variables, filters, query)
+        - Force refresh requested
+        """
+        if not endpoint.is_materialized or not endpoint.saved_query:
+            return False
+
+        saved_query = endpoint.saved_query
+        if saved_query.status not in ["Completed"]:
+            return False
+
+        if not saved_query.table:
+            return False
+
+        if data.variables_values:
+            return False
+
+        if data.refresh in ["force_blocking"]:
+            return False
+
+        if data.query_override or data.filters_override:
+            return False
+
+        return True
+
+    def _execute_query_and_respond(
+        self,
+        query_request_data: dict,
+        client_query_id: str | None,
+        request: Request,
+        cache_age_seconds: int | None = None,
+        extra_result_fields: dict | None = None,
+    ) -> Response:
+        """Shared query execution logic."""
+        merged_data = self.get_model(query_request_data, QueryRequest)
+
+        query, client_query_id, execution_mode = _process_query_request(
+            merged_data, self.team, client_query_id, request.user
+        )
+        self._tag_client_query_id(client_query_id)
+
+        if execution_mode not in BLOCKING_EXECUTION_MODES:
+            raise ValidationError("Only sync modes are supported (refresh param)")
+
+        result = process_query_model(
+            self.team,
+            query,
+            execution_mode=execution_mode,
+            query_id=client_query_id,
+            user=cast(User, request.user),
+            is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+            cache_age_seconds=cache_age_seconds,
+        )
+
+        if isinstance(result, BaseModel):
+            result = result.model_dump(by_alias=True)
+
+        if isinstance(result, dict) and extra_result_fields:
+            result.update(extra_result_fields)
+
+        response_status = (
+            status.HTTP_202_ACCEPTED
+            if result.get("query_status") and result["query_status"].get("complete") is False
+            else status.HTTP_200_OK
+        )
+        return Response(result, status=response_status)
+
+    def _execute_materialized_endpoint(
+        self, endpoint: Endpoint, data: EndpointRunRequest, request: Request
+    ) -> Response:
+        """Execute using materialized S3 table."""
+        from posthog.schema import RefreshType
+
+        saved_query = endpoint.saved_query
+        if not saved_query:
+            raise ValidationError("No materialized query found for this endpoint")
+
+        materialized_hogql_query = HogQLQuery(
+            query=f"SELECT * FROM {saved_query.name}",
+            modifiers=HogQLQueryModifiers(useMaterializedViews=True),
+        )
+
+        query_request_data = {
+            "client_query_id": data.client_query_id,
+            "name": f"{endpoint.name}_materialized",
+            "refresh": data.refresh or RefreshType.BLOCKING,
+            "query": materialized_hogql_query.model_dump(),
+        }
+
+        extra_fields = {
+            "_materialized": True,
+            "_materialized_at": saved_query.last_run_at.isoformat() if saved_query.last_run_at else None,
+        }
+
+        return self._execute_query_and_respond(
+            query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
+        )
+
+    def _execute_inline_endpoint(self, endpoint: Endpoint, data: EndpointRunRequest, request: Request) -> Response:
+        """Execute using inline query (existing implementation)."""
         self.validate_run_request(data, endpoint)
         data.variables_values = data.variables_values or {}
 
@@ -303,40 +451,14 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "client_query_id": data.client_query_id,
                 "filters_override": data.filters_override,
                 "name": endpoint.name,
-                "refresh": data.refresh,  # Allow overriding QueryRequest fields like refresh, client_query_id
+                "refresh": data.refresh,
                 "query": endpoint.query,
                 "variables_override": data.variables_override,
             }
 
-            merged_data = self.get_model(query_request_data, QueryRequest)
-
-            query, client_query_id, execution_mode = _process_query_request(
-                merged_data, self.team, data.client_query_id, request.user
+            return self._execute_query_and_respond(
+                query_request_data, data.client_query_id, request, cache_age_seconds=endpoint.cache_age_seconds
             )
-            self._tag_client_query_id(client_query_id)
-
-            if execution_mode not in BLOCKING_EXECUTION_MODES:
-                raise ValidationError("only sync modes are supported (refresh param)")
-
-            result = process_query_model(
-                self.team,
-                query,
-                execution_mode=execution_mode,
-                query_id=client_query_id,
-                user=cast(User, request.user),
-                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
-                # cache_age_seconds=endpoint.cache_age_seconds,
-            )
-
-            if isinstance(result, BaseModel):
-                result = result.model_dump(by_alias=True)
-
-            response_status = (
-                status.HTTP_202_ACCEPTED
-                if result.get("query_status") and result["query_status"].get("complete") is False
-                else status.HTTP_200_OK
-            )
-            return Response(result, status=response_status)
 
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
@@ -349,12 +471,29 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             capture_exception(e)
             raise
 
+    @extend_schema(
+        request=EndpointRunRequest,
+        description="Execute endpoint with optional materialization.",
+    )
+    @action(methods=["GET", "POST"], detail=True)
+    def run(self, request: Request, name=None, *args, **kwargs) -> Response:
+        """Execute endpoint with optional parameters."""
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True)
+        data = self.get_model(request.data, EndpointRunRequest)
+
+        use_materialized = self._should_use_materialized_table(endpoint, data)
+
+        if use_materialized:
+            return self._execute_materialized_endpoint(endpoint, data, request)
+        else:
+            return self._execute_inline_endpoint(endpoint, data, request)
+
     def validate_run_request(self, data: EndpointRunRequest, endpoint: Endpoint) -> None:
         if endpoint.query.get("kind") == "HogQLQuery" and data.query_override:
             raise ValidationError("Query override is not supported for HogQL queries")
 
     @extend_schema(
-        description="Get the last execution times in the past 6 monthsfor multiple endpoints.",
+        description="Get the last execution times in the past 6 months for multiple endpoints.",
         request=EndpointLastExecutionTimesRequest,
         responses={200: QueryStatusResponse},
     )

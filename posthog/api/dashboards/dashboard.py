@@ -4,7 +4,8 @@ from contextlib import nullcontext
 from typing import Any, Optional, cast
 
 from django.conf import settings
-from django.db.models import Prefetch, QuerySet
+from django.db.models import CharField, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
+from django.db.models.functions import Cast
 from django.dispatch import receiver
 from django.http import StreamingHttpResponse
 from django.utils.timezone import now
@@ -61,6 +62,7 @@ DASHBOARD_SHARED_FIELDS = [
     "created_at",
     "created_by",
     "last_accessed_at",
+    "last_viewed_at",
     "is_shared",
     "deleted",
     "creation_mode",
@@ -183,6 +185,7 @@ class DashboardBasicSerializer(
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
+    last_viewed_at = serializers.DateTimeField(read_only=True, required=False, allow_null=True)
 
     class Meta:
         model = Dashboard
@@ -194,6 +197,7 @@ class DashboardBasicSerializer(
             "created_at",
             "created_by",
             "last_accessed_at",
+            "last_viewed_at",
             "is_shared",
             "deleted",
             "creation_mode",
@@ -629,6 +633,20 @@ class DashboardsViewSet(
         assert self.team.project_id is not None
         queryset = self.queryset.filter(team__project_id=self.team.project_id)
 
+        if self.request.user.is_authenticated:
+            queryset = queryset.alias(
+                recent_dashboard_views=FilteredRelation(
+                    "team__filesystemviewlog",  # team_id condition comes from "team__"
+                    condition=(
+                        Q(team__filesystemviewlog__user_id=self.request.user.id)
+                        & Q(team__filesystemviewlog__type="dashboard")
+                        & Q(team__filesystemviewlog__ref=Cast(F("id"), output_field=CharField()))
+                    ),
+                )
+            ).annotate(last_viewed_at=F("recent_dashboard_views__viewed_at"))
+        else:
+            queryset = queryset.annotate(last_viewed_at=Value(None, output_field=DateTimeField()))
+
         include_deleted = (
             self.action == "partial_update"
             and "deleted" in self.request.data
@@ -682,8 +700,9 @@ class DashboardsViewSet(
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
-        dashboard.last_accessed_at = now()
-        dashboard.save(update_fields=["last_accessed_at"])
+        if not settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:  # In the special prod PG in debug mode, we can't write to PG!
+            dashboard.last_accessed_at = now()
+            dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
         response = Response(serializer.data)
         return response
@@ -697,8 +716,9 @@ class DashboardsViewSet(
         dashboard = self.get_object()  # This will raise 404 if not found - let it bubble up normally
 
         # Do all database operations and data loading synchronously first
-        dashboard.last_accessed_at = now()
-        dashboard.save(update_fields=["last_accessed_at"])
+        if not settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:  # In the special prod PG in debug mode, we can't write to PG!
+            dashboard.last_accessed_at = now()
+            dashboard.save(update_fields=["last_accessed_at"])
 
         # Prepare metadata with initial tiles
         metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())

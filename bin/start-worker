@@ -4,10 +4,10 @@ set -e
 # this kills all processes when the last one terminates
 trap 'kill $(jobs -p)' EXIT
 
-export CLICKHOUSE_API_USER="api"
-export CLICKHOUSE_API_PASSWORD="apipass"
-export CLICKHOUSE_APP_USER="app"
-export CLICKHOUSE_APP_PASSWORD="apppass"
+export CLICKHOUSE_API_USER=${CLICKHOUSE_USER:-"api"}
+export CLICKHOUSE_API_PASSWORD=${CLICKHOUSE_PASSWORD:-"apipass"}
+export CLICKHOUSE_APP_USER=${CLICKHOUSE_USER:-"app"}
+export CLICKHOUSE_APP_PASSWORD=${CLICKHOUSE_PASSWORD:-"apppass"}
 
 source ./bin/celery-queues.env
 

@@ -10,11 +10,17 @@ import structlog
 import redis.exceptions as redis_exceptions
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantEventType, AssistantGenerationStatusEvent, AssistantGenerationStatusType
+from posthog.schema import (
+    AssistantEventType,
+    AssistantGenerationStatusEvent,
+    AssistantGenerationStatusType,
+    AssistantUpdateEvent,
+)
 
 from posthog.redis import get_async_client
 
-from ee.hogai.utils.types import AssistantMessageOrStatusUnion, AssistantOutput
+from ee.hogai.utils.types import AssistantOutput
+from ee.hogai.utils.types.base import AssistantMessageUnion
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
@@ -34,7 +40,17 @@ class ConversationEvent(BaseModel):
 
 class MessageEvent(BaseModel):
     type: Literal[AssistantEventType.MESSAGE]
-    payload: AssistantMessageOrStatusUnion
+    payload: AssistantMessageUnion
+
+
+class UpdateEvent(BaseModel):
+    type: Literal[AssistantEventType.UPDATE]
+    payload: AssistantUpdateEvent
+
+
+class GenerationStatusEvent(BaseModel):
+    type: Literal[AssistantEventType.STATUS]
+    payload: AssistantGenerationStatusEvent
 
 
 class StatusPayload(BaseModel):
@@ -42,12 +58,12 @@ class StatusPayload(BaseModel):
     error: Optional[str] = None
 
 
-class StatusEvent(BaseModel):
-    type: Literal["status"]
+class StreamStatusEvent(BaseModel):
+    type: Literal["STREAM_STATUS"] = "STREAM_STATUS"
     payload: StatusPayload
 
 
-StreamEventUnion = ConversationEvent | MessageEvent | StatusEvent
+StreamEventUnion = ConversationEvent | MessageEvent | GenerationStatusEvent | UpdateEvent | StreamStatusEvent
 
 
 class StreamEvent(BaseModel):
@@ -73,17 +89,20 @@ class ConversationStreamSerializer:
         """
         if isinstance(event, StatusPayload):
             return self._serialize(
-                StatusEvent(
-                    type="status",
+                StreamStatusEvent(
                     payload=event,
                 )
             )
         else:
             event_type, event_data = event
             if event_type == AssistantEventType.MESSAGE:
-                return self._serialize(self._to_message_event(cast(AssistantMessageOrStatusUnion, event_data)))
+                return self._serialize(self._to_message_event(cast(AssistantMessageUnion, event_data)))
             elif event_type == AssistantEventType.CONVERSATION:
-                return self._serialize(self.to_conversation_event(cast(Conversation, event_data)))
+                return self._serialize(self._to_conversation_event(cast(Conversation, event_data)))
+            elif event_type == AssistantEventType.STATUS:
+                return self._serialize(self._to_status_event(cast(AssistantGenerationStatusEvent, event_data)))
+            elif event_type == AssistantEventType.UPDATE:
+                return self._serialize(self._to_update_event(cast(AssistantUpdateEvent, event_data)))
             else:
                 raise ValueError(f"Unknown event type: {event_type}")
 
@@ -99,21 +118,33 @@ class ConversationStreamSerializer:
             ),
         }
 
-    def _to_message_event(self, message: AssistantMessageOrStatusUnion) -> MessageEvent | None:
-        if isinstance(message, AssistantGenerationStatusEvent) and message.type == AssistantGenerationStatusType.ACK:
-            # we don't need to send ACK messages to the client
-            # they are only used to trigger temporal heartbeats
-            return None
-
+    def _to_message_event(self, message: AssistantMessageUnion) -> MessageEvent:
         return MessageEvent(
             type=AssistantEventType.MESSAGE,
             payload=message,
         )
 
-    def to_conversation_event(self, conversation: Conversation) -> ConversationEvent:
+    def _to_conversation_event(self, conversation: Conversation) -> ConversationEvent:
         return ConversationEvent(
             type="conversation",
             payload=conversation.id,
+        )
+
+    def _to_status_event(self, event: AssistantGenerationStatusEvent) -> GenerationStatusEvent | None:
+        if isinstance(event, AssistantGenerationStatusEvent) and event.type == AssistantGenerationStatusType.ACK:
+            # we don't need to send ACK messages to the client
+            # they are only used to trigger temporal heartbeats
+            return None
+
+        return GenerationStatusEvent(
+            type=AssistantEventType.STATUS,
+            payload=event,
+        )
+
+    def _to_update_event(self, update: AssistantUpdateEvent) -> UpdateEvent:
+        return UpdateEvent(
+            type=AssistantEventType.UPDATE,
+            payload=update,
         )
 
     def deserialize(self, data: dict[bytes, bytes]) -> StreamEvent:
@@ -208,7 +239,7 @@ class ConversationRedisStream:
                         current_id = stream_id
                         data = self._serializer.deserialize(message)
 
-                        if isinstance(data.event, StatusEvent):
+                        if isinstance(data.event, StreamStatusEvent):
                             if data.event.payload.status == "complete":
                                 return
                             elif data.event.payload.status == "error":
@@ -226,8 +257,8 @@ class ConversationRedisStream:
                 raise StreamError("Stream read timeout")
             except redis_exceptions.RedisError:
                 raise StreamError("Stream read error")
-            except Exception:
-                raise StreamError("Unexpected error reading conversation stream")
+            except Exception as e:
+                raise StreamError("Unexpected error reading conversation stream") from e
 
     async def delete_stream(self) -> bool:
         """Delete the Redis stream for this conversation.
@@ -286,4 +317,4 @@ class ConversationRedisStream:
                 maxlen=CONVERSATION_STREAM_MAX_LENGTH,
                 approximate=True,
             )
-            raise StreamError("Failed to write to stream")
+            raise StreamError("Failed to write to stream") from e

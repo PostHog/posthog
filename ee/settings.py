@@ -52,7 +52,7 @@ if ENFORCE_ADMIN_OAUTH2 and ADMIN_AUTH_GOOGLE_OAUTH2_KEY and ADMIN_AUTH_GOOGLE_O
     ADMIN_OAUTH2_COOKIE_SECURE = str_to_bool(get_from_env("ADMIN_OAUTH2_COOKIE_SECURE", "True", type_cast=str))
     # middleware must be added after `AuthenticationMiddleware``
     MIDDLEWARE = MIDDLEWARE.copy()
-    auth_middleware_index = MIDDLEWARE.index("django.contrib.auth.middleware.AuthenticationMiddleware")
+    auth_middleware_index = MIDDLEWARE.index("posthog.middleware.OverridableAuthenticationMiddleware")
     MIDDLEWARE.insert(auth_middleware_index + 1, "ee.middleware.AdminOAuth2Middleware")
 
 CUSTOMER_IO_API_KEY = get_from_env("CUSTOMER_IO_API_KEY", "", type_cast=str)
@@ -125,3 +125,20 @@ HARMONIC_BASE_URL = get_from_env("HARMONIC_BASE_URL", "https://api.harmonic.ai",
 # Vercel Integration
 VERCEL_CLIENT_INTEGRATION_ID = get_from_env("VERCEL_CLIENT_INTEGRATION_ID", "", type_cast=str)
 VERCEL_CLIENT_INTEGRATION_SECRET = get_from_env("VERCEL_CLIENT_INTEGRATION_SECRET", "", type_cast=str)
+
+# SCIM Configuration
+# django-scim2 requires these settings
+SCIM_SERVICE_PROVIDER = {
+    "NETLOC": SITE_URL.replace("http://", "").replace("https://", ""),
+    "AUTHENTICATION_SCHEMES": [
+        {
+            "type": "oauthbearertoken",
+            "name": "OAuth Bearer Token",
+            "description": "Authentication scheme using the OAuth Bearer Token Standard",
+            "specUri": "https://www.rfc-editor.org/rfc/rfc6750.txt",
+            "documentationUri": "https://posthog.com/docs/settings/scim",
+        }
+    ],
+    # User model is already configured via AUTH_USER_MODEL = "posthog.User"
+    "GROUP_MODEL": "ee.models.rbac.role.Role",
+}

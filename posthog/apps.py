@@ -26,12 +26,16 @@ class PostHogConfig(AppConfig):
         posthoganalytics.poll_interval = 90
         posthoganalytics.enable_exception_autocapture = True
         posthoganalytics.log_captured_exceptions = True
-        posthoganalytics.super_properties = {"region": get_instance_region()}
+        posthoganalytics.super_properties = {
+            "region": get_instance_region(),
+            "service": settings.OTEL_SERVICE_NAME,
+            "environment": os.getenv("SENTRY_ENVIRONMENT"),
+        }
 
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
             posthoganalytics.personal_api_key = None
-        elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
+        elif settings.TEST or settings.OPT_OUT_CAPTURE or settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
             posthoganalytics.disabled = True
         elif settings.DEBUG:
             # In dev, analytics is by default turned to self-capture, i.e. data going into this very instance of PostHog
@@ -46,6 +50,7 @@ class PostHogConfig(AppConfig):
             )
             if settings.SERVER_GATEWAY_INTERFACE == "WSGI":
                 async_to_sync(initialize_self_capture_api_token)()
+
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
                 # Sync all organization.available_product_features once on launch, in case plans changed
@@ -65,7 +70,7 @@ class PostHogConfig(AppConfig):
 
         from posthog.async_migrations.setup import setup_async_migrations
 
-        if settings.SKIP_ASYNC_MIGRATIONS_SETUP:
+        if settings.SKIP_ASYNC_MIGRATIONS_SETUP or settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
             logger.warning("Skipping async migrations setup. This is unsafe in production!")
         else:
             setup_async_migrations()
@@ -73,7 +78,7 @@ class PostHogConfig(AppConfig):
         from posthog.tasks.hog_functions import queue_sync_hog_function_templates
 
         # Skip during tests since we handle this in conftest.py
-        if not settings.TEST:
+        if not settings.TEST and not settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
             queue_sync_hog_function_templates()
 
     def _setup_lazy_admin(self):
