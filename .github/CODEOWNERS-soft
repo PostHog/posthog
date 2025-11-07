@@ -53,12 +53,6 @@ products/revenue_analytics/** @PostHog/team-revenue-analytics
 
 # Feature Flags team
 
-# Platform (the `/flags` and `/decide` endpoints + associated utils)
-
-rust/feature-flags/ @PostHog/team-feature-flags
-posthog/api/decide.py @PostHog/team-feature-flags
-posthog/models/flag_matching.py @PostHog/team-feature-flags
-
 # Feature Flags CRUD operations
 
 posthog/models/feature_flag/ @PostHog/team-feature-flags
