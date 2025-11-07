@@ -21,6 +21,7 @@ class PostHogConfig(AppConfig):
 
     def ready(self):
         self._setup_lazy_admin()
+        print(f"PostHog Analytics version: {posthoganalytics.VERSION}")
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
         posthoganalytics.poll_interval = 90
@@ -31,6 +32,8 @@ class PostHogConfig(AppConfig):
             "service": settings.OTEL_SERVICE_NAME,
             "environment": os.getenv("SENTRY_ENVIRONMENT"),
         }
+        posthoganalytics.capture_exception_code_variables = True
+        posthoganalytics.debug = True
 
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
