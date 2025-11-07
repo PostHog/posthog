@@ -22,7 +22,7 @@ from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMe
 from posthog.models import Team, User
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.base import BaseExecutableAssistantNode
 from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSummarizer
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
@@ -81,7 +81,7 @@ logger = structlog.get_logger(__name__)
 
 
 class AgentToolkit:
-    def __init__(self, team: Team, user: User, context_manager: AssistantContextManager):
+    def __init__(self, *, team: Team, user: User, context_manager: AssistantContextManager):
         self._team = team
         self._user = user
         self._context_manager = context_manager
@@ -140,11 +140,9 @@ class AgentToolkit:
         return available_tools
 
 
-class BaseAgentNode(AssistantNode):
-    def __init__(
-        self, team: Team, user: User, toolkit_class: type[AgentToolkit], node_path: tuple[NodePath, ...] | None = None
-    ):
-        super().__init__(team, user, node_path=node_path)
+class BaseAgentNode(BaseExecutableAssistantNode[AssistantState, PartialAssistantState]):
+    def __init__(self, *, team: Team, user: User, toolkit_class: type[AgentToolkit], node_path: tuple[NodePath, ...]):
+        super().__init__(team, user, node_path)
         self._toolkit_class = toolkit_class
 
 
@@ -158,14 +156,12 @@ class AgentNode(BaseAgentNode):
     Determines the thinking configuration for the model.
     """
 
-    def __init__(
-        self, team: Team, user: User, toolkit_class: type[AgentToolkit], node_path: tuple[NodePath, ...] | None = None
-    ):
-        super().__init__(team, user, toolkit_class, node_path=node_path)
+    def __init__(self, *, team: Team, user: User, toolkit_class: type[AgentToolkit], node_path: tuple[NodePath, ...]):
+        super().__init__(team=team, user=user, toolkit_class=toolkit_class, node_path=node_path)
         self._window_manager = AnthropicConversationCompactionManager()
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        toolkit = self._toolkit_class(self._team, self._user, self.context_manager)
+        toolkit = self._toolkit_class(team=self._team, user=self._user, context_manager=self.context_manager)
 
         # Add context messages on start of the conversation.
         tools, billing_context_prompt, core_memory, groups = await asyncio.gather(
@@ -429,7 +425,7 @@ class AgentToolsNode(BaseAgentNode):
             return reset_state
 
         # Find the tool class in a toolkit.
-        toolkit = self._toolkit_class(self._team, self._user, self.context_manager)
+        toolkit = self._toolkit_class(team=self._team, user=self._user, context_manager=self.context_manager)
         available_tools = await toolkit.get_tools(state, config)
         ToolClass = next(
             (tool_class for tool_class in available_tools if tool_class.get_name() == tool_call.name), None

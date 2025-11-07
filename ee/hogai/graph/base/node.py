@@ -25,40 +25,33 @@ from ee.hogai.utils.types.base import (
 from ee.models import Conversation
 
 
-class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, AssistantDispatcherMixin, ABC):
+class BaseExecutableAssistantNode(
+    Generic[StateType, PartialStateType], AssistantContextMixin, AssistantDispatcherMixin, ABC
+):
+    """Core assistant node with execution logic only."""
+
     _config: RunnableConfig | None = None
     _context_manager: AssistantContextManager | None = None
     _node_path: tuple[NodePath, ...]
 
-    def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...] | None = None):
+    def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...]):
         self._team = team
         self._user = user
-        if node_path is None:
-            self._node_path = (*(get_node_path() or ()), NodePath(name=self.node_name))
-        else:
-            self._node_path = node_path
+        self._node_path = node_path
 
     async def __call__(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """
-        Run the assistant node and handle cancelled conversation before the node is run.
+        Run the assistant node.
         """
-        # Reset the context manager and dispatcher on a new run
+        # Reset the context manager on a new run
         self._context_manager = None
         self._dispatcher = None
         self._config = config
-
-        self.dispatcher.dispatch(NodeStartAction())
-
-        thread_id = (config.get("configurable") or {}).get("thread_id")
-        if thread_id and await self._is_conversation_cancelled(thread_id):
-            raise GenerationCanceled
 
         try:
             new_state = await self._arun_with_context(state, config)
         except NotImplementedError:
             new_state = await database_sync_to_async(self._run_with_context, thread_sensitive=False)(state, config)
-
-        self.dispatcher.dispatch(NodeEndAction(state=new_state))
 
         return new_state
 
@@ -99,6 +92,34 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
             if config_name is not None:
                 config_name = str(config_name)
         return config_name or self.__class__.__name__
+
+
+class BaseAssistantNode(BaseExecutableAssistantNode[StateType, PartialStateType]):
+    """Assistant node with dispatching and conversation cancellation support."""
+
+    def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...] | None = None):
+        if node_path is None:
+            node_path = (*(get_node_path() or ()), NodePath(name=self.node_name))
+        super().__init__(team, user, node_path)
+
+    async def __call__(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
+        """
+        Run the assistant node and handle cancelled conversation before the node is run.
+        """
+        # Reset the dispatcher on a new run
+        self._dispatcher = None
+
+        self.dispatcher.dispatch(NodeStartAction())
+
+        thread_id = (config.get("configurable") or {}).get("thread_id")
+        if thread_id and await self._is_conversation_cancelled(thread_id):
+            raise GenerationCanceled
+
+        new_state = await super().__call__(state, config)
+
+        self.dispatcher.dispatch(NodeEndAction(state=new_state))
+
+        return new_state
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)

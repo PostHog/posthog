@@ -6,6 +6,8 @@ from posthog.schema import AgentMode
 
 from posthog.models import Team, User
 
+from ee.hogai.utils.types.base import NodePath
+
 from .presets import MODE_REGISTRY
 
 if TYPE_CHECKING:
@@ -27,9 +29,10 @@ class AgentModeManager:
     __node: Optional["AgentNode"] = None
     __tools_node: Optional["AgentToolsNode"] = None
 
-    def __init__(self, team: Team, user: User, mode: AgentMode | None = None):
+    def __init__(self, *, team: Team, user: User, node_path: tuple[NodePath, ...], mode: AgentMode | None = None):
         self._team = team
         self._user = user
+        self._node_path = node_path
         self._mode = mode or AgentMode.PRODUCT_ANALYTICS
 
     @property
@@ -37,7 +40,10 @@ class AgentModeManager:
         if not self.__node:
             agent_definition = MODE_REGISTRY[self._mode]
             self.__node = agent_definition.node_class(
-                self._team, self._user, toolkit_class=agent_definition.toolkit_class
+                team=self._team,
+                user=self._user,
+                node_path=self._node_path,
+                toolkit_class=agent_definition.toolkit_class,
             )
         return self.__node
 
@@ -46,7 +52,10 @@ class AgentModeManager:
         if not self.__tools_node:
             agent_definition = MODE_REGISTRY[self._mode]
             self.__tools_node = agent_definition.tools_node_class(
-                self._team, self._user, toolkit_class=agent_definition.toolkit_class
+                team=self._team,
+                user=self._user,
+                node_path=self._node_path,
+                toolkit_class=agent_definition.toolkit_class,
             )
         return self.__tools_node
 

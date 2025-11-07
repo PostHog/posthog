@@ -9,19 +9,31 @@ from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 class AgentRootNode(AssistantNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        manager = AgentModeManager(self._team, self._user, AgentMode.PRODUCT_ANALYTICS)
-        return await manager.node(state, config)
+        manager = AgentModeManager(
+            team=self._team, user=self._user, node_path=self.node_path, mode=AgentMode.PRODUCT_ANALYTICS
+        )
+        new_state = await manager.node(state, config)
+        return new_state
 
     def router(self, state: AssistantState):
-        manager = AgentModeManager(self._team, self._user, AgentMode.PRODUCT_ANALYTICS)
-        return manager.node.router(state)
+        manager = AgentModeManager(
+            team=self._team, user=self._user, node_path=self.node_path, mode=AgentMode.PRODUCT_ANALYTICS
+        )
+        next_node = manager.node.router(state)
+        return next_node
 
 
 class AgentRootToolsNode(AssistantNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        manager = AgentModeManager(self._team, self._user, AgentMode.PRODUCT_ANALYTICS)
-        return await manager.tools_node(state, config)
+        manager = AgentModeManager(
+            team=self._team, user=self._user, node_path=self.node_path, mode=AgentMode.PRODUCT_ANALYTICS
+        )
+        new_state = await manager.tools_node(state, config)
+        return new_state
 
     def router(self, state: AssistantState):
-        manager = AgentModeManager(self._team, self._user, AgentMode.PRODUCT_ANALYTICS)
-        return manager.tools_node.router(state)
+        manager = AgentModeManager(
+            team=self._team, user=self._user, node_path=self.node_path, mode=AgentMode.PRODUCT_ANALYTICS
+        )
+        next_node = manager.tools_node.router(state)
+        return next_node
