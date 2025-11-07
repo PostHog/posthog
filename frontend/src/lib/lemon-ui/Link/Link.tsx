@@ -1,7 +1,7 @@
 import './Link.scss'
 
 import { router } from 'kea-router'
-import React, { Suspense } from 'react'
+import React from 'react'
 
 import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
 
@@ -21,17 +21,10 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { BrowserLikeMenuItemsLoading } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
+import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { SidePanelTab } from '~/types'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
-
-// Lazy load to avoid circular dependency
-const BrowserLikeMenuItems = React.lazy(() =>
-    import('~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems').then((module) => ({
-        default: module.BrowserLikeMenuItems,
-    }))
-)
 
 type RoutePart = string | Record<string, any>
 
@@ -257,9 +250,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                     )}
                     <ContextMenuContent loop className="max-w-[250px]">
                         <ContextMenuGroup>
-                            <Suspense fallback={<BrowserLikeMenuItemsLoading />}>
-                                <BrowserLikeMenuItems href={to} MenuItem={ContextMenuItem} />
-                            </Suspense>
+                            <BrowserLikeMenuItems href={to} MenuItem={ContextMenuItem} />
                         </ContextMenuGroup>
                     </ContextMenuContent>
                 </ContextMenu>

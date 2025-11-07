@@ -2,7 +2,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 
 import { CustomMenuProps } from '../types'
 
@@ -18,12 +18,7 @@ export const BrowserLikeMenuItems = ({
 }: BrowserLikeMenuProps): JSX.Element => {
     const handleOpenLinkInNewPostHogTab = (e: React.MouseEvent<HTMLElement>): void => {
         e.stopPropagation()
-        const mountedSceneLogic = sceneLogic.findMounted()
-
-        if (mountedSceneLogic) {
-            const { newTab } = mountedSceneLogic.actions
-            newTab(href)
-        }
+        newInternalTab(href)
         resetPanelLayout?.(false)
     }
 
