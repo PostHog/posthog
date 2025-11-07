@@ -24,9 +24,9 @@ export function DataWarehousePricingCard({ product }: { product: BillingProductV
     const hasProjected = projectedTotal !== currentTotal
 
     return (
-        <LemonCard className="hover:transform-none">
+        <LemonCard className="hover:transform-none p-4">
             <div className="pb-4">
-                <h2 className="text-xl font-semibold mb-3">Cost breakdown</h2>
+                <h2 className="text-lg font-medium mb-3">Cost breakdown</h2>
                 <div className="flex items-center justify-between py-3 px-4 bg-bg-3000 rounded border">
                     <div className="text-center flex-1">
                         <div className="text-xs text-muted mb-1">Current period</div>
