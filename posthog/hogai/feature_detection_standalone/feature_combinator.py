@@ -39,6 +39,10 @@ def _get_async_client() -> openai.AsyncOpenAI:
     return openai.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
+def _make_name_filesafe(potential_name: str) -> str:
+    return potential_name.replace("/", "-")
+
+
 # "PostHog platform"
 async def _combine_entities(
     entities_to_combine: set[str],
@@ -53,13 +57,13 @@ async def _combine_entities(
         # Ensure to create the directory
         entities_to_combine_output_path.mkdir(parents=True, exist_ok=True)
         entities_to_combine_output_path_raw = (
-            entities_to_combine_output_path / f"{entity_type}_{label}_combination_raw.txt"
+            entities_to_combine_output_path / f"{entity_type}_{_make_name_filesafe(label)}_combination_raw.txt"
         )
         entities_to_combine_output_path_json = (
-            entities_to_combine_output_path / f"{entity_type}_{label}_combination_raw.json"
+            entities_to_combine_output_path / f"{entity_type}_{_make_name_filesafe(label)}_combination_raw.json"
         )
         entities_to_combine_output_path_proper = (
-            entities_to_combine_output_path / f"{entity_type}_{label}_combination.json"
+            entities_to_combine_output_path / f"{entity_type}_{_make_name_filesafe(label)}_combination.json"
         )
         # If files exists already - skip
         if (
@@ -178,15 +182,15 @@ async def combine_everything():
 
     # Combine the features per product
     feature_name_to_similar_names_mapping = {}
-    for product_name, features_to_combine in products_to_features_to_combine_mapping.items():
-        tasks = {}
-        async with asyncio.TaskGroup() as tg:
+    tasks = {}
+    async with asyncio.TaskGroup() as tg:
+        for product_name, features_to_combine in products_to_features_to_combine_mapping.items():
             tasks[product_name] = tg.create_task(
                 _combine_entities(
                     entities_to_combine=set(features_to_combine),
                     entity_type="feature",
                     label=product_name,
-                    platform_context=product_name,
+                    platform_context=f"{product_name} product",
                     client=client,
                     output_path=base_transcriptions_path,
                 )
@@ -197,6 +201,78 @@ async def combine_everything():
             logger.error(f"Error combining features for {product_name}: {result}")
             continue
         feature_name_to_similar_names_mapping[product_name] = result
+
+    # Combine the actions per feature
+    action_name_to_similar_names_mapping = {}
+    tasks = {}
+    async with asyncio.TaskGroup() as tg:
+        for feature_name, actions_to_combine in features_to_actions_to_combine_mapping.items():
+            tasks[feature_name] = tg.create_task(
+                _combine_entities(
+                    entities_to_combine=set(actions_to_combine),
+                    entity_type="action",
+                    label=feature_name,
+                    platform_context=f"{feature_name} feature",
+                    client=client,
+                    output_path=base_transcriptions_path,
+                )
+            )
+    for feature_name, task in tasks.items():
+        result = task.result()
+        if isinstance(result, Exception):
+            logger.error(f"Error combining actions for {feature_name}: {result}")
+            continue
+        action_name_to_similar_names_mapping[feature_name] = result
+    print("")
+
+    # Combine everything together
+    combined_report = {}
+    for product_name, similar_names in product_name_to_similar_names_mapping.items():
+        # Find features related to this product
+        features_related = []
+        for pn in [product_name] + similar_names:
+            new_features_related = products_to_features_to_combine_mapping.get(pn)
+            if not new_features_related:
+                continue
+            features_related += new_features_related
+        # For each feature - find a unified name for that feature
+        base_to_unified_feature_names_mapping = {}
+        unified_feature_names = set()
+        for base_feature_name in set(features_related):
+            unified_groups = feature_name_to_similar_names_mapping.get(product_name)
+            if not unified_groups:
+                continue
+            for unified_feature_name, other_names in unified_groups.items():
+                if base_feature_name in other_names:
+                    unified_feature_names.add(unified_feature_name)
+                    base_to_unified_feature_names_mapping[base_feature_name] = unified_feature_name
+                    break
+        # For each feature - find actions
+        feature_to_actions_mapping = {}
+        for base_feature_name in set(features_related):
+            action_names = action_name_to_similar_names_mapping.get(base_feature_name)
+            if not action_names:
+                continue
+            # Store all actions under unified mappings
+            unified_name_to_map = base_to_unified_feature_names_mapping.get(base_feature_name)
+            if not unified_name_to_map:
+                continue
+            if not feature_to_actions_mapping.get(unified_name_to_map):
+                feature_to_actions_mapping[unified_name_to_map] = []
+            feature_to_actions_mapping[unified_name_to_map] += [x.capitalize() for x in action_names.keys()]
+        # Store into the report
+        combined_report[product_name] = {key: list(set(value)) for key, value in feature_to_actions_mapping.items()}
+    # Store the report 
+    with open(base_transcriptions_path / "combined_report.json", "w") as f:
+        json.dump(combined_report, f)
+    # Order the features inside each product based on the amount of actions
+    for product_name, features_to_actions_mapping in combined_report.items():
+        combined_report[product_name] = {k: v for k, v in sorted(features_to_actions_mapping.items(), key=lambda x: len(x[1]), reverse=True)}
+    # Order the products based on the amount of features
+    combined_report = {k: v for k, v in sorted(combined_report.items(), key=lambda x: len(x[1]), reverse=True)}
+    # Store the ordered report
+    with open(base_transcriptions_path / "combined_report_ordered.json", "w") as f:
+        json.dump(combined_report, f)
     print("")
 
 
