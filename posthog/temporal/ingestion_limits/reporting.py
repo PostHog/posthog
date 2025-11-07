@@ -163,17 +163,23 @@ async def send_to_kafka(topic: str | None, messages: list[dict]) -> None:
         logger.warning("No messages to send to Kafka")
         return
 
+    # Submit messages async and log results
     producer = KafkaProducer()
-
-    # Send each message individually to match plugin-server behavior
-    # KafkaProducer.produce() expects a dict and will serialize it with json_serializer
+    futures = []
     for message in messages:
-        try:
-            logger.info("Submitting ingestion warning to Kafka", message=message)
-            await asyncio.to_thread(
+        logger.info("Submitting ingestion warning to Kafka", message=message)
+        futures.append(
+            asyncio.to_thread(
                 producer.produce,
                 topic=topic,
-                data=message,
+                data=json.dumps(message).encode("utf-8"),
             )
-        except Exception as e:
-            logger.exception(f"Failed to submit ingestion warning to Kafka", error=str(e), message=message)
+        )
+
+    successes = 0
+    for result in await asyncio.gather(*futures, return_exceptions=True):
+        if isinstance(result, Exception):
+            logger.exception(f"Failed to submit ingestion warning to Kafka", error=str(result))
+    logger.info(
+        "Submitted batch of ingestion warnings to Kafka", successes=successes, failures=len(futures) - successes
+    )
