@@ -8,14 +8,12 @@ import { PostHogFeature } from 'posthog-js/react'
 import { useEffect, useState } from 'react'
 
 import {
-    IconBalance,
     IconCollapse,
     IconCopy,
     IconExpand,
     IconGlobe,
     IconInfo,
     IconLaptop,
-    IconPlus,
     IconPlusSmall,
     IconRewind,
     IconRewindPlay,
@@ -27,14 +25,13 @@ import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch, Tooltip 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -44,11 +41,11 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { alphabet, capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -56,7 +53,6 @@ import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponen
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
-import { concatWithPunctuation } from 'scenes/insights/utils'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
@@ -65,7 +61,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
+import {
+    ScenePanel,
+    ScenePanelActionsSection,
+    ScenePanelDivider,
+    ScenePanelInfoSection,
+} from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -86,7 +87,6 @@ import {
     FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
     FeatureFlagType,
-    MultivariateFlagVariant,
     ProductKey,
     PropertyFilterType,
     PropertyOperator,
@@ -97,10 +97,13 @@ import {
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
+import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
+import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
+import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { FeatureFlagLogicProps, featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
@@ -188,13 +191,6 @@ export const scene: SceneExport<FeatureFlagLogicProps> = {
     settingSectionId: 'environment-feature-flags',
 }
 
-function focusVariantKeyField(index: number): void {
-    setTimeout(
-        () => document.querySelector<HTMLElement>(`.VariantFormList input[data-key-index="${index}"]`)?.focus(),
-        50
-    )
-}
-
 export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
         props,
@@ -224,6 +220,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const { tags } = useValues(tagsModel)
     const { hasAvailableFeature, user } = useValues(userLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
@@ -234,6 +231,20 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
+
+    useFileSystemLogView({
+        type: 'feature_flag',
+        ref: featureFlag?.id,
+        enabled: Boolean(
+            currentTeamId &&
+                !featureFlagMissing &&
+                !accessDeniedToFeatureFlag &&
+                props.id !== 'new' &&
+                props.id !== 'link' &&
+                featureFlag?.id
+        ),
+        deps: [currentTeamId, featureFlag?.id, featureFlagMissing, accessDeniedToFeatureFlag, props.id],
+    })
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
@@ -362,13 +373,17 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         enableFormOnSubmit
                         className="deprecated-space-y-4"
                     >
-                        <SceneTitleSection name={featureFlag.key} resourceType={{ type: 'feature_flag' }} />
-                        <PageHeader
-                            buttons={
-                                <div className="flex items-center gap-2">
+                        <SceneTitleSection
+                            name={featureFlag.key}
+                            resourceType={{
+                                type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
+                            }}
+                            actions={
+                                <>
                                     <LemonButton
                                         data-attr="cancel-feature-flag"
                                         type="secondary"
+                                        size="small"
                                         onClick={() => {
                                             if (isEditingFlag) {
                                                 editFeatureFlag(false)
@@ -385,12 +400,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         data-attr="save-feature-flag"
                                         htmlType="submit"
                                         form="feature-flag"
+                                        size="small"
                                     >
                                         Save
                                     </LemonButton>
-                                </div>
+                                </>
                             }
                         />
+
                         <SceneContent>
                             {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
                                 <LemonBanner type="warning">
@@ -456,19 +473,39 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
                                 {hasAvailableFeature(AvailableFeature.TAGGING) && (
                                     <LemonField name="tags" label="Tags">
-                                        {({ value, onChange }) => {
-                                            return (
-                                                <ObjectTags
-                                                    saving={featureFlagLoading}
-                                                    tags={value}
-                                                    onChange={(tags) => onChange(tags)}
-                                                    tagsAvailable={tags.filter(
-                                                        (tag: string) => !featureFlag.tags?.includes(tag)
-                                                    )}
-                                                    className="mt-2"
-                                                />
-                                            )
-                                        }}
+                                        {({ value: formTags, onChange: onChangeTags }) => (
+                                            <>
+                                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                                    <LemonField name="evaluation_tags">
+                                                        {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
+                                                            <FeatureFlagEvaluationTags
+                                                                tags={formTags}
+                                                                evaluationTags={formEvalTags || []}
+                                                                onChange={(updatedTags, updatedEvaluationTags) => {
+                                                                    onChangeTags(updatedTags)
+                                                                    onChangeEvalTags(updatedEvaluationTags)
+                                                                }}
+                                                                tagsAvailable={tags.filter(
+                                                                    (tag: string) => !formTags?.includes(tag)
+                                                                )}
+                                                                className="mt-2"
+                                                                flagId={featureFlag.id}
+                                                            />
+                                                        )}
+                                                    </LemonField>
+                                                ) : (
+                                                    <ObjectTags
+                                                        tags={formTags}
+                                                        onChange={onChangeTags}
+                                                        saving={featureFlagLoading}
+                                                        tagsAvailable={tags.filter(
+                                                            (tag: string) => !formTags?.includes(tag)
+                                                        )}
+                                                        className="mt-2"
+                                                    />
+                                                )}
+                                            </>
+                                        )}
                                     </LemonField>
                                 )}
                                 <LemonField name="active">
@@ -483,8 +520,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             />
                                             <div className="text-secondary text-sm pl-7">
                                                 When enabled, this flag evaluates according to your release conditions.
-                                                When disabled, all evaluations return <code>false</code> regardless of
-                                                conditions.
+                                                When disabled, this flag will not be evaluated and PostHog SDKs default
+                                                to returning <code>false</code>.
                                             </div>
                                         </div>
                                     )}
@@ -547,6 +584,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         id={`${featureFlag.id}`}
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
+                                        evaluationRuntime={featureFlag.evaluation_runtime}
                                     />
                                     <SceneDivider />
                                 </>
@@ -615,60 +653,50 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     </Form>
                 ) : (
                     <>
-                        <PageHeader
-                            notebookProps={{
-                                href: urls.featureFlag(id),
-                            }}
-                            buttons={
-                                <>
-                                    <div className="flex items-center gap-2">
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.FeatureFlag}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            userAccessLevel={featureFlag.user_access_level}
-                                        >
-                                            <LemonButton
-                                                data-attr="edit-feature-flag"
-                                                type="secondary"
-                                                disabledReason={
-                                                    !featureFlag.can_edit
-                                                        ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
-                                                        : featureFlag.deleted
-                                                          ? 'This feature flag has been deleted. Restore it to edit.'
-                                                          : null
-                                                }
-                                                onClick={() => {
-                                                    editFeatureFlag(true)
-                                                }}
-                                            >
-                                                Edit
-                                            </LemonButton>
-                                        </AccessControlAction>
-                                    </div>
-                                </>
-                            }
-                        />
-
                         <ScenePanel>
-                            <ScenePanelMetaInfo>
+                            <ScenePanelInfoSection>
                                 {hasAvailableFeature(AvailableFeature.TAGGING) && (
-                                    <SceneTags
-                                        onSave={(tags) => {
-                                            const updatedFlag = { ...featureFlag, tags }
-                                            updateFlag(updatedFlag)
-                                            saveFeatureFlag(updatedFlag)
-                                        }}
-                                        canEdit
-                                        tags={featureFlag.tags}
-                                        tagsAvailable={tags.filter((tag: string) => !featureFlag.tags?.includes(tag))}
-                                        dataAttrKey={RESOURCE_TYPE}
-                                    />
+                                    <>
+                                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                            <FeatureFlagEvaluationTags
+                                                tags={featureFlag.tags}
+                                                evaluationTags={featureFlag.evaluation_tags || []}
+                                                onChange={(updatedTags, updatedEvaluationTags) => {
+                                                    const updatedFlag = {
+                                                        ...featureFlag,
+                                                        tags: updatedTags,
+                                                        evaluation_tags: updatedEvaluationTags,
+                                                    }
+                                                    updateFlag(updatedFlag)
+                                                    saveFeatureFlag(updatedFlag)
+                                                }}
+                                                tagsAvailable={tags.filter(
+                                                    (tag: string) => !featureFlag.tags?.includes(tag)
+                                                )}
+                                                flagId={featureFlag.id}
+                                            />
+                                        ) : (
+                                            <SceneTags
+                                                onSave={(tags) => {
+                                                    const updatedFlag = { ...featureFlag, tags }
+                                                    updateFlag(updatedFlag)
+                                                    saveFeatureFlag(updatedFlag)
+                                                }}
+                                                canEdit
+                                                tags={featureFlag.tags}
+                                                tagsAvailable={tags.filter(
+                                                    (tag: string) => !featureFlag.tags?.includes(tag)
+                                                )}
+                                                dataAttrKey={RESOURCE_TYPE}
+                                            />
+                                        )}
+                                    </>
                                 )}
 
                                 <SceneFile dataAttrKey={RESOURCE_TYPE} />
-                            </ScenePanelMetaInfo>
+                            </ScenePanelInfoSection>
                             <ScenePanelDivider />
-                            <ScenePanelActions>
+                            <ScenePanelActionsSection>
                                 <ButtonPrimitive
                                     onClick={() => {
                                         router.actions.push(urls.featureFlagDuplicate(featureFlag.id))
@@ -700,8 +728,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         Create survey
                                     </ButtonPrimitive>
                                 )}
-
-                                <ScenePanelDivider />
+                            </ScenePanelActionsSection>
+                            <ScenePanelDivider />
+                            <ScenePanelActionsSection>
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.FeatureFlag}
                                     minAccessLevel={AccessControlLevel.Editor}
@@ -716,9 +745,25 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 featureFlag.deleted ? 'restore-feature-flag' : 'delete-feature-flag'
                                             }
                                             onClick={() => {
-                                                featureFlag.deleted
-                                                    ? restoreFeatureFlag(featureFlag)
-                                                    : deleteFeatureFlag(featureFlag)
+                                                if (featureFlag.deleted) {
+                                                    restoreFeatureFlag(featureFlag)
+                                                } else {
+                                                    LemonDialog.open({
+                                                        title: 'Delete feature flag?',
+                                                        description: `Are you sure you want to delete "${featureFlag.key}"?`,
+                                                        primaryButton: {
+                                                            children: 'Delete',
+                                                            status: 'danger',
+                                                            onClick: () => deleteFeatureFlag(featureFlag),
+                                                            size: 'small',
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                            type: 'tertiary',
+                                                            size: 'small',
+                                                        },
+                                                    })
+                                                }
                                             }}
                                             disabledReasons={{
                                                 "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
@@ -736,7 +781,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         </ButtonPrimitive>
                                     )}
                                 </AccessControlAction>
-                            </ScenePanelActions>
+                            </ScenePanelActionsSection>
                         </ScenePanel>
                         <SceneContent>
                             {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
@@ -755,10 +800,20 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 name={featureFlag.key}
                                 description={featureFlag.name}
                                 resourceType={{
-                                    type: 'feature_flag',
+                                    type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                                 }}
+                                actions={
+                                    <>
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            onClick={() => editFeatureFlag(true)}
+                                        >
+                                            Edit
+                                        </LemonButton>
+                                    </>
+                                }
                             />
-                            <SceneDivider />
                             <LemonTabs
                                 activeKey={activeTab}
                                 onChange={(tab) => tab !== activeTab && setActiveTab(tab)}
@@ -876,19 +931,10 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
     )
 }
 
-function variantConcatWithPunctuation(phrases: string[]): string {
-    if (phrases === null || phrases.length < 3) {
-        return concatWithPunctuation(phrases)
-    }
-    return `${phrases[0]} and ${phrases.length - 1} more sets`
-}
-
 function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
     const {
         multivariateEnabled,
         variants,
-        areVariantRolloutsValid,
-        variantRolloutSum,
         nonEmptyVariants,
         aggregationTargetName,
         featureFlag,
@@ -899,8 +945,11 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         hasEncryptedPayloadBeenSaved,
         hasExperiment,
         isDraftExperiment,
+        properties,
+        variantErrors,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const {
         distributeVariantsEqually,
         addVariant,
@@ -975,6 +1024,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         <SceneContent>
             {readOnly ? (
                 <>
+                    <FeatureFlagConditionWarning
+                        properties={properties}
+                        evaluationRuntime={featureFlag.evaluation_runtime}
+                    />
                     <div className="flex flex-col">
                         <div className="grid grid-cols-8">
                             <div className="col-span-2 card-secondary">Status</div>
@@ -1039,6 +1092,26 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </div>
                         </div>
 
+                        {hasAvailableFeature(AvailableFeature.TAGGING) &&
+                            featureFlag.tags &&
+                            featureFlag.tags.length > 0 && (
+                                <>
+                                    <span className="card-secondary mt-4">Tags</span>
+                                    <div className="mt-2">
+                                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                            <FeatureFlagEvaluationTags
+                                                tags={featureFlag.tags}
+                                                evaluationTags={featureFlag.evaluation_tags || []}
+                                                staticOnly
+                                                flagId={featureFlag.id}
+                                            />
+                                        ) : (
+                                            <ObjectTags tags={featureFlag.tags} staticOnly />
+                                        )}
+                                    </div>
+                                </>
+                            )}
+
                         <span className="card-secondary mt-4">Flag persistence</span>
                         <span>
                             This flag{' '}
@@ -1085,81 +1158,30 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                     {featureFlag.filters.multivariate && (
                         <>
                             <SceneSection title="Variant keys">
-                                <div className="border rounded p-4 bg-surface-primary">
-                                    <div className="grid grid-cols-10 gap-4 font-semibold">
-                                        <div className="col-span-2">Key</div>
-                                        <div className="col-span-2">Description</div>
-                                        <div className="col-span-2">Payload</div>
-                                        <div>Rollout</div>
-                                    </div>
-                                    <LemonDivider className="my-3" />
-                                    {variants.map((variant: MultivariateFlagVariant, index: number) => (
-                                        <div key={index}>
-                                            <div className="grid grid-cols-10 gap-4">
-                                                <div className="col-span-2">
-                                                    <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
-                                                    <CopyToClipboardInline
-                                                        tooltipMessage={null}
-                                                        description="key"
-                                                        style={{
-                                                            marginLeft: '0.5rem',
-                                                        }}
-                                                        iconStyle={{ color: 'var(--color-text-secondary)' }}
-                                                    >
-                                                        {variant.key}
-                                                    </CopyToClipboardInline>
-                                                </div>
-                                                <div className="col-span-2">
-                                                    <span className={variant.name ? '' : 'text-muted'}>
-                                                        {variant.name || 'There is no description for this variant key'}
-                                                    </span>
-                                                </div>
-                                                <div className="col-span-2">
-                                                    {featureFlag.filters.payloads?.[index] ? (
-                                                        <JSONEditorInput
-                                                            readOnly={true}
-                                                            value={featureFlag.filters.payloads[index]}
-                                                        />
-                                                    ) : (
-                                                        <span className="text-secondary">
-                                                            No payload associated with this variant
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div>{variant.rollout_percentage}%</div>
-                                                <div className="col-span-2">
-                                                    <LemonButton
-                                                        size="xsmall"
-                                                        icon={<IconRewindPlay />}
-                                                        type="secondary"
-                                                        onClick={() => {
-                                                            reportViewRecordingsClicked(variant.key)
-                                                            router.actions.push(
-                                                                urls.replay(
-                                                                    ReplayTabs.Home,
-                                                                    getRecordingFilterForFlagVariant(
-                                                                        featureFlag.key,
-                                                                        variant.key,
-                                                                        featureFlag.has_enriched_analytics
-                                                                    )
-                                                                )
-                                                            )
-                                                            addProductIntentForCrossSell({
-                                                                from: ProductKey.FEATURE_FLAGS,
-                                                                to: ProductKey.SESSION_REPLAY,
-                                                                intent_context:
-                                                                    ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
-                                                            })
-                                                        }}
-                                                    >
-                                                        View recordings
-                                                    </LemonButton>
-                                                </div>
-                                            </div>
-                                            {index !== variants.length - 1 && <LemonDivider className="my-3" />}
-                                        </div>
-                                    ))}
-                                </div>
+                                <FeatureFlagVariantsForm
+                                    variants={variants}
+                                    payloads={featureFlag.filters?.payloads}
+                                    readOnly={true}
+                                    onViewRecordings={(variantKey) => {
+                                        reportViewRecordingsClicked(variantKey)
+                                        router.actions.push(
+                                            urls.replay(
+                                                ReplayTabs.Home,
+                                                getRecordingFilterForFlagVariant(
+                                                    featureFlag.key,
+                                                    variantKey,
+                                                    featureFlag.has_enriched_analytics
+                                                )
+                                            )
+                                        )
+                                        addProductIntentForCrossSell({
+                                            from: ProductKey.FEATURE_FLAGS,
+                                            to: ProductKey.SESSION_REPLAY,
+                                            intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
+                                        })
+                                    }}
+                                    variantErrors={variantErrors}
+                                />
                             </SceneSection>
                         </>
                     )}
@@ -1439,176 +1461,46 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 title="Variant keys"
                                 description="The rollout percentage of feature flag variants must add up to 100%"
                             >
-                                <div className="VariantFormList deprecated-space-y-2 mt-0">
-                                    <div className="VariantFormList__row grid label-row gap-2 items-center">
-                                        <div />
-                                        <div className="col-span-4">Variant key</div>
-                                        <div className="col-span-6">Description</div>
-                                        <div className="col-span-8">
-                                            <div className="flex flex-col">
-                                                <b>Payload</b>
-                                                <span className="text-secondary font-normal">
-                                                    Specify return payload when the variant key matches
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div className="col-span-3 flex justify-between items-center gap-1">
-                                            <span>Rollout</span>
-                                            <LemonButton
-                                                onClick={distributeVariantsEqually}
-                                                tooltip="Normalize variant rollout percentages"
-                                            >
-                                                <IconBalance />
-                                            </LemonButton>
-                                        </div>
-                                    </div>
-                                    {variants.map((variant: MultivariateFlagVariant, index: number) => (
-                                        <Group key={index} name="filters">
-                                            <div className="VariantFormList__row grid gap-2">
-                                                <div className="flex items-center justify-center">
-                                                    <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
-                                                </div>
-                                                <div className="col-span-4">
-                                                    <LemonField name={['multivariate', 'variants', index, 'key']}>
-                                                        <LemonInput
-                                                            data-attr="feature-flag-variant-key"
-                                                            data-key-index={index.toString()}
-                                                            className="ph-ignore-input"
-                                                            placeholder={`example-variant-${index + 1}`}
-                                                            autoComplete="off"
-                                                            autoCapitalize="off"
-                                                            autoCorrect="off"
-                                                            spellCheck={false}
-                                                            disabled={!canEditVariant(index)}
-                                                        />
-                                                    </LemonField>
-                                                </div>
-                                                <div className="col-span-6">
-                                                    <LemonField name={['multivariate', 'variants', index, 'name']}>
-                                                        <LemonInput
-                                                            data-attr="feature-flag-variant-name"
-                                                            className="ph-ignore-input"
-                                                            placeholder="Description"
-                                                        />
-                                                    </LemonField>
-                                                </div>
-                                                <div className="col-span-8">
-                                                    <LemonField name={['payloads', index]}>
-                                                        {({ value, onChange }) => {
-                                                            return (
-                                                                <JSONEditorInput
-                                                                    onChange={(newValue) => {
-                                                                        onChange(newValue === '' ? undefined : newValue)
-                                                                    }}
-                                                                    value={value}
-                                                                    placeholder='{"key": "value"}'
-                                                                />
-                                                            )
-                                                        }}
-                                                    </LemonField>
-                                                </div>
-                                                <div className="col-span-3">
-                                                    <LemonField
-                                                        name={['multivariate', 'variants', index, 'rollout_percentage']}
-                                                    >
-                                                        {({ value, onChange }) => (
-                                                            <div>
-                                                                <LemonInput
-                                                                    type="number"
-                                                                    min={0}
-                                                                    max={100}
-                                                                    // .toString() prevents user from typing leading zeroes
-                                                                    value={value.toString()}
-                                                                    onChange={(changedValue) => {
-                                                                        const valueInt =
-                                                                            changedValue !== undefined &&
-                                                                            !isNaN(changedValue)
-                                                                                ? parseInt(changedValue.toString())
-                                                                                : 0
-
-                                                                        onChange(valueInt)
-                                                                    }}
-                                                                    suffix={<span>%</span>}
-                                                                    data-attr="feature-flag-variant-rollout-percentage-input"
-                                                                />
-                                                                {filterGroups.filter(
-                                                                    (group) => group.variant === variant.key
-                                                                ).length > 0 && (
-                                                                    <span className="text-secondary text-xs">
-                                                                        Overridden by{' '}
-                                                                        <strong>
-                                                                            {variantConcatWithPunctuation(
-                                                                                filterGroups
-                                                                                    .filter(
-                                                                                        (group) =>
-                                                                                            group.variant != null &&
-                                                                                            group.variant ===
-                                                                                                variant.key
-                                                                                    )
-                                                                                    .map(
-                                                                                        (variant) =>
-                                                                                            'Set ' +
-                                                                                            (filterGroups.findIndex(
-                                                                                                (group) =>
-                                                                                                    group === variant
-                                                                                            ) +
-                                                                                                1)
-                                                                                    )
-                                                                            )}
-                                                                        </strong>
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </LemonField>
-                                                </div>
-                                                <div className="flex items-center justify-center">
-                                                    {variants.length > 1 && (
-                                                        <LemonButton
-                                                            icon={<IconTrash />}
-                                                            data-attr={`delete-prop-filter-${index}`}
-                                                            noPadding
-                                                            onClick={() => removeVariant(index)}
-                                                            disabledReason={
-                                                                !canEditVariant(index)
-                                                                    ? isDraftExperiment
-                                                                        ? 'Cannot delete the control variant from an experiment.'
-                                                                        : 'Cannot delete variants from a feature flag that is part of a launched experiment.'
-                                                                    : undefined
-                                                            }
-                                                            tooltipPlacement="top-end"
-                                                        />
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </Group>
-                                    ))}
-                                    {variants.length > 0 && !areVariantRolloutsValid && (
-                                        <p className="text-danger">
-                                            Percentage rollouts for variants must sum to 100 (currently{' '}
-                                            {variantRolloutSum}
-                                            ).
-                                        </p>
-                                    )}
-                                    <LemonButton
-                                        type="secondary"
-                                        onClick={() => {
-                                            const newIndex = variants.length
-                                            addVariant()
-                                            focusVariantKeyField(newIndex)
-                                        }}
-                                        icon={<IconPlus />}
-                                        disabledReason={
-                                            hasExperiment && !isDraftExperiment
-                                                ? 'Cannot add variants to a feature flag that is part of a launched experiment. To update variants, reset the experiment to draft.'
-                                                : undefined
+                                <FeatureFlagVariantsForm
+                                    variants={variants}
+                                    payloads={featureFlag.filters?.payloads}
+                                    filterGroups={filterGroups}
+                                    onAddVariant={addVariant}
+                                    onRemoveVariant={removeVariant}
+                                    onDistributeEqually={distributeVariantsEqually}
+                                    canEditVariant={canEditVariant}
+                                    isDraftExperiment={isDraftExperiment}
+                                    onVariantChange={(index, field, value) => {
+                                        const currentVariants = [...variants]
+                                        currentVariants[index] = { ...currentVariants[index], [field]: value }
+                                        setFeatureFlag({
+                                            ...featureFlag,
+                                            filters: {
+                                                ...featureFlag.filters,
+                                                multivariate: {
+                                                    ...featureFlag.filters.multivariate,
+                                                    variants: currentVariants,
+                                                },
+                                            },
+                                        })
+                                    }}
+                                    onPayloadChange={(index, value) => {
+                                        const currentPayloads = { ...featureFlag.filters.payloads }
+                                        if (value === undefined) {
+                                            delete currentPayloads[index]
+                                        } else {
+                                            currentPayloads[index] = value
                                         }
-                                        tooltipPlacement="top-start"
-                                        center
-                                    >
-                                        Add variant
-                                    </LemonButton>
-                                </div>
+                                        setFeatureFlag({
+                                            ...featureFlag,
+                                            filters: {
+                                                ...featureFlag.filters,
+                                                payloads: currentPayloads,
+                                            },
+                                        })
+                                    }}
+                                    variantErrors={variantErrors}
+                                />
                             </SceneSection>
                         </>
                     )}

@@ -2,10 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
@@ -29,7 +26,6 @@ const VALID_BREAKDOWN_VALUES = new Set([
 ])
 
 export const HeatmapButton = ({ breakdownBy, value }: HeatmapButtonProps): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { domainFilter: webAnalyticsSelectedDomain } = useValues(webAnalyticsLogic)
 
     // Doesn't make sense to show the button if there's no value
@@ -64,14 +60,9 @@ export const HeatmapButton = ({ breakdownBy, value }: HeatmapButtonProps): JSX.E
     const path = value.startsWith('/') ? value.slice(1) : value
     const url = `${domain}/${path}`
 
-    // Decide whether to use the new heatmaps UI or launch the user's website with the toolbar + heatmaps
-    const to = featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
-        ? urls.heatmaps(`pageURL=${url}`)
-        : appEditorUrl(url, { userIntent: 'heatmaps' })
-
     return (
         <LemonButton
-            to={to}
+            to={urls.heatmaps(`pageURL=${url}`)}
             icon={<IconHeatmap />}
             type="tertiary"
             size="xsmall"

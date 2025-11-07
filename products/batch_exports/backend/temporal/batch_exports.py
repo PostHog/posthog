@@ -36,7 +36,7 @@ from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
-from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
@@ -52,7 +52,7 @@ from products.batch_exports.backend.temporal.sql import (
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
 LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 BytesGenerator = collections.abc.Generator[bytes, None, None]
 RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
@@ -77,6 +77,23 @@ def default_fields() -> list[BatchExportField]:
             expression="set_once",
             alias="set_once",
         ),
+    ]
+
+
+def events_model_default_fields() -> list[BatchExportField]:
+    """Return list of default batch export Fields for the events model.
+
+    This set of fields can be used for new events batch exports that do not need to support legacy fields (such as `set`
+    and `set_once`).
+    """
+    return [
+        BatchExportField(expression="uuid", alias="uuid"),
+        BatchExportField(expression="team_id", alias="team_id"),
+        BatchExportField(expression="timestamp", alias="timestamp"),
+        BatchExportField(expression="_inserted_at", alias="_inserted_at"),
+        BatchExportField(expression="event", alias="event"),
+        BatchExportField(expression="properties", alias="properties"),
+        BatchExportField(expression="distinct_id", alias="distinct_id"),
     ]
 
 
@@ -172,7 +189,7 @@ def iter_records(
 ) -> RecordsGenerator:
     """Iterate over Arrow batch records for a batch export.
 
-    TODO: this can be removed once HTTP batch exports are migrated to SPMC
+    TODO: this can be removed once HTTP batch exports are migrated to new pipeline.
 
     Args:
         client: The ClickHouse client used to query for the batch records.
@@ -252,6 +269,9 @@ def iter_records(
         query = SELECT_FROM_EVENTS_VIEW
         lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
         base_query_parameters["lookback_days"] = lookback_days
+
+    if filters_str:
+        filters_str = f"AND {filters_str}"
 
     query_str = query.safe_substitute(
         fields=query_fields, filters=filters_str or "", order="ORDER BY _inserted_at, event"

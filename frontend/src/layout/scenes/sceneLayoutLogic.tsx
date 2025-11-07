@@ -14,9 +14,9 @@ const SCENE_WIDTH_WHERE_RELATIVE_PANEL_IS_OPEN = 1358
 
 export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
     path(['layout', 'scene-layout', 'sceneLayoutLogic']),
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], panelLayoutLogic, ['mainContentRect']],
-    }),
+    })),
     actions({
         registerScenePanelElement: (element: HTMLElement | null) => ({ element }),
         setScenePanelIsPresent: (active: boolean) => ({ active }),

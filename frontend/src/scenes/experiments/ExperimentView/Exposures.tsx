@@ -9,12 +9,143 @@ import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
 
-import { ExperimentExposureCriteria } from '~/queries/schema/schema-general'
+import {
+    ExperimentExposureCriteria,
+    ExperimentExposureQueryResponse,
+    ExperimentExposureTimeSeries,
+} from '~/queries/schema/schema-general'
 
 import { useChartColors } from '../MetricsView/shared/colors'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { getExposureConfigDisplayName } from '../utils'
 import { VariantTag } from './components'
+
+interface MicroChartProps {
+    exposures: ExperimentExposureQueryResponse
+}
+
+interface ChartDataset {
+    data: number[]
+    borderColor: string
+    fill: boolean
+    tension: number
+    borderWidth: number
+    pointRadius: number
+    label?: string
+    backgroundColor?: string
+}
+
+function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
+    const canvasRef = useRef<HTMLCanvasElement | null>(null)
+    const chartRef = useRef<Chart | null>(null)
+
+    useEffect(() => {
+        if (!canvasRef.current || !exposures?.timeseries?.length) {
+            return
+        }
+
+        if (chartRef.current) {
+            chartRef.current.destroy()
+            chartRef.current = null
+        }
+
+        const ctx = canvasRef.current
+        const timeseries = exposures.timeseries
+
+        let datasets = timeseries.map((series: ExperimentExposureTimeSeries, index: number) => ({
+            data: series.exposure_counts,
+            borderColor: getSeriesColor(index),
+            fill: false,
+            tension: 0.3,
+            borderWidth: 1.5,
+            pointRadius: 0,
+        }))
+
+        // If only one day, pad with a previous day of zeros
+        if (timeseries[0].days.length === 1) {
+            datasets = datasets.map((dataset: ChartDataset) => ({
+                ...dataset,
+                data: [0, ...dataset.data],
+            }))
+        }
+
+        const config: ChartConfiguration = {
+            type: 'line',
+            data: {
+                labels: datasets[0].data.map((_: any, i: number) => i),
+                datasets,
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 0,
+                },
+                scales: {
+                    x: {
+                        display: false,
+                        grid: {
+                            display: false,
+                        },
+                    },
+                    y: {
+                        display: false,
+                        beginAtZero: true,
+                        grid: {
+                            display: false,
+                        },
+                    },
+                },
+                plugins: {
+                    legend: {
+                        display: false,
+                    },
+                    tooltip: {
+                        enabled: false,
+                    },
+                },
+                elements: {
+                    line: {
+                        borderJoinStyle: 'round',
+                    },
+                },
+            },
+        }
+
+        try {
+            chartRef.current = new Chart(ctx, config)
+        } catch (error) {
+            console.error('Error creating microchart:', error)
+        }
+
+        return () => {
+            if (chartRef.current) {
+                chartRef.current.destroy()
+                chartRef.current = null
+            }
+        }
+    }, [exposures])
+
+    if (!exposures?.timeseries?.length) {
+        return null
+    }
+
+    return (
+        <div
+            className="inline-block"
+            style={{
+                width: '60px',
+                height: '20px',
+                pointerEvents: 'none',
+                borderBottom: '1px solid var(--color-border-primary)',
+                borderRight: '1px solid var(--color-border-primary)',
+            }}
+        >
+            <canvas ref={canvasRef} />
+        </div>
+    )
+}
 
 function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
     const exposureConfig = exposureCriteria?.exposure_config
@@ -22,12 +153,12 @@ function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria |
         return 'Default ($feature_flag_called)'
     }
 
-    return `Custom (${exposureConfig.event})`
+    const displayName = getExposureConfigDisplayName(exposureConfig)
+    return `Custom (${displayName})`
 }
 
 export function Exposures(): JSX.Element {
-    const { experimentId, exposures, exposuresLoading, exposureCriteria, isExperimentDraft } =
-        useValues(experimentLogic)
+    const { exposures, exposuresLoading, exposureCriteria, isExperimentDraft } = useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(modalsLogic)
     const colors = useChartColors()
 
@@ -40,15 +171,17 @@ export function Exposures(): JSX.Element {
     let totalExposures = 0
     const variants: Array<{ variant: string; count: number; percentage: number }> = []
 
-    if (exposures?.total_exposures) {
-        for (const [, count] of Object.entries(exposures.total_exposures)) {
+    if (exposures?.timeseries) {
+        for (const series of exposures.timeseries) {
+            const count = exposures.total_exposures?.[series.variant] || 0
             totalExposures += Number(count)
         }
 
         // Calculate percentages for each variant
-        for (const [variant, count] of Object.entries(exposures.total_exposures)) {
+        for (const series of exposures.timeseries) {
+            const count = exposures.total_exposures?.[series.variant] || 0
             variants.push({
-                variant,
+                variant: series.variant,
                 count: Number(count),
                 percentage: totalExposures ? (Number(count) / totalExposures) * 100 : 0,
             })
@@ -67,7 +200,7 @@ export function Exposures(): JSX.Element {
             }
 
             let labels = exposures.timeseries[0].days.map((day: string) => dayjs(day).format('MM/DD'))
-            let datasets = exposures.timeseries.map((series: Record<string, any>, index: number) => ({
+            let datasets = exposures.timeseries.map((series: ExperimentExposureTimeSeries, index: number) => ({
                 label: series.variant,
                 data: series.exposure_counts,
                 borderColor: getSeriesColor(index),
@@ -84,7 +217,7 @@ export function Exposures(): JSX.Element {
                 const previousDay = firstDay.subtract(1, 'day').format('MM/DD')
 
                 labels = [previousDay, ...labels]
-                datasets = datasets.map((dataset: Record<string, any>) => ({
+                datasets = datasets.map((dataset: ChartDataset) => ({
                     ...dataset,
                     data: [0, ...dataset.data],
                 }))
@@ -192,8 +325,8 @@ export function Exposures(): JSX.Element {
     const headerContent = {
         style: { backgroundColor: 'var(--color-bg-table)' },
         children: (
-            <div className="flex items-center gap-3 text-xs font-semibold text-text-secondary">
-                <span>Exposures</span>
+            <div className="flex items-center gap-3 metric-cell" style={{ minHeight: '33px' }}>
+                <span className="metric-cell-header font-bold">Exposures</span>
 
                 {!isExperimentDraft && (
                     <div
@@ -214,22 +347,18 @@ export function Exposures(): JSX.Element {
                                         ? humanFriendlyLargeNumber(totalExposures)
                                         : humanFriendlyNumber(totalExposures)}
                                 </span>
+                                {exposures?.timeseries?.length > 0 && <MicroChart exposures={exposures} />}
                                 {variants.length > 0 && (
-                                    <>
-                                        <div className="h-4 w-px bg-border" />
-                                        <div className="flex items-center gap-4">
-                                            {variants.map(({ variant, percentage }) => (
-                                                <div key={variant} className="flex items-center gap-2">
-                                                    <div className="text-xs">
-                                                        <VariantTag experimentId={experimentId} variantKey={variant} />
-                                                    </div>
-                                                    <span className="text-xs font-medium">
-                                                        {percentage.toFixed(1)}%
-                                                    </span>
+                                    <div className="ml-2 flex items-center gap-4">
+                                        {variants.map(({ variant, percentage }) => (
+                                            <div key={variant} className="flex items-center gap-2">
+                                                <div className="metric-cell">
+                                                    <VariantTag variantKey={variant} />
                                                 </div>
-                                            ))}
-                                        </div>
-                                    </>
+                                                <span className="metric-cell">{percentage.toFixed(1)}%</span>
+                                            </div>
+                                        ))}
+                                    </div>
                                 )}
                             </>
                         )}
@@ -317,12 +446,7 @@ export function Exposures(): JSX.Element {
                                                             if (series.isTotal) {
                                                                 return <span className="font-semibold">Total</span>
                                                             }
-                                                            return (
-                                                                <VariantTag
-                                                                    experimentId={experimentId}
-                                                                    variantKey={series.variant}
-                                                                />
-                                                            )
+                                                            return <VariantTag variantKey={series.variant} />
                                                         },
                                                     },
                                                     {

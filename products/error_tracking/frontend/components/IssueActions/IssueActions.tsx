@@ -2,6 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 
+import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
+
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, HogQLPropertyFilter, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
@@ -22,8 +25,18 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
     const { filterGroup } = useValues(issueFiltersLogic)
     const { setFilterGroup } = useActions(issueFiltersLogic)
     const { setSelectedIssueIds } = useActions(bulkSelectLogic)
+    const { newTab } = useActions(sceneLogic)
 
     const hasAtLeastTwoIssues = selectedIds.length >= 2
+
+    const openInNewTabs = (): void => {
+        selectedIds.forEach((id) => {
+            const issue = issues.find((issue) => issue.id === id)
+            if (issue) {
+                newTab(urls.errorTrackingIssue(id, { timestamp: issue.last_seen }))
+            }
+        })
+    }
 
     const excludeSelectedIssues = (): void => {
         const quotedIds = selectedIds.map((id) => `'${id}'`).join(', ')
@@ -63,6 +76,9 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
     return (
         <div className="flex gap-x-2 justify-between">
             <div className="flex gap-x-2">
+                <LemonButton type="secondary" size="small" onClick={openInNewTabs}>
+                    Open all
+                </LemonButton>
                 <LemonButton
                     disabledReason={!hasAtLeastTwoIssues ? 'Select at least two issues to merge' : null}
                     type="secondary"

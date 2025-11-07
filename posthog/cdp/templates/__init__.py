@@ -48,7 +48,6 @@ from .klaviyo.template_klaviyo import (
     template_user as klaviyo_user,
 )
 from .knock.template_knock import template as knock
-from .linkedin_ads.template_linkedin_ads import template as linkedin_ads
 from .loops.template_loops import (
     TemplateLoopsMigrator,
     template as loops,
@@ -83,6 +82,7 @@ from .sendgrid.template_sendgrid import (
 from .slack.template_slack import template as slack
 from .snapchat_ads.template_pixel import template_snapchat_pixel as snapchat_pixel
 from .tiktok_ads.template_tiktok_pixel import template_tiktok_pixel as tiktok_pixel
+from .userlist.template_userlist import template as userlist
 from .zapier.template_zapier import template as zapier
 from .zendesk.template_zendesk import template as zendesk
 
@@ -112,7 +112,6 @@ HOG_FUNCTION_TEMPLATES = [
     klaviyo_event,
     klaviyo_user,
     knock,
-    linkedin_ads,
     loops,
     loops_send_event,
     mailchimp,
@@ -130,6 +129,7 @@ HOG_FUNCTION_TEMPLATES = [
     sendgrid,
     snapchat_pixel,
     tiktok_pixel,
+    userlist,
     zapier,
     zendesk,
     early_access_features,

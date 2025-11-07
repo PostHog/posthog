@@ -8,7 +8,11 @@ import { ModifiedRequest } from '~/api/router'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { UUID, UUIDT, delay } from '../utils/utils'
-import { CdpSourceWebhooksConsumer, SourceWebhookError } from './consumers/cdp-source-webhooks.consumer'
+import {
+    CdpSourceWebhooksConsumer,
+    HogFunctionWebhookResult,
+    SourceWebhookError,
+} from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
@@ -118,10 +122,11 @@ export class CdpApi {
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
         router.post('/api/messaging/generate_preferences_token', asyncHandler(this.generatePreferencesToken()))
         router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
-        router.post('/public/webhooks/:webhook_id', asyncHandler(this.postWebhook()))
-        router.get('/public/webhooks/:webhook_id', asyncHandler(this.getWebhook()))
+        router.post('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
+        router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
         router.post('/public/m/mailjet_webhook', asyncHandler(this.postMailjetWebhook()))
+        router.post('/public/m/ses_webhook', express.text(), asyncHandler(this.postSesWebhook()))
         router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))
 
         return router
@@ -298,47 +303,10 @@ export class CdpApi {
                 for (const invocation of invocations) {
                     invocation.id = invocationID
 
-                    const options: HogExecutorExecuteAsyncOptions = {
-                        maxAsyncFunctions: MAX_ASYNC_STEPS,
-                        asyncFunctionsNames: mock_async_functions ? ['fetch', 'sendEmail'] : undefined,
-                        functions: mock_async_functions
-                            ? {
-                                  fetch: (...args: any[]) => {
-                                      logs.push({
-                                          level: 'info',
-                                          timestamp: DateTime.now(),
-                                          message: `Async function 'fetch' was mocked with arguments:`,
-                                      })
-                                      logs.push({
-                                          level: 'info',
-                                          timestamp: DateTime.now(),
-                                          message: `fetch('${args[0]}', ${JSON.stringify(args[1], null, 2)})`,
-                                      })
-
-                                      return {
-                                          status: 200,
-                                          body: {},
-                                      }
-                                  },
-                                  sendEmail: (...args: any[]) => {
-                                      logs.push({
-                                          level: 'info',
-                                          timestamp: DateTime.now(),
-                                          message: `Async function 'sendEmail' was mocked with arguments:`,
-                                      })
-                                      logs.push({
-                                          level: 'info',
-                                          timestamp: DateTime.now(),
-                                          message: `sendEmail('${JSON.stringify(args[0], null, 2)})`,
-                                      })
-
-                                      return {
-                                          success: true,
-                                      }
-                                  },
-                              }
-                            : undefined,
-                    }
+                    const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(
+                        mock_async_functions,
+                        logs
+                    )
 
                     let response: any = null
                     if (isNativeHogFunction(compoundConfiguration)) {
@@ -412,7 +380,7 @@ export class CdpApi {
     private postHogflowInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
-            const { clickhouse_event, configuration, invocation_id, current_action_id } = req.body
+            const { clickhouse_event, configuration, invocation_id, current_action_id, mock_async_functions } = req.body
 
             logger.info('⚡️', 'Received hogflow invocation', { id, team_id, body: req.body })
 
@@ -482,13 +450,15 @@ export class CdpApi {
                   }
                 : undefined
 
-            const result = await this.hogFlowExecutor.executeCurrentAction(invocation)
+            const logs: MinimalLogEntry[] = []
+            const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
+            const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
             res.json({
                 nextActionId: result.invocation.state.currentAction?.id,
                 status: result.error ? 'error' : 'success',
                 errors: result.error ? [result.error] : [],
-                logs: result.logs,
+                logs: [...result.logs, ...logs],
             })
         } catch (e) {
             console.error(e)
@@ -496,12 +466,9 @@ export class CdpApi {
         }
     }
 
-    private postWebhook =
+    private handleWebhook =
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
-            // TODO: Source handler service that takes care of finding the relevant function,
-            // running it (maybe) and scheduling the job if it gets suspended
-
             const { webhook_id } = req.params
 
             try {
@@ -509,9 +476,12 @@ export class CdpApi {
 
                 if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
                     // TODO: Better validation here before we directly use the result
-                    const httpResponse = result.execResult.httpResponse as { status: number; body: any }
+                    const httpResponse = result.execResult.httpResponse as HogFunctionWebhookResult
                     if (typeof httpResponse.body === 'string') {
-                        return res.status(httpResponse.status).send(httpResponse.body)
+                        return res
+                            .status(httpResponse.status)
+                            .set('Content-Type', httpResponse.contentType ?? 'text/plain')
+                            .send(httpResponse.body)
                     } else if (typeof httpResponse.body === 'object') {
                         return res.status(httpResponse.status).json(httpResponse.body)
                     } else {
@@ -540,27 +510,22 @@ export class CdpApi {
             }
         }
 
-    private getWebhook =
-        () =>
-        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
-            const { webhook_id } = req.params
-
-            const webhook = await this.cdpSourceWebhooksConsumer.getWebhook(webhook_id)
-
-            if (!webhook) {
-                return res.status(404).json({ error: 'Not found' })
-            }
-
-            return res.set('Allow', 'POST').status(405).json({
-                error: 'Method not allowed',
-            })
-        }
-
     private postMailjetWebhook =
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             try {
                 const { status, message } = await this.emailTrackingService.handleMailjetWebhook(req)
+                return res.status(status).json({ message })
+            } catch (error) {
+                return res.status(500).json({ error: 'Internal error' })
+            }
+        }
+
+    private postSesWebhook =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            try {
+                const { status, message } = await this.emailTrackingService.handleSesWebhook(req)
                 return res.status(status).json({ message })
             } catch (error) {
                 return res.status(500).json({ error: 'Internal error' })
@@ -621,4 +586,51 @@ export class CdpApi {
                 return res.status(500).json({ error: 'Failed to validate token' })
             }
         }
+}
+
+const buildHogExecutorAsyncOptions = (
+    mockAsyncFunctions: boolean,
+    logs: MinimalLogEntry[]
+): HogExecutorExecuteAsyncOptions => {
+    return {
+        maxAsyncFunctions: MAX_ASYNC_STEPS,
+        asyncFunctionsNames: mockAsyncFunctions ? [] : undefined,
+        functions: mockAsyncFunctions
+            ? {
+                  fetch: (...args: any[]) => {
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `Async function 'fetch' was mocked with arguments:`,
+                      })
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `fetch('${args[0]}', ${JSON.stringify(args[1], null, 2)})`,
+                      })
+
+                      return {
+                          status: 200,
+                          body: {},
+                      }
+                  },
+                  sendEmail: (...args: any[]) => {
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `Async function 'sendEmail' was mocked with arguments:`,
+                      })
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `sendEmail(${JSON.stringify(args[0], null, 2)})`,
+                      })
+
+                      return {
+                          success: true,
+                      }
+                  },
+              }
+            : undefined,
+    }
 }

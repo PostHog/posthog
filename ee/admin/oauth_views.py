@@ -9,7 +9,7 @@ def admin_auth_check(request: HttpRequest) -> JsonResponse:
 
 
 def admin_oauth_success(request: HttpRequest) -> HttpResponse:
-    nonce = getattr(request, "admin_csp_nonce", "")
+    nonce = getattr(request, "csp_nonce", "")
     html = f"""
     <!DOCTYPE html>
     <html>

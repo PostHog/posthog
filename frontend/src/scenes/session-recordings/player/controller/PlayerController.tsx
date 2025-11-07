@@ -4,7 +4,7 @@ import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconFullScreen } from 'lib/lemon-ui/icons'
+import { IconFullScreen, IconGhost, IconSanta } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import {
@@ -12,6 +12,7 @@ import {
     EmojiCommentOnRecordingButton,
 } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
 import {
+    ModesWithInteractions,
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -30,6 +31,22 @@ function PlayPauseButton(): JSX.Element {
 
     const showPause = playingState === SessionPlayerState.PLAY
 
+    const getPlayIcon = (): JSX.Element => {
+        const localTime = new Date()
+
+        // If between October 28th and October 31st
+        if (localTime.getMonth() == 9 && localTime.getDate() >= 28) {
+            return <IconGhost className="text-3xl" />
+        }
+
+        // If between December 1st and December 28th
+        if (localTime.getMonth() == 11 && localTime.getDate() <= 28) {
+            return <IconSanta className="text-3xl" />
+        }
+
+        return <IconPlay className="text-3xl" />
+    }
+
     return (
         <LemonButton
             size="large"
@@ -47,7 +64,7 @@ function PlayPauseButton(): JSX.Element {
             ) : endReached ? (
                 <IconRewindPlay className="text-3xl" />
             ) : (
-                <IconPlay className="text-3xl" />
+                getPlayIcon()
             )}
         </LemonButton>
     )
@@ -123,8 +140,8 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
     )
 }
 
-export function PlayerController({ playerIsHovering }: { playerIsHovering: boolean }): JSX.Element {
-    const { playlistLogic, logicProps, hoverModeIsEnabled } = useValues(sessionRecordingPlayerLogic)
+export function PlayerController(): JSX.Element {
+    const { playlistLogic, logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
@@ -138,8 +155,8 @@ export function PlayerController({ playerIsHovering }: { playerIsHovering: boole
         <div
             className={cn(
                 'flex flex-col select-none',
-                hoverModeIsEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-150 ease-out' : '',
-                hoverModeIsEnabled && playerIsHovering
+                hoverModeIsEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-25 ease-in-out' : '',
+                hoverModeIsEnabled && showPlayerChrome
                     ? 'opacity-100 bg-surface-primary pointer-events-auto'
                     : hoverModeIsEnabled
                       ? 'opacity-0 pointer-events-none'
@@ -155,15 +172,17 @@ export function PlayerController({ playerIsHovering }: { playerIsHovering: boole
                     <SeekSkip direction="forward" />
                 </div>
                 <div className="flex justify-end items-center">
-                    {!isCinemaMode && playerMode === SessionRecordingPlayerMode.Standard && (
+                    {!isCinemaMode && ModesWithInteractions.includes(playerMode) && (
                         <>
                             <CommentOnRecordingButton />
                             <EmojiCommentOnRecordingButton />
                             <Screenshot />
                             <ClipRecording />
-                            {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
                         </>
                     )}
+                    {playlistLogic && ModesWithInteractions.includes(playerMode) ? (
+                        <PlayerUpNext playlistLogic={playlistLogic} />
+                    ) : undefined}
                     {playerMode === SessionRecordingPlayerMode.Standard && <CinemaMode />}
                     <FullScreen />
                 </div>

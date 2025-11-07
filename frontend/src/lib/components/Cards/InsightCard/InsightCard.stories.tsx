@@ -1,7 +1,8 @@
 import { Meta, Story } from '@storybook/react'
 import { useState } from 'react'
 
-import { AccessControlLevel, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { TileFilters } from '~/queries/schema/schema-general'
+import { AccessControlLevel, DashboardTile, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
@@ -17,6 +18,20 @@ import EXAMPLE_TRENDS_TABLE from '../../../../mocks/fixtures/api/projects/team_i
 import EXAMPLE_TRENDS_HORIZONTAL_BAR from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
 import EXAMPLE_TRENDS_WORLD_MAP from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
 import { InsightCard as InsightCardComponent } from './index'
+
+const defaultTile = {
+    id: 1,
+    filters_overrides: {
+        properties: [
+            {
+                key: '$browser',
+                operator: 'exact',
+                type: 'event',
+                value: ['Chrome'],
+            },
+        ],
+    } as TileFilters,
+} as DashboardTile<QueryBasedInsightModel>
 
 const examples = [
     EXAMPLE_TRENDS,
@@ -59,6 +74,7 @@ const meta: Meta = {
         highlighted: {
             control: { type: 'boolean' },
         },
+        tile: defaultTile,
     },
 }
 export default meta
@@ -70,6 +86,7 @@ export const InsightCard: Story = (args) => {
         <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
             {!wasItemRemoved && (
                 <InsightCardComponent
+                    tile={args.tile}
                     insight={
                         {
                             ...EXAMPLE_TRENDS,
@@ -91,6 +108,7 @@ export const InsightCard: Story = (args) => {
                 />
             )}
             <InsightCardComponent
+                tile={args.tile}
                 insight={
                     {
                         ...EXAMPLE_TRENDS,
@@ -110,6 +128,7 @@ export const InsightCard: Story = (args) => {
                 showResizeHandles={args.resizable}
             />
             <InsightCardComponent
+                tile={args.tile}
                 insight={
                     {
                         ...EXAMPLE_TRENDS,
@@ -128,6 +147,7 @@ export const InsightCard: Story = (args) => {
                 showResizeHandles={args.resizable}
             />
             <InsightCardComponent
+                tile={args.tile}
                 insight={
                     {
                         ...EXAMPLE_FUNNEL,
@@ -152,6 +172,7 @@ export const InsightCard: Story = (args) => {
                 showResizeHandles={args.resizable}
             />
             <InsightCardComponent
+                tile={args.tile}
                 insight={
                     {
                         ...EXAMPLE_FUNNEL,
@@ -169,6 +190,7 @@ export const InsightCard: Story = (args) => {
             />
             {examples.map((e) => (
                 <InsightCardComponent
+                    tile={args.tile}
                     key={e.id}
                     insight={e as unknown as QueryBasedInsightModel}
                     rename={() => {}}
@@ -190,6 +212,7 @@ export const AccessControlNoAccess: Story = () => {
     return (
         <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
             <InsightCardComponent
+                tile={defaultTile}
                 insight={
                     {
                         ...EXAMPLE_TRENDS,
@@ -212,6 +235,7 @@ export const AccessControlViewerAccess: Story = () => {
     return (
         <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
             <InsightCardComponent
+                tile={defaultTile}
                 insight={
                     {
                         ...EXAMPLE_TRENDS,
@@ -238,6 +262,7 @@ export const AccessControlEditorAccess: Story = () => {
         <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
             {!wasItemRemoved && (
                 <InsightCardComponent
+                    tile={defaultTile}
                     insight={
                         {
                             ...EXAMPLE_TRENDS,
@@ -266,6 +291,7 @@ export const AccessControlManagerAccess: Story = () => {
         <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
             {!wasItemRemoved && (
                 <InsightCardComponent
+                    tile={defaultTile}
                     insight={
                         {
                             ...EXAMPLE_TRENDS,
@@ -295,6 +321,7 @@ export const AccessControlLegacyInsight: Story = () => {
         <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
             {!wasItemRemoved && (
                 <InsightCardComponent
+                    tile={defaultTile}
                     insight={
                         {
                             ...EXAMPLE_TRENDS,
@@ -323,6 +350,7 @@ export const AccessControlMixedPermissions: Story = () => {
         <div className="grid gap-4 grid-cols-3 min-w-[75rem]">
             {/* No Access */}
             <InsightCardComponent
+                tile={defaultTile}
                 insight={
                     {
                         ...EXAMPLE_TRENDS,
@@ -337,6 +365,7 @@ export const AccessControlMixedPermissions: Story = () => {
 
             {/* Viewer Access */}
             <InsightCardComponent
+                tile={defaultTile}
                 insight={
                     {
                         ...EXAMPLE_FUNNEL,
@@ -353,6 +382,7 @@ export const AccessControlMixedPermissions: Story = () => {
 
             {/* Editor Access */}
             <InsightCardComponent
+                tile={defaultTile}
                 insight={
                     {
                         ...EXAMPLE_RETENTION,

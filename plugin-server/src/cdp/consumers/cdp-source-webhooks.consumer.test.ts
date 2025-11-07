@@ -9,6 +9,7 @@ import express from 'ultimate-express'
 import { setupExpressApp } from '~/api/router'
 import { insertHogFunction, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
+import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.template'
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
 import { HogFunctionType } from '~/cdp/types'
 import { HogFlow } from '~/schema/hogflow'
@@ -44,6 +45,7 @@ describe('SourceWebhooksConsumer', () => {
         let api: CdpApi
         let app: express.Application
         let hogFunction: HogFunctionType
+        let hogFunctionPixel: HogFunctionType
         let server: Server
 
         let mockExecuteSpy: jest.SpyInstance
@@ -68,6 +70,13 @@ describe('SourceWebhooksConsumer', () => {
                 inputs: await compileInputs(incomingWebhookTemplate, {}),
             })
 
+            hogFunctionPixel = await insertHogFunction(hub.postgres, team.id, {
+                type: 'source_webhook',
+                hog: pixelTemplate.code,
+                bytecode: await compileHog(pixelTemplate.code),
+                inputs: await compileInputs(pixelTemplate, {}),
+            })
+
             Settings.defaultZone = 'UTC'
 
             const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
@@ -81,9 +90,8 @@ describe('SourceWebhooksConsumer', () => {
             server.close()
         })
 
-        const doRequest = async (options: {
+        const doPostRequest = async (options: {
             webhookId?: string
-            method?: string
             headers?: Record<string, string>
             body?: Record<string, any>
         }) => {
@@ -92,6 +100,17 @@ describe('SourceWebhooksConsumer', () => {
                 .set('Content-Type', 'application/json')
                 .set(options.headers ?? {})
                 .send(options.body)
+        }
+
+        const doGetRequest = async (options: {
+            webhookId: string
+            headers?: Record<string, string>
+            body?: Record<string, any>
+        }) => {
+            return supertest(app)
+                .get(`/public/webhooks/${options.webhookId}`)
+                .set(options.headers ?? {})
+                .send()
         }
 
         const waitForBackgroundTasks = async () => {
@@ -108,7 +127,7 @@ describe('SourceWebhooksConsumer', () => {
 
         describe('hog function processing', () => {
             it('should 404 if the hog function does not exist', async () => {
-                const res = await doRequest({
+                const res = await doPostRequest({
                     webhookId: 'non-existent-hog-function-id',
                 })
                 expect(res.status).toEqual(404)
@@ -118,7 +137,7 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it('should capture an event using internal capture', async () => {
-                const res = await doRequest({
+                const res = await doPostRequest({
                     body: {
                         event: 'my-event',
                         distinct_id: 'test-distinct-id',
@@ -144,7 +163,7 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it('should log custom errors', async () => {
-                const res = await doRequest({
+                const res = await doPostRequest({
                     body: {
                         distinct_id: 'test-distinct-id',
                     },
@@ -161,7 +180,7 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it('should not receive sensitive headers', async () => {
-                await doRequest({
+                await doPostRequest({
                     headers: {
                         'x-forwarded-for': '127.0.0.1',
                         cookie: 'test=test',
@@ -169,18 +188,45 @@ describe('SourceWebhooksConsumer', () => {
                 })
 
                 const call = mockExecuteSpy.mock.calls[0][0]
-                expect(call.state.globals.request).toEqual({
-                    body: {},
-                    stringBody: '',
-                    headers: {
-                        'accept-encoding': 'gzip, deflate',
-                        connection: 'close',
-                        'content-length': '0',
-                        'content-type': 'application/json',
-                        host: expect.any(String),
-                    },
-                    ip: '127.0.0.1',
+                expect(call.state.globals.request.headers).toEqual({
+                    'accept-encoding': 'gzip, deflate',
+                    connection: 'close',
+                    'content-length': '0',
+                    'content-type': 'application/json',
+                    host: expect.any(String),
                 })
+            })
+
+            it('should capture an event using GET request with the pixel template', async () => {
+                const res = await doGetRequest({
+                    webhookId: hogFunctionPixel.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+                expect(res.status).toEqual(200)
+                expect(res.body).toBeInstanceOf(Buffer)
+                expect(res.headers['content-type']).toEqual('image/gif; charset=utf-8')
+                // parse body
+                const body = Buffer.from(res.body).toString()
+                expect(body).toContain('GIF')
+            })
+
+            it('should allow capturing an event using GET request with gif extension', async () => {
+                const res = await doGetRequest({
+                    webhookId: hogFunctionPixel.id + '.gif',
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+                expect(res.status).toEqual(200)
+                expect(res.body).toBeInstanceOf(Buffer)
+                expect(res.headers['content-type']).toEqual('image/gif; charset=utf-8')
+                // parse body
+                const body = Buffer.from(res.body).toString()
+                expect(body).toContain('GIF')
             })
         })
 
@@ -204,6 +250,10 @@ describe('SourceWebhooksConsumer', () => {
                                     value: '{request.body.distinct_id}',
                                     bytecode: await compileHog(`return f'{request.body.distinct_id}'`),
                                 },
+                                method: {
+                                    value: 'POST',
+                                    bytecode: await compileHog(`return f'POST'`),
+                                },
                             },
                         },
                     })
@@ -212,14 +262,14 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it('should 404 if the hog flow does not exist', async () => {
-                const res = await doRequest({
+                const res = await doPostRequest({
                     webhookId: 'non-existent-hog-flow-id',
                 })
                 expect(res.status).toEqual(404)
             })
 
             it('should invoke a workflow with the parsed inputs', async () => {
-                const res = await doRequest({
+                const res = await doPostRequest({
                     webhookId: hogFlow.id,
                     body: {
                         event: 'my-event',
@@ -238,7 +288,7 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it('should add logs and metrics', async () => {
-                const res = await doRequest({
+                const res = await doPostRequest({
                     webhookId: hogFlow.id,
                     body: {
                         event: 'my-event',
@@ -263,7 +313,7 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it('should add logs and metrics for a controlled failed hog flow', async () => {
-                const res = await doRequest({
+                const res = await doPostRequest({
                     webhookId: hogFlow.id,
                     body: {
                         event: 'my-event',
@@ -303,7 +353,7 @@ describe('SourceWebhooksConsumer', () => {
                     .build()
                 await insertHogFlow(hub.postgres, hogFlow)
 
-                const res = await doRequest({
+                const res = await doPostRequest({
                     webhookId: hogFlow.id,
                     body: {
                         event: 'my-event',
@@ -330,7 +380,7 @@ describe('SourceWebhooksConsumer', () => {
                     hogFunction,
                     HogWatcherState.degraded
                 )
-                const res = await doRequest({
+                const res = await doPostRequest({
                     body: {
                         event: 'my-event',
                         distinct_id: 'test-distinct-id',
@@ -340,7 +390,7 @@ describe('SourceWebhooksConsumer', () => {
                 expect(mockExecuteSpy).not.toHaveBeenCalled()
                 expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
                 const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
-                expect(call.queue).toEqual('hog_overflow')
+                expect(call.queue).toEqual('hogoverflow')
             })
 
             it('should return a disabled response if the function is disabled', async () => {
@@ -348,7 +398,7 @@ describe('SourceWebhooksConsumer', () => {
                     hogFunction,
                     HogWatcherState.disabled
                 )
-                const res = await doRequest({})
+                const res = await doPostRequest({})
                 expect(res.status).toEqual(429)
                 expect(res.body).toEqual({
                     error: 'Disabled',

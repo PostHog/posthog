@@ -1,7 +1,6 @@
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
-import crypto from 'crypto'
 import { Server } from 'http'
 import supertest from 'supertest'
 import express from 'ultimate-express'
@@ -19,7 +18,8 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
 
 import { Hub, Team } from '../../../types'
-import { PIXEL_GIF, generateEmailTrackingCode } from './email-tracking.service'
+import { PIXEL_GIF } from './email-tracking.service'
+import { generateEmailTrackingCode } from './helpers/tracking-code'
 import { MailjetEventBase, MailjetWebhookEvent } from './types'
 
 describe('EmailTrackingService', () => {
@@ -70,8 +70,8 @@ describe('EmailTrackingService', () => {
                 MessageID: 1,
                 Message_GUID: 'test-message-guid',
                 customcampaign: 'test-custom-campaign',
-                CustomID: generateEmailTrackingCode({ functionId: hogFunction.id, id: invocationId }),
-                Payload: JSON.stringify({}),
+                CustomID: '',
+                Payload: generateEmailTrackingCode({ functionId: hogFunction.id, id: invocationId }),
             }
         })
 
@@ -81,18 +81,11 @@ describe('EmailTrackingService', () => {
 
         describe('mailjet webhook', () => {
             const sendValidEvent = async (mailjetEvent: MailjetEventBase): Promise<supertest.Response> => {
-                const timestamp = Date.now().toString()
                 const payload = JSON.stringify(mailjetEvent)
-                const signature = crypto
-                    .createHmac('sha256', hub.MAILJET_SECRET_KEY)
-                    .update(`${timestamp}.${payload}`)
-                    .digest('hex')
 
                 const res = await supertest(app)
                     .post(`/public/m/mailjet_webhook`)
                     .set({
-                        'x-mailjet-signature': signature,
-                        'x-mailjet-timestamp': timestamp,
                         'content-type': 'application/json',
                     })
                     .send(payload)
@@ -101,28 +94,12 @@ describe('EmailTrackingService', () => {
             }
 
             describe('validation', () => {
-                it('should return 403 if required headers are missing', async () => {
-                    const res = await supertest(app).post(`/public/m/mailjet_webhook`).send({})
+                it('should return 403 if body is missing', async () => {
+                    const res = await supertest(app).post(`/public/m/mailjet_webhook`).send()
 
                     expect(res.status).toBe(403)
                     expect(res.body).toEqual({
-                        message: 'Missing required headers or body',
-                    })
-                })
-
-                it('should return 403 if signature is invalid', async () => {
-                    const timestamp = Date.now().toString()
-                    const res = await supertest(app)
-                        .post(`/public/m/mailjet_webhook`)
-                        .set({
-                            'x-mailjet-signature': 'invalid-signature',
-                            'x-mailjet-timestamp': timestamp,
-                        })
-                        .send(exampleEvent)
-
-                    expect(res.status).toBe(403)
-                    expect(res.body).toEqual({
-                        message: 'Invalid signature',
+                        message: 'Missing request body',
                     })
                 })
             })
@@ -130,7 +107,7 @@ describe('EmailTrackingService', () => {
             it('should not track a metric if the hog function or flow is not found', async () => {
                 const mailjetEvent: MailjetEventBase = {
                     ...exampleEvent,
-                    CustomID: 'ph_fn_id=invalid-function-id&ph_inv_id=invalid-invocation-id',
+                    Payload: 'ph_fn_id=invalid-function-id&ph_inv_id=invalid-invocation-id',
                 }
                 const res = await sendValidEvent(mailjetEvent)
 
@@ -143,7 +120,7 @@ describe('EmailTrackingService', () => {
             it('should track a hog flow if given', async () => {
                 const mailjetEvent: MailjetEventBase = {
                     ...exampleEvent,
-                    CustomID: generateEmailTrackingCode({ functionId: hogFlow.id, id: invocationId }),
+                    Payload: generateEmailTrackingCode({ functionId: hogFlow.id, id: invocationId }),
                 }
                 const res = await sendValidEvent(mailjetEvent)
 

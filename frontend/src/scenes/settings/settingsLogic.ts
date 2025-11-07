@@ -1,5 +1,5 @@
 import FuseClass from 'fuse.js'
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -128,6 +128,17 @@ export const settingsLogic = kea<settingsLogicType>([
         ],
     })),
 
+    listeners({
+        selectSection: () => {
+            setTimeout(() => {
+                const mainElement = document.querySelector('main')
+                if (mainElement) {
+                    mainElement.scrollTo({ top: 0, behavior: 'smooth' })
+                }
+            }, 100)
+        },
+    }),
+
     selectors({
         levels: [
             (s) => [s.sections],
@@ -238,6 +249,9 @@ export const settingsLogic = kea<settingsLogicType>([
                         return false
                     }
                     if (x.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
+                        return false
+                    }
+                    if (x.hideWhenNoSection && !selectedSectionId) {
                         return false
                     }
                     if (x.allowForTeam) {
@@ -366,6 +380,7 @@ export const settingsLogic = kea<settingsLogicType>([
         ['*/replay/settings']: (_, __, hashParams) => {
             const { selectedSetting } = hashParams
             const selectedSettingId = selectedSetting as SettingId
+
             if (!selectedSettingId) {
                 return
             }

@@ -5,7 +5,7 @@ import pytest
 
 import snowflake.connector
 
-from products.batch_exports.backend.api.destination_tests import (
+from products.batch_exports.backend.api.destination_tests.snowflake import (
     SnowflakeDatabaseTestStep,
     SnowflakeEstablishConnectionTestStep,
     SnowflakeSchemaTestStep,
@@ -100,7 +100,7 @@ def snowflake_cursor(snowflake_config):
     with snowflake.connector.connect(
         user=snowflake_config["user"],
         password=password,
-        role=snowflake_config["role"],
+        role=f'"{snowflake_config["role"]}"' if snowflake_config["role"] is not None else None,
         account=snowflake_config["account"],
         warehouse=snowflake_config["warehouse"],
         private_key=private_key,

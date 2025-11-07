@@ -8,7 +8,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
 
 import { tasksLogic } from 'products/tasks/frontend/tasksLogic'
-import { OriginProduct, TaskStatus, TaskUpsertProps } from 'products/tasks/frontend/types'
+import { OriginProduct, TaskUpsertProps } from 'products/tasks/frontend/types'
 
 import { notebookNodeLogic } from './notebookNodeLogic'
 
@@ -28,7 +28,6 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeTaskCreateAttri
         const payload: TaskUpsertProps = {
             title: title,
             description: description,
-            status: TaskStatus.BACKLOG,
             origin_product: OriginProduct.SESSION_SUMMARIES,
         }
         createTask(payload)

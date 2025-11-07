@@ -6,7 +6,6 @@ import { toast } from 'react-toastify'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import MaxTool from 'scenes/max/MaxTool'
 import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
@@ -31,22 +30,8 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
     const {
-        isOnNewEmptyStateExperiment,
         data: { surveysCount },
     } = useValues(surveysLogic)
-
-    if (!isOnNewEmptyStateExperiment) {
-        return (
-            <ProductIntroduction
-                productName="Surveys"
-                thingName="survey"
-                description="Use surveys to gather qualitative feedback from your users on new or existing features."
-                action={() => router.actions.push(urls.surveyTemplates())}
-                isEmpty={numOfSurveys === 0}
-                productKey={ProductKey.SURVEYS}
-            />
-        )
-    }
 
     // Get the three priority templates - most popular based on the Surveys dashboard
     const priorityTemplates = defaultSurveyTemplates
@@ -150,7 +135,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     icon={<IconSparkles />}
                                     onClick={() => openSidePanel(SidePanelTab.Max, 'Create a survey to collect ')}
                                 >
-                                    Create your own custom survey with Max
+                                    Create your own custom survey with PostHog AI
                                 </LemonButton>
                             </MaxTool>
                         )}

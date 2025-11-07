@@ -4,7 +4,8 @@ from contextlib import nullcontext
 from typing import Any, Optional, cast
 
 from django.conf import settings
-from django.db.models import Prefetch
+from django.db.models import CharField, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
+from django.db.models.functions import Cast
 from django.dispatch import receiver
 from django.http import StreamingHttpResponse
 from django.utils.timezone import now
@@ -14,7 +15,7 @@ import pydantic_core
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from opentelemetry import trace
-from rest_framework import exceptions, serializers, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -49,6 +50,8 @@ from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
 
+from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
+
 from ee.hogai.utils.aio import async_to_sync
 
 logger = structlog.get_logger(__name__)
@@ -61,6 +64,7 @@ DASHBOARD_SHARED_FIELDS = [
     "created_at",
     "created_by",
     "last_accessed_at",
+    "last_viewed_at",
     "is_shared",
     "deleted",
     "creation_mode",
@@ -127,6 +131,13 @@ class CanEditDashboard(BasePermission):
 class TextSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+    body = serializers.CharField(
+        max_length=4000,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        error_messages={"max_length": "Text body cannot exceed 4000 characters"},
+    )
 
     class Meta:
         model = Text
@@ -176,6 +187,7 @@ class DashboardBasicSerializer(
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
+    last_viewed_at = serializers.DateTimeField(read_only=True, required=False, allow_null=True)
 
     class Meta:
         model = Dashboard
@@ -187,6 +199,7 @@ class DashboardBasicSerializer(
             "created_at",
             "created_by",
             "last_accessed_at",
+            "last_viewed_at",
             "is_shared",
             "deleted",
             "creation_mode",
@@ -378,6 +391,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 insight=insight,
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,
+                filters_overrides=existing_tile.filters_overrides,
             )
         elif existing_tile.text:
             new_data = {
@@ -394,6 +408,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 text=text,
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,
+                filters_overrides=existing_tile.filters_overrides,
             )
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
@@ -440,6 +455,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
         for tile_data in tiles:
             self._update_tiles(instance, tile_data, user)
 
+        duplicate_tiles = initial_data.pop("duplicate_tiles", [])
+        for tile_data in duplicate_tiles:
+            existing_tile = DashboardTile.objects.get(dashboard=instance, id=tile_data["id"])
+            existing_tile.layouts = {}
+            self._deep_duplicate_tiles(instance, existing_tile)
+
         if "request" in self.context:
             report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
 
@@ -460,16 +481,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
             else:
                 created_by = user
                 last_modified_by = None
-            text_defaults = {
-                **tile_data["text"],
-                "team_id": instance.team_id,
-                "created_by": created_by,
-                "last_modified_by": last_modified_by,
-                "last_modified_at": now(),
-            }
-            if "team" in text_defaults:
-                text_defaults.pop("team")  # We're already setting `team_id`
-            text, _ = Text.objects.update_or_create(id=text_json.get("id", None), defaults=text_defaults)
+
+            text_data = {**tile_data["text"], "team": instance.team_id}
+            text_serializer = TextSerializer(data=text_data)
+            if not text_serializer.is_valid():
+                raise serializers.ValidationError({"text": text_serializer.errors})
+
+            validated_data = text_serializer.validated_data
+            validated_data["created_by"] = created_by
+            validated_data["last_modified_by"] = last_modified_by
+            validated_data["last_modified_at"] = now()
+
+            text, _ = Text.objects.update_or_create(id=text_json.get("id", None), defaults=validated_data)
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
                 defaults={**tile_data, "text": text, "dashboard": instance},
@@ -587,6 +610,8 @@ class DashboardsViewSet(
     permission_classes = [CanEditDashboard]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
+    TEMPLATE_MAP = {"llm-analytics": get_llm_analytics_default_template}
+
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
@@ -597,12 +622,34 @@ class DashboardsViewSet(
     def get_serializer_class(self) -> type[BaseSerializer]:
         return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
 
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = super().filter_queryset(queryset)
+        tags = self.request.query_params.getlist("tags")
+        if not tags:
+            return queryset
+
+        return queryset.filter(tagged_items__tag__name__in=tags).distinct()
+
     @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
     def dangerously_get_queryset(self):
         # Dashboards are retrieved under /environments/ because they include team-specific query results,
         # but they are in fact project-level, rather than environment-level
         assert self.team.project_id is not None
         queryset = self.queryset.filter(team__project_id=self.team.project_id)
+
+        if self.request.user.is_authenticated:
+            queryset = queryset.alias(
+                recent_dashboard_views=FilteredRelation(
+                    "team__filesystemviewlog",  # team_id condition comes from "team__"
+                    condition=(
+                        Q(team__filesystemviewlog__user_id=self.request.user.id)
+                        & Q(team__filesystemviewlog__type="dashboard")
+                        & Q(team__filesystemviewlog__ref=Cast(F("id"), output_field=CharField()))
+                    ),
+                )
+            ).annotate(last_viewed_at=F("recent_dashboard_views__viewed_at"))
+        else:
+            queryset = queryset.annotate(last_viewed_at=Value(None, output_field=DateTimeField()))
 
         include_deleted = (
             self.action == "partial_update"
@@ -652,6 +699,12 @@ class DashboardsViewSet(
         if self.action == "list" and self.request.query_params.get("exclude_generated") == "true":
             queryset = queryset.exclude(name__startswith=GENERATED_DASHBOARD_PREFIX)
 
+        # Filter unlisted dashboards from general list, but allow access via:
+        # - Direct ID lookup (detail action)
+        # - Tag-based queries (e.g. ?tags=llm-analytics for product dashboards)
+        if self.action == "list" and not self.request.query_params.get("tags"):
+            queryset = queryset.exclude(creation_mode="unlisted")
+
         return queryset
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
@@ -660,7 +713,8 @@ class DashboardsViewSet(
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
-        return Response(serializer.data)
+        response = Response(serializer.data)
+        return response
 
     # ******************************************
     # /projects/:id/dashboard/:id/stream_tiles
@@ -832,6 +886,61 @@ class DashboardsViewSet(
             raise
 
         return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
+
+    @action(methods=["POST"], detail=False)
+    def create_unlisted_dashboard(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Creates an unlisted dashboard from template by tag.
+        Enforces uniqueness (one per tag per team).
+        Returns 409 if unlisted dashboard with this tag already exists.
+        """
+        from django.db import transaction
+
+        from posthog.models.team import Team
+
+        tag = request.data.get("tag")
+
+        if not tag:
+            return Response(
+                {"error": "tag is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if tag not in self.TEMPLATE_MAP:
+            return Response(
+                {"error": f"Unknown template tag: {tag}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            Team.objects.select_for_update().filter(id=self.team_id).first()
+
+            existing = Dashboard.objects.filter(
+                team=self.team, deleted=False, creation_mode="unlisted", tagged_items__tag__name=tag
+            ).first()
+
+            if existing:
+                return Response(
+                    {"error": f"Unlisted dashboard with tag '{tag}' already exists"},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            template = self.TEMPLATE_MAP[tag]()
+            dashboard = Dashboard.objects.create(
+                team_id=self.team_id,
+                name=template.template_name,
+                description=template.dashboard_description or "",
+                filters={**(template.dashboard_filters or {}), "__template_version": 1},
+                created_by=cast(User, request.user),
+                creation_mode="unlisted",
+            )
+
+            create_from_template(dashboard, template, cast(User, request.user))
+
+            return Response(
+                DashboardSerializer(dashboard, context=self.get_serializer_context()).data,
+                status=status.HTTP_201_CREATED,
+            )
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):

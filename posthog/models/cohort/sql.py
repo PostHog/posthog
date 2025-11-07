@@ -85,11 +85,6 @@ WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 GROUP BY person_id, cohort_id, team_id
 """
 
-GET_STATIC_COHORT_SIZE_SQL = f"""
-SELECT count(DISTINCT person_id)
-FROM {PERSON_STATIC_COHORT_TABLE}
-WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
-"""
 
 STALE_COHORTPEOPLE = f"""
 SELECT team_id, count() AS stale_people_count FROM cohortpeople

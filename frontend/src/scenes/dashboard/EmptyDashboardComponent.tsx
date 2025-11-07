@@ -1,15 +1,21 @@
 import './EmptyDashboardComponent.scss'
 
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import React from 'react'
 
 import { IconPlus } from '@posthog/icons'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { dashboardLogic } from './dashboardLogic'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
     return (
@@ -79,6 +85,8 @@ function SkeletonCardTwo({ active }: { active: boolean }): JSX.Element {
 
 export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean; canEdit: boolean }): JSX.Element {
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
+    const { dashboard } = useValues(dashboardLogic)
+    const { push } = useActions(router)
     return (
         <div className="EmptyDashboard">
             {!loading && (
@@ -94,6 +102,34 @@ export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean
                             center
                             fullWidth
                             disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
+                            sideAction={
+                                dashboard
+                                    ? {
+                                          dropdown: {
+                                              placement: 'bottom-end',
+                                              overlay: (
+                                                  <AccessControlAction
+                                                      resourceType={AccessControlResourceType.Dashboard}
+                                                      minAccessLevel={AccessControlLevel.Editor}
+                                                      userAccessLevel={dashboard.user_access_level}
+                                                  >
+                                                      <LemonButton
+                                                          fullWidth
+                                                          onClick={() => {
+                                                              push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                                          }}
+                                                          data-attr="add-text-tile-to-dashboard"
+                                                      >
+                                                          Add text card
+                                                      </LemonButton>
+                                                  </AccessControlAction>
+                                              ),
+                                          },
+                                          disabled: false,
+                                          'data-attr': 'dashboard-add-dropdown',
+                                      }
+                                    : undefined
+                            }
                         >
                             Add insight
                         </LemonButton>

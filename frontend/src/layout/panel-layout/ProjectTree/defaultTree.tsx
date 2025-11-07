@@ -1,22 +1,26 @@
 import React, { CSSProperties } from 'react'
 
 import {
-    IconAI,
     IconApp,
     IconApps,
     IconBook,
     IconBug,
+    IconCircleDashed,
     IconCode2,
     IconCursor,
     IconDashboard,
     IconDatabase,
+    IconDecisionTree,
     IconExternal,
+    IconFeatures,
     IconFlask,
     IconFunnels,
     IconGraph,
     IconHogQL,
+    IconHome,
     IconLifecycle,
     IconLive,
+    IconLlmAnalytics,
     IconMegaphone,
     IconMessage,
     IconNotebook,
@@ -31,7 +35,9 @@ import {
     IconServer,
     IconStickiness,
     IconToggle,
+    IconToggleOff,
     IconTrends,
+    IconUser,
     IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
@@ -50,12 +56,15 @@ import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-ge
 import { FileSystemIconColor } from '~/types'
 
 const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
+    default_icon_type: {
+        icon: <IconCircleDashed />,
+    },
     dashboard: {
         icon: <IconDashboard />,
         iconColor: ['var(--color-product-dashboards-light)'],
     },
     llm_analytics: {
-        icon: <IconAI />,
+        icon: <IconLlmAnalytics />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
     },
     product_analytics: {
@@ -72,13 +81,16 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     marketing_settings: {
         icon: <IconMegaphone />,
     },
+    managed_viewsets: {
+        icon: <IconDatabase />,
+    },
     web_analytics: {
         icon: <IconPieChart />,
         iconColor: ['var(--color-product-web-analytics-light)', 'var(--color-product-web-analytics-dark)'],
     },
-    embedded_analytics: {
+    endpoints: {
         icon: <IconCode2 />,
-        iconColor: ['var(--color-product-embedded-analytics-light', 'var(--color-product-embedded-analytics-dark'],
+        iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
     },
     sql_editor: {
         icon: <IconServer />,
@@ -104,6 +116,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconApp />,
         iconColor: ['var(--color-product-user-interviews-light)'],
     },
+    home: {
+        icon: <IconHome />,
+    },
     task: {
         icon: <IconBug />,
     },
@@ -123,8 +138,12 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-product-experiments-light)'],
     },
     feature_flag: {
-        icon: <IconToggle />,
+        icon: <IconToggle className="mt-[2px]" />,
         iconColor: ['var(--color-product-feature-flags-light)'],
+    },
+    feature_flag_off: {
+        icon: <IconToggleOff className="mt-[2px]" />,
+        iconColor: ['var(--color-bg-fill-switch)'],
     },
     data_pipeline: {
         icon: <IconPlug />,
@@ -141,12 +160,15 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconExternal />,
         iconColor: ['var(--color-product-links-light)', 'var(--color-product-links-dark)'],
     },
-    messaging: {
-        icon: <IconMessage />,
-        iconColor: ['var(--color-product-messaging-light)', 'var(--color-product-messaging-dark)'],
+    workflows: {
+        icon: <IconDecisionTree />,
+        iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
     },
     notebook: {
         icon: <IconNotebook />,
+    },
+    live_debugger: {
+        icon: <IconBug />,
     },
     action: {
         icon: <IconCursor />,
@@ -157,6 +179,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     annotation: {
         icon: <IconNotification />,
     },
+    event: {
+        icon: <IconApps />,
+    },
     event_definition: {
         icon: <IconApps />,
     },
@@ -166,8 +191,11 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     ingestion_warning: {
         icon: <IconWarning />,
     },
-    person: {
+    persons: {
         icon: <IconPeople />,
+    },
+    user: {
+        icon: <IconUser />,
     },
     cohort: {
         icon: <IconPeople />,
@@ -203,6 +231,19 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconHogQL />,
         iconColor: ['var(--color-insight-sql-light)'],
     },
+    team_activity: {
+        icon: <IconNotification />,
+        iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
+    },
+    apps: {
+        icon: <IconApps />,
+    },
+    live: {
+        icon: <IconLive />,
+    },
+    chat: {
+        icon: <IconFeatures />,
+    },
 }
 
 const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
@@ -228,7 +269,7 @@ type ProductIconWrapperProps = {
 }
 
 export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIconWrapperProps): JSX.Element => {
-    const [lightColor, darkColor] = getIconColor(type, colorOverride)
+    const [light, dark] = getIconColor(type, colorOverride)
 
     // By default icons will not be colorful, to add color, wrap the icon with the class: "group/colorful-product-icons colorful-product-icons-true"
     return (
@@ -236,12 +277,10 @@ export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIco
             className="flex items-center group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-light)] dark:group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-dark)]"
             // eslint-disable-next-line react/forbid-dom-props
             style={
-                (colorOverride
-                    ? { '--product-icon-color-light': colorOverride[0], '--product-icon-color-dark': colorOverride[1] }
-                    : {
-                          '--product-icon-color-light': lightColor,
-                          '--product-icon-color-dark': darkColor,
-                      }) as CSSProperties
+                {
+                    '--product-icon-color-light': light,
+                    '--product-icon-color-dark': dark,
+                } as CSSProperties
             }
         >
             {children}
@@ -302,6 +341,7 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: urls.dataPipelinesNew('source'),
             icon: <IconPlug />,
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
+            sceneKeys: ['HogFunction'],
         },
         {
             path: `Data/Destination`,
@@ -309,6 +349,7 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: urls.dataPipelinesNew('destination'),
             icon: <IconPlug />,
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
+            sceneKeys: ['HogFunction'],
         },
         {
             path: `Data/Transformation`,
@@ -316,6 +357,7 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: urls.dataPipelinesNew('transformation'),
             icon: <IconPlug />,
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
+            sceneKeys: ['HogFunction'],
         },
         {
             path: `Data/Site app`,
@@ -323,6 +365,7 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: urls.dataPipelinesNew('site_app'),
             icon: <IconPlug />,
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
+            sceneKeys: ['HogFunction'],
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
@@ -330,27 +373,42 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
     ...getTreeItemsMetadata(),
     {
         path: 'Event definitions',
-        category: 'Definitions',
+        category: 'Schema',
         iconType: 'event_definition',
         href: urls.eventDefinitions(),
+        sceneKey: 'EventDefinitions',
+        sceneKeys: ['EventDefinition', 'EventDefinitions'],
     },
     {
         path: 'Property definitions',
-        category: 'Definitions',
+        category: 'Schema',
         iconType: 'property_definition',
         href: urls.propertyDefinitions(),
+        sceneKey: 'PropertyDefinitions',
+        sceneKeys: ['PropertyDefinition', 'PropertyDefinitions'],
+    },
+    {
+        path: 'Property groups',
+        category: 'Schema',
+        iconType: 'event_definition',
+        href: urls.schemaManagement(),
+        flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
     },
     {
         path: 'Annotations',
         category: 'Metadata',
         iconType: 'annotation',
         href: urls.annotations(),
+        sceneKey: 'Annotations',
+        sceneKeys: ['Annotations'],
     },
     {
         path: 'Comments',
         category: 'Metadata',
         iconType: 'comment',
         href: urls.comments(),
+        sceneKey: 'Comments',
+        sceneKeys: ['Comments'],
     },
     {
         path: 'Ingestion warnings',
@@ -358,6 +416,8 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         iconType: 'ingestion_warning',
         href: urls.ingestionWarnings(),
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
+        sceneKey: 'IngestionWarnings',
+        sceneKeys: ['IngestionWarnings'],
     },
     {
         path: `Sources`,
@@ -365,6 +425,8 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         type: 'hog_function/source',
         iconType: 'data_pipeline_metadata',
         href: urls.dataPipelines('sources'),
+        sceneKey: 'DataPipelines',
+        sceneKeys: ['DataPipelines'],
     } as FileSystemImport,
     {
         path: `Transformations`,
@@ -372,6 +434,8 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         type: 'hog_function/transformation',
         iconType: 'data_pipeline_metadata',
         href: urls.dataPipelines('transformations'),
+        sceneKey: 'DataPipelines',
+        sceneKeys: ['DataPipelines'],
     } as FileSystemImport,
     {
         path: `Destinations`,
@@ -379,14 +443,16 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         type: 'hog_function/destination',
         iconType: 'data_pipeline_metadata',
         href: urls.dataPipelines('destinations'),
+        sceneKey: 'DataPipelines',
+        sceneKeys: ['DataPipelines'],
     } as FileSystemImport,
     {
-        path: `Activity logs`,
-        category: 'Activity',
-        iconType: 'logs',
-        href: urls.advancedActivityLogs(),
-        flag: FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS,
-    } as FileSystemImport,
+        path: 'Managed viewsets',
+        category: 'Unreleased',
+        iconType: 'managed_viewsets',
+        href: urls.dataWarehouseManagedViewsets(),
+        flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
+    },
 ]
 
 export const getDefaultTreeProducts = (): FileSystemImport[] =>
@@ -399,6 +465,8 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             iconType: 'dashboard' as FileSystemIconType,
             iconColor: ['var(--color-product-dashboards-light)'] as FileSystemIconColor,
             href: urls.dashboards(),
+            sceneKey: 'Dashboards',
+            sceneKeys: ['Dashboard', 'Dashboards'],
         },
         {
             path: 'Notebooks',
@@ -406,6 +474,8 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             type: 'notebook',
             iconType: 'notebook' as FileSystemIconType,
             href: urls.notebooks(),
+            sceneKey: 'Notebooks',
+            sceneKeys: ['Notebook', 'Notebooks'],
         },
         {
             path: `Data pipelines`,
@@ -414,6 +484,8 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             iconType: 'data_pipeline' as FileSystemIconType,
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
             href: urls.dataPipelines(),
+            sceneKey: 'DataPipelines',
+            sceneKeys: ['DataPipelines'],
         } as FileSystemImport,
         {
             path: `SQL editor`,
@@ -422,18 +494,21 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             iconType: 'sql_editor' as FileSystemIconType,
             iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
             href: urls.sqlEditor(),
+            sceneKey: 'SQLEditor',
+            sceneKeys: ['SQLEditor'],
         } as FileSystemImport,
         {
             path: 'Heatmaps',
-            category: 'Unreleased',
+            category: 'Behavior',
             iconType: 'heatmap' as FileSystemIconType,
             iconColor: [
                 'var(--color-product-heatmaps-light)',
                 'var(--color-product-heatmaps-dark)',
             ] as FileSystemIconColor,
             href: urls.heatmaps(),
-            flag: FEATURE_FLAGS.HEATMAPS_UI,
-            tags: ['alpha'],
+            tags: ['beta'],
+            sceneKey: 'Heatmaps',
+            sceneKeys: ['Heatmaps'],
         } as FileSystemImport,
     ].sort((a, b) => {
         if (a.visualOrder === -1) {
@@ -452,15 +527,19 @@ export const getDefaultTreePersons = (): FileSystemImport[] => [
     {
         path: 'Persons',
         category: 'People',
-        iconType: 'person' as FileSystemIconType,
+        iconType: 'persons',
         href: urls.persons(),
         visualOrder: 10,
+        sceneKey: 'Persons',
+        sceneKeys: ['Person', 'Persons'],
     },
     {
         path: 'Cohorts',
         category: 'People',
-        type: 'cohort' as FileSystemIconType,
+        type: 'cohort',
         href: urls.cohorts(),
         visualOrder: 20,
+        sceneKey: 'Cohorts',
+        sceneKeys: ['Cohort', 'Cohorts'],
     },
 ]

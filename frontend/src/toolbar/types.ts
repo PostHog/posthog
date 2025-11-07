@@ -92,6 +92,7 @@ export type WebExperimentDraftType = Omit<
     | 'parameters'
     | 'secondary_metrics'
     | 'updated_at'
+    | 'user_access_level'
 >
 
 export interface WebExperimentForm extends WebExperimentDraftType {

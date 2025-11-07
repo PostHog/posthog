@@ -636,6 +636,10 @@ class FunnelBase(ABC):
             self.context.limit_context
         )
 
+    def _order_by(self) -> list[ast.OrderExpr]:
+        max_steps = self.context.max_steps
+        return [ast.OrderExpr(expr=ast.Field(chain=[f"step_{i}"]), order="DESC") for i in range(max_steps, 0, -1)]
+
     # Wrap funnel query in another query to determine the top X breakdowns, and bucket all others into "Other" bucket
     def _breakdown_other_subquery(self) -> ast.SelectQuery:
         max_steps = self.context.max_steps
@@ -677,6 +681,7 @@ class FunnelBase(ABC):
             ],
             select_from=ast.JoinExpr(table=select_query),
             group_by=[ast.Field(chain=["final_prop"])],
+            order_by=self._order_by(),
             limit=ast.Constant(value=self.get_breakdown_limit() + 1),
         )
 
@@ -795,22 +800,19 @@ class FunnelBase(ABC):
         assert actorsQuery is not None
 
         funnelStep = actorsQuery.funnelStep
-        funnelCustomSteps = actorsQuery.funnelCustomSteps
         funnelStepBreakdown = actorsQuery.funnelStepBreakdown
+
+        if funnelStep is None:
+            raise ValueError("Missing funnelStep in actors query")
 
         conditions: list[ast.Expr] = []
 
-        if funnelCustomSteps:
-            conditions.append(parse_expr(f"steps IN {funnelCustomSteps}"))
-        elif funnelStep is not None:
-            if funnelStep >= 0:
-                step_nums = list(range(funnelStep, max_steps + 1))
-                conditions.append(parse_expr(f"steps IN {step_nums}"))
-            else:
-                step_num = abs(funnelStep) - 1
-                conditions.append(parse_expr(f"steps = {step_num}"))
+        if funnelStep >= 0:
+            step_nums = list(range(funnelStep, max_steps + 1))
+            conditions.append(parse_expr(f"steps IN {step_nums}"))
         else:
-            raise ValueError("Missing both funnelStep and funnelCustomSteps")
+            step_num = abs(funnelStep) - 1
+            conditions.append(parse_expr(f"steps = {step_num}"))
 
         if funnelStepBreakdown is not None:
             if isinstance(funnelStepBreakdown, int) and breakdownType != "cohort":
@@ -872,11 +874,11 @@ class FunnelBase(ABC):
         statement = None
         for i in range(max_steps - 1, -1, -1):
             if i == max_steps - 1:
-                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,step_{i}_matching_event)"
+                statement = f"if(isNull(latest_{i}),step_{i - 1}_matching_event,step_{i}_matching_event)"
             elif i == 0:
                 statement = f"if(isNull(latest_0),(null,null,null,null),{statement})"
             else:
-                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,{statement})"
+                statement = f"if(isNull(latest_{i}),step_{i - 1}_matching_event,{statement})"
         return [parse_expr(f"{statement} as final_matching_event")] if statement else []
 
     def _get_matching_events(self, max_steps: int) -> list[ast.Expr]:
@@ -1012,7 +1014,7 @@ class FunnelBase(ABC):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i-1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) as step_{i}_conversion_time"
+                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i - 1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) as step_{i}_conversion_time"
                 ),
             )
 

@@ -5,12 +5,17 @@ import { useState } from 'react'
 import { IconArrowRight, IconCheckCircle, IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
+import { DataWarehouseManagedViewsetCard } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetCard'
 import { NewSourcesWizard } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
+import { AccessControlResourceType } from '~/types'
 
 import { EventConfigurationModal } from '../settings/EventConfigurationModal'
 import { revenueAnalyticsSettingsLogic } from '../settings/revenueAnalyticsSettingsLogic'
@@ -36,6 +41,11 @@ const AVAILABLE_REVENUE_SOURCE_TYPES: Set<ExternalDataSourceType> = new Set(['St
 
 export function InlineSetup({ closeOnboarding, initialSetupView }: InlineSetupProps): JSX.Element {
     const { events, enabledDataWarehouseSources, dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    const managedViewsetsEnabled = featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
+    const isViewsetEnabled = currentTeam?.managed_viewsets?.['revenue_analytics'] ?? false
 
     const hasEvents = events.length > 0
     const hasSources = enabledDataWarehouseSources.length > 0
@@ -49,6 +59,9 @@ export function InlineSetup({ closeOnboarding, initialSetupView }: InlineSetupPr
     const [currentView, setCurrentView] = useState<InlineSetupView>(initialSetupView ?? 'overview')
     const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
     const [showEventModal, setShowEventModal] = useState(false)
+
+    // If FF is enabled and viewset is not enabled, show the viewset enablement step
+    const shouldShowViewsetStep = managedViewsetsEnabled && !isViewsetEnabled
 
     const revenueSources: RevenueSource[] = REVENUE_SOURCE_TYPES.map((source_type) => ({
         id: source_type,
@@ -78,120 +91,167 @@ export function InlineSetup({ closeOnboarding, initialSetupView }: InlineSetupPr
 
     return (
         <div className="space-y-6">
-            {/* Main Setup Card */}
-            <LemonCard hoverEffect={false}>
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h3 className="text-lg font-semibold mb-1">Revenue Analytics Setup</h3>
-                            <p className="text-sm text-muted-alt">Configure your revenue tracking to get started</p>
-                        </div>
-                        {(hasEvents || hasSources) && (
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={closeOnboarding}
-                                icon={<IconCheckCircle />}
-                            >
-                                View Dashboard
-                            </LemonButton>
-                        )}
-                    </div>
-
-                    {/* Current Status */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Events Status */}
-                        <div className="flex items-center gap-3 p-3 rounded-lg border border-primary">
-                            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-primary">
-                                {hasEvents ? (
-                                    <IconCheckCircle className="w-6 h-6" />
-                                ) : (
-                                    <IconPieChart className="w-6 h-6 text-muted" />
-                                )}
+            {/* Step 1: Enable Managed Viewset (only if FF is enabled and viewset is not enabled) */}
+            {shouldShowViewsetStep ? (
+                <LemonCard hoverEffect={false}>
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary text-primary-3000 font-bold text-lg">
+                                1
                             </div>
-                            <div className="flex-1">
-                                <span className="font-medium text-sm">
-                                    {hasEvents
-                                        ? `${events.length} Event${events.length !== 1 ? 's' : ''} Configured`
-                                        : 'No Events Configured'}
-                                </span>
-                                <p className="text-xs text-muted-alt mt-0.5">
-                                    {hasEvents ? 'Revenue events are set up' : 'Configure events to track revenue'}
+                            <div>
+                                <h3 className="text-lg font-semibold mb-1">Enable Revenue Analytics</h3>
+                                <p className="text-sm text-muted-alt">
+                                    First, enable revenue analytics to create optimized database views for your revenue
+                                    data
                                 </p>
                             </div>
                         </div>
 
-                        {/* Sources Status */}
-                        <div className="flex items-center gap-3 p-3 rounded-lg border border-primary">
-                            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-primary">
-                                {hasSources ? (
-                                    <IconCheckCircle className="w-6 h-6" />
-                                ) : (
-                                    <IconDatabase className="w-6 h-6 text-muted" />
-                                )}
-                            </div>
-                            <div className="flex-1">
-                                <span className="font-medium text-sm">
-                                    {hasSources ? 'Revenue source connected' : 'No revenue sources connected'}
-                                </span>
-                                <p className="text-xs text-muted-alt mt-0.5">
-                                    {hasSources ? (
-                                        'Revenue data source is set up'
-                                    ) : hasConnectedButDisabledStripeSources ? (
-                                        <>
-                                            Connect Stripe to import revenue data. Wanna reuse your existing Stripe
-                                            source?{' '}
-                                            <Link to={urls.revenueSettings()} className="text-link">
-                                                Enable it here
-                                            </Link>
-                                        </>
-                                    ) : (
-                                        'Connect Stripe to import revenue data'
+                        <DataWarehouseManagedViewsetCard
+                            type="onboarding"
+                            kind="revenue_analytics"
+                            resourceType={AccessControlResourceType.RevenueAnalytics}
+                            displayDocsLink={true}
+                            displayConfigLink={false}
+                        />
+
+                        <div className="text-sm text-muted-alt p-3 bg-bg-light rounded">
+                            <strong>Note:</strong> Once enabled, you'll be able to configure your revenue sources and
+                            events in the next step.
+                        </div>
+                    </div>
+                </LemonCard>
+            ) : (
+                <>
+                    {/* Main Setup Card */}
+                    <LemonCard hoverEffect={false}>
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    {managedViewsetsEnabled && (
+                                        <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary text-primary-3000 font-bold text-lg">
+                                            2
+                                        </div>
                                     )}
-                                </p>
+                                    <div>
+                                        <h3 className="text-lg font-semibold mb-1">Configure Revenue Sources</h3>
+                                        <p className="text-sm text-muted-alt">
+                                            Set up your revenue tracking to get started
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Current Status */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* Events Status */}
+                                <div className="flex items-center gap-3 p-3 rounded-lg border border-primary">
+                                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-primary">
+                                        {hasEvents ? (
+                                            <IconCheckCircle className="w-6 h-6" />
+                                        ) : (
+                                            <IconPieChart className="w-6 h-6 text-muted" />
+                                        )}
+                                    </div>
+                                    <div className="flex-1">
+                                        <span className="font-medium text-sm">
+                                            {hasEvents
+                                                ? `${events.length} Event${events.length !== 1 ? 's' : ''} Configured`
+                                                : 'No Events Configured'}
+                                        </span>
+                                        <p className="text-xs text-muted-alt mt-0.5">
+                                            {hasEvents
+                                                ? 'Revenue events are set up'
+                                                : 'Configure events to track revenue'}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Sources Status */}
+                                <div className="flex items-center gap-3 p-3 rounded-lg border border-primary">
+                                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-primary">
+                                        {hasSources ? (
+                                            <IconCheckCircle className="w-6 h-6" />
+                                        ) : (
+                                            <IconDatabase className="w-6 h-6 text-muted" />
+                                        )}
+                                    </div>
+                                    <div className="flex-1">
+                                        <span className="font-medium text-sm">
+                                            {hasSources ? 'Revenue source connected' : 'No revenue sources connected'}
+                                        </span>
+                                        <p className="text-xs text-muted-alt mt-0.5">
+                                            {hasSources ? (
+                                                'Revenue data source is set up'
+                                            ) : hasConnectedButDisabledStripeSources ? (
+                                                <>
+                                                    Connect Stripe to import revenue data. Wanna reuse your existing
+                                                    Stripe source?{' '}
+                                                    <Link to={urls.revenueSettings()} className="text-link">
+                                                        Enable it here
+                                                    </Link>
+                                                </>
+                                            ) : (
+                                                'Connect Stripe to import revenue data'
+                                            )}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-primary">
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    onClick={() => setShowEventModal(true)}
+                                    size="small"
+                                    data-attr="add-revenue-event"
+                                >
+                                    Add Revenue Event
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    onClick={() => {
+                                        setSelectedSource(null)
+                                        setCurrentView('add-source')
+                                    }}
+                                    size="small"
+                                    data-attr="add-revenue-source"
+                                >
+                                    Connect Revenue Source
+                                </LemonButton>
+                                {hasConnectedButDisabledStripeSources && (
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconArrowRight />}
+                                        onClick={() => {
+                                            router.actions.push(urls.revenueSettings())
+                                        }}
+                                        size="small"
+                                        data-attr="enable-existing-stripe-source"
+                                    >
+                                        Enable Existing Stripe Source
+                                    </LemonButton>
+                                )}
+                                {(hasEvents || hasSources) && (
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        onClick={closeOnboarding}
+                                        icon={<IconCheckCircle />}
+                                        className="ml-auto"
+                                    >
+                                        You're all set! View Dashboard
+                                    </LemonButton>
+                                )}
                             </div>
                         </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-primary">
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlus />}
-                            onClick={() => setShowEventModal(true)}
-                            size="small"
-                            data-attr="add-revenue-event"
-                        >
-                            Add Revenue Event
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlus />}
-                            onClick={() => {
-                                setSelectedSource(null)
-                                setCurrentView('add-source')
-                            }}
-                            size="small"
-                            data-attr="add-revenue-source"
-                        >
-                            Connect Revenue Source
-                        </LemonButton>
-                        {hasConnectedButDisabledStripeSources && (
-                            <LemonButton
-                                type="primary"
-                                icon={<IconArrowRight />}
-                                onClick={() => {
-                                    router.actions.push(urls.revenueSettings())
-                                }}
-                                size="small"
-                                data-attr="enable-existing-stripe-source"
-                            >
-                                Enable Existing Stripe Source
-                            </LemonButton>
-                        )}
-                    </div>
-                </div>
-            </LemonCard>
+                    </LemonCard>
+                </>
+            )}
 
             {/* Source Selection */}
             {currentView === 'add-source' && !selectedSource && (

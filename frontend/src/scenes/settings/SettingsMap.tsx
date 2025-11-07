@@ -27,14 +27,17 @@ import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import { urls } from 'scenes/urls'
-import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
 import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
+import {
+    ActivityLogNotifications,
+    ActivityLogOrgLevelSettings,
+    ActivityLogSettings,
+} from './environment/ActivityLogSettings'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
-import { CRMUsageMetricsConfig } from './environment/CRMUsageMetricsConfig'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
@@ -50,6 +53,7 @@ import { IPCapture } from './environment/IPCapture'
 import { GithubIntegration } from './environment/Integrations'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
+import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import {
@@ -73,6 +77,7 @@ import {
     WebSnippet,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
@@ -81,6 +86,7 @@ import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentStatsMethod'
+import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationLogo } from './organization/OrgLogo'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
@@ -168,6 +174,25 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-customer-analytics',
+        title: 'Customer analytics',
+        flag: 'CUSTOMER_ANALYTICS',
+        settings: [
+            {
+                id: 'group-analytics',
+                title: 'Group analytics',
+                component: <GroupAnalyticsConfig />,
+            },
+            {
+                id: 'crm-usage-metrics',
+                title: 'Usage metrics',
+                component: <UsageMetricsConfig />,
+                flag: 'CRM_USAGE_METRICS',
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-product-analytics',
         title: 'Product analytics',
         settings: [
@@ -222,6 +247,8 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'datacapture',
                 title: 'IP data capture configuration',
+                description:
+                    'When enabled, PostHog will discard client IP addresses from all events captured in this project. IP data will not be stored or used for location-based insights.',
                 component: <IPCapture />,
             },
             {
@@ -233,7 +260,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
-                flag: '!CRM_ITERATION_ONE',
+                flag: '!CUSTOMER_ANALYTICS',
             },
             {
                 id: 'persons-join-mode',
@@ -264,11 +291,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: (
                     <AccessControlAction
                         resourceType={AccessControlResourceType.RevenueAnalytics}
-                        minAccessLevel="editor"
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
                         <BaseCurrency hideTitle />
                     </AccessControlAction>
                 ),
+                hideWhenNoSection: true,
             },
             {
                 id: 'revenue-analytics-filter-test-accounts',
@@ -301,7 +329,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'marketing-settings',
                 title: 'Marketing settings',
-                component: <MarketingAnalyticsSettings hideTitle />,
+                component: <MarketingAnalyticsSettingsWrapper />,
             },
         ],
     },
@@ -353,25 +381,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'New query engine',
                 component: <WebAnalyticsEnablePreAggregatedTables />,
                 flag: 'WEB_ANALYTICS_API',
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-crm',
-        title: 'CRM',
-        flag: 'CRM_ITERATION_ONE',
-        settings: [
-            {
-                id: 'group-analytics',
-                title: 'Group analytics',
-                component: <GroupAnalyticsConfig />,
-            },
-            {
-                id: 'crm-usage-metrics',
-                title: 'Usage metrics',
-                component: <CRMUsageMetricsConfig />,
-                flag: 'CRM_USAGE_METRICS',
             },
         ],
     },
@@ -510,14 +519,14 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'environment',
         id: 'environment-max',
-        title: 'Max AI',
+        title: 'AI',
         flag: 'ARTIFICIAL_HOG',
         settings: [
             {
                 id: 'core-memory',
                 title: 'Memory',
                 description:
-                    "Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don't want Max to remember, you can edit or remove them below.",
+                    "PostHog AI automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don't want PostHog AI to remember, you can edit or remove them below.",
                 component: <MaxMemorySettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
@@ -564,6 +573,30 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'environment-access-control',
                 title: 'Access control',
                 component: <TeamAccessControl />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-activity-logs',
+        title: 'Activity logs',
+        settings: [
+            {
+                id: 'activity-log-settings',
+                title: 'Logs',
+                component: <ActivityLogSettings />,
+            },
+            {
+                id: 'activity-log-org-level-settings',
+                title: 'Settings',
+                component: <ActivityLogOrgLevelSettings />,
+                flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
+            },
+            {
+                id: 'activity-log-notifications',
+                title: 'Notifications',
+                component: <ActivityLogNotifications />,
+                flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
             },
         ],
     },
@@ -676,6 +709,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Choose which statistical method to use by default for new experiments in this organization. Individual experiments can override this setting.',
                 component: <OrganizationExperimentStatsMethod />,
+            },
+            {
+                id: 'organization-ip-anonymization-default',
+                title: 'IP data capture default',
+                description:
+                    'When enabled, new projects will automatically have "Discard client IP data" turned on. This is recommended for GDPR compliance. Existing projects are not affected.',
+                component: <OrgIPAnonymizationDefault />,
             },
         ],
     },

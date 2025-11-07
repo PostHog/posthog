@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { colonDelimitedDuration } from 'lib/utils'
@@ -23,6 +24,7 @@ export interface RecordingCommentForm {
     // the date that the timeInRecording represents
     dateForTimestamp?: Dayjs | null
     content: string
+    richContent: JSONContent | null
     recordingId: string | null
     commentId: CommentType['id'] | null
 }
@@ -43,12 +45,30 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
         editComment: (comment: RecordingCommentForm) => ({ comment }),
         addEmojiComment: (emoji: string) => ({ emoji }),
         setLoading: (isLoading: boolean) => ({ isLoading }),
+        setRichContent: (richContent: JSONContent | null) => ({ richContent }),
+        // copied from comments logic
+        setRichContentEditor: (editor: RichContentEditorType) => ({ editor }),
+        onRichContentEditorUpdate: (isEmpty: boolean) => ({ isEmpty }),
     }),
     reducers({
         isLoading: [
             false,
             {
                 setLoading: (_, { isLoading }: { isLoading: boolean }) => isLoading,
+            },
+        ],
+
+        // copied from comments logic
+        isEmpty: [
+            true as boolean,
+            {
+                onRichContentEditorUpdate: (_, { isEmpty }) => isEmpty,
+            },
+        ],
+        richContentEditor: [
+            null as RichContentEditorType | null,
+            {
+                setRichContentEditor: (_, { editor }) => editor,
             },
         ],
     }),
@@ -76,8 +96,12 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
         },
     })),
     listeners(({ actions, props, values }) => ({
+        setRichContent: ({ richContent }) => {
+            actions.setRecordingCommentValue('richContent', richContent)
+        },
         editComment: ({ comment }) => {
             actions.setRecordingCommentValue('content', comment.content)
+            actions.setRecordingCommentValue('richContent', comment.richContent)
             actions.setRecordingCommentValue('recordingId', comment.recordingId)
             actions.setRecordingCommentValue('commentId', comment.commentId)
             // opening to edit also sets the player timestamp, which will update the timestamps in the form
@@ -100,7 +124,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
             try {
                 await api.comments.create({
                     content: emoji,
-                    scope: 'recording',
+                    scope: 'Replay',
                     item_id: props.recordingId,
                     item_context: {
                         is_emoji: true,
@@ -122,18 +146,20 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 timeInRecording: values.formattedTimestamp ?? '00:00:00',
                 dateForTimestamp: null,
                 content: '',
+                richContent: null,
                 recordingId: null,
                 commentId: null,
             } as RecordingCommentForm,
-            errors: ({ content }) => ({
-                content: !content?.trim()
-                    ? 'A comment must have text content.'
-                    : content.length > 400
-                      ? 'Must be 400 characters or less'
-                      : null,
-            }),
+            errors: ({ content, richContent }) => {
+                return {
+                    content:
+                        !content?.trim() && !Object.keys(richContent ?? {}).length
+                            ? 'A comment must have some content.'
+                            : null,
+                }
+            },
             submit: async (data) => {
-                const { commentId, content, dateForTimestamp } = data
+                const { commentId, content, richContent, dateForTimestamp } = data
 
                 if (!dateForTimestamp) {
                     throw new Error('Cannot comment without a timestamp.')
@@ -141,12 +167,14 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
 
                 const apiPayload = {
                     content,
-                    scope: 'recording',
+                    rich_content: richContent,
+                    scope: 'Replay',
                     item_id: props.recordingId,
                     item_context: {
                         time_in_recording: dateForTimestamp.toISOString(),
                     },
                 }
+
                 if (commentId) {
                     await api.comments.update(commentId, apiPayload)
                 } else {

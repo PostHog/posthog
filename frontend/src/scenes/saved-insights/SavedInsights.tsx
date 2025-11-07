@@ -13,6 +13,7 @@ import {
     IconHogQL,
     IconLifecycle,
     IconLive,
+    IconLlmAnalytics,
     IconPerson,
     IconPieChart,
     IconPiggyBank,
@@ -34,7 +35,6 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -56,11 +56,11 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
@@ -401,6 +401,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconCorrelationAnalysis,
         inMenu: false,
     },
+    [NodeKind.ErrorTrackingSimilarIssuesQuery]: {
+        name: 'Error Tracking Similar Issues',
+        description: 'Explore issues similar to the selected one.',
+        icon: IconWarning,
+        inMenu: false,
+    },
+    [NodeKind.ErrorTrackingBreakdownsQuery]: {
+        name: 'Error Tracking Breakdowns',
+        description: 'Break down error tracking issues by properties.',
+        icon: IconWarning,
+        inMenu: false,
+    },
     [NodeKind.RecordingsQuery]: {
         name: 'Session Recordings',
         description: 'View available recordings.',
@@ -472,11 +484,17 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.TracesQuery]: {
         name: 'LLM Analytics Traces',
-        icon: IconAI,
+        icon: IconLlmAnalytics,
         inMenu: false,
     },
     [NodeKind.TraceQuery]: {
         name: 'LLM Analytics Trace',
+        icon: IconLlmAnalytics,
+        inMenu: false,
+    },
+    [NodeKind.DocumentSimilarityQuery]: {
+        name: 'Document Similarity',
+        description: 'Find documents similar to a given query.',
         icon: IconAI,
         inMenu: false,
     },
@@ -498,6 +516,16 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.MarketingAnalyticsTableQuery]: {
         name: 'Marketing Analytics Table',
         icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.MarketingAnalyticsAggregatedQuery]: {
+        name: 'Marketing Analytics Aggregated',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.UsageMetricsQuery]: {
+        name: 'Usage Metrics',
+        icon: IconPieChart,
         inMenu: false,
     },
 }
@@ -726,6 +754,18 @@ export function SavedInsights(): JSX.Element {
             },
         },
         {
+            title: 'Last viewed',
+            sorter: true,
+            dataIndex: 'last_viewed_at',
+            render: function renderLastViewed(last_viewed_at: string | null) {
+                return (
+                    <div className="whitespace-nowrap">
+                        {last_viewed_at ? <TZLabel time={last_viewed_at} /> : <span className="text-muted">Never</span>}
+                    </div>
+                )
+            },
+        },
+        {
             width: 0,
             render: function Render(_, insight) {
                 return (
@@ -802,15 +842,14 @@ export function SavedInsights(): JSX.Element {
 
     return (
         <SceneContent className={cn('saved-insights')}>
-            <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
             <SceneTitleSection
-                name="Product analytics"
-                description="Track, analyze, and experiment with user behavior."
+                name={sceneConfigurations[Scene.SavedInsights].name}
+                description={sceneConfigurations[Scene.SavedInsights].description}
                 resourceType={{
-                    type: 'product_analytics',
+                    type: sceneConfigurations[Scene.SavedInsights].iconType || 'default_icon_type',
                 }}
+                actions={<NewInsightButton dataAttr="saved-insights-create-new-insight" />}
             />
-            <SceneDivider />
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
@@ -834,8 +873,8 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
-                    <LemonDivider className={cn('my-4 my-0')} />
-                    <div className={cn('flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center', 'my-0')}>
+                    <LemonDivider className="my-0" />
+                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center my-0">
                         <span className="text-secondary">
                             {count
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${

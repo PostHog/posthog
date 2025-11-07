@@ -67,6 +67,7 @@ export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Eleme
 interface ManageAlertsModalProps extends InsightAlertsLogicProps {
     isOpen: boolean
     insightShortId: InsightShortId
+    canCreateAlertForInsight: boolean
     onClose?: () => void
 }
 
@@ -115,7 +116,15 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
             </LemonModal.Content>
 
             <LemonModal.Footer>
-                <LemonButton type="primary" onClick={() => push(urls.insightAlert(props.insightShortId, 'new'))}>
+                <LemonButton
+                    type="primary"
+                    onClick={() => push(urls.insightAlert(props.insightShortId, 'new'))}
+                    disabledReason={
+                        !props.canCreateAlertForInsight
+                            ? 'Alerts are only available for trends. Change the insight representation to add alerts.'
+                            : undefined
+                    }
+                >
                     New alert
                 </LemonButton>
                 <LemonButton type="secondary" onClick={props.onClose}>

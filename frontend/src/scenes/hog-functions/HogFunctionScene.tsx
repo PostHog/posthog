@@ -1,11 +1,12 @@
 import { BindLogic, actions, connect, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -24,7 +25,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ActivityScope,
@@ -59,7 +59,10 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     key(({ id, templateId }: HogFunctionConfigurationLogicProps) => id ?? templateId ?? 'new'),
     path((key) => ['scenes', 'hog-functions', 'hogFunctionSceneLogic', key]),
     connect((props: HogFunctionConfigurationLogicProps) => ({
-        values: [hogFunctionConfigurationLogic(props), ['configuration', 'type', 'loading', 'loaded']],
+        values: [
+            hogFunctionConfigurationLogic(props),
+            ['configuration', 'type', 'loading', 'loaded', 'teamHasCohortFilters', 'currentProjectId'],
+        ],
     })),
     actions({
         setCurrentTab: (tab: HogFunctionSceneTab) => ({ tab }),
@@ -101,6 +104,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         {
                             key: Scene.HogFunction,
                             name: 'Loading...',
+                            iconType: 'data_pipeline',
                         },
                     ]
                 }
@@ -108,6 +112,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 const finalCrumb: Breadcrumb = {
                     key: Scene.HogFunction,
                     name: configuration?.name || '(Untitled)',
+                    iconType: 'data_pipeline',
                 }
 
                 if (type === 'internal_destination' && alertId) {
@@ -116,11 +121,13 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                             key: Scene.Insight,
                             name: 'Insight',
                             path: urls.alerts(),
+                            iconType: 'data_pipeline',
                         },
                         {
                             key: 'alert',
                             name: 'Alert',
                             path: urls.alert(alertId),
+                            iconType: 'data_pipeline',
                         },
                         finalCrumb,
                     ]
@@ -134,6 +141,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                             key: Scene.DataPipelines,
                             name: 'Data pipelines',
                             path: urls.dataPipelines('overview'),
+                            iconType: 'data_pipeline',
                         },
                         {
                             key: [Scene.DataPipelines, pipelineTab],
@@ -141,6 +149,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                             path: id
                                 ? urls.dataPipelines(pipelineTab)
                                 : urls.dataPipelinesNew(type as DataPipelinesNewSceneKind),
+                            iconType: 'data_pipeline',
                         },
                         finalCrumb,
                     ]
@@ -232,12 +241,32 @@ function HogFunctionHeader(): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                buttons={
+            <SceneTitleSection
+                name={configuration.name}
+                description={configuration.description || ''}
+                resourceType={{
+                    type: 'data_pipeline',
+                    forceIcon: (
+                        <span className="flex">
+                            <HogFunctionIconEditable
+                                logicKey={logicProps.id ?? 'new'}
+                                src={configuration.icon_url}
+                                onChange={(val) => setConfigurationValue('icon_url', val)}
+                                size="small"
+                            />
+                        </span>
+                    ),
+                }}
+                isLoading={loading}
+                onNameChange={(value) => setConfigurationValue('name', value)}
+                onDescriptionChange={(value) => setConfigurationValue('description', value)}
+                canEdit
+                actions={
                     <>
                         {!logicProps.templateId && (
                             <>
                                 <More
+                                    size="small"
                                     overlay={
                                         <>
                                             {!isLegacyPlugin && (
@@ -260,36 +289,23 @@ function HogFunctionHeader(): JSX.Element {
                     </>
                 }
             />
-            <SceneTitleSection
-                name={configuration.name}
-                description={configuration.description || ''}
-                resourceType={{
-                    type: 'data_pipeline',
-                    forceIcon: (
-                        <span className="ml-2 flex">
-                            <HogFunctionIconEditable
-                                logicKey={logicProps.id ?? 'new'}
-                                src={configuration.icon_url}
-                                onChange={(val) => setConfigurationValue('icon_url', val)}
-                                size="small"
-                            />
-                        </span>
-                    ),
-                }}
-                isLoading={loading}
-                onNameChange={(value) => setConfigurationValue('name', value)}
-                onDescriptionChange={(value) => setConfigurationValue('description', value)}
-                canEdit
-            />
         </>
     )
 }
 
 export function HogFunctionScene(): JSX.Element {
-    const { currentTab, loading, loaded, logicProps, type } = useValues(hogFunctionSceneLogic)
+    const { currentTab, loading, loaded, logicProps, type, teamHasCohortFilters, currentProjectId } =
+        useValues(hogFunctionSceneLogic)
     const { setCurrentTab } = useActions(hogFunctionSceneLogic)
 
     const { id, templateId } = logicProps
+
+    useFileSystemLogView({
+        type: `hog_function/${type ?? ''}`,
+        ref: id ?? null,
+        enabled: Boolean(id && type && loaded),
+        deps: [id, type, loaded],
+    })
 
     if (loading && !loaded) {
         return (
@@ -347,7 +363,17 @@ export function HogFunctionScene(): JSX.Element {
         <SceneContent>
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
                 <HogFunctionHeader />
-                <SceneDivider />
+                {teamHasCohortFilters && (
+                    <LemonBanner type="warning" className="mb-4">
+                        <strong>Warning:</strong> This function has "Filter out internal and test users" enabled, but
+                        your team's test account filters include cohorts. Cohorts cannot be used in real-time filters
+                        and may cause this function to fail. Please update your{' '}
+                        <Link to={`/project/${currentProjectId}/settings/project#internal-user-filtering`}>
+                            test account filters
+                        </Link>{' '}
+                        to use inline expressions instead of cohorts.
+                    </LemonBanner>
+                )}
                 {templateId ? (
                     <HogFunctionConfiguration templateId={templateId} />
                 ) : (

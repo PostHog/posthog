@@ -10,6 +10,7 @@
           chain: [
             "uuid"
           ]
+          from_asterisk: True
           type: {
             name: "uuid"
             table_type: {
@@ -39,6 +40,9 @@
                             hidden: False
                           },
                           $session_id: {
+                            hidden: False
+                          },
+                          $session_id_uuid: {
                             hidden: False
                           },
                           $window_id: {
@@ -120,6 +124,9 @@
                             hidden: False
                           },
                           person_id: {
+                            hidden: False
+                          },
+                          person_mode: {
                             hidden: False
                           },
                           poe: {
@@ -315,6 +322,13 @@
                     }
                   }
                 },
+                person_mode: {
+                  alias: "person_mode"
+                  type: {
+                    name: "person_mode"
+                    table_type: <recursion ...>
+                  }
+                },
                 properties: {
                   alias: "properties"
                   type: {
@@ -345,6 +359,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "uuid"
@@ -357,11 +372,13 @@
           chain: [
             "event"
           ]
+          from_asterisk: True
           type: {
             name: "event"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event"
@@ -374,11 +391,13 @@
           chain: [
             "properties"
           ]
+          from_asterisk: True
           type: {
             name: "properties"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "properties"
@@ -391,11 +410,13 @@
           chain: [
             "timestamp"
           ]
+          from_asterisk: True
           type: {
             name: "timestamp"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "timestamp"
@@ -408,11 +429,13 @@
           chain: [
             "distinct_id"
           ]
+          from_asterisk: True
           type: {
             name: "distinct_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "distinct_id"
@@ -425,11 +448,13 @@
           chain: [
             "elements_chain"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain"
@@ -442,11 +467,13 @@
           chain: [
             "created_at"
           ]
+          from_asterisk: True
           type: {
             name: "created_at"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "created_at"
@@ -459,11 +486,13 @@
           chain: [
             "$session_id"
           ]
+          from_asterisk: True
           type: {
             name: "$session_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$session_id"
@@ -476,14 +505,35 @@
           chain: [
             "$window_id"
           ]
+          from_asterisk: True
           type: {
             name: "$window_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          from_asterisk: True
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "person_mode"
           type: <recursion ...>
         }
       },
@@ -493,11 +543,13 @@
           chain: [
             "person_id"
           ]
+          from_asterisk: True
           type: {
             name: "person_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "person_id"
@@ -510,11 +562,13 @@
           chain: [
             "$group_0"
           ]
+          from_asterisk: True
           type: {
             name: "$group_0"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_0"
@@ -527,11 +581,13 @@
           chain: [
             "$group_1"
           ]
+          from_asterisk: True
           type: {
             name: "$group_1"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_1"
@@ -544,11 +600,13 @@
           chain: [
             "$group_2"
           ]
+          from_asterisk: True
           type: {
             name: "$group_2"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_2"
@@ -561,11 +619,13 @@
           chain: [
             "$group_3"
           ]
+          from_asterisk: True
           type: {
             name: "$group_3"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_3"
@@ -578,11 +638,13 @@
           chain: [
             "$group_4"
           ]
+          from_asterisk: True
           type: {
             name: "$group_4"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_4"
@@ -595,11 +657,13 @@
           chain: [
             "elements_chain_href"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_href"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_href"
@@ -612,11 +676,13 @@
           chain: [
             "elements_chain_texts"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_texts"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_texts"
@@ -629,11 +695,13 @@
           chain: [
             "elements_chain_ids"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_ids"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_ids"
@@ -646,11 +714,13 @@
           chain: [
             "elements_chain_elements"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_elements"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_elements"
@@ -663,11 +733,13 @@
           chain: [
             "event_person_id"
           ]
+          from_asterisk: True
           type: {
             name: "event_person_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event_person_id"
@@ -680,11 +752,13 @@
           chain: [
             "event_issue_id"
           ]
+          from_asterisk: True
           type: {
             name: "event_issue_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event_issue_id"
@@ -697,11 +771,13 @@
           chain: [
             "issue_id"
           ]
+          from_asterisk: True
           type: {
             name: "issue_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "issue_id"
@@ -718,8 +794,10 @@
               chain: [
                 "uuid"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -729,8 +807,10 @@
               chain: [
                 "event"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -740,8 +820,10 @@
               chain: [
                 "properties"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -751,8 +833,10 @@
               chain: [
                 "timestamp"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -762,8 +846,10 @@
               chain: [
                 "distinct_id"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -773,8 +859,10 @@
               chain: [
                 "elements_chain"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -784,8 +872,10 @@
               chain: [
                 "created_at"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -795,8 +885,10 @@
               chain: [
                 "$session_id"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -806,8 +898,23 @@
               chain: [
                 "$window_id"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
+            hidden: True
+            type: <recursion ...>
+          },
+          {
+            alias: "person_mode"
+            expr: {
+              chain: [
+                "person_mode"
+              ]
+              from_asterisk: True
+              type: <recursion ...>
+            }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -826,6 +933,7 @@
                               "override",
                               "distinct_id"
                             ]
+                            from_asterisk: False
                             type: {
                               name: "distinct_id"
                               table_type: {
@@ -859,6 +967,7 @@
                               }
                             }
                           }
+                          from_asterisk: False
                           hidden: True
                           type: {
                             alias: "distinct_id"
@@ -877,8 +986,8 @@
                         ]
                         name: "empty"
                         return_type: {
-                          data_type: "unknown"
-                          nullable: True
+                          data_type: "int"
+                          nullable: False
                         }
                       }
                     }
@@ -900,6 +1009,7 @@
                       "override",
                       "person_id"
                     ]
+                    from_asterisk: False
                     type: {
                       name: "person_id"
                       table_type: {
@@ -933,6 +1043,7 @@
                       }
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "person_id"
@@ -945,11 +1056,13 @@
                     chain: [
                       "event_person_id"
                     ]
+                    from_asterisk: False
                     type: {
                       name: "event_person_id"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "event_person_id"
@@ -961,6 +1074,7 @@
               name: "if"
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -970,8 +1084,10 @@
               chain: [
                 "$group_0"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -981,8 +1097,10 @@
               chain: [
                 "$group_1"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -992,8 +1110,10 @@
               chain: [
                 "$group_2"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -1003,8 +1123,10 @@
               chain: [
                 "$group_3"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -1014,8 +1136,10 @@
               chain: [
                 "$group_4"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -1025,8 +1149,10 @@
               chain: [
                 "elements_chain_href"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -1036,8 +1162,10 @@
               chain: [
                 "elements_chain_texts"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -1047,8 +1175,10 @@
               chain: [
                 "elements_chain_ids"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -1058,8 +1188,10 @@
               chain: [
                 "elements_chain_elements"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -1069,8 +1201,10 @@
               chain: [
                 "event_person_id"
               ]
+              from_asterisk: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -1086,6 +1220,7 @@
                       "$exception_issue_id"
                     ]
                     end: 37
+                    from_asterisk: False
                     start: 7
                     type: {
                       chain: [
@@ -1097,6 +1232,7 @@
                       }
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "$exception_issue_id"
@@ -1110,6 +1246,7 @@
               start: 0
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           },
@@ -1128,6 +1265,7 @@
                               "exception_issue_override",
                               "issue_id"
                             ]
+                            from_asterisk: False
                             type: {
                               name: "issue_id"
                               table_type: {
@@ -1158,6 +1296,7 @@
                               }
                             }
                           }
+                          from_asterisk: False
                           hidden: True
                           type: {
                             alias: "issue_id"
@@ -1176,8 +1315,8 @@
                         ]
                         name: "empty"
                         return_type: {
-                          data_type: "unknown"
-                          nullable: True
+                          data_type: "int"
+                          nullable: False
                         }
                       }
                     }
@@ -1199,6 +1338,7 @@
                       "exception_issue_override",
                       "issue_id"
                     ]
+                    from_asterisk: False
                     type: {
                       name: "issue_id"
                       table_type: {
@@ -1229,6 +1369,7 @@
                       }
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "issue_id"
@@ -1247,6 +1388,7 @@
                             "$exception_issue_id"
                           ]
                           end: 37
+                          from_asterisk: False
                           start: 7
                           type: {
                             chain: [
@@ -1258,6 +1400,7 @@
                             }
                           }
                         }
+                        from_asterisk: False
                         hidden: True
                         type: {
                           alias: "$exception_issue_id"
@@ -1280,6 +1423,7 @@
                       return_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "event_issue_id"
@@ -1291,6 +1435,7 @@
               name: "if"
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: True
             type: <recursion ...>
           }
@@ -1300,6 +1445,7 @@
             chain: [
               "events"
             ]
+            from_asterisk: False
             type: <recursion ...>
           }
           type: <recursion ...>
@@ -1333,6 +1479,7 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -1355,6 +1502,7 @@
           chain: [
             "uuid"
           ]
+          from_asterisk: True
           type: {
             name: "uuid"
             table_type: {
@@ -1376,6 +1524,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -1462,6 +1613,9 @@
                   person_id: {
                     hidden: False
                   },
+                  person_mode: {
+                    hidden: False
+                  },
                   poe: {
                     hidden: False
                   },
@@ -1486,6 +1640,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "uuid"
@@ -1498,11 +1653,13 @@
           chain: [
             "event"
           ]
+          from_asterisk: True
           type: {
             name: "event"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event"
@@ -1515,11 +1672,13 @@
           chain: [
             "properties"
           ]
+          from_asterisk: True
           type: {
             name: "properties"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "properties"
@@ -1532,11 +1691,13 @@
           chain: [
             "timestamp"
           ]
+          from_asterisk: True
           type: {
             name: "timestamp"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "timestamp"
@@ -1549,11 +1710,13 @@
           chain: [
             "distinct_id"
           ]
+          from_asterisk: True
           type: {
             name: "distinct_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "distinct_id"
@@ -1566,11 +1729,13 @@
           chain: [
             "elements_chain"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain"
@@ -1583,11 +1748,13 @@
           chain: [
             "created_at"
           ]
+          from_asterisk: True
           type: {
             name: "created_at"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "created_at"
@@ -1600,11 +1767,13 @@
           chain: [
             "$session_id"
           ]
+          from_asterisk: True
           type: {
             name: "$session_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$session_id"
@@ -1617,14 +1786,35 @@
           chain: [
             "$window_id"
           ]
+          from_asterisk: True
           type: {
             name: "$window_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          from_asterisk: True
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "person_mode"
           type: <recursion ...>
         }
       },
@@ -1643,6 +1833,7 @@
                           "override",
                           "distinct_id"
                         ]
+                        from_asterisk: False
                         type: {
                           name: "distinct_id"
                           table_type: {
@@ -1676,6 +1867,7 @@
                           }
                         }
                       }
+                      from_asterisk: False
                       hidden: True
                       type: {
                         alias: "distinct_id"
@@ -1694,8 +1886,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -1720,6 +1912,7 @@
                   "override",
                   "person_id"
                 ]
+                from_asterisk: False
                 type: {
                   name: "person_id"
                   table_type: {
@@ -1753,6 +1946,7 @@
                   }
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "person_id"
@@ -1765,11 +1959,13 @@
                 chain: [
                   "event_person_id"
                 ]
+                from_asterisk: False
                 type: {
                   name: "event_person_id"
                   table_type: <recursion ...>
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "event_person_id"
@@ -1798,6 +1994,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "person_id"
@@ -1810,11 +2007,13 @@
           chain: [
             "$group_0"
           ]
+          from_asterisk: True
           type: {
             name: "$group_0"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_0"
@@ -1827,11 +2026,13 @@
           chain: [
             "$group_1"
           ]
+          from_asterisk: True
           type: {
             name: "$group_1"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_1"
@@ -1844,11 +2045,13 @@
           chain: [
             "$group_2"
           ]
+          from_asterisk: True
           type: {
             name: "$group_2"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_2"
@@ -1861,11 +2064,13 @@
           chain: [
             "$group_3"
           ]
+          from_asterisk: True
           type: {
             name: "$group_3"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_3"
@@ -1878,11 +2083,13 @@
           chain: [
             "$group_4"
           ]
+          from_asterisk: True
           type: {
             name: "$group_4"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_4"
@@ -1895,11 +2102,13 @@
           chain: [
             "elements_chain_href"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_href"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_href"
@@ -1912,11 +2121,13 @@
           chain: [
             "elements_chain_texts"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_texts"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_texts"
@@ -1929,11 +2140,13 @@
           chain: [
             "elements_chain_ids"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_ids"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_ids"
@@ -1946,11 +2159,13 @@
           chain: [
             "elements_chain_elements"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_elements"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_elements"
@@ -1963,11 +2178,13 @@
           chain: [
             "event_person_id"
           ]
+          from_asterisk: True
           type: {
             name: "event_person_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event_person_id"
@@ -1986,6 +2203,7 @@
                   "$exception_issue_id"
                 ]
                 end: 37
+                from_asterisk: False
                 start: 7
                 type: {
                   chain: [
@@ -1997,6 +2215,7 @@
                   }
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "$exception_issue_id"
@@ -2022,6 +2241,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event_issue_id"
@@ -2043,6 +2263,7 @@
                           "exception_issue_override",
                           "issue_id"
                         ]
+                        from_asterisk: False
                         type: {
                           name: "issue_id"
                           table_type: {
@@ -2073,6 +2294,7 @@
                           }
                         }
                       }
+                      from_asterisk: False
                       hidden: True
                       type: {
                         alias: "issue_id"
@@ -2091,8 +2313,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -2117,6 +2339,7 @@
                   "exception_issue_override",
                   "issue_id"
                 ]
+                from_asterisk: False
                 type: {
                   name: "issue_id"
                   table_type: {
@@ -2147,6 +2370,7 @@
                   }
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "issue_id"
@@ -2165,6 +2389,7 @@
                         "$exception_issue_id"
                       ]
                       end: 37
+                      from_asterisk: False
                       start: 7
                       type: {
                         chain: [
@@ -2176,6 +2401,7 @@
                         }
                       }
                     }
+                    from_asterisk: False
                     hidden: True
                     type: {
                       alias: "$exception_issue_id"
@@ -2201,6 +2427,7 @@
                   }
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "event_issue_id"
@@ -2226,6 +2453,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "issue_id"
@@ -2238,6 +2466,7 @@
         chain: [
           "events"
         ]
+        from_asterisk: False
         type: <recursion ...>
       }
       type: <recursion ...>
@@ -2265,6 +2494,7 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -2290,6 +2520,7 @@
             "e",
             "session_id"
           ]
+          from_asterisk: True
           type: {
             name: "session_id"
             table_type: {
@@ -2382,6 +2613,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "session_id"
@@ -2395,11 +2627,13 @@
             "e",
             "distinct_id"
           ]
+          from_asterisk: True
           type: {
             name: "distinct_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "distinct_id"
@@ -2413,11 +2647,13 @@
             "e",
             "first_url"
           ]
+          from_asterisk: True
           type: {
             name: "first_url"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "first_url"
@@ -2431,11 +2667,13 @@
             "e",
             "all_urls"
           ]
+          from_asterisk: True
           type: {
             name: "all_urls"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "all_urls"
@@ -2449,11 +2687,13 @@
             "e",
             "click_count"
           ]
+          from_asterisk: True
           type: {
             name: "click_count"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "click_count"
@@ -2467,11 +2707,13 @@
             "e",
             "keypress_count"
           ]
+          from_asterisk: True
           type: {
             name: "keypress_count"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "keypress_count"
@@ -2485,11 +2727,13 @@
             "e",
             "mouse_activity_count"
           ]
+          from_asterisk: True
           type: {
             name: "mouse_activity_count"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "mouse_activity_count"
@@ -2503,11 +2747,13 @@
             "e",
             "active_milliseconds"
           ]
+          from_asterisk: True
           type: {
             name: "active_milliseconds"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "active_milliseconds"
@@ -2521,11 +2767,13 @@
             "e",
             "console_log_count"
           ]
+          from_asterisk: True
           type: {
             name: "console_log_count"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "console_log_count"
@@ -2539,11 +2787,13 @@
             "e",
             "console_warn_count"
           ]
+          from_asterisk: True
           type: {
             name: "console_warn_count"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "console_warn_count"
@@ -2557,11 +2807,13 @@
             "e",
             "console_error_count"
           ]
+          from_asterisk: True
           type: {
             name: "console_error_count"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "console_error_count"
@@ -2575,11 +2827,13 @@
             "e",
             "size"
           ]
+          from_asterisk: True
           type: {
             name: "size"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "size"
@@ -2593,11 +2847,13 @@
             "e",
             "event_count"
           ]
+          from_asterisk: True
           type: {
             name: "event_count"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event_count"
@@ -2611,11 +2867,13 @@
             "e",
             "message_count"
           ]
+          from_asterisk: True
           type: {
             name: "message_count"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "message_count"
@@ -2629,11 +2887,13 @@
             "e",
             "snapshot_source"
           ]
+          from_asterisk: True
           type: {
             name: "snapshot_source"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "snapshot_source"
@@ -2647,11 +2907,13 @@
             "e",
             "retention_period_days"
           ]
+          from_asterisk: True
           type: {
             name: "retention_period_days"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "retention_period_days"
@@ -2665,11 +2927,13 @@
             "e",
             "start_time"
           ]
+          from_asterisk: True
           type: {
             name: "start_time"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "start_time"
@@ -2683,11 +2947,13 @@
             "e",
             "end_time"
           ]
+          from_asterisk: True
           type: {
             name: "end_time"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "end_time"
@@ -2709,6 +2975,7 @@
                   "s",
                   "session_id"
                 ]
+                from_asterisk: False
                 type: {
                   name: "session_id"
                   table_type: {
@@ -2870,6 +3137,7 @@
                   }
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "session_id"
@@ -2884,11 +3152,13 @@
                   "e",
                   "session_id"
                 ]
+                from_asterisk: False
                 type: {
                   name: "session_id"
                   table_type: <recursion ...>
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "session_id"
@@ -2906,6 +3176,7 @@
           chain: [
             "sessions"
           ]
+          from_asterisk: False
           type: <recursion ...>
         }
         type: <recursion ...>
@@ -2914,6 +3185,7 @@
         chain: [
           "session_replay_events"
         ]
+        from_asterisk: False
         type: <recursion ...>
       }
       type: <recursion ...>
@@ -2963,6 +3235,7 @@
             "x",
             "a"
           ]
+          from_asterisk: True
           type: {
             name: "a"
             table_type: {
@@ -2996,6 +3269,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "a"
@@ -3009,11 +3283,13 @@
             "x",
             "b"
           ]
+          from_asterisk: True
           type: {
             name: "b"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "b"
@@ -3035,11 +3311,13 @@
                   "x",
                   "a"
                 ]
+                from_asterisk: False
                 type: {
                   name: "a"
                   table_type: <recursion ...>
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "a"
@@ -3054,6 +3332,7 @@
                   "y",
                   "a"
                 ]
+                from_asterisk: False
                 type: {
                   name: "a"
                   table_type: {
@@ -3087,6 +3366,7 @@
                   }
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "a"
@@ -3108,6 +3388,7 @@
                 type: <recursion ...>
                 value: 1
               }
+              from_asterisk: False
               hidden: False
               type: <recursion ...>
             },
@@ -3117,6 +3398,7 @@
                 type: <recursion ...>
                 value: 2
               }
+              from_asterisk: False
               hidden: False
               type: <recursion ...>
             }
@@ -3133,6 +3415,7 @@
               type: <recursion ...>
               value: 1
             }
+            from_asterisk: False
             hidden: False
             type: <recursion ...>
           },
@@ -3142,6 +3425,7 @@
               type: <recursion ...>
               value: 2
             }
+            from_asterisk: False
             hidden: False
             type: <recursion ...>
           }
@@ -3178,6 +3462,7 @@
           chain: [
             "uuid"
           ]
+          from_asterisk: True
           type: {
             name: "uuid"
             table_type: {
@@ -3207,6 +3492,9 @@
                             hidden: False
                           },
                           $session_id: {
+                            hidden: False
+                          },
+                          $session_id_uuid: {
                             hidden: False
                           },
                           $window_id: {
@@ -3288,6 +3576,9 @@
                             hidden: False
                           },
                           person_id: {
+                            hidden: False
+                          },
+                          person_mode: {
                             hidden: False
                           },
                           poe: {
@@ -3483,6 +3774,13 @@
                     }
                   }
                 },
+                person_mode: {
+                  alias: "person_mode"
+                  type: {
+                    name: "person_mode"
+                    table_type: <recursion ...>
+                  }
+                },
                 properties: {
                   alias: "properties"
                   type: {
@@ -3513,6 +3811,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "uuid"
@@ -3525,11 +3824,13 @@
           chain: [
             "event"
           ]
+          from_asterisk: True
           type: {
             name: "event"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event"
@@ -3542,11 +3843,13 @@
           chain: [
             "properties"
           ]
+          from_asterisk: True
           type: {
             name: "properties"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "properties"
@@ -3559,11 +3862,13 @@
           chain: [
             "timestamp"
           ]
+          from_asterisk: True
           type: {
             name: "timestamp"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "timestamp"
@@ -3576,11 +3881,13 @@
           chain: [
             "distinct_id"
           ]
+          from_asterisk: True
           type: {
             name: "distinct_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "distinct_id"
@@ -3593,11 +3900,13 @@
           chain: [
             "elements_chain"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain"
@@ -3610,11 +3919,13 @@
           chain: [
             "created_at"
           ]
+          from_asterisk: True
           type: {
             name: "created_at"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "created_at"
@@ -3627,11 +3938,13 @@
           chain: [
             "$session_id"
           ]
+          from_asterisk: True
           type: {
             name: "$session_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$session_id"
@@ -3644,14 +3957,35 @@
           chain: [
             "$window_id"
           ]
+          from_asterisk: True
           type: {
             name: "$window_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          from_asterisk: True
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "person_mode"
           type: <recursion ...>
         }
       },
@@ -3661,11 +3995,13 @@
           chain: [
             "person_id"
           ]
+          from_asterisk: True
           type: {
             name: "person_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "person_id"
@@ -3678,11 +4014,13 @@
           chain: [
             "$group_0"
           ]
+          from_asterisk: True
           type: {
             name: "$group_0"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_0"
@@ -3695,11 +4033,13 @@
           chain: [
             "$group_1"
           ]
+          from_asterisk: True
           type: {
             name: "$group_1"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_1"
@@ -3712,11 +4052,13 @@
           chain: [
             "$group_2"
           ]
+          from_asterisk: True
           type: {
             name: "$group_2"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_2"
@@ -3729,11 +4071,13 @@
           chain: [
             "$group_3"
           ]
+          from_asterisk: True
           type: {
             name: "$group_3"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_3"
@@ -3746,11 +4090,13 @@
           chain: [
             "$group_4"
           ]
+          from_asterisk: True
           type: {
             name: "$group_4"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_4"
@@ -3763,11 +4109,13 @@
           chain: [
             "elements_chain_href"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_href"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_href"
@@ -3780,11 +4128,13 @@
           chain: [
             "elements_chain_texts"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_texts"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_texts"
@@ -3797,11 +4147,13 @@
           chain: [
             "elements_chain_ids"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_ids"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_ids"
@@ -3814,11 +4166,13 @@
           chain: [
             "elements_chain_elements"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_elements"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_elements"
@@ -3831,11 +4185,13 @@
           chain: [
             "event_person_id"
           ]
+          from_asterisk: True
           type: {
             name: "event_person_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event_person_id"
@@ -3848,11 +4204,13 @@
           chain: [
             "event_issue_id"
           ]
+          from_asterisk: True
           type: {
             name: "event_issue_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event_issue_id"
@@ -3865,11 +4223,13 @@
           chain: [
             "issue_id"
           ]
+          from_asterisk: True
           type: {
             name: "issue_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "issue_id"
@@ -3887,8 +4247,10 @@
                 chain: [
                   "uuid"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -3898,8 +4260,10 @@
                 chain: [
                   "event"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -3909,8 +4273,10 @@
                 chain: [
                   "properties"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -3920,8 +4286,10 @@
                 chain: [
                   "timestamp"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -3931,8 +4299,10 @@
                 chain: [
                   "distinct_id"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -3942,8 +4312,10 @@
                 chain: [
                   "elements_chain"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -3953,8 +4325,10 @@
                 chain: [
                   "created_at"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -3964,8 +4338,10 @@
                 chain: [
                   "$session_id"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -3975,8 +4351,23 @@
                 chain: [
                   "$window_id"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
+              hidden: True
+              type: <recursion ...>
+            },
+            {
+              alias: "person_mode"
+              expr: {
+                chain: [
+                  "person_mode"
+                ]
+                from_asterisk: True
+                type: <recursion ...>
+              }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -3995,6 +4386,7 @@
                                 "override",
                                 "distinct_id"
                               ]
+                              from_asterisk: False
                               type: {
                                 name: "distinct_id"
                                 table_type: {
@@ -4028,6 +4420,7 @@
                                 }
                               }
                             }
+                            from_asterisk: False
                             hidden: True
                             type: {
                               alias: "distinct_id"
@@ -4046,8 +4439,8 @@
                           ]
                           name: "empty"
                           return_type: {
-                            data_type: "unknown"
-                            nullable: True
+                            data_type: "int"
+                            nullable: False
                           }
                         }
                       }
@@ -4069,6 +4462,7 @@
                         "override",
                         "person_id"
                       ]
+                      from_asterisk: False
                       type: {
                         name: "person_id"
                         table_type: {
@@ -4102,6 +4496,7 @@
                         }
                       }
                     }
+                    from_asterisk: False
                     hidden: True
                     type: {
                       alias: "person_id"
@@ -4114,11 +4509,13 @@
                       chain: [
                         "event_person_id"
                       ]
+                      from_asterisk: False
                       type: {
                         name: "event_person_id"
                         table_type: <recursion ...>
                       }
                     }
+                    from_asterisk: False
                     hidden: True
                     type: {
                       alias: "event_person_id"
@@ -4130,6 +4527,7 @@
                 name: "if"
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -4139,8 +4537,10 @@
                 chain: [
                   "$group_0"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -4150,8 +4550,10 @@
                 chain: [
                   "$group_1"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -4161,8 +4563,10 @@
                 chain: [
                   "$group_2"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -4172,8 +4576,10 @@
                 chain: [
                   "$group_3"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -4183,8 +4589,10 @@
                 chain: [
                   "$group_4"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -4194,8 +4602,10 @@
                 chain: [
                   "elements_chain_href"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -4205,8 +4615,10 @@
                 chain: [
                   "elements_chain_texts"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -4216,8 +4628,10 @@
                 chain: [
                   "elements_chain_ids"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -4227,8 +4641,10 @@
                 chain: [
                   "elements_chain_elements"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -4238,8 +4654,10 @@
                 chain: [
                   "event_person_id"
                 ]
+                from_asterisk: True
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -4255,6 +4673,7 @@
                         "$exception_issue_id"
                       ]
                       end: 37
+                      from_asterisk: False
                       start: 7
                       type: {
                         chain: [
@@ -4266,6 +4685,7 @@
                         }
                       }
                     }
+                    from_asterisk: False
                     hidden: True
                     type: {
                       alias: "$exception_issue_id"
@@ -4279,6 +4699,7 @@
                 start: 0
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             },
@@ -4297,6 +4718,7 @@
                                 "exception_issue_override",
                                 "issue_id"
                               ]
+                              from_asterisk: False
                               type: {
                                 name: "issue_id"
                                 table_type: {
@@ -4327,6 +4749,7 @@
                                 }
                               }
                             }
+                            from_asterisk: False
                             hidden: True
                             type: {
                               alias: "issue_id"
@@ -4345,8 +4768,8 @@
                           ]
                           name: "empty"
                           return_type: {
-                            data_type: "unknown"
-                            nullable: True
+                            data_type: "int"
+                            nullable: False
                           }
                         }
                       }
@@ -4368,6 +4791,7 @@
                         "exception_issue_override",
                         "issue_id"
                       ]
+                      from_asterisk: False
                       type: {
                         name: "issue_id"
                         table_type: {
@@ -4398,6 +4822,7 @@
                         }
                       }
                     }
+                    from_asterisk: False
                     hidden: True
                     type: {
                       alias: "issue_id"
@@ -4416,6 +4841,7 @@
                               "$exception_issue_id"
                             ]
                             end: 37
+                            from_asterisk: False
                             start: 7
                             type: {
                               chain: [
@@ -4427,6 +4853,7 @@
                               }
                             }
                           }
+                          from_asterisk: False
                           hidden: True
                           type: {
                             alias: "$exception_issue_id"
@@ -4449,6 +4876,7 @@
                         return_type: <recursion ...>
                       }
                     }
+                    from_asterisk: False
                     hidden: True
                     type: {
                       alias: "event_issue_id"
@@ -4460,6 +4888,7 @@
                 name: "if"
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             }
@@ -4469,6 +4898,7 @@
               chain: [
                 "events"
               ]
+              from_asterisk: False
               type: <recursion ...>
             }
             type: <recursion ...>
@@ -4485,6 +4915,7 @@
                     chain: [
                       "uuid"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "uuid"
                       table_type: {
@@ -4506,6 +4937,9 @@
                               hidden: False
                             },
                             $session_id: {
+                              hidden: False
+                            },
+                            $session_id_uuid: {
                               hidden: False
                             },
                             $window_id: {
@@ -4589,6 +5023,9 @@
                             person_id: {
                               hidden: False
                             },
+                            person_mode: {
+                              hidden: False
+                            },
                             poe: {
                               hidden: False
                             },
@@ -4613,6 +5050,7 @@
                       }
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "uuid"
@@ -4625,11 +5063,13 @@
                     chain: [
                       "event"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "event"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "event"
@@ -4642,11 +5082,13 @@
                     chain: [
                       "properties"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "properties"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "properties"
@@ -4659,11 +5101,13 @@
                     chain: [
                       "timestamp"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "timestamp"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "timestamp"
@@ -4676,11 +5120,13 @@
                     chain: [
                       "distinct_id"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "distinct_id"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "distinct_id"
@@ -4693,11 +5139,13 @@
                     chain: [
                       "elements_chain"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "elements_chain"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "elements_chain"
@@ -4710,11 +5158,13 @@
                     chain: [
                       "created_at"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "created_at"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "created_at"
@@ -4727,11 +5177,13 @@
                     chain: [
                       "$session_id"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "$session_id"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "$session_id"
@@ -4744,14 +5196,35 @@
                     chain: [
                       "$window_id"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "$window_id"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "$window_id"
+                    type: <recursion ...>
+                  }
+                },
+                {
+                  alias: "person_mode"
+                  expr: {
+                    chain: [
+                      "person_mode"
+                    ]
+                    from_asterisk: True
+                    type: {
+                      name: "person_mode"
+                      table_type: <recursion ...>
+                    }
+                  }
+                  from_asterisk: False
+                  hidden: True
+                  type: {
+                    alias: "person_mode"
                     type: <recursion ...>
                   }
                 },
@@ -4770,6 +5243,7 @@
                                     "override",
                                     "distinct_id"
                                   ]
+                                  from_asterisk: False
                                   type: {
                                     name: "distinct_id"
                                     table_type: {
@@ -4803,6 +5277,7 @@
                                     }
                                   }
                                 }
+                                from_asterisk: False
                                 hidden: True
                                 type: {
                                   alias: "distinct_id"
@@ -4821,8 +5296,8 @@
                               ]
                               name: "empty"
                               return_type: {
-                                data_type: "unknown"
-                                nullable: True
+                                data_type: "int"
+                                nullable: False
                               }
                             }
                           }
@@ -4847,6 +5322,7 @@
                             "override",
                             "person_id"
                           ]
+                          from_asterisk: False
                           type: {
                             name: "person_id"
                             table_type: {
@@ -4880,6 +5356,7 @@
                             }
                           }
                         }
+                        from_asterisk: False
                         hidden: True
                         type: {
                           alias: "person_id"
@@ -4892,11 +5369,13 @@
                           chain: [
                             "event_person_id"
                           ]
+                          from_asterisk: False
                           type: {
                             name: "event_person_id"
                             table_type: <recursion ...>
                           }
                         }
+                        from_asterisk: False
                         hidden: True
                         type: {
                           alias: "event_person_id"
@@ -4925,6 +5404,7 @@
                       }
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "person_id"
@@ -4937,11 +5417,13 @@
                     chain: [
                       "$group_0"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "$group_0"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "$group_0"
@@ -4954,11 +5436,13 @@
                     chain: [
                       "$group_1"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "$group_1"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "$group_1"
@@ -4971,11 +5455,13 @@
                     chain: [
                       "$group_2"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "$group_2"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "$group_2"
@@ -4988,11 +5474,13 @@
                     chain: [
                       "$group_3"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "$group_3"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "$group_3"
@@ -5005,11 +5493,13 @@
                     chain: [
                       "$group_4"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "$group_4"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "$group_4"
@@ -5022,11 +5512,13 @@
                     chain: [
                       "elements_chain_href"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "elements_chain_href"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "elements_chain_href"
@@ -5039,11 +5531,13 @@
                     chain: [
                       "elements_chain_texts"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "elements_chain_texts"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "elements_chain_texts"
@@ -5056,11 +5550,13 @@
                     chain: [
                       "elements_chain_ids"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "elements_chain_ids"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "elements_chain_ids"
@@ -5073,11 +5569,13 @@
                     chain: [
                       "elements_chain_elements"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "elements_chain_elements"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "elements_chain_elements"
@@ -5090,11 +5588,13 @@
                     chain: [
                       "event_person_id"
                     ]
+                    from_asterisk: True
                     type: {
                       name: "event_person_id"
                       table_type: <recursion ...>
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "event_person_id"
@@ -5113,6 +5613,7 @@
                             "$exception_issue_id"
                           ]
                           end: 37
+                          from_asterisk: False
                           start: 7
                           type: {
                             chain: [
@@ -5124,6 +5625,7 @@
                             }
                           }
                         }
+                        from_asterisk: False
                         hidden: True
                         type: {
                           alias: "$exception_issue_id"
@@ -5149,6 +5651,7 @@
                       }
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "event_issue_id"
@@ -5170,6 +5673,7 @@
                                     "exception_issue_override",
                                     "issue_id"
                                   ]
+                                  from_asterisk: False
                                   type: {
                                     name: "issue_id"
                                     table_type: {
@@ -5200,6 +5704,7 @@
                                     }
                                   }
                                 }
+                                from_asterisk: False
                                 hidden: True
                                 type: {
                                   alias: "issue_id"
@@ -5218,8 +5723,8 @@
                               ]
                               name: "empty"
                               return_type: {
-                                data_type: "unknown"
-                                nullable: True
+                                data_type: "int"
+                                nullable: False
                               }
                             }
                           }
@@ -5244,6 +5749,7 @@
                             "exception_issue_override",
                             "issue_id"
                           ]
+                          from_asterisk: False
                           type: {
                             name: "issue_id"
                             table_type: {
@@ -5274,6 +5780,7 @@
                             }
                           }
                         }
+                        from_asterisk: False
                         hidden: True
                         type: {
                           alias: "issue_id"
@@ -5292,6 +5799,7 @@
                                   "$exception_issue_id"
                                 ]
                                 end: 37
+                                from_asterisk: False
                                 start: 7
                                 type: {
                                   chain: [
@@ -5303,6 +5811,7 @@
                                   }
                                 }
                               }
+                              from_asterisk: False
                               hidden: True
                               type: {
                                 alias: "$exception_issue_id"
@@ -5328,6 +5837,7 @@
                             }
                           }
                         }
+                        from_asterisk: False
                         hidden: True
                         type: {
                           alias: "event_issue_id"
@@ -5353,6 +5863,7 @@
                       }
                     }
                   }
+                  from_asterisk: False
                   hidden: True
                   type: {
                     alias: "issue_id"
@@ -5365,6 +5876,7 @@
                   chain: [
                     "events"
                   ]
+                  from_asterisk: False
                   type: <recursion ...>
                 }
                 type: <recursion ...>
@@ -5392,6 +5904,7 @@
                   event_person_id: <recursion ...>,
                   issue_id: <recursion ...>,
                   person_id: <recursion ...>,
+                  person_mode: <recursion ...>,
                   properties: <recursion ...>,
                   timestamp: <recursion ...>,
                   uuid: <recursion ...>
@@ -5440,6 +5953,7 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -5462,6 +5976,7 @@
           chain: [
             "a"
           ]
+          from_asterisk: True
           type: {
             name: "a"
             table_type: {
@@ -5492,6 +6007,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "a"
@@ -5504,11 +6020,13 @@
           chain: [
             "b"
           ]
+          from_asterisk: True
           type: {
             name: "b"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "b"
@@ -5525,6 +6043,7 @@
               type: <recursion ...>
               value: 1
             }
+            from_asterisk: False
             hidden: False
             type: <recursion ...>
           },
@@ -5534,6 +6053,7 @@
               type: <recursion ...>
               value: 2
             }
+            from_asterisk: False
             hidden: False
             type: <recursion ...>
           }
@@ -5570,6 +6090,7 @@
             "x",
             "a"
           ]
+          from_asterisk: True
           type: {
             name: "a"
             table_type: {
@@ -5603,6 +6124,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "a"
@@ -5616,11 +6138,13 @@
             "x",
             "b"
           ]
+          from_asterisk: True
           type: {
             name: "b"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "b"
@@ -5638,6 +6162,7 @@
               type: <recursion ...>
               value: 1
             }
+            from_asterisk: False
             hidden: False
             type: <recursion ...>
           },
@@ -5647,6 +6172,7 @@
               type: <recursion ...>
               value: 2
             }
+            from_asterisk: False
             hidden: False
             type: <recursion ...>
           }
@@ -5682,6 +6208,7 @@
           chain: [
             "uuid"
           ]
+          from_asterisk: True
           type: {
             name: "uuid"
             table_type: {
@@ -5703,6 +6230,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -5786,6 +6316,9 @@
                   person_id: {
                     hidden: False
                   },
+                  person_mode: {
+                    hidden: False
+                  },
                   poe: {
                     hidden: False
                   },
@@ -5810,6 +6343,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "uuid"
@@ -5822,11 +6356,13 @@
           chain: [
             "event"
           ]
+          from_asterisk: True
           type: {
             name: "event"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event"
@@ -5839,11 +6375,13 @@
           chain: [
             "properties"
           ]
+          from_asterisk: True
           type: {
             name: "properties"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "properties"
@@ -5856,11 +6394,13 @@
           chain: [
             "timestamp"
           ]
+          from_asterisk: True
           type: {
             name: "timestamp"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "timestamp"
@@ -5873,11 +6413,13 @@
           chain: [
             "distinct_id"
           ]
+          from_asterisk: True
           type: {
             name: "distinct_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "distinct_id"
@@ -5890,11 +6432,13 @@
           chain: [
             "elements_chain"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain"
@@ -5907,11 +6451,13 @@
           chain: [
             "created_at"
           ]
+          from_asterisk: True
           type: {
             name: "created_at"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "created_at"
@@ -5924,11 +6470,13 @@
           chain: [
             "$session_id"
           ]
+          from_asterisk: True
           type: {
             name: "$session_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$session_id"
@@ -5941,14 +6489,35 @@
           chain: [
             "$window_id"
           ]
+          from_asterisk: True
           type: {
             name: "$window_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          from_asterisk: True
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "person_mode"
           type: <recursion ...>
         }
       },
@@ -5967,6 +6536,7 @@
                           "override",
                           "distinct_id"
                         ]
+                        from_asterisk: False
                         type: {
                           name: "distinct_id"
                           table_type: {
@@ -6000,6 +6570,7 @@
                           }
                         }
                       }
+                      from_asterisk: False
                       hidden: True
                       type: {
                         alias: "distinct_id"
@@ -6018,8 +6589,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -6044,6 +6615,7 @@
                   "override",
                   "person_id"
                 ]
+                from_asterisk: False
                 type: {
                   name: "person_id"
                   table_type: {
@@ -6077,6 +6649,7 @@
                   }
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "person_id"
@@ -6089,11 +6662,13 @@
                 chain: [
                   "event_person_id"
                 ]
+                from_asterisk: False
                 type: {
                   name: "event_person_id"
                   table_type: <recursion ...>
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "event_person_id"
@@ -6122,6 +6697,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "person_id"
@@ -6134,11 +6710,13 @@
           chain: [
             "$group_0"
           ]
+          from_asterisk: True
           type: {
             name: "$group_0"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_0"
@@ -6151,11 +6729,13 @@
           chain: [
             "$group_1"
           ]
+          from_asterisk: True
           type: {
             name: "$group_1"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_1"
@@ -6168,11 +6748,13 @@
           chain: [
             "$group_2"
           ]
+          from_asterisk: True
           type: {
             name: "$group_2"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_2"
@@ -6185,11 +6767,13 @@
           chain: [
             "$group_3"
           ]
+          from_asterisk: True
           type: {
             name: "$group_3"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_3"
@@ -6202,11 +6786,13 @@
           chain: [
             "$group_4"
           ]
+          from_asterisk: True
           type: {
             name: "$group_4"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_4"
@@ -6219,11 +6805,13 @@
           chain: [
             "elements_chain_href"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_href"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_href"
@@ -6236,11 +6824,13 @@
           chain: [
             "elements_chain_texts"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_texts"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_texts"
@@ -6253,11 +6843,13 @@
           chain: [
             "elements_chain_ids"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_ids"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_ids"
@@ -6270,11 +6862,13 @@
           chain: [
             "elements_chain_elements"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_elements"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_elements"
@@ -6287,11 +6881,13 @@
           chain: [
             "event_person_id"
           ]
+          from_asterisk: True
           type: {
             name: "event_person_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event_person_id"
@@ -6310,6 +6906,7 @@
                   "$exception_issue_id"
                 ]
                 end: 37
+                from_asterisk: False
                 start: 7
                 type: {
                   chain: [
@@ -6321,6 +6918,7 @@
                   }
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "$exception_issue_id"
@@ -6346,6 +6944,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event_issue_id"
@@ -6367,6 +6966,7 @@
                           "exception_issue_override",
                           "issue_id"
                         ]
+                        from_asterisk: False
                         type: {
                           name: "issue_id"
                           table_type: {
@@ -6397,6 +6997,7 @@
                           }
                         }
                       }
+                      from_asterisk: False
                       hidden: True
                       type: {
                         alias: "issue_id"
@@ -6415,8 +7016,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -6441,6 +7042,7 @@
                   "exception_issue_override",
                   "issue_id"
                 ]
+                from_asterisk: False
                 type: {
                   name: "issue_id"
                   table_type: {
@@ -6471,6 +7073,7 @@
                   }
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "issue_id"
@@ -6489,6 +7092,7 @@
                         "$exception_issue_id"
                       ]
                       end: 37
+                      from_asterisk: False
                       start: 7
                       type: {
                         chain: [
@@ -6500,6 +7104,7 @@
                         }
                       }
                     }
+                    from_asterisk: False
                     hidden: True
                     type: {
                       alias: "$exception_issue_id"
@@ -6525,6 +7130,7 @@
                   }
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "event_issue_id"
@@ -6550,6 +7156,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "issue_id"
@@ -6562,6 +7169,7 @@
         chain: [
           "events"
         ]
+        from_asterisk: False
         type: <recursion ...>
       }
       type: <recursion ...>
@@ -6589,6 +7197,7 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -6613,6 +7222,7 @@
           chain: [
             "uuid"
           ]
+          from_asterisk: True
           type: {
             name: "uuid"
             table_type: {
@@ -6636,6 +7246,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -6719,6 +7332,9 @@
                     person_id: {
                       hidden: False
                     },
+                    person_mode: {
+                      hidden: False
+                    },
                     poe: {
                       hidden: False
                     },
@@ -6744,6 +7360,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "uuid"
@@ -6756,11 +7373,13 @@
           chain: [
             "event"
           ]
+          from_asterisk: True
           type: {
             name: "event"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event"
@@ -6773,11 +7392,13 @@
           chain: [
             "properties"
           ]
+          from_asterisk: True
           type: {
             name: "properties"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "properties"
@@ -6790,11 +7411,13 @@
           chain: [
             "timestamp"
           ]
+          from_asterisk: True
           type: {
             name: "timestamp"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "timestamp"
@@ -6807,11 +7430,13 @@
           chain: [
             "distinct_id"
           ]
+          from_asterisk: True
           type: {
             name: "distinct_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "distinct_id"
@@ -6824,11 +7449,13 @@
           chain: [
             "elements_chain"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain"
@@ -6841,11 +7468,13 @@
           chain: [
             "created_at"
           ]
+          from_asterisk: True
           type: {
             name: "created_at"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "created_at"
@@ -6858,11 +7487,13 @@
           chain: [
             "$session_id"
           ]
+          from_asterisk: True
           type: {
             name: "$session_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$session_id"
@@ -6875,14 +7506,35 @@
           chain: [
             "$window_id"
           ]
+          from_asterisk: True
           type: {
             name: "$window_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          from_asterisk: True
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "person_mode"
           type: <recursion ...>
         }
       },
@@ -6901,6 +7553,7 @@
                           "override",
                           "distinct_id"
                         ]
+                        from_asterisk: False
                         type: {
                           name: "distinct_id"
                           table_type: {
@@ -6934,6 +7587,7 @@
                           }
                         }
                       }
+                      from_asterisk: False
                       hidden: True
                       type: {
                         alias: "distinct_id"
@@ -6952,8 +7606,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -6978,6 +7632,7 @@
                   "override",
                   "person_id"
                 ]
+                from_asterisk: False
                 type: {
                   name: "person_id"
                   table_type: {
@@ -7011,6 +7666,7 @@
                   }
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "person_id"
@@ -7023,11 +7679,13 @@
                 chain: [
                   "event_person_id"
                 ]
+                from_asterisk: False
                 type: {
                   name: "event_person_id"
                   table_type: <recursion ...>
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "event_person_id"
@@ -7056,6 +7714,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "person_id"
@@ -7068,11 +7727,13 @@
           chain: [
             "$group_0"
           ]
+          from_asterisk: True
           type: {
             name: "$group_0"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_0"
@@ -7085,11 +7746,13 @@
           chain: [
             "$group_1"
           ]
+          from_asterisk: True
           type: {
             name: "$group_1"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_1"
@@ -7102,11 +7765,13 @@
           chain: [
             "$group_2"
           ]
+          from_asterisk: True
           type: {
             name: "$group_2"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_2"
@@ -7119,11 +7784,13 @@
           chain: [
             "$group_3"
           ]
+          from_asterisk: True
           type: {
             name: "$group_3"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_3"
@@ -7136,11 +7803,13 @@
           chain: [
             "$group_4"
           ]
+          from_asterisk: True
           type: {
             name: "$group_4"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "$group_4"
@@ -7153,11 +7822,13 @@
           chain: [
             "elements_chain_href"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_href"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_href"
@@ -7170,11 +7841,13 @@
           chain: [
             "elements_chain_texts"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_texts"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_texts"
@@ -7187,11 +7860,13 @@
           chain: [
             "elements_chain_ids"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_ids"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_ids"
@@ -7204,11 +7879,13 @@
           chain: [
             "elements_chain_elements"
           ]
+          from_asterisk: True
           type: {
             name: "elements_chain_elements"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "elements_chain_elements"
@@ -7221,11 +7898,13 @@
           chain: [
             "event_person_id"
           ]
+          from_asterisk: True
           type: {
             name: "event_person_id"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event_person_id"
@@ -7244,6 +7923,7 @@
                   "$exception_issue_id"
                 ]
                 end: 37
+                from_asterisk: False
                 start: 7
                 type: {
                   chain: [
@@ -7255,6 +7935,7 @@
                   }
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "$exception_issue_id"
@@ -7280,6 +7961,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event_issue_id"
@@ -7301,6 +7983,7 @@
                           "exception_issue_override",
                           "issue_id"
                         ]
+                        from_asterisk: False
                         type: {
                           name: "issue_id"
                           table_type: {
@@ -7331,6 +8014,7 @@
                           }
                         }
                       }
+                      from_asterisk: False
                       hidden: True
                       type: {
                         alias: "issue_id"
@@ -7349,8 +8033,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -7375,6 +8059,7 @@
                   "exception_issue_override",
                   "issue_id"
                 ]
+                from_asterisk: False
                 type: {
                   name: "issue_id"
                   table_type: {
@@ -7405,6 +8090,7 @@
                   }
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "issue_id"
@@ -7423,6 +8109,7 @@
                         "$exception_issue_id"
                       ]
                       end: 37
+                      from_asterisk: False
                       start: 7
                       type: {
                         chain: [
@@ -7434,6 +8121,7 @@
                         }
                       }
                     }
+                    from_asterisk: False
                     hidden: True
                     type: {
                       alias: "$exception_issue_id"
@@ -7459,6 +8147,7 @@
                   }
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "event_issue_id"
@@ -7484,6 +8173,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "issue_id"
@@ -7497,6 +8187,7 @@
         chain: [
           "events"
         ]
+        from_asterisk: False
         type: <recursion ...>
       }
       type: <recursion ...>
@@ -7524,6 +8215,7 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -7550,6 +8242,7 @@
               chain: [
                 "timestamp"
               ]
+              from_asterisk: False
               type: {
                 name: "timestamp"
                 table_type: {
@@ -7571,6 +8264,9 @@
                         hidden: False
                       },
                       $session_id: {
+                        hidden: False
+                      },
+                      $session_id_uuid: {
                         hidden: False
                       },
                       $window_id: {
@@ -7654,6 +8350,9 @@
                       person_id: {
                         hidden: False
                       },
+                      person_mode: {
+                        hidden: False
+                      },
                       poe: {
                         hidden: False
                       },
@@ -7678,6 +8377,7 @@
                 }
               }
             }
+            from_asterisk: False
             hidden: True
             type: {
               alias: "timestamp"
@@ -7707,6 +8407,7 @@
         chain: [
           "events"
         ]
+        from_asterisk: False
         type: <recursion ...>
       }
       type: <recursion ...>
@@ -7739,6 +8440,7 @@
             chain: [
               "properties"
             ]
+            from_asterisk: False
             type: {
               name: "properties"
               table_type: {
@@ -7762,6 +8464,9 @@
                         hidden: False
                       },
                       $session_id: {
+                        hidden: False
+                      },
+                      $session_id_uuid: {
                         hidden: False
                       },
                       $window_id: {
@@ -7845,6 +8550,9 @@
                       person_id: {
                         hidden: False
                       },
+                      person_mode: {
+                        hidden: False
+                      },
                       poe: {
                         hidden: False
                       },
@@ -7873,12 +8581,14 @@
               }
             }
           }
+          from_asterisk: False
           hidden: True
           type: {
             alias: "properties"
             type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "some_expr"
@@ -7893,6 +8603,7 @@
             chain: [
               "properties"
             ]
+            from_asterisk: False
             type: {
               name: "properties"
               table_type: {
@@ -7944,12 +8655,14 @@
               }
             }
           }
+          from_asterisk: False
           hidden: True
           type: {
             alias: "properties"
             type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "some_expr"
@@ -7971,11 +8684,13 @@
                   "e",
                   "uuid"
                 ]
+                from_asterisk: False
                 type: {
                   name: "uuid"
                   table_type: <recursion ...>
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "uuid"
@@ -7990,11 +8705,13 @@
                   "p",
                   "id"
                 ]
+                from_asterisk: False
                 type: {
                   name: "id"
                   table_type: <recursion ...>
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "id"
@@ -8012,6 +8729,7 @@
           chain: [
             "persons"
           ]
+          from_asterisk: False
           type: <recursion ...>
         }
         type: <recursion ...>
@@ -8020,6 +8738,7 @@
         chain: [
           "events"
         ]
+        from_asterisk: False
         type: <recursion ...>
       }
       type: <recursion ...>
@@ -8244,6 +8963,7 @@
           chain: [
             "event"
           ]
+          from_asterisk: False
           type: {
             name: "event"
             table_type: {
@@ -8265,6 +8985,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -8348,6 +9071,9 @@
                   person_id: {
                     hidden: False
                   },
+                  person_mode: {
+                    hidden: False
+                  },
                   poe: {
                     hidden: False
                   },
@@ -8372,6 +9098,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event"
@@ -8385,11 +9112,13 @@
             "events",
             "timestamp"
           ]
+          from_asterisk: False
           type: {
             name: "timestamp"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "timestamp"
@@ -8402,6 +9131,7 @@
         chain: [
           "events"
         ]
+        from_asterisk: False
         type: <recursion ...>
       }
       type: <recursion ...>
@@ -8427,11 +9157,13 @@
             "events",
             "event"
           ]
+          from_asterisk: False
           type: {
             name: "event"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event"
@@ -8465,6 +9197,7 @@
           chain: [
             "event"
           ]
+          from_asterisk: False
           type: {
             name: "event"
             table_type: {
@@ -8488,6 +9221,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -8571,6 +9307,9 @@
                     person_id: {
                       hidden: False
                     },
+                    person_mode: {
+                      hidden: False
+                    },
                     poe: {
                       hidden: False
                     },
@@ -8596,6 +9335,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event"
@@ -8609,11 +9349,13 @@
             "e",
             "timestamp"
           ]
+          from_asterisk: False
           type: {
             name: "timestamp"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "timestamp"
@@ -8627,6 +9369,7 @@
         chain: [
           "events"
         ]
+        from_asterisk: False
         type: <recursion ...>
       }
       type: <recursion ...>
@@ -8652,11 +9395,13 @@
             "e",
             "event"
           ]
+          from_asterisk: False
           type: {
             name: "event"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event"
@@ -8692,6 +9437,7 @@
             chain: [
               "event"
             ]
+            from_asterisk: False
             type: {
               name: "event"
               table_type: {
@@ -8715,6 +9461,9 @@
                         hidden: False
                       },
                       $session_id: {
+                        hidden: False
+                      },
+                      $session_id_uuid: {
                         hidden: False
                       },
                       $window_id: {
@@ -8798,6 +9547,9 @@
                       person_id: {
                         hidden: False
                       },
+                      person_mode: {
+                        hidden: False
+                      },
                       poe: {
                         hidden: False
                       },
@@ -8823,12 +9575,14 @@
               }
             }
           }
+          from_asterisk: False
           hidden: True
           type: {
             alias: "event"
             type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: False
         type: {
           alias: "ee"
@@ -8839,6 +9593,7 @@
         chain: [
           "ee"
         ]
+        from_asterisk: False
         type: <recursion ...>
       },
       {
@@ -8847,8 +9602,10 @@
           chain: [
             "ee"
           ]
+          from_asterisk: False
           type: <recursion ...>
         }
+        from_asterisk: False
         hidden: False
         type: {
           alias: "e"
@@ -8862,11 +9619,13 @@
             "e",
             "timestamp"
           ]
+          from_asterisk: False
           type: {
             name: "timestamp"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "timestamp"
@@ -8880,6 +9639,7 @@
         chain: [
           "events"
         ]
+        from_asterisk: False
         type: <recursion ...>
       }
       type: <recursion ...>
@@ -8909,11 +9669,13 @@
             "e",
             "event"
           ]
+          from_asterisk: False
           type: {
             name: "event"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event"
@@ -8947,6 +9709,7 @@
           chain: [
             "b"
           ]
+          from_asterisk: False
           type: {
             name: "b"
             table_type: {
@@ -8978,6 +9741,9 @@
                                 hidden: False
                               },
                               $session_id: {
+                                hidden: False
+                              },
+                              $session_id_uuid: {
                                 hidden: False
                               },
                               $window_id: {
@@ -9061,6 +9827,9 @@
                               person_id: {
                                 hidden: False
                               },
+                              person_mode: {
+                                hidden: False
+                              },
                               poe: {
                                 hidden: False
                               },
@@ -9111,6 +9880,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "b"
@@ -9130,11 +9900,14 @@
                 chain: [
                   "event"
                 ]
+                from_asterisk: False
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: False
             type: <recursion ...>
           },
@@ -9146,11 +9919,14 @@
                 chain: [
                   "timestamp"
                 ]
+                from_asterisk: False
                 type: <recursion ...>
               }
+              from_asterisk: False
               hidden: True
               type: <recursion ...>
             }
+            from_asterisk: False
             hidden: False
             type: <recursion ...>
           }
@@ -9160,6 +9936,7 @@
             chain: [
               "events"
             ]
+            from_asterisk: False
             type: <recursion ...>
           }
           type: <recursion ...>
@@ -9188,11 +9965,13 @@
             "e",
             "b"
           ]
+          from_asterisk: False
           type: {
             name: "b"
             table_type: <recursion ...>
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "b"
@@ -9226,6 +10005,7 @@
           chain: [
             "event"
           ]
+          from_asterisk: False
           type: {
             name: "event"
             table_type: {
@@ -9247,6 +10027,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -9330,6 +10113,9 @@
                   person_id: {
                     hidden: False
                   },
+                  person_mode: {
+                    hidden: False
+                  },
                   poe: {
                     hidden: False
                   },
@@ -9354,6 +10140,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event"
@@ -9368,6 +10155,7 @@
             "person",
             "id"
           ]
+          from_asterisk: False
           type: {
             name: "id"
             table_type: {
@@ -9413,6 +10201,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "id"
@@ -9425,6 +10214,7 @@
         chain: [
           "events"
         ]
+        from_asterisk: False
         type: <recursion ...>
       }
       type: <recursion ...>
@@ -9456,6 +10246,7 @@
           chain: [
             "event"
           ]
+          from_asterisk: False
           type: {
             name: "event"
             table_type: {
@@ -9479,6 +10270,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -9562,6 +10356,9 @@
                     person_id: {
                       hidden: False
                     },
+                    person_mode: {
+                      hidden: False
+                    },
                     poe: {
                       hidden: False
                     },
@@ -9587,6 +10384,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event"
@@ -9602,6 +10400,7 @@
             "person",
             "id"
           ]
+          from_asterisk: False
           type: {
             name: "id"
             table_type: {
@@ -9647,6 +10446,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "id"
@@ -9660,6 +10460,7 @@
         chain: [
           "events"
         ]
+        from_asterisk: False
         type: <recursion ...>
       }
       type: <recursion ...>
@@ -9691,6 +10492,7 @@
           chain: [
             "event"
           ]
+          from_asterisk: False
           type: {
             name: "event"
             table_type: {
@@ -9712,6 +10514,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -9795,6 +10600,9 @@
                   person_id: {
                     hidden: False
                   },
+                  person_mode: {
+                    hidden: False
+                  },
                   poe: {
                     hidden: False
                   },
@@ -9819,6 +10627,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event"
@@ -9832,6 +10641,7 @@
             "pdi",
             "person_id"
           ]
+          from_asterisk: False
           type: {
             name: "person_id"
             table_type: {
@@ -9865,6 +10675,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "person_id"
@@ -9877,6 +10688,7 @@
         chain: [
           "events"
         ]
+        from_asterisk: False
         type: <recursion ...>
       }
       type: <recursion ...>
@@ -9908,6 +10720,7 @@
           chain: [
             "event"
           ]
+          from_asterisk: False
           type: {
             name: "event"
             table_type: {
@@ -9931,6 +10744,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -10014,6 +10830,9 @@
                     person_id: {
                       hidden: False
                     },
+                    person_mode: {
+                      hidden: False
+                    },
                     poe: {
                       hidden: False
                     },
@@ -10039,6 +10858,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event"
@@ -10053,6 +10873,7 @@
             "pdi",
             "person_id"
           ]
+          from_asterisk: False
           type: {
             name: "person_id"
             table_type: {
@@ -10086,6 +10907,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "person_id"
@@ -10099,6 +10921,7 @@
         chain: [
           "events"
         ]
+        from_asterisk: False
         type: <recursion ...>
       }
       type: <recursion ...>
@@ -10130,6 +10953,7 @@
           chain: [
             "distinct_id"
           ]
+          from_asterisk: False
           type: {
             name: "distinct_id"
             table_type: {
@@ -10153,6 +10977,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "distinct_id"
@@ -10166,6 +10991,7 @@
             "person",
             "id"
           ]
+          from_asterisk: False
           type: {
             name: "id"
             table_type: {
@@ -10183,6 +11009,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "id"
@@ -10195,6 +11022,7 @@
         chain: [
           "person_distinct_ids"
         ]
+        from_asterisk: False
         type: <recursion ...>
       }
       type: <recursion ...>
@@ -10227,6 +11055,7 @@
             chain: [
               "event"
             ]
+            from_asterisk: False
             type: {
               name: "event"
               table_type: {
@@ -10248,6 +11077,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -10331,6 +11163,9 @@
                     person_id: {
                       hidden: False
                     },
+                    person_mode: {
+                      hidden: False
+                    },
                     poe: {
                       hidden: False
                     },
@@ -10355,6 +11190,7 @@
               }
             }
           }
+          from_asterisk: False
           hidden: True
           type: {
             alias: "event"
@@ -10367,11 +11203,13 @@
             chain: [
               "timestamp"
             ]
+            from_asterisk: False
             type: {
               name: "timestamp"
               table_type: <recursion ...>
             }
           }
+          from_asterisk: False
           hidden: True
           type: {
             alias: "timestamp"
@@ -10384,6 +11222,7 @@
           chain: [
             "events"
           ]
+          from_asterisk: False
           type: <recursion ...>
         }
         type: <recursion ...>
@@ -10413,6 +11252,7 @@
                 chain: [
                   "event"
                 ]
+                from_asterisk: False
                 type: {
                   name: "event"
                   table_type: {
@@ -10434,6 +11274,9 @@
                           hidden: False
                         },
                         $session_id: {
+                          hidden: False
+                        },
+                        $session_id_uuid: {
                           hidden: False
                         },
                         $window_id: {
@@ -10517,6 +11360,9 @@
                         person_id: {
                           hidden: False
                         },
+                        person_mode: {
+                          hidden: False
+                        },
                         poe: {
                           hidden: False
                         },
@@ -10541,6 +11387,7 @@
                   }
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "event"
@@ -10553,11 +11400,13 @@
                 chain: [
                   "timestamp"
                 ]
+                from_asterisk: False
                 type: {
                   name: "timestamp"
                   table_type: <recursion ...>
                 }
               }
+              from_asterisk: False
               hidden: True
               type: {
                 alias: "timestamp"
@@ -10570,6 +11419,7 @@
               chain: [
                 "events"
               ]
+              from_asterisk: False
               type: <recursion ...>
             }
             type: <recursion ...>
@@ -10611,6 +11461,7 @@
           chain: [
             "event"
           ]
+          from_asterisk: False
           type: {
             name: "event"
             table_type: {
@@ -10632,6 +11483,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -10715,6 +11569,9 @@
                   person_id: {
                     hidden: False
                   },
+                  person_mode: {
+                    hidden: False
+                  },
                   poe: {
                     hidden: False
                   },
@@ -10739,6 +11596,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "event"
@@ -10752,6 +11610,7 @@
             "poe",
             "id"
           ]
+          from_asterisk: False
           type: {
             name: "id"
             table_type: {
@@ -10789,6 +11648,7 @@
             }
           }
         }
+        from_asterisk: False
         hidden: True
         type: {
           alias: "id"
@@ -10801,6 +11661,7 @@
         chain: [
           "events"
         ]
+        from_asterisk: False
         type: <recursion ...>
       }
       type: <recursion ...>

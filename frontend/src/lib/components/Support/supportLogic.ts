@@ -216,6 +216,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Group analytics',
             },
             {
+                value: 'customer_analytics',
+                'data-attr': `support-form-target-area-customer-analytics`,
+                label: 'Customer analytics',
+            },
+            {
                 value: 'llm-analytics',
                 'data-attr': `support-form-target-area-llm-analytics`,
                 label: 'LLM analytics',
@@ -223,12 +228,12 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'max-ai',
                 'data-attr': `support-form-target-area-max-ai`,
-                label: 'Max AI',
+                label: 'PostHog AI',
             },
             {
-                value: 'messaging',
-                'data-attr': `support-form-target-area-messaging`,
-                label: 'Messaging',
+                value: 'workflows',
+                'data-attr': `support-form-target-area-workflows`,
+                label: 'Workflows / Messaging',
             },
             {
                 value: 'analytics',
@@ -297,9 +302,10 @@ export type SupportTicketTargetArea =
     | 'cdp_destinations'
     | 'data_ingestion'
     | 'batch_exports'
-    | 'messaging'
+    | 'workflows'
     | 'platform_addons'
     | 'max-ai'
+    | 'customer-analytics'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -341,7 +347,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     transformations: 'cdp_destinations',
     source: 'data_warehouse',
     sources: 'data_warehouse',
-    messaging: 'messaging',
+    workflows: 'workflows',
     billing: 'billing',
 }
 

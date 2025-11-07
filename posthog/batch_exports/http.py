@@ -46,6 +46,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.integration import DatabricksIntegration, DatabricksIntegrationError, Integration
 from posthog.models.signals import model_activity_signal
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
@@ -182,9 +183,13 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model."""
 
+    integration_id = serializers.PrimaryKeyRelatedField(
+        write_only=True, queryset=Integration.objects.all(), source="integration", required=False, allow_null=True
+    )
+
     class Meta:
         model = BatchExportDestination
-        fields = ["type", "config"]
+        fields = ["type", "config", "integration", "integration_id"]
 
     def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
         """Create a BatchExportDestination."""
@@ -251,9 +256,22 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: BatchExportDestination) -> dict:
         data = super().to_representation(instance)
-        data["config"] = {
-            k: v for k, v in data["config"].items() if k not in BatchExportDestination.secret_fields[instance.type]
-        }
+
+        def remove_secret_fields_recursive(d: dict[str, typing.Any]):
+            target = {}
+
+            for k, v in d.items():
+                if k in BatchExportDestination.secret_fields[instance.type]:
+                    continue
+                elif isinstance(v, dict):
+                    target[k] = remove_secret_fields_recursive(v)
+                else:
+                    target[k] = v
+
+            return target
+
+        data["config"] = remove_secret_fields_recursive(data["config"])
+
         return data
 
 
@@ -356,6 +374,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
+    def validate(self, attrs: dict) -> dict:
+        """Validate the batch export configuration."""
+        # HTTP batch exports only support the events model
+        destination = attrs.get("destination")
+        if destination and destination.get("type") == BatchExportDestination.Destination.HTTP:
+            model = attrs.get("model")
+            if model is not None and model != "events":
+                raise serializers.ValidationError("HTTP batch exports only support the events model")
+
+        return attrs
+
+    # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
         destination_type = destination_attrs["type"]
         if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
@@ -378,7 +408,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Password is required if authentication type is password")
             if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
                 raise serializers.ValidationError("Private key is required if authentication type is key pair")
-        if destination_attrs["type"] == BatchExportDestination.Destination.S3:
+        if destination_type == BatchExportDestination.Destination.S3:
             config = destination_attrs["config"]
             # JSONLines is the default file format for S3 exports for legacy reasons
             file_format = config.get("file_format", "JSONLines")
@@ -392,6 +422,74 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {SUPPORTED_COMPRESSIONS[file_format]}"
                 )
+        if destination_type == BatchExportDestination.Destination.DATABRICKS:
+            team_id = self.context["team_id"]
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "databricks-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("The Databricks destination is not enabled for this team.")
+
+            # validate the Integration is valid (this is mandatory for Databricks batch exports)
+            integration: Integration | None = destination_attrs.get("integration")
+            if integration is None:
+                raise serializers.ValidationError("Integration is required for Databricks batch exports")
+            if integration.team_id != team_id:
+                raise serializers.ValidationError("Integration does not belong to this team.")
+            if integration.kind != Integration.IntegrationKind.DATABRICKS:
+                raise serializers.ValidationError("Integration is not a Databricks integration.")
+            # try instantiate the integration to check if it's valid
+            try:
+                DatabricksIntegration(integration)
+            except DatabricksIntegrationError as e:
+                raise serializers.ValidationError(str(e))
+
+        if destination_type == BatchExportDestination.Destination.REDSHIFT:
+            config = destination_attrs["config"]
+            view = self.context.get("view")
+
+            if self.instance is not None:
+                existing_config = self.instance.destination.config
+            elif view is not None and "pk" in view.kwargs:
+                # Running validation for a `detail=True` action.
+                instance = view.get_object()
+                existing_config = instance.destination.config
+            else:
+                existing_config = {}
+            merged_config = recursive_dict_merge(existing_config, config)
+
+            mode = merged_config.get("mode")
+
+            if mode == "COPY":
+                copy_inputs = merged_config.get("copy_inputs", {})
+                if not copy_inputs:
+                    raise serializers.ValidationError("Missing required inputs for 'COPY'")
+
+                required_inputs = {"s3_bucket", "region_name", "authorization", "bucket_credentials"}
+                if required_inputs - copy_inputs.keys():
+                    raise serializers.ValidationError("Missing required input for 'COPY'")
+
+                credential_keys = {"aws_access_key_id", "aws_secret_access_key"}
+                if credential_keys - copy_inputs["bucket_credentials"].keys():
+                    raise serializers.ValidationError("Missing required bucket credentials for 'COPY'")
+
+                authorization = copy_inputs.get("authorization")
+                if isinstance(authorization, dict):
+                    if credential_keys - authorization.keys():
+                        raise serializers.ValidationError("Missing required credentials for 'COPY'")
+                elif isinstance(authorization, str) and not authorization.strip():
+                    raise serializers.ValidationError("Missing required IAM role for 'COPY'")
+
         return destination_attrs
 
     def create(self, validated_data: dict) -> BatchExport:
@@ -515,6 +613,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if parsed.select_from is None:
             raise serializers.ValidationError("Query must SELECT FROM events")
 
+        if isinstance(parsed.select_from.table, ast.SelectQuery):
+            raise serializers.ValidationError("Subqueries or CTEs are not supported")
+
         # Not sure how to make mypy understand this works, hence the ignore comment.
         # And if it doesn't, it's still okay as it could mean an unsupported query.
         # We would come back with the example to properly type this.
@@ -533,10 +634,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
         with transaction.atomic():
             if destination_data:
                 batch_export.destination.type = destination_data.get("type", batch_export.destination.type)
-                batch_export.destination.config = {
-                    **batch_export.destination.config,
-                    **destination_data.get("config", {}),
-                }
+                batch_export.destination.config = recursive_dict_merge(
+                    batch_export.destination.config,
+                    destination_data.get("config", {}),
+                )
+                integration = destination_data.get("integration", batch_export.destination.integration)
+                batch_export.destination.integration = integration
 
             if hogql_query := validated_data.pop("hogql_query", None):
                 batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
@@ -548,6 +651,22 @@ class BatchExportSerializer(serializers.ModelSerializer):
             sync_batch_export(batch_export, created=False)
 
         return batch_export
+
+
+def recursive_dict_merge(
+    old: dict[str, typing.Any],
+    new: dict[str, typing.Any],
+) -> dict[str, typing.Any]:
+    """Merge two dictionaries, and recursively merge any dictionaries in them."""
+    merged = {**old, **new}
+
+    for key, value in merged.items():
+        if not isinstance(value, dict):
+            continue
+
+        merged[key] = recursive_dict_merge(old.get(key, None) or {}, new.get(key, None) or {})
+
+    return merged
 
 
 class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
@@ -654,6 +773,12 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             destination=serializer.validated_data["destination"]["type"],
         )
         test_configuration = serializer.validated_data["destination"]["config"]
+
+        # if we have an integration, add its config and sensitive_config to test_configuration
+        integration: Integration | None = serializer.validated_data["destination"].get("integration")
+        if integration:
+            test_configuration = {**test_configuration, **integration.config, **integration.sensitive_config}
+
         destination_test.configure(**test_configuration)
 
         result = destination_test.run_step(test_step)
@@ -682,6 +807,12 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             destination=serializer.validated_data["destination"]["type"],
         )
         test_configuration = serializer.validated_data["destination"]["config"]
+
+        # if we have an integration, add its config and sensitive_config to test_configuration
+        integration: Integration | None = serializer.validated_data["destination"].get("integration")
+        if integration:
+            test_configuration = {**test_configuration, **integration.config, **integration.sensitive_config}
+
         destination_test.configure(**test_configuration)
 
         result = destination_test.run_step(test_step)
@@ -809,10 +940,8 @@ def create_backfill(
     if start_at >= end_at:
         raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
 
-    if end_at > dt.datetime.now(dt.UTC) + batch_export.interval_time_delta:
-        raise ValidationError(
-            f"The provided 'end_at' ({end_at.isoformat()}) is too far into the future. Cannot backfill beyond 1 batch period into the future."
-        )
+    if end_at > dt.datetime.now(dt.UTC):
+        raise ValidationError(f"The provided 'end_at' ({end_at.isoformat()}) is in the future")
 
     try:
         return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)

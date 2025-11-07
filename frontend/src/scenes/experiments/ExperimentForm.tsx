@@ -14,8 +14,9 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
-import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+import { FEATURE_FLAGS, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -23,6 +24,7 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
@@ -33,14 +35,21 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { FeatureFlagType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, FeatureFlagType } from '~/types'
 
+import { CreateExperiment } from './create/CreateExperiment'
 import { experimentLogic } from './experimentLogic'
-import { featureFlagEligibleForExperiment } from './utils'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { formMode, experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
-        useValues(experimentLogic)
+    const {
+        formMode,
+        experiment,
+        groupTypes,
+        aggregationLabel,
+        hasPrimaryMetricSet,
+        validExistingFeatureFlag,
+        createExperimentLoading,
+    } = useValues(experimentLogic)
     const { addVariant, removeVariant, setExperiment, submitExperiment, setExperimentType, validateFeatureFlag } =
         useActions(experimentLogic)
     const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
@@ -58,13 +67,16 @@ const ExperimentFormFields = (): JSX.Element => {
                 resourceType={{
                     type: 'experiment',
                 }}
-                canEdit
+                canEdit={userHasAccess(
+                    AccessControlResourceType.Experiment,
+                    AccessControlLevel.Editor,
+                    experiment.user_access_level
+                )}
                 onNameChange={(name) => {
                     setExperiment({ name })
                 }}
                 forceEdit={formMode === 'create'}
             />
-            <SceneDivider />
 
             {hasPrimaryMetricSet && formMode !== 'duplicate' && (
                 <LemonBanner type="info" className="my-4">
@@ -148,17 +160,16 @@ const ExperimentFormFields = (): JSX.Element => {
                     setShowFeatureFlagSelector(false)
                 }}
             />
-
             {webExperimentsAvailable && (
                 <>
                     <SceneSection
                         title="Experiment type"
                         description="Select your experiment setup, this cannot be changed once saved."
-                        className={cn('gap-y-0 mt-6')}
+                        className="gap-y-0"
                     >
                         <LemonRadio
                             value={experiment.type}
-                            className="flex flex-col gap-2"
+                            className="flex flex-col gap-2 mt-4"
                             onChange={(type) => {
                                 setExperimentType(type)
                             }}
@@ -188,14 +199,15 @@ const ExperimentFormFields = (): JSX.Element => {
                     <SceneDivider />
                 </>
             )}
-            {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && (
+            {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && !validExistingFeatureFlag && (
                 <>
                     <SceneSection
                         title="Participant type"
                         description="Determines on what level you want to aggregate metrics. You can change this later, but flag values for users will change so you need to reset the experiment for accurate results."
-                        className={cn('gap-y-0 mt-6')}
+                        className="gap-y-0"
                     >
                         <LemonRadio
+                            className="mt-4"
                             value={
                                 experiment.parameters.aggregation_group_type_index != undefined
                                     ? experiment.parameters.aggregation_group_type_index
@@ -369,14 +381,21 @@ const ExperimentFormFields = (): JSX.Element => {
                     </div>
                 </>
             )}
-            <LemonButton
-                className={cn('w-fit')}
-                type="primary"
-                data-attr="save-experiment"
-                onClick={() => submitExperiment()}
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Experiment}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={experiment.user_access_level}
             >
-                Save as draft
-            </LemonButton>
+                <LemonButton
+                    className={cn('w-fit')}
+                    type="primary"
+                    data-attr="save-experiment"
+                    onClick={() => submitExperiment()}
+                    loading={createExperimentLoading}
+                >
+                    Save as draft
+                </LemonButton>
+            </AccessControlAction>
         </SceneContent>
     )
 }
@@ -409,7 +428,11 @@ export const HoldoutSelector = (): JSX.Element => {
 }
 
 export function ExperimentForm(): JSX.Element {
-    const { props } = useValues(experimentLogic)
+    const { props, featureFlags } = useValues(experimentLogic)
+
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_CREATE_FORM] === 'test') {
+        return <CreateExperiment />
+    }
 
     return (
         <div>
@@ -472,18 +495,17 @@ const SelectExistingFeatureFlagModal = ({
                 filters={featureFlagModalFilters}
                 setFeatureFlagsFilters={setFeatureFlagModalFilters}
                 searchPlaceholder="Search for feature flags"
-                filtersConfig={{ search: true, type: true }}
+                filtersConfig={{ search: true }}
             />
         </div>
     )
 
     return (
-        <LemonModal isOpen={isOpen} onClose={handleClose} title="Choose an existing feature flag">
+        <LemonModal isOpen={isOpen} onClose={handleClose} title="Choose an existing feature flag" width="50%">
             <div className="deprecated-space-y-2">
                 <div className="text-muted mb-2 max-w-xl">
-                    Select an existing feature flag to use with this experiment. The feature flag must use multiple
-                    variants with <code>'control'</code> as the first, and not be associated with an existing
-                    experiment.
+                    Select an existing multivariate feature flag to use with this experiment. The feature flag must use
+                    multiple variants with <code>'control'</code> as the first.
                 </div>
                 {filtersSection}
                 <LemonTable
@@ -517,24 +539,20 @@ const SelectExistingFeatureFlagModal = ({
                         {
                             title: null,
                             render: function RenderActions(_, flag) {
-                                let disabledReason: string | undefined = undefined
-                                try {
-                                    featureFlagEligibleForExperiment(flag)
-                                } catch (error) {
-                                    disabledReason = (error as Error).message
-                                }
                                 return (
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="primary"
-                                        disabledReason={disabledReason}
-                                        onClick={() => {
-                                            onSelect(flag)
-                                            handleClose()
-                                        }}
-                                    >
-                                        Select
-                                    </LemonButton>
+                                    <div className="flex items-center justify-end">
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="primary"
+                                            disabledReason={undefined}
+                                            onClick={() => {
+                                                onSelect(flag)
+                                                handleClose()
+                                            }}
+                                        >
+                                            Select
+                                        </LemonButton>
+                                    </div>
                                 )
                             },
                         },

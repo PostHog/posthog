@@ -4,6 +4,8 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 
 # Warning: Dynamically updating these settings should only be done through the API.
 # CONSTANCE_CONFIG: https://django-constance.readthedocs.io/en/latest/
+#
+# To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
 
 CONSTANCE_CONFIG = {
     "RECORDINGS_TTL_WEEKS": (

@@ -25,6 +25,7 @@ import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -108,9 +109,24 @@ export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
 const concurrencyController = new ConcurrencyController(1)
+const webAnalyticsConcurrencyController = new ConcurrencyController(3)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(5)
 
-function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
+function getConcurrencyController(
+    query: DataNode,
+    currentTeam: TeamType,
+    featureFlags: Record<string, boolean | string>
+): ConcurrencyController {
+    const mountedSceneLogic = sceneLogic.findMounted()
+    const activeScene = mountedSceneLogic?.values.activeSceneId
+    if (
+        activeScene === Scene.WebAnalytics &&
+        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HIGHER_CONCURRENCY] &&
+        !currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+    ) {
+        return webAnalyticsConcurrencyController
+    }
+
     if (
         currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables &&
         [NodeKind.WebOverviewQuery, NodeKind.WebStatsTableQuery, NodeKind.InsightVizNode].includes(query.kind)
@@ -249,9 +265,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     // Use the explicit refresh type passed, or determine it based on query type
                     // Default to non-force variants
                     let refresh: RefreshType = refreshArg ?? (isInsightQueryNode(query) ? 'async' : 'blocking')
-                    if (values.featureFlags[FEATURE_FLAGS.ALWAYS_QUERY_BLOCKING] && !pollOnly) {
-                        refresh =
-                            refresh === 'force_async' ? 'force_blocking' : refresh === 'async' ? 'blocking' : refresh
+
+                    if (!pollOnly && ['async', 'force_async'].includes(refresh)) {
+                        refresh = refresh.startsWith('force_') ? 'force_blocking' : 'blocking'
                     }
 
                     if (props.doNotLoad) {
@@ -303,7 +319,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     try {
                         // For shared contexts, create a minimal team object if needed
-                        const response = await getConcurrencyController(query, values.currentTeam as TeamType).run({
+                        const response = await getConcurrencyController(
+                            query,
+                            values.currentTeam as TeamType,
+                            values.featureFlags
+                        ).run({
                             debugTag: query.kind,
                             abortController,
                             priority: props.loadPriority,
@@ -461,7 +481,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     try {
                         const result = await api.queryLog.get(queryId)
-                        actions.setQueryLogQueryId(queryId)
+                        if (result?.results && result.results.length > 0) {
+                            actions.setQueryLogQueryId(queryId)
+                        }
                         return result
                     } catch (e: any) {
                         console.warn('Failed to get query execution details', e)
@@ -918,42 +940,39 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             props.onData?.(response as Record<string, unknown> | null | undefined)
         },
         resetLoadingTimer: () => {
-            if (cache.loadingTimer) {
-                window.clearInterval(cache.loadingTimer)
-                cache.loadingTimer = null
-            }
-
             if (values.dataLoading) {
                 const startTime = Date.now()
-                cache.loadingTimer = window.setInterval(() => {
-                    const seconds = Math.floor((Date.now() - startTime) / 1000)
-                    actions.setLoadingTime(seconds)
-                }, 1000)
+                cache.disposables.add(() => {
+                    const timerId = window.setInterval(() => {
+                        const seconds = Math.floor((Date.now() - startTime) / 1000)
+                        actions.setLoadingTime(seconds)
+                    }, 1000)
+                    return () => window.clearInterval(timerId)
+                }, 'loadingTimer')
             }
         },
     })),
-    subscriptions(({ props, actions, cache, values }) => ({
+    subscriptions(({ props, actions, values, cache }) => ({
         responseError: (error: string | null) => {
             props.onError?.(error)
         },
         autoLoadRunning: (autoLoadRunning) => {
-            if (cache.autoLoadInterval) {
-                window.clearInterval(cache.autoLoadInterval)
-                cache.autoLoadInterval = null
-            }
             if (autoLoadRunning) {
                 actions.loadNewData()
-                cache.autoLoadInterval = window.setInterval(() => {
-                    if (!values.responseLoading) {
-                        actions.loadNewData()
-                    }
-                }, AUTOLOAD_INTERVAL)
+                cache.disposables.add(() => {
+                    const timerId = window.setInterval(() => {
+                        if (!values.responseLoading) {
+                            actions.loadNewData()
+                        }
+                    }, AUTOLOAD_INTERVAL)
+                    return () => window.clearInterval(timerId)
+                }, 'autoLoadInterval')
             }
         },
         dataLoading: (dataLoading) => {
-            if (cache.loadingTimer && !dataLoading) {
-                window.clearInterval(cache.loadingTimer)
-                cache.loadingTimer = null
+            if (!dataLoading) {
+                // Clear loading timer when data loading finishes
+                cache.disposables.dispose('loadingTimer')
             }
         },
     })),
@@ -976,7 +995,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             cancelQuery: actions.cancelQuery,
         })
     }),
-    beforeUnmount(({ actions, props, values, cache }) => {
+    beforeUnmount(({ actions, props, values }) => {
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
         }
@@ -985,10 +1004,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
 
         actions.unmountDataNode(props.key)
-        if (cache.loadingTimer) {
-            window.clearInterval(cache.loadingTimer)
-            cache.loadingTimer = null
-        }
+        // Disposables plugin handles timer cleanup automatically
     }),
 ])
 

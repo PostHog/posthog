@@ -48,6 +48,7 @@ function makeNotebookItem(
         type: 'comment',
         source: 'notebook',
         search: '',
+        key: 'id',
         ...itemOverrides,
     }
 }
@@ -84,6 +85,7 @@ function makeCommentItem(
         type: 'comment',
         source: 'comment',
         search: '',
+        key: 'id',
         ...itemOverrides,
     }
 }

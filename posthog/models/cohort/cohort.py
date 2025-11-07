@@ -4,9 +4,11 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
-from django.db import connection, models
+from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
@@ -31,6 +33,7 @@ class CohortType(StrEnum):
     STATIC = "static"
     PERSON_PROPERTY = "person_property"
     BEHAVIORAL = "behavioral"
+    REALTIME = "realtime"
     ANALYTICAL = "analytical"
 
 
@@ -423,6 +426,64 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         batch_iterator = ArrayBatchIterator(items, batch_size=batchsize)
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
+    def insert_users_by_email(
+        self, items: list[str], *, team_id: Optional[int] = None, batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE
+    ) -> int:
+        """
+        Insert a list of users identified by their email address into the cohort, for the given team.
+        Args:
+            items: List of email addresses of users to be inserted into the cohort.
+            team_id: ID of the team for which to insert the users. Defaults to `self.team`, because of a lot of existing usage in tests.
+            batch_size: Number of records to process in each batch. Defaults to 1000.
+        """
+        if team_id is None:
+            team_id = self.team_id
+
+        if TEST:
+            from posthog.test.base import flush_persons_and_events
+
+            # Make sure persons are created in tests before running this
+            flush_persons_and_events()
+
+        # Process emails in batches to avoid memory issues
+        def create_uuid_batch(batch_index: int, batch_size: int) -> list[str]:
+            """Create a batch of UUIDs from email addresses, excluding those already in cohort."""
+            start_idx = batch_index * batch_size
+            end_idx = start_idx + batch_size
+            batch_emails = items[start_idx:end_idx]
+            uuids = self._get_uuids_for_emails_batch(batch_emails, team_id)
+            return uuids
+
+        # Use FunctionBatchIterator to process emails in batches
+        batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
+
+        # Call the batching method with ClickHouse insertion enabled
+        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
+
+    def _get_uuids_for_emails_batch(self, emails: list[str], team_id: int) -> list[str]:
+        """
+        Get UUIDs for a batch of email addresses, excluding those already in this cohort.
+
+        Args:
+            emails: List of email addresses to convert to UUIDs
+            team_id: Team ID to filter by
+
+        Returns:
+            List of UUIDs for persons with the given email addresses who are not already in this cohort
+        """
+        if not emails:
+            return []
+
+        uuids = [
+            str(uuid)
+            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id)
+            .filter(properties__email__in=emails)
+            .values_list("uuid", flat=True)
+        ]
+
+        return uuids
+
     def insert_users_list_by_uuid_into_pg_only(
         self,
         items: list[str],
@@ -459,7 +520,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         current_batch_index = -1
         processing_error = None
         try:
-            cursor = connection.cursor()
+            from django.db import connections
+
+            persons_connection = connections[READ_DB_FOR_PERSONS]
+            cursor = persons_connection.cursor()
             for batch_index, batch in batch_iterator:
                 current_batch_index = batch_index
                 persons_query = (
@@ -508,6 +572,57 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             self._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
 
         return current_batch_index + 1
+
+    def remove_user_by_uuid(self, user_uuid: str, *, team_id: int) -> bool:
+        """
+        Remove a user from the cohort by their UUID.
+
+        Args:
+            user_uuid: UUID of the user to be removed from the cohort.
+            team_id: ID of the team to which the cohort belongs
+        Returns:
+            True if user was removed, False if user was not in the cohort.
+        """
+        from posthog.models.cohort.util import get_static_cohort_size, remove_person_from_static_cohort
+
+        try:
+            # Get person by UUID
+            person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=team_id, uuid=user_uuid)
+
+            # Check if person is in the cohort
+            cohort_person = CohortPeople.objects.filter(
+                cohort_id=self.id,
+                person_id=person.id,
+            ).first()
+
+            if not cohort_person:
+                return False
+
+            # Remove from both PostgreSQL and ClickHouse
+            cohort_person.delete()
+            remove_person_from_static_cohort(person.uuid, self.pk, team_id=team_id)
+
+            # Update count
+            try:
+                count = get_static_cohort_size(cohort_id=self.id, team_id=team_id)
+                self.count = count
+                self.save(update_fields=["count"])
+            except Exception as count_err:
+                logger.exception("Failed to update cohort count after removal", cohort_id=self.id, team_id=team_id)
+                capture_exception(count_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
+
+            return True
+
+        except Person.DoesNotExist:
+            return False
+        except Exception as err:
+            logger.exception(
+                "Failed to remove user from cohort", cohort_id=self.id, team_id=team_id, user_uuid=user_uuid
+            )
+            capture_exception(
+                err, additional_properties={"cohort_id": self.id, "team_id": team_id, "user_uuid": user_uuid}
+            )
+            raise
 
     def to_dict(self) -> dict:
         people_data = [
@@ -572,6 +687,21 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 logger.exception("Failed to save cohort state on retry", cohort_id=self.id, team_id=team_id)
                 # If both attempts fail, the cohort may remain in an inconsistent state
 
+    def enqueue_calculation(self, *, initiating_user=None) -> None:
+        """
+        Enqueue this cohort to be recalculated.
+
+        Args:
+            initiating_user (User): The user who initiated the calculation.
+        """
+
+        def trigger_calculation():
+            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
+
+            increment_version_and_enqueue_calculate_cohort(self, initiating_user=initiating_user)
+
+        transaction.on_commit(trigger_calculation)
+
     __repr__ = sane_repr("id", "name", "last_calculation")
 
 
@@ -582,4 +712,31 @@ class CohortPeople(models.Model):
     version = models.IntegerField(blank=True, null=True)
 
     class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
         indexes = [models.Index(fields=["cohort_id", "person_id"])]
+
+
+@receiver(post_delete, sender=CohortPeople)
+def cohort_people_changed(sender, instance: "CohortPeople", **kwargs):
+    from posthog.models.cohort.util import get_static_cohort_size
+
+    try:
+        cohort_id = instance.cohort_id
+        person_uuid = instance.person_id
+
+        cohort = Cohort.objects.get(id=cohort_id)
+        cohort.count = get_static_cohort_size(cohort_id=cohort.id, team_id=cohort.team_id)
+        cohort.save(update_fields=["count"])
+
+        logger.info(
+            "Updated cohort count after CohortPeople change",
+            cohort_id=cohort_id,
+            person_uuid=person_uuid,
+            new_count=cohort.count,
+        )
+    except Cohort.DoesNotExist:
+        logger.warning("Attempted to update count for non-existent cohort", cohort_id=cohort_id)
+    except Exception as e:
+        logger.exception("Error updating cohort count", cohort_id=cohort_id, person_uuid=person_uuid)
+        capture_exception(e)

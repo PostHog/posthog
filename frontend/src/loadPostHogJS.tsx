@@ -1,9 +1,7 @@
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { FEATURE_FLAGS } from 'lib/constants'
-import { getISOWeekString, inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
@@ -29,14 +27,17 @@ export function loadPostHogJS(): void {
                     loadedInstance.opt_in_capturing()
 
                     if (loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_MEMORY_USAGE)) {
-                        // no point in tracking memory if it's not available
                         const hasMemory = 'memory' in window.performance
                         if (!hasMemory) {
                             return
                         }
 
-                        const tenMinuteInMs = 60000 * 10
-                        setInterval(() => {
+                        const thirtyMinutesInMs = 60000 * 30
+                        let intervalId: number | null = null
+
+                        const captureMemory = (
+                            visibilityTrigger: 'is_visible' | 'went_invisible' | 'went_visible'
+                        ): void => {
                             // this is deprecated and not available in all browsers,
                             // but the supposed standard at https://developer.mozilla.org/en-US/docs/Web/API/Performance/measureUserAgentSpecificMemory
                             // isn't available in Chrome even so 🤷
@@ -45,11 +46,47 @@ export function loadPostHogJS(): void {
                                 loadedInstance.capture('memory_usage', {
                                     totalJSHeapSize: memory.totalJSHeapSize,
                                     usedJSHeapSize: memory.usedJSHeapSize,
+                                    visibility_trigger: visibilityTrigger,
                                     pageIsVisible: document.visibilityState === 'visible',
                                     pageIsFocused: document.hasFocus(),
                                 })
                             }
-                        }, tenMinuteInMs)
+                        }
+
+                        const startInterval = (): void => {
+                            if (intervalId !== null) {
+                                return
+                            }
+                            intervalId = window.setInterval(() => captureMemory('is_visible'), thirtyMinutesInMs)
+                        }
+
+                        const stopInterval = (): void => {
+                            if (intervalId !== null) {
+                                clearInterval(intervalId)
+                                intervalId = null
+                            }
+                        }
+
+                        const onVisibilityChange = (): void => {
+                            if (document.hidden) {
+                                captureMemory('went_invisible')
+                                stopInterval()
+                            } else {
+                                captureMemory('went_visible')
+                                startInterval()
+                            }
+                        }
+
+                        document.addEventListener('visibilitychange', onVisibilityChange)
+
+                        if (!document.hidden) {
+                            startInterval()
+                        }
+
+                        window.addEventListener('beforeunload', () => {
+                            stopInterval()
+                            document.removeEventListener('visibilitychange', onVisibilityChange)
+                        })
                     }
                 }
 
@@ -71,7 +108,7 @@ export function loadPostHogJS(): void {
             __preview_remote_config: true,
             __preview_flags_v2: true,
             __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
-            __preview_lazy_load_replay: true,
+            __preview_eager_load_replay: false,
             __preview_disable_xhr_credentials: true,
         })
 
@@ -80,26 +117,11 @@ export function loadPostHogJS(): void {
                 return
             }
 
-            // Show this toast once per week by using YYYY-WW format for the ID
-            const toastId = `toast-feature-flags-error-${getISOWeekString()}`
-            if (window.localStorage.getItem(toastId)) {
-                return
-            }
+            posthog.capture('onFeatureFlags error')
 
-            lemonToast.warning(
-                <div className="flex flex-col gap-2">
-                    <span>We couldn't load our feature flags.</span>
-                    <span>
-                        This could be due to the presence of adblockers running in your browser. This might affect the
-                        platform usability since some features might not be available.
-                    </span>
-                </div>,
-                {
-                    toastId: toastId,
-                    onClose: () => window.localStorage.setItem(toastId, 'true'),
-                    autoClose: false,
-                }
-            )
+            // Track that we failed to load feature flags
+            window.POSTHOG_GLOBAL_ERRORS ||= {}
+            window.POSTHOG_GLOBAL_ERRORS['onFeatureFlagsLoadError'] = true
         })
     } else {
         posthog.init('fake_token', {

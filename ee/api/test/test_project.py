@@ -7,6 +7,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.api.test.test_team import team_enterprise_api_test_factory
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
@@ -28,13 +29,13 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
         self.assertEqual(Team.objects.count(), 2)
         self.assertEqual(Project.objects.count(), 2)
         response_data = response.json()
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Test",
                 "access_control": False,
                 "effective_membership_level": OrganizationMembership.Level.ADMIN,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
         self.assertEqual(self.organization.teams.count(), 2)
 
@@ -100,17 +101,24 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
     def test_list_projects_restricted_ones_hidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        Team.objects.create(
+        other_team = Team.objects.create(
             organization=self.organization,
             name="Other",
-            access_control=True,
+        )
+
+        # Set up new access control system - restrict project to no default access
+        AccessControl.objects.create(
+            team=other_team,
+            access_level="none",
+            resource="project",
+            resource_id=str(other_team.id),
         )
 
         # The other team should not be returned as it's restricted for the logged-in user
         projects_response = self.client.get(f"/api/environments/")
 
         # 9 (above):
-        with self.assertNumQueries(FuzzyInt(14, 15)):
+        with self.assertNumQueries(FuzzyInt(16, 17)):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         self.assertEqual(projects_response.status_code, 200)
@@ -140,7 +148,7 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
                     "id": self.team.id,
                     "uuid": str(self.team.uuid),
                     "organization": str(self.organization.id),
-                    "project_id": self.team.project.id,  # type: ignore
+                    "project_id": self.team.project.id,
                     "api_token": self.team.api_token,
                     "name": self.team.name,
                     "completed_snippet_onboarding": False,

@@ -1,6 +1,6 @@
 [package]
 name = "posthog-cli"
-version = "0.4.7"
+version = "0.5.10"
 authors = [
     "David <david@posthog.com>",
     "Olly <oliver@posthog.com>",
@@ -22,13 +22,15 @@ path = "src/main.rs"
 clap = { version = "4.5.31", features = ["derive"] }
 dirs = "6.0.0"
 inquire = "0.7.5"
-posthog-symbol-data = "0.2.0"
+chrono = "0.4.42"
+posthog-symbol-data = "0.3.0"
 walkdir = "2.5.0"
 globset = "0.4"
 ratatui = "0.29.0"
 crossterm = "0.28.1"
 tui-textarea = "0.7.0"
 sourcemap = "9.1.2"
+proguard = "5.6.2"
 magic_string = "0.3.4"
 miette = { version = "7.5.0", features = ["fancy"] }
 serde_json = "1.0.140"

@@ -40,6 +40,7 @@ export enum TileId {
     WEB_VITALS = 'WEB_VITALS',
     WEB_VITALS_PATH_BREAKDOWN = 'WEB_VITALS_PATH_BREAKDOWN',
     FRUSTRATING_PAGES = 'FRUSTRATING_PAGES',
+    MARKETING_OVERVIEW = 'MARKETING_OVERVIEW',
 
     // Page Report Tiles to avoid conflicts with web analytics
     PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION = 'PR_COMBINED_METRICS_CHART_SECTION',
@@ -125,8 +126,9 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 16,
 
     // Marketing Tiles
-    [TileId.MARKETING]: 1,
-    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 2,
+    [TileId.MARKETING_OVERVIEW]: 1,
+    [TileId.MARKETING]: 2,
+    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 3,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -144,6 +146,48 @@ export const TILES_ALLOWED_ON_PRE_AGGREGATED = [
     TileId.GRAPHS,
     TileId.GEOGRAPHY,
 ]
+
+export const TILE_LABELS: Record<TileId, string> = {
+    [TileId.OVERVIEW]: 'Overview stats',
+    [TileId.GRAPHS]: 'Trends',
+    [TileId.PATHS]: 'Paths',
+    [TileId.SOURCES]: 'Traffic sources',
+    [TileId.DEVICES]: 'Device breakdown',
+    [TileId.GEOGRAPHY]: 'Geography',
+    [TileId.ACTIVE_HOURS]: 'Active hours',
+    [TileId.RETENTION]: 'Retention',
+    [TileId.REPLAY]: 'Session replay',
+    [TileId.ERROR_TRACKING]: 'Error tracking',
+    [TileId.GOALS]: 'Goals',
+    [TileId.WEB_VITALS]: 'Web vitals',
+    [TileId.WEB_VITALS_PATH_BREAKDOWN]: 'Web vitals path breakdown',
+    [TileId.FRUSTRATING_PAGES]: 'Frustrating pages',
+    [TileId.MARKETING_OVERVIEW]: 'Marketing overview',
+    [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION]: 'Combined metrics',
+    [TileId.PAGE_REPORTS_PATHS_SECTION]: 'Paths',
+    [TileId.PAGE_REPORTS_DEVICE_INFORMATION_SECTION]: 'Device information',
+    [TileId.PAGE_REPORTS_TRAFFIC_SECTION]: 'Traffic',
+    [TileId.PAGE_REPORTS_GEOGRAPHY_SECTION]: 'Geography',
+    [TileId.PAGE_REPORTS_TOP_EVENTS_SECTION]: 'Top events',
+    [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART]: 'Combined metrics chart',
+    [TileId.PAGE_REPORTS_ENTRY_PATHS]: 'Entry paths',
+    [TileId.PAGE_REPORTS_EXIT_PATHS]: 'Exit paths',
+    [TileId.PAGE_REPORTS_OUTBOUND_CLICKS]: 'Outbound clicks',
+    [TileId.PAGE_REPORTS_CHANNELS]: 'Channels',
+    [TileId.PAGE_REPORTS_REFERRERS]: 'Referrers',
+    [TileId.PAGE_REPORTS_DEVICE_TYPES]: 'Device types',
+    [TileId.PAGE_REPORTS_BROWSERS]: 'Browsers',
+    [TileId.PAGE_REPORTS_OPERATING_SYSTEMS]: 'Operating systems',
+    [TileId.PAGE_REPORTS_COUNTRIES]: 'Countries',
+    [TileId.PAGE_REPORTS_REGIONS]: 'Regions',
+    [TileId.PAGE_REPORTS_CITIES]: 'Cities',
+    [TileId.PAGE_REPORTS_TIMEZONES]: 'Timezones',
+    [TileId.PAGE_REPORTS_LANGUAGES]: 'Languages',
+    [TileId.PAGE_REPORTS_TOP_EVENTS]: 'Top events',
+    [TileId.PAGE_REPORTS_PREVIOUS_PAGE]: 'Previous page',
+    [TileId.MARKETING]: 'Marketing',
+    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 'Campaign breakdown',
+}
 
 export interface BaseTile {
     tileId: TileId
@@ -395,3 +439,83 @@ export const sessionPropertiesToPathClean = new Set([
     '$end_current_url',
 ])
 export const personPropertiesToPathClean = new Set(['$initial_pathname', '$initial_current_url'])
+
+// Utility function to map SQL/internal column names to UI-friendly display names
+export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreakdown): string => {
+    // Strip the "context.columns." prefix if present
+    const baseColumn = column.replace(/^context\.columns\./, '')
+
+    // Handle known metric columns first (these should always show their metric names)
+    const metricMappings: Record<string, string> = {
+        visitors: 'Visitors',
+        views: 'Views',
+        sessions: 'Sessions',
+        bounce_rate: 'Bounce Rate',
+        session_duration: 'Session Duration',
+        total_pageviews: 'Total Pageviews',
+        unique_visitors: 'Unique Visitors',
+        scroll_gt80_percentage: 'Scroll Depth >80%',
+        rage_clicks: 'Rage Clicks',
+    }
+
+    if (metricMappings[baseColumn]) {
+        return metricMappings[baseColumn]
+    }
+
+    // Handle breakdown column - only if this is the breakdown_value column and breakdownBy is defined
+    if (baseColumn === 'breakdown_value' && breakdownBy !== undefined) {
+        switch (breakdownBy) {
+            case WebStatsBreakdown.Page:
+                return 'Path'
+            case WebStatsBreakdown.InitialPage:
+                return 'Initial Path'
+            case WebStatsBreakdown.ExitPage:
+                return 'End Path'
+            case WebStatsBreakdown.PreviousPage:
+                return 'Previous Page'
+            case WebStatsBreakdown.ExitClick:
+                return 'Exit Click'
+            case WebStatsBreakdown.ScreenName:
+                return 'Screen Name'
+            case WebStatsBreakdown.InitialChannelType:
+                return 'Channel Type'
+            case WebStatsBreakdown.InitialReferringDomain:
+                return 'Referring Domain'
+            case WebStatsBreakdown.InitialUTMSource:
+                return 'UTM Source'
+            case WebStatsBreakdown.InitialUTMCampaign:
+                return 'UTM Campaign'
+            case WebStatsBreakdown.InitialUTMMedium:
+                return 'UTM Medium'
+            case WebStatsBreakdown.InitialUTMTerm:
+                return 'UTM Term'
+            case WebStatsBreakdown.InitialUTMContent:
+                return 'UTM Content'
+            case WebStatsBreakdown.Browser:
+                return 'Browser'
+            case WebStatsBreakdown.OS:
+                return 'OS'
+            case WebStatsBreakdown.Viewport:
+                return 'Viewport'
+            case WebStatsBreakdown.DeviceType:
+                return 'Device Type'
+            case WebStatsBreakdown.Country:
+                return 'Country'
+            case WebStatsBreakdown.Region:
+                return 'Region'
+            case WebStatsBreakdown.City:
+                return 'City'
+            case WebStatsBreakdown.Timezone:
+                return 'Timezone'
+            case WebStatsBreakdown.Language:
+                return 'Language'
+            case WebStatsBreakdown.FrustrationMetrics:
+                return 'URL'
+            case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+                return 'Source / Medium / Campaign'
+        }
+    }
+
+    // Return base column name if no mapping found
+    return baseColumn
+}

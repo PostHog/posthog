@@ -76,7 +76,7 @@ export interface CompatToolCall {
     id?: string
     function: {
         name: string
-        arguments: Record<string, any>
+        arguments: Record<string, any> | string // Allow string for unparsed/malformed JSON
     }
 }
 

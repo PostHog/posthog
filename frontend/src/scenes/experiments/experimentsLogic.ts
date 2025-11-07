@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -14,7 +14,8 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { Experiment, ExperimentsTabs, FeatureFlagType, ProgressStatus } from '~/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ActivityScope, Breadcrumb, Experiment, ExperimentsTabs, FeatureFlagType, ProgressStatus } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
 
@@ -36,7 +37,6 @@ export interface ExperimentsFilters {
 export interface FeatureFlagModalFilters {
     active?: string
     created_by_id?: number
-    type?: string
     search?: string
     order?: string
     page?: number
@@ -54,7 +54,6 @@ const DEFAULT_FILTERS: ExperimentsFilters = {
 const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
     active: undefined,
     created_by_id: undefined,
-    type: undefined,
     search: undefined,
     order: undefined,
     page: 1,
@@ -212,7 +211,9 @@ export const experimentsLogic = kea<experimentsLogicType>([
             {
                 loadFeatureFlagModalFeatureFlags: async () => {
                     const response = await api.get(
-                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams(values.featureFlagModalParamsFromFilters)}`
+                        `api/projects/${values.currentProjectId}/experiments/eligible_feature_flags/?${toParams({
+                            ...values.featureFlagModalParamsFromFilters,
+                        })}`
                     )
                     return response
                 },
@@ -307,18 +308,34 @@ export const experimentsLogic = kea<experimentsLogicType>([
             },
         ],
     })),
-    events(({ actions, values }) => ({
-        afterMount: () => {
-            actions.loadExperiments()
-            // Sync modal page with URL on mount
-            const urlPage = values.featureFlagModalPageFromURL
-            if (urlPage !== 1) {
-                actions.setFeatureFlagModalFilters({ page: urlPage })
-            } else {
-                actions.loadFeatureFlagModalFeatureFlags()
-            }
-        },
-    })),
+    selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'experiments',
+                    name: 'Experiments',
+                    iconType: 'experiment',
+                },
+            ],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({
+                activity_scope: ActivityScope.EXPERIMENT,
+            }),
+        ],
+    }),
+    afterMount(({ actions, values }) => {
+        actions.loadExperiments()
+        // Sync modal page with URL on mount
+        const urlPage = values.featureFlagModalPageFromURL
+        if (urlPage !== 1) {
+            actions.setFeatureFlagModalFilters({ page: urlPage })
+        } else {
+            actions.loadFeatureFlagModalFeatureFlags()
+        }
+    }),
     actionToUrl(({ values }) => {
         const changeUrl = ():
             | [

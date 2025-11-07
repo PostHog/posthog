@@ -13,6 +13,8 @@ export const manifest: ProductManifest = {
             projectBased: true,
             defaultDocsPath: '/docs/link-tracking',
             activityScope: 'Link',
+            description: 'Start creating links for your marketing campaigns, referral programs, and more.',
+            iconType: 'link',
         },
         Link: {
             name: 'Link',
@@ -30,7 +32,7 @@ export const manifest: ProductManifest = {
         links: (): string => '/links',
         link:
             /** @param id A UUID or 'new'. ':id' for routing. */
-            (id: string): string => `/links/${id}`,
+            (id: string): string => `/link/${id}`,
     },
     fileSystemTypes: {
         link: {
@@ -60,6 +62,7 @@ export const manifest: ProductManifest = {
             href: urls.links(),
             flag: FEATURE_FLAGS.LINKS,
             tags: ['alpha'],
+            sceneKey: 'Links',
         },
     ],
 }

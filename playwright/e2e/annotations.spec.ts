@@ -7,15 +7,21 @@ test.describe('Annotations', () => {
     })
 
     test('Annotations loaded', async ({ page }) => {
-        await expect(page.getByTestId('product-introduction-annotation')).toBeVisible()
-        await expect(page.locator('[data-attr="product-introduction-docs-link"]')).toContainText('Learn more')
+        // Check that the annotations page loaded with key elements visible
+        await expect(page.getByRole('heading', { name: 'Annotations' })).toBeVisible()
+        await expect(page.getByRole('button', { name: 'New annotation' })).toBeVisible()
+        await expect(page.locator('[data-attr="annotations-content"]')).toBeVisible()
     })
 
     test('Create annotation', async ({ page }) => {
-        await page.click('.scene-title-section [data-attr=create-annotation]')
-        await page.fill('[data-attr=create-annotation-input]', 'Test Annotation')
+        // Wait for the create button to be visible before clicking
+        await expect(page.locator('[data-attr=create-annotation]')).toBeVisible()
+        await page.click('[data-attr=create-annotation]')
+
+        // Use a unique name to avoid conflicts with retries
+        const uniqueAnnotationName = `Test Annotation ${Date.now()}`
+        await page.fill('[data-attr=create-annotation-input]', uniqueAnnotationName)
         await page.click('[data-attr=create-annotation-submit]')
-        await expect(page.locator('[data-attr=annotations-table]')).toContainText('Test Annotation')
-        await expect(page.locator('text=Create your first annotation')).not.toBeVisible()
+        await expect(page.locator('[data-attr=annotations-table]')).toContainText(uniqueAnnotationName)
     })
 })

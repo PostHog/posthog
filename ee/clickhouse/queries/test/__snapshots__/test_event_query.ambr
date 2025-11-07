@@ -1,7 +1,28 @@
 # serializer version: 1
 # name: TestEventQuery.test_account_filters
   '''
-  /* cohort_calculation: */
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND type IN ('QueryFinish',
+                 'ExceptionWhileProcessing')
+    AND event_date >= '2021-01-21'
+    AND event_time >= '2021-01-21 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestEventQuery.test_account_filters.1
+  '''
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -9,7 +30,7 @@
     AND version = 0
   '''
 # ---
-# name: TestEventQuery.test_account_filters.1
+# name: TestEventQuery.test_account_filters.2
   '''
   SELECT e.timestamp as timestamp,
          if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id

@@ -133,6 +133,33 @@ export function tryDecodeURIComponent(value: string): string {
     }
 }
 
+// Parse a tags filter value coming from URL search params.
+// Supports:
+// - Repeated params handled upstream and aggregated as an array
+// - JSON array string (e.g. "[\"a\",\"b\"]")
+// - Comma-separated string (e.g. "a,b")
+export function parseTagsFilter(raw: unknown): string[] | undefined {
+    if (Array.isArray(raw)) {
+        return (raw as unknown[]).map((v) => String(v)).filter(Boolean)
+    }
+    if (typeof raw === 'string') {
+        // Try JSON first
+        try {
+            const parsed = JSON.parse(raw)
+            if (Array.isArray(parsed)) {
+                return parsed.map((v) => String(v)).filter(Boolean)
+            }
+        } catch {
+            // Fall through to comma-separated
+        }
+        return raw
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+    }
+    return undefined
+}
+
 /** Return percentage from number, e.g. 0.234 is 23.4%. */
 export function percentage(
     division: number,
@@ -790,7 +817,7 @@ export function isExternalLink(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    const regexp = /^(https?:|mailto:)/
+    const regexp = /^(https?:|mailto:|\/api\/)/
     return !!input.trim().match(regexp)
 }
 
@@ -899,6 +926,7 @@ export function determineDifferenceType(
 export const DATE_FORMAT = 'MMMM D, YYYY'
 export const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
 export const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
+export const DATE_FORMAT_WITHOUT_DAY = 'HH:mm:ss'
 
 export const formatDate = (date: dayjs.Dayjs, format?: string): string => {
     return date.format(format ?? DATE_FORMAT)
@@ -915,6 +943,51 @@ export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, form
         formatFrom = DATE_FORMAT_WITHOUT_YEAR
     }
     return `${dateFrom.format(formatFrom)} - ${dateTo.format(formatTo)}`
+}
+
+export const formatDateTimeRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs): string => {
+    const MONTHDAY = 'MMMM D'
+    const COMMA = ', '
+    const YEAR = 'YYYY '
+    const TIME = 'HH:mm'
+    const SECONDS = ':ss'
+
+    let fromComponents = [MONTHDAY, COMMA, YEAR, TIME, SECONDS]
+    let toComponents = [MONTHDAY, COMMA, YEAR, TIME, SECONDS]
+    if (dateFrom.year() === dateTo.year()) {
+        toComponents = toComponents.filter((x) => x !== YEAR)
+        if (dateTo.year() === dayjs().year()) {
+            fromComponents = fromComponents.filter((x) => x !== YEAR)
+        }
+
+        if (dateFrom.date() === dateTo.date()) {
+            toComponents = toComponents.filter((x) => x !== MONTHDAY)
+            toComponents = toComponents.filter((x) => x !== COMMA)
+            if (dateTo.date() === dayjs().date()) {
+                fromComponents = fromComponents.filter((x) => x !== MONTHDAY)
+                fromComponents = fromComponents.filter((x) => x !== COMMA)
+            }
+        }
+
+        if (dateFrom.isSame(dayjs(dateFrom).startOf('day')) && dateTo.isSame(dayjs(dateTo).startOf('day'))) {
+            fromComponents = fromComponents.filter((x) => x !== TIME)
+            toComponents = toComponents.filter((x) => x !== TIME)
+        }
+
+        if (dateFrom.second() === 0 && dateTo.second() === 0) {
+            fromComponents = fromComponents.filter((x) => x !== SECONDS)
+            toComponents = toComponents.filter((x) => x !== SECONDS)
+        }
+
+        if (!fromComponents.includes(YEAR) && !fromComponents.includes(TIME)) {
+            fromComponents = fromComponents.filter((x) => x !== COMMA)
+        }
+
+        if (!toComponents.includes(YEAR) && !toComponents.includes(TIME)) {
+            toComponents = toComponents.filter((x) => x !== COMMA)
+        }
+    }
+    return `${dateFrom.format(fromComponents.join(''))} - ${dateTo.format(toComponents.join(''))}`
 }
 
 export const dateMapping: DateMappingOption[] = [
@@ -981,11 +1054,10 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'day',
     },
     {
-        key: 'Previous month',
+        key: 'Last month',
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
             formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
-        inactive: true,
         defaultInterval: 'day',
     },
     {
@@ -1015,6 +1087,7 @@ const dateOptionsMap = {
     d: 'day',
     h: 'hour',
     M: 'minute',
+    s: 'second',
 } as const
 
 export function dateFilterToText(
@@ -1080,6 +1153,9 @@ export function dateFilterToText(
                     break
                 case 'minute':
                     date = dayjs().subtract(counter, 'm')
+                    break
+                case 'second':
+                    date = dayjs().subtract(counter, 's')
                     break
                 default:
                     date = dayjs().subtract(counter, 'd')
@@ -1156,6 +1232,9 @@ export function componentsToDayJs(
             break
         case 'minute':
             response = dayjsInstance.add(amount, 'minute')
+            break
+        case 'second':
+            response = dayjsInstance.add(amount, 'second')
             break
         default:
             throw new UnexpectedNeverError(unit)
@@ -1288,6 +1367,11 @@ export const areDatesValidForInterval = (
         return (
             parsedOldDateTo.diff(parsedOldDateFrom, 'minute') >= 2 &&
             parsedOldDateTo.diff(parsedOldDateFrom, 'minute') < 60 * 12 // 12 hours. picked based on max graph resolution
+        )
+    } else if (interval === 'second') {
+        return (
+            parsedOldDateTo.diff(parsedOldDateFrom, 'second') >= 2 &&
+            parsedOldDateTo.diff(parsedOldDateFrom, 'second') < 60 * 60 // 1 hour
         )
     }
     throw new UnexpectedNeverError(interval)
@@ -1817,10 +1901,6 @@ export function tryJsonParse(value: string, fallback?: any): any {
     }
 }
 
-export function validateJsonFormItem(_: any, value: string): Promise<string | void> {
-    return validateJson(value) ? Promise.resolve() : Promise.reject('Not valid JSON!')
-}
-
 export function ensureStringIsNotBlank(s?: string | null): string | null {
     return typeof s === 'string' && s.trim() !== '' ? s : null
 }
@@ -1852,10 +1932,6 @@ export function findLastIndex<T>(array: Array<T>, predicate: (value: T, index: n
     return -1
 }
 
-export function isEllipsisActive(e: HTMLElement | null): boolean {
-    return !!e && e.offsetWidth < e.scrollWidth
-}
-
 export function isGroupType(actor: ActorType): actor is GroupActorType {
     return actor.type === 'group'
 }
@@ -1869,20 +1945,15 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
 
-/** Sorting function for Array.prototype.sort that works for numbers and strings automatically. */
-export const autoSorter = (a: any, b: any): number => {
-    return typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))
-}
-
 // https://stackoverflow.com/questions/175739/how-can-i-check-if-a-string-is-a-valid-number
-export function isNumeric(x: any): boolean {
+export function isNumeric(x: unknown): x is number {
     if (typeof x === 'number') {
-        return true
+        return !isNaN(x) && isFinite(x)
     }
-    if (typeof x != 'string') {
+    if (typeof x !== 'string' || x.trim() === '') {
         return false
     }
-    return !isNaN(Number(x)) && !isNaN(parseFloat(x))
+    return !isNaN(Number(x))
 }
 
 /**
@@ -2190,4 +2261,13 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
     } catch {
         return null
     }
+}
+
+export const formatPercentage = (x: number, options?: { precise?: boolean }): string => {
+    if (options?.precise) {
+        return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
+    } else if (x >= 1000) {
+        return humanFriendlyLargeNumber(x) + '%'
+    }
+    return (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
 }

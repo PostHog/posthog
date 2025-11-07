@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -7,10 +7,13 @@ import api from 'lib/api'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { Breadcrumb } from '~/types'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
 
@@ -42,6 +45,19 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
             await api.persons.resetPersonDistinctId(distinct_id)
             lemonToast.success('Distinct ID reset. It may take a few minutes to process.')
         },
+    }),
+
+    selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'persons',
+                    name: sceneConfigurations[Scene.Persons].name,
+                    iconType: sceneConfigurations[Scene.Persons].iconType || 'default_icon_type',
+                },
+            ],
+        ],
     }),
 
     tabAwareActionToUrl(({ values }) => ({

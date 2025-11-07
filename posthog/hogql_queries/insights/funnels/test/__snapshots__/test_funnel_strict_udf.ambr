@@ -51,6 +51,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -119,6 +121,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -185,6 +189,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -258,6 +264,9 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -331,6 +340,9 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -411,6 +423,9 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -476,8 +491,8 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(ifNull(greaterOrEquals(step_reached, 0), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
-                                                                   and isNull(arrayFlatten(array('finance')))))
+     WHERE and(bitTest(steps_bitfield, 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -547,8 +562,8 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(ifNull(greaterOrEquals(step_reached, 1), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
-                                                                   and isNull(arrayFlatten(array('finance')))))
+     WHERE and(bitTest(steps_bitfield, 1), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -618,8 +633,8 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(ifNull(greaterOrEquals(step_reached, 0), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
-                                                                   and isNull(arrayFlatten(array('technology')))))
+     WHERE and(bitTest(steps_bitfield, 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -689,8 +704,8 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(ifNull(greaterOrEquals(step_reached, 1), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
-                                                                   and isNull(arrayFlatten(array('technology')))))
+     WHERE and(bitTest(steps_bitfield, 1), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101

@@ -52,11 +52,17 @@ export enum NotebookNodeType {
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
     PersonFeed = 'ph-person-feed',
-    Properties = 'ph-properties',
+    PersonProperties = 'ph-person-properties',
+    GroupProperties = 'ph-group-properties',
     Map = 'ph-map',
     Embed = 'ph-embed',
     Latex = 'ph-latex',
     TaskCreate = 'ph-task-create',
+    LLMTrace = 'ph-llm-trace',
+    Issues = 'ph-issues',
+    UsageMetrics = 'ph-usage-metrics',
+    ZendeskTickets = 'ph-zendesk-tickets',
+    RelatedGroups = 'ph-related-groups',
 }
 
 export type NotebookNodeResource = {

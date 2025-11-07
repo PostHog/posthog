@@ -87,20 +87,24 @@ where
 
     let health = HealthRegistry::new("liveness");
 
-    // TODO - we don't have a more complex health check yet, but we should add e.g. some around DB operations
+    // Liveness checks only verify the process is alive (simple heartbeat loop).
+    // Readiness checks (in router.rs) verify DB connectivity before accepting traffic.
     let simple_loop = health
-        .register("simple_loop".to_string(), Duration::from_secs(30))
+        .register(
+            "simple_loop".to_string(),
+            Duration::from_secs(config.health_check_interval_secs),
+        )
         .await;
     tokio::spawn(liveness_loop(simple_loop));
 
     // Start database pool monitoring
-    let db_monitor = DatabasePoolMonitor::new(database_pools.clone());
+    let db_monitor = DatabasePoolMonitor::new(database_pools.clone(), &config);
     tokio::spawn(async move {
         db_monitor.start_monitoring().await;
     });
 
     let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
-        Duration::from_secs(5),
+        Duration::from_secs(config.billing_limiter_cache_ttl_secs),
         redis_reader_client.clone(), // NB: the limiter only reads from redis, so it's safe to just use the reader client
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
@@ -113,7 +117,7 @@ where
     };
 
     let session_replay_billing_limiter = match SessionReplayLimiter::new(
-        Duration::from_secs(5),
+        Duration::from_secs(config.billing_limiter_cache_ttl_secs),
         redis_reader_client.clone(), // NB: the limiter only reads from redis, so it's safe to just use the reader client
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,

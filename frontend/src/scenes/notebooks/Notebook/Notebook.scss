@@ -3,6 +3,11 @@
     flex: 1;
     flex-direction: column;
     width: 100%;
+    margin-top: 1rem;
+
+    .SidePanel3000 & {
+        margin-top: 0;
+    }
 
     .NotebookEditor {
         position: relative;
@@ -18,10 +23,67 @@
             > h1,
             > h2,
             > h3,
-            > h4,
+            > h4 {
+                position: relative; // For the "collapse" widget's positioning
+                margin: 0 0 0.5em;
+                font-weight: 600;
+                line-height: 1.2;
+                letter-spacing: -0.01em;
+
+                > .ProseMirror-widget {
+                    position: absolute;
+                    top: 50%;
+                    left: 0;
+                    padding-right: 0.375rem;
+                    opacity: 0.5; // Reduced opacity so that this doesn't stand out like a sore thumb
+                    transform: translateY(-50%) translateX(-100%);
+
+                    &:hover {
+                        opacity: 1;
+                    }
+                }
+
+                &:not(:hover) > .ProseMirror-widget {
+                    opacity: 0;
+                }
+
+                &[data-collapsed='true'] > .ProseMirror-widget {
+                    opacity: 0.8;
+                }
+            }
+
+            > h1:not(:first-child),
+            > h2:not(:first-child) {
+                margin-top: 0.9em;
+            }
+
+            > h3:not(:first-child),
+            > h4:not(:first-child),
+            > h5:not(:first-child) {
+                margin-top: 0.6em;
+            }
+
+            > h1 {
+                font-size: 1.75rem; // Larger, clean title
+                color: var(--text-3000);
+            }
+
+            > h2 {
+                font-size: 1.25rem; // Subheading scale
+            }
+
+            > h3 {
+                font-size: 1.0625rem;
+            }
+
+            > h4 {
+                font-size: 0.875rem;
+            }
+
             > h5 {
                 position: relative; // For the heading toggle
-                margin-top: 0.5rem;
+                font-size: 0.875rem;
+                font-weight: 600;
 
                 > .ProseMirror-widget {
                     position: absolute;
@@ -50,7 +112,12 @@
             }
 
             > p {
-                margin-bottom: 0.2rem;
+                margin: 0.8rem 0;
+                line-height: 1.7;
+            }
+
+            > .is-empty {
+                position: relative;
             }
 
             > .is-empty::before {
@@ -62,23 +129,30 @@
             }
 
             > ol {
+                margin: 0.6rem 0;
                 list-style-type: decimal;
 
                 ol {
+                    margin: 0.3rem 0;
                     list-style-type: lower-alpha;
                 }
             }
 
             > ul {
+                padding-left: 1.25rem;
+                margin: 0.6rem 0;
                 list-style-type: disc;
 
                 ul {
+                    padding-left: 1.1rem;
+                    margin: 0.3rem 0;
                     list-style-type: circle;
                 }
             }
 
             > ul[data-type='taskList'] {
                 padding-left: 0;
+                margin: 0.5rem 0;
                 list-style-type: none;
 
                 li {
@@ -86,12 +160,30 @@
 
                     > label {
                         flex: 0 0 auto;
+                        padding: 0.15rem;
+                        margin-top: 0.15rem;
                         margin-right: 0.5rem;
                         user-select: none;
+                        border-radius: 6px;
+                        transition:
+                            background 120ms ease-in-out,
+                            border-color 120ms ease-in-out;
                     }
 
                     > div {
                         flex: 1 1 auto;
+                    }
+
+                    input[type='checkbox'] {
+                        width: 1rem;
+                        height: 1rem;
+                        accent-color: var(--color-accent);
+                        border-radius: 4px;
+                        transform: translateY(1px);
+                    }
+
+                    > label:hover {
+                        background: var(--color-bg-surface-primary);
                     }
 
                     ul li,
@@ -107,33 +199,198 @@
 
             > ul,
             > ol {
-                padding-left: 2rem;
+                padding-left: 1.5rem;
 
                 ul,
                 ol {
-                    padding-left: 2rem;
+                    padding-left: 1.25rem;
                 }
 
                 li {
+                    margin: 0.35rem 0;
+
                     p {
-                        margin-bottom: 0.2rem;
+                        margin: 0.25rem 0;
                     }
                 }
             }
 
             > pre {
-                padding: 0.5rem;
-                margin-bottom: 0.5rem;
+                position: relative;
+                padding: 0.75rem 1rem;
+                margin: 1rem 0;
                 overflow-x: auto;
-                background-color: rgb(0 0 0 / 5%);
-                border-radius: var(--radius);
+                font-family: var(
+                    --font-code,
+                    ui-monospace,
+                    SFMono-Regular,
+                    Menlo,
+                    Monaco,
+                    Consolas,
+                    'Liberation Mono',
+                    'Courier New',
+                    monospace
+                );
+                font-size: 0.95em;
+                line-height: 1.6;
+                tab-size: 2;
+                background-color: rgb(0 0 0 / 4%);
+                border: 1px solid color-mix(in oklab, var(--color-border-primary), transparent 35%);
+                border-radius: calc(var(--radius) + 4px);
+
+                [theme='dark'] & {
+                    background-color: rgb(255 255 255 / 8%);
+                }
+            }
+
+            > pre[data-language]::before {
+                position: absolute;
+                top: 0.35rem;
+                right: 0.6rem;
+                font-size: 0.75rem;
+                color: var(--text-3000);
+                text-transform: uppercase;
+                letter-spacing: 0.02em;
+                content: attr(data-language);
             }
 
             > code,
             > p code {
-                padding: 0.2rem;
-                background-color: rgb(0 0 0 / 5%);
+                padding: 0.2rem 0.3rem;
+                font-family: var(
+                    --font-code,
+                    ui-monospace,
+                    SFMono-Regular,
+                    Menlo,
+                    Monaco,
+                    Consolas,
+                    'Liberation Mono',
+                    'Courier New',
+                    monospace
+                );
+                font-size: 0.95em;
+                background-color: rgb(0 0 0 / 4%);
+                border: 1px solid color-mix(in oklab, var(--color-border-primary), transparent 35%);
+                border-radius: calc(var(--radius) - 2px);
+
+                [theme='dark'] & {
+                    background-color: rgb(255 255 255 / 8%);
+                }
+            }
+
+            // Blockquotes
+            > blockquote {
+                padding: 0.6rem 0.9rem;
+                margin: 1rem 0;
+                background: color-mix(in oklab, var(--color-bg-surface-primary), transparent 45%);
+                border-left-width: 3px;
                 border-radius: var(--radius);
+            }
+
+            > blockquote p {
+                font-style: italic;
+            }
+
+            // Horizontal rule
+            > hr {
+                margin: 1.25em 0;
+                border-top-width: 1px;
+            }
+
+            // Images
+            > img,
+            > figure img {
+                max-width: 100%;
+                height: auto;
+                border-radius: var(--radius);
+            }
+
+            > figure {
+                margin: 1.1rem 0;
+                text-align: center;
+            }
+
+            > figcaption {
+                margin-top: 0.4rem;
+                font-size: 0.9em;
+                color: var(--text-3000);
+            }
+
+            // Tables
+            > table {
+                width: 100%;
+                margin: 1rem 0;
+                border-spacing: 0;
+                border-collapse: separate;
+            }
+
+            > table th,
+            > table td {
+                padding: 0.5rem 0.75rem;
+                vertical-align: top;
+                border: 0;
+                border-bottom: 1px solid color-mix(in oklab, var(--color-border-primary), transparent 35%);
+            }
+
+            > table th {
+                font-weight: 600;
+                text-align: left;
+                background: var(--color-bg-surface-primary);
+            }
+
+            > table tbody tr:nth-child(odd) {
+                background: color-mix(in oklab, var(--color-bg-surface-primary), transparent 60%);
+            }
+
+            > table tbody tr:hover {
+                background: color-mix(in oklab, var(--color-bg-surface-primary), transparent 30%);
+            }
+
+            // Links
+            a {
+                color: var(--color-accent);
+                text-decoration: underline;
+                text-underline-offset: 2px;
+                border-bottom: 0;
+
+                &:hover {
+                    text-decoration-thickness: 0.08em;
+                }
+
+                &:visited {
+                    color: var(--text-3000);
+                }
+
+                &:focus-visible {
+                    outline: 2px solid color-mix(in oklab, var(--color-accent), transparent 70%);
+                    outline-offset: 2px;
+                }
+            }
+
+            // Dividers and heading adjacency spacing
+            > hr + h2,
+            > hr + h3 {
+                margin-top: 0.75rem;
+            }
+
+            > h2 + hr,
+            > h3 + hr {
+                margin-top: 0.75rem;
+            }
+
+            // Trim outer whitespace
+            > :first-child {
+                margin-top: 0;
+            }
+
+            > :last-child {
+                margin-bottom: 0;
+            }
+
+            // Page title treatment
+            > h1:first-child {
+                margin-top: 0;
+                font-size: 2rem; // Page title gets extra emphasis
             }
 
             [data-collapsed-by] {
@@ -218,7 +475,7 @@
 
     &--compact:not(.Notebook--canvas) {
         .NotebookEditor {
-            max-width: 800px;
+            max-width: 50rem;
         }
     }
 
@@ -235,20 +492,6 @@
             align-self: flex-start;
             transition: transform var(--notebook-popover-transition-properties);
             transform: translateX(-100%);
-        }
-
-        .NotebookScene & {
-            --notebook-sidebar-height: calc(100vh - 11rem);
-
-            .NotebookColumn__padding {
-                // Account for fixed title
-                height: 4rem;
-            }
-
-            .NotebookColumn__content {
-                // Account for static header
-                top: 4rem;
-            }
         }
 
         &--left {

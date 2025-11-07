@@ -4,6 +4,7 @@ import {
     ErrorEventProperties,
     ErrorTrackingException,
     ErrorTrackingRuntime,
+    ErrorTrackingStackFrame,
     ExceptionAttributes,
     FingerprintRecordPart,
 } from './types'
@@ -98,13 +99,13 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         // we have seen in production that we managed to get `value = {}`
         // so even though this is typed as a string
         // it might not be!
-        type = exceptionList?.[0]?.type ? String(exceptionList?.[0]?.type) : undefined
+        type = exceptionList?.[0]?.type ? stringify(exceptionList?.[0]?.type) : undefined
     }
     if (!value) {
         // we have seen in production that we managed to get `value = {}`
         // so even though this is typed as a string
         // it might not be!
-        value = exceptionList?.[0]?.value ? String(exceptionList?.[0]?.value) : undefined
+        value = exceptionList?.[0]?.value ? stringify(exceptionList?.[0]?.value) : undefined
     }
     if (synthetic == undefined) {
         synthetic = exceptionList?.[0]?.mechanism?.synthetic
@@ -112,6 +113,8 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
 
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
+    const appNamespace = properties.$app_namespace
+    const appVersion = properties.$app_version
 
     return {
         type,
@@ -129,12 +132,16 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         handled,
         level,
         ingestionErrors,
+        appNamespace,
+        appVersion,
     }
 }
 
 export function getExceptionList(properties: ErrorEventProperties): ErrorTrackingException[] {
     const { $sentry_exception } = properties
-    let exceptionList: ErrorTrackingException[] | undefined = properties.$exception_list
+
+    let exceptionList: ErrorTrackingException[] = processExceptionList(properties.$exception_list)
+
     // exception autocapture sets $exception_list for all exceptions.
     // If it's not present, then this is probably a sentry exception. Get this list from the sentry_exception
     if (!exceptionList?.length && $sentry_exception) {
@@ -142,7 +149,32 @@ export function getExceptionList(properties: ErrorEventProperties): ErrorTrackin
             exceptionList = $sentry_exception.values
         }
     }
-    return exceptionList || []
+
+    return exceptionList
+}
+
+function processExceptionList(exceptionList: ErrorTrackingException[] = []): ErrorTrackingException[] {
+    exceptionList = ensureStringExceptionValues(exceptionList)
+    exceptionList = ensureFrameIdFormat(exceptionList)
+    return exceptionList
+}
+
+function ensureFrameIdFormat(exceptionList: ErrorTrackingException[]): ErrorTrackingException[] {
+    exceptionList = exceptionList.map((exception) => {
+        if (!exception.stacktrace || !exception.stacktrace.frames || !Array.isArray(exception.stacktrace.frames)) {
+            return exception
+        }
+        exception.stacktrace.frames = exception.stacktrace.frames.map((frame) => {
+            frame.raw_id = frame.raw_id ? coerceLegacyRawId(frame.raw_id) : frame.raw_id
+            return frame
+        })
+        return exception
+    })
+    return exceptionList
+}
+
+function coerceLegacyRawId(rawId: string): string {
+    return rawId.includes('/') ? rawId : `${rawId}/0`
 }
 
 export function getFingerprintRecords(properties: ErrorEventProperties): FingerprintRecordPart[] {
@@ -167,4 +199,47 @@ export function getSessionId(properties: ErrorEventProperties): string | undefin
 
 export function getRecordingStatus(properties: ErrorEventProperties): string | undefined {
     return properties['$recording_status'] as string | undefined
+}
+
+// we had a bug where SDK was sending non-string values for exception value
+function ensureStringExceptionValues(exceptionList: ErrorTrackingException[]): ErrorTrackingException[] {
+    if (!Array.isArray(exceptionList)) {
+        return []
+    }
+
+    return exceptionList.map((exception) => ({
+        ...exception,
+        value: stringify(exception.value),
+    }))
+}
+
+export function stringify(value: any): string {
+    if (typeof value === 'string') {
+        return value
+    }
+
+    try {
+        return JSON.stringify(value)
+    } catch {}
+
+    try {
+        return value.toString()
+    } catch {}
+
+    return ''
+}
+
+export function formatResolvedName(
+    frame: Pick<ErrorTrackingStackFrame, 'module' | 'resolved_name' | 'lang'>
+): string | null {
+    if (!frame.resolved_name || frame.resolved_name === '?') {
+        return null
+    }
+    return frame.module && frame.lang === 'java' ? `${frame.module}.${frame.resolved_name}` : frame.resolved_name
+}
+
+export function formatType(exception: Pick<ErrorTrackingException, 'module' | 'type' | 'stacktrace'>): string {
+    const hasJavaFrames = exception.stacktrace?.frames?.some((frame) => frame.lang === 'java')
+
+    return exception.module && hasJavaFrames ? `${exception.module}.${exception.type}` : exception.type
 }

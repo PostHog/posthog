@@ -9,6 +9,7 @@ import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, ProductKey
 import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
 import type { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
+import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
 import type { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
@@ -37,8 +38,10 @@ export const urls = {
     propertyDefinitions: (type?: string): string => combineUrl('/data-management/properties', type ? { type } : {}).url,
     propertyDefinition: (id: string | number): string => `/data-management/properties/${id}`,
     propertyDefinitionEdit: (id: string | number): string => `/data-management/properties/${id}/edit`,
+    schemaManagement: (): string => '/data-management/schema',
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
+    dataWarehouseManagedViewsets: (): string => '/data-management/managed-viewsets',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
@@ -46,24 +49,31 @@ export const urls = {
     revenueSettings: (): string => '/data-management/revenue',
     marketingAnalytics: (): string => '/data-management/marketing-analytics',
     customCss: (): string => '/themes/custom-css',
-    sqlEditor: (query?: string, view_id?: string, insightShortId?: string, draftId?: string): string => {
+    sqlEditor: (
+        query?: string,
+        view_id?: string,
+        insightShortId?: string,
+        draftId?: string,
+        outputTab?: OutputTab
+    ): string => {
+        const params = new URLSearchParams()
+
         if (query) {
-            return `/sql?open_query=${encodeURIComponent(query)}`
+            params.set('open_query', query)
+        } else if (view_id) {
+            params.set('open_view', view_id)
+        } else if (insightShortId) {
+            params.set('open_insight', insightShortId)
+        } else if (draftId) {
+            params.set('open_draft', draftId)
         }
 
-        if (view_id) {
-            return `/sql?open_view=${view_id}`
+        if (outputTab) {
+            params.set('output_tab', outputTab)
         }
 
-        if (insightShortId) {
-            return `/sql?open_insight=${insightShortId}`
-        }
-
-        if (draftId) {
-            return `/sql?open_draft=${draftId}`
-        }
-
-        return '/sql'
+        const queryString = params.toString()
+        return `/sql${queryString ? `?${queryString}` : ''}`
     },
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
@@ -71,8 +81,10 @@ export const urls = {
     comment: (id: CommentType['id'] | ':id'): string => `/data-management/comments/${id}`,
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
-    projectHomepage: (): string => '/',
-    max: (): string => '/max',
+    projectRoot: (): string => '/',
+    projectHomepage: (): string => '/home',
+    max: (chat?: string, ask?: string): string => combineUrl('/max', { ask, chat }).url,
+    maxHistory: (): string => '/max/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
@@ -82,6 +94,9 @@ export const urls = {
     login: (): string => '/login',
     login2FA: (): string => '/login/2fa',
     login2FASetup: (): string => '/login/2fa_setup',
+    cliAuthorize: (): string => '/cli/authorize',
+    emailMFAVerify: (): string => '/login/verify',
+    liveDebugger: (): string => '/live-debugger',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
     preflight: (): string => '/preflight',
@@ -99,7 +114,7 @@ export const urls = {
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
     organizationBillingSection: (section: BillingSectionId = 'overview'): string =>
         combineUrl(`/organization/billing/${section}`).url,
-    advancedActivityLogs: (): string => '/advanced-activity-logs',
+    advancedActivityLogs: (): string => '/activity-logs',
     billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
@@ -137,6 +152,10 @@ export const urls = {
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    heatmapNew: (): string => `/heatmaps/new`,
+    heatmapRecording: (params?: string): string =>
+        `/heatmaps/recording${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    heatmap: (id: string | number): string => `/heatmaps/${id}`,
     links: (params?: string): string =>
         `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     link: (id: string): string => `/link/${id}`,

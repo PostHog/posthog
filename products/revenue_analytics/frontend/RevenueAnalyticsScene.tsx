@@ -4,10 +4,10 @@ import { useEffect, useState } from 'react'
 import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductKey } from '~/types'
@@ -24,10 +24,7 @@ export const scene: SceneExport = {
     settingSectionId: 'environment-revenue-analytics',
 }
 
-export const PRODUCT_NAME = 'Revenue Analytics'
 export const PRODUCT_KEY = ProductKey.REVENUE_ANALYTICS
-export const PRODUCT_DESCRIPTION =
-    'Track and analyze your revenue metrics to understand your business performance and growth.'
 export const PRODUCT_THING_NAME = 'revenue source'
 
 export function RevenueAnalyticsScene(): JSX.Element {
@@ -47,13 +44,12 @@ export function RevenueAnalyticsScene(): JSX.Element {
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
             <SceneContent>
                 <SceneTitleSection
-                    name={PRODUCT_NAME}
-                    description={PRODUCT_DESCRIPTION}
+                    name={sceneConfigurations[Scene.RevenueAnalytics].name}
+                    description={sceneConfigurations[Scene.RevenueAnalytics].description}
                     resourceType={{
-                        type: 'revenue_analytics',
+                        type: sceneConfigurations[Scene.RevenueAnalytics].iconType || 'default',
                     }}
                 />
-                <SceneDivider />
 
                 <LemonBanner
                     type="info"

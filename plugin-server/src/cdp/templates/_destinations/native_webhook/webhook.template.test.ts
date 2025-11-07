@@ -14,6 +14,7 @@ describe(`${template.name} template`, () => {
             json: () => Promise.resolve({ status: 'OK' }),
             text: () => Promise.resolve(JSON.stringify({ status: 'OK' })),
             headers: { 'content-type': 'application/json' },
+            dump: () => Promise.resolve(),
         })
     })
     afterEach(() => {
@@ -72,6 +73,7 @@ describe(`${template.name} template`, () => {
             json: () => Promise.resolve({ status: 'ERROR' }),
             text: () => Promise.resolve(JSON.stringify({ status: 'ERROR' })),
             headers: { 'content-type': 'application/json' },
+            dump: () => Promise.resolve(),
         })
         const response = await tester.invoke({ ...inputs, debug_mode: true })
         expect(response.logs).toMatchInlineSnapshot(

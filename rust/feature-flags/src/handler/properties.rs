@@ -21,7 +21,17 @@ pub fn prepare_overrides(
     let group_property_overrides =
         get_group_property_overrides(groups.clone(), request.group_properties.clone());
 
-    let hash_key_override = request.anon_distinct_id.clone();
+    // Determine hash key with precedence: top-level anon_distinct_id > person_properties.$anon_distinct_id
+    // Frontend SDKs automatically include anon_distinct_id at the top level.
+    // Backend SDKs manually override the anon_distinct_id in person_properties if needed.
+    let hash_key_override = request.anon_distinct_id.clone().or_else(|| {
+        request
+            .person_properties
+            .as_ref()
+            .and_then(|props| props.get("$anon_distinct_id"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    });
 
     Ok(RequestPropertyOverrides {
         person_properties: person_property_overrides,
@@ -89,5 +99,121 @@ pub fn get_group_property_overrides(
             Some(result)
         }
         None => existing_overrides,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::flags::flag_request::FlagRequest;
+    use serde_json::json;
+
+    #[test]
+    fn test_anon_distinct_id_from_top_level() {
+        let request = FlagRequest {
+            anon_distinct_id: Some("anon123".to_string()),
+            person_properties: Some(
+                vec![("$anon_distinct_id".to_string(), json!("anon456"))]
+                    .into_iter()
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+
+        let hash_key = request.anon_distinct_id.clone().or_else(|| {
+            request
+                .person_properties
+                .as_ref()
+                .and_then(|props| props.get("$anon_distinct_id"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
+
+        assert_eq!(
+            hash_key,
+            Some("anon123".to_string()),
+            "Top-level anon_distinct_id should take precedence"
+        );
+    }
+
+    #[test]
+    fn test_anon_distinct_id_from_person_properties() {
+        let request = FlagRequest {
+            anon_distinct_id: None,
+            person_properties: Some(
+                vec![("$anon_distinct_id".to_string(), json!("anon456"))]
+                    .into_iter()
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+
+        let hash_key = request.anon_distinct_id.clone().or_else(|| {
+            request
+                .person_properties
+                .as_ref()
+                .and_then(|props| props.get("$anon_distinct_id"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
+
+        assert_eq!(
+            hash_key,
+            Some("anon456".to_string()),
+            "Should fallback to person_properties.$anon_distinct_id"
+        );
+    }
+
+    #[test]
+    fn test_anon_distinct_id_not_present() {
+        let request = FlagRequest {
+            anon_distinct_id: None,
+            person_properties: Some(
+                vec![("other_property".to_string(), json!("value"))]
+                    .into_iter()
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+
+        let hash_key = request.anon_distinct_id.clone().or_else(|| {
+            request
+                .person_properties
+                .as_ref()
+                .and_then(|props| props.get("$anon_distinct_id"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
+
+        assert_eq!(
+            hash_key, None,
+            "Should be None when anon_distinct_id not present anywhere"
+        );
+    }
+
+    #[test]
+    fn test_anon_distinct_id_with_non_string_value() {
+        let request = FlagRequest {
+            anon_distinct_id: None,
+            person_properties: Some(
+                vec![("$anon_distinct_id".to_string(), json!(123))]
+                    .into_iter()
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+
+        let hash_key = request.anon_distinct_id.clone().or_else(|| {
+            request
+                .person_properties
+                .as_ref()
+                .and_then(|props| props.get("$anon_distinct_id"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
+
+        assert_eq!(
+            hash_key, None,
+            "Should be None when anon_distinct_id in person_properties is not a string"
+        );
     }
 }

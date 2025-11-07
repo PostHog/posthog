@@ -31,13 +31,7 @@ export const navigationLogic = kea<navigationLogicType>([
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     })),
     actions({
-        openAccountPopover: true,
-        closeAccountPopover: true,
-        toggleAccountPopover: true,
-        toggleProjectSwitcher: true,
-        hideProjectSwitcher: true,
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
-        acknowledgeFeaturePreviewChange: true,
     }),
     loaders({
         navigationStatus: [
@@ -57,34 +51,11 @@ export const navigationLogic = kea<navigationLogicType>([
         mobileLayout: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     })),
     reducers({
-        isAccountPopoverOpen: [
-            false,
-            {
-                openAccountPopover: () => true,
-                closeAccountPopover: () => false,
-                toggleAccountPopover: (state) => !state,
-            },
-        ],
-        isProjectSwitcherShown: [
-            false,
-            {
-                toggleProjectSwitcher: (state) => !state,
-                hideProjectSwitcher: () => false,
-            },
-        ],
         projectNoticesAcknowledged: [
             {} as Record<ProjectNoticeVariant, boolean>,
             { persist: true },
             {
                 closeProjectNotice: (state, { projectNoticeVariant }) => ({ ...state, [projectNoticeVariant]: true }),
-            },
-        ],
-        // TODO: Remove this in a while so all users have acknowledged the change
-        featurePreviewChangeAcknowledged: [
-            false,
-            { persist: true },
-            {
-                acknowledgeFeaturePreviewChange: () => true,
             },
         ],
     }),

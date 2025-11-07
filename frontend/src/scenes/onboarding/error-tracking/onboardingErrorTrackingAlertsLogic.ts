@@ -56,10 +56,10 @@ const DEFAULT_SLACK_INPUTS: Record<string, any> = {
 
 export const onboardingErrorTrackingAlertsLogic = kea<onboardingErrorTrackingAlertsLogicType>([
     path(['scenes', 'onboarding', 'error-tracking', 'onboardingErrorTrackingAlertsLogic']),
-    connect({
+    connect(() => ({
         values: [integrationsLogic, ['slackIntegrations', 'slackAvailable']],
         actions: [onboardingLogic, ['goToNextStep']],
-    }),
+    })),
     actions({
         setIntegration: (integration: ErrorTrackingAlertIntegrationType | null) => ({ integration }),
     }),

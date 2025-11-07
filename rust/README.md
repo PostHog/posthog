@@ -2,7 +2,6 @@
 
 The `posthog/rust` directory serves as PostHog's "Rust monorepo" hosting Rust libraries and service implementations. This is *not* the Rust client library for PostHog.
 
-
 ## Catalog
 
 Some selected examples of subprojects homed in the Rust workspace.
@@ -49,18 +48,17 @@ Rust based webhook management services. Includes `hook-api`, `hook-common`, `hoo
 
 Miscellaneous internal Rust libraries reused by service implementations.
 
-
 ## Requirements
 
 1. [Rust](https://www.rust-lang.org/tools/install).
 2. [Docker](https://docs.docker.com/engine/install/), or [podman](https://podman.io/docs/installation) and [podman-compose](https://github.com/containers/podman-compose#installation): To setup development stack.
 
 Other useful links for those new to Rust:
+
 * [The Rust Programming Language](https://doc.rust-lang.org/book/index.html)
 * [Cargo manual](https://doc.rust-lang.org/cargo/)
 * [The "Rustonomicon"](https://doc.rust-lang.org/nomicon/)
 * [crates.io](https://crates.io/)
-
 
 ## Local Development
 

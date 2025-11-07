@@ -22,7 +22,11 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     join_with_person_distinct_ids_table,
 )
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1, select_from_sessions_table_v1
-from posthog.hogql.database.schema.sessions_v2 import select_from_sessions_table_v2, session_id_to_session_id_v7_expr
+from posthog.hogql.database.schema.sessions_v2 import (
+    select_from_sessions_table_v2,
+    session_id_to_session_id_v7_as_uint128_expr,
+)
+from posthog.hogql.database.schema.sessions_v3 import select_from_sessions_table_v3, session_id_to_uint128_as_uuid_expr
 from posthog.hogql.errors import ResolutionError
 
 
@@ -62,7 +66,29 @@ def join_replay_table_to_sessions_table_v2(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=session_id_to_session_id_v7_expr(ast.Field(chain=[join_to_add.from_table, "session_id"])),
+            left=session_id_to_session_id_v7_as_uint128_expr(ast.Field(chain=[join_to_add.from_table, "session_id"])),
+            right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
+        ),
+        constraint_type="ON",
+    )
+    return join_expr
+
+
+def join_replay_table_to_sessions_table_v3(
+    join_to_add: LazyJoinToAdd, context: HogQLContext, node: SelectQuery
+) -> JoinExpr:
+    from posthog.hogql import ast
+
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from replay")
+
+    join_expr = ast.JoinExpr(table=select_from_sessions_table_v3(join_to_add.fields_accessed, node, context))
+    join_expr.join_type = "LEFT JOIN"
+    join_expr.alias = join_to_add.to_table
+    join_expr.constraint = ast.JoinConstraint(
+        expr=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=session_id_to_uint128_as_uuid_expr(ast.Field(chain=[join_to_add.from_table, "session_id"])),
             right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
         ),
         constraint_type="ON",

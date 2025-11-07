@@ -10,6 +10,7 @@ import { isObject } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import type { llmAnalyticsPlaygroundLogicType } from './llmAnalyticsPlaygroundLogicType'
+import { normalizeRole } from './utils'
 
 export interface ModelOption {
     id: string
@@ -28,11 +29,51 @@ export interface PlaygroundResponse {
     }
 }
 
-export type MessageRole = 'user' | 'assistant' | 'system'
+enum NormalizedMessageRole {
+    User = 'user',
+    Assistant = 'assistant',
+    System = 'system',
+}
+
+export type MessageRole = `${NormalizedMessageRole}`
 
 export interface Message {
     role: MessageRole
     content: string
+}
+
+interface RawMessage {
+    role: string
+    content: unknown
+}
+
+enum InputMessageRole {
+    User = 'user',
+    Assistant = 'assistant',
+    AI = 'ai',
+    Model = 'model',
+    System = 'system',
+}
+
+type ConversationRole = NormalizedMessageRole.User | NormalizedMessageRole.Assistant
+
+function extractConversationMessage(rawMessage: RawMessage): Message {
+    const normalizedRole = normalizeRole(rawMessage.role, NormalizedMessageRole.User)
+    const enumMap: Partial<Record<string, ConversationRole>> = {
+        [InputMessageRole.User]: NormalizedMessageRole.User,
+        [InputMessageRole.Assistant]: NormalizedMessageRole.Assistant,
+    }
+
+    const enumRole: ConversationRole | undefined = enumMap[normalizedRole]
+
+    // Default to 'user' role when we don't understand the role
+    // Better to show the message as a user message than to drop it entirely
+    const roleToUse = enumRole ?? NormalizedMessageRole.User
+
+    return {
+        role: roleToUse,
+        content: typeof rawMessage.content === 'string' ? rawMessage.content : JSON.stringify(rawMessage.content),
+    }
 }
 
 export interface ComparisonItem {
@@ -432,13 +473,10 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                             systemPromptContent = systemMessage.content
                         }
 
-                        // Extract user and assistant messages for history
+                        // Extract user and assistant messages for history (skip system messages as they're handled separately)
                         conversationMessages = input
-                            .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
-                            .map((msg) => ({
-                                role: msg.role as 'user' | 'assistant',
-                                content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
-                            }))
+                            .filter((msg: RawMessage) => msg.role !== 'system')
+                            .map((msg: RawMessage) => extractConversationMessage(msg))
                     }
                     // Case 2: Input is just a single string prompt
                     else if (typeof input === 'string') {

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { CyclotronInputSchema } from './cyclotron'
+import { CyclotronInputSchema, CyclotronJobInputSchemaTypeSchema } from './cyclotron'
 
 const _commonActionFields = {
     id: z.string(),
@@ -10,6 +10,13 @@ const _commonActionFields = {
     created_at: z.number(),
     updated_at: z.number(),
     filters: z.any(), // TODO: Correct to the right type
+    output_variable: z // The Hogflow-level variable to store the output of this action into
+        .object({
+            key: z.string(),
+            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
+        })
+        .optional()
+        .nullable(),
 }
 
 const HogFlowTriggerSchema = z.discriminatedUnion('type', [
@@ -23,6 +30,18 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         type: z.literal('webhook'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        inputs: z.record(CyclotronInputSchema),
+    }),
+    z.object({
+        type: z.literal('manual'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        inputs: z.record(CyclotronInputSchema),
+    }),
+    z.object({
+        type: z.literal('tracking_pixel'),
         template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
         inputs: z.record(CyclotronInputSchema),
@@ -157,6 +176,16 @@ export const HogFlowSchema = z.object({
     name: z.string(),
     status: z.enum(['active', 'draft', 'archived']),
     trigger: HogFlowTriggerSchema,
+    // Optional masking config for the trigger, allows HogFlows to be rate limited per distinct ID or other property
+    trigger_masking: z
+        .object({
+            ttl: z.number().nullable(),
+            hash: z.string(),
+            bytecode: z.array(z.union([z.string(), z.number()])),
+            threshold: z.number().nullable(),
+        })
+        .optional()
+        .nullable(),
     conversion: z
         .object({
             window_minutes: z.number(),
@@ -172,6 +201,7 @@ export const HogFlowSchema = z.object({
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
+    variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen

@@ -54,3 +54,9 @@ export const cookielessRedisErrorCounter = new Counter({
     help: 'Count redis errors.',
     labelNames: ['operation'],
 })
+
+export const kafkaHeaderStatusCounter = new Counter({
+    name: 'kafka_header_status_total',
+    help: 'Count of events by header name and presence status',
+    labelNames: ['header', 'status'],
+})

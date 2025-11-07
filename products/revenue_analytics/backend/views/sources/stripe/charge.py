@@ -1,13 +1,12 @@
-from collections.abc import Iterable
 from typing import cast
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION, convert_currency_call
 
 from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.table import DataWarehouseTable
 
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
 from products.revenue_analytics.backend.views.schemas.charge import SCHEMA
 from products.revenue_analytics.backend.views.sources.helpers import (
@@ -17,10 +16,10 @@ from products.revenue_analytics.backend.views.sources.helpers import (
 )
 
 
-def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
+def build(handle: SourceHandle) -> BuiltQuery:
     source = handle.source
     if source is None:
-        return
+        raise ValueError("Source is required")
 
     prefix = view_prefix_for_source(source)
 
@@ -29,17 +28,21 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     schemas = source.schemas.all()
     charge_schema = next((schema for schema in schemas if schema.name == STRIPE_CHARGE_RESOURCE_NAME), None)
     if charge_schema is None:
-        yield BuiltQuery(
-            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+        return BuiltQuery(
+            key=str(source.id),  # Using source rather than table because table hasn't been found yet
+            prefix=prefix,
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
+            test_comments="no_schema",
         )
-        return
 
     charge_schema = cast(ExternalDataSchema, charge_schema)
     if charge_schema.table is None:
-        yield BuiltQuery(
-            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+        return BuiltQuery(
+            key=str(source.id),  # Using source rather than table because table hasn't been found
+            prefix=prefix,
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
+            test_comments="no_table",
         )
-        return
 
     table = cast(DataWarehouseTable, charge_schema.table)
     team = table.team
@@ -119,4 +122,4 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
         ),
     )
 
-    yield BuiltQuery(key=str(table.id), prefix=prefix, query=query)
+    return BuiltQuery(key=str(table.id), prefix=prefix, query=query)

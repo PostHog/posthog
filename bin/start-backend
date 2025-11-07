@@ -9,4 +9,20 @@ export CLICKHOUSE_API_PASSWORD="apipass"
 export CLICKHOUSE_APP_USER="app"
 export CLICKHOUSE_APP_PASSWORD="apppass"
 
-uvicorn --reload posthog.asgi:application --host 127.0.0.1 --log-level debug --reload-include "posthog/" --reload-include "ee/" --reload-include "products/"
+# Suppress frozen modules warning since we only debug our code, not stdlib
+export PYDEVD_DISABLE_FILE_VALIDATION=1
+
+# Cross-platform Docker host access
+# On macOS/Windows: Docker runs in a VM, use 127.0.0.1 for the host bind
+# On Linux: Use bridge gateway IP for container access while maintaining security
+if [[ "$OSTYPE" == "darwin"* ]] || [[ "$OSTYPE" == "msys" ]]; then
+    HOST_BIND="127.0.0.1"
+    echo "🍎 macOS/Windows detected, using secure localhost binding"
+else
+    # Linux - containers cannot reach host's 127.0.0.1, use bridge gateway
+    DOCKER_GATEWAY_IP=$(docker network inspect bridge --format='{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null || echo "172.17.0.1")
+    HOST_BIND="$DOCKER_GATEWAY_IP"
+    echo "🐧 Linux detected, binding to Docker bridge gateway: $HOST_BIND"
+fi
+
+python ${DEBUG:+ -m debugpy --listen 127.0.0.1:5678} -m uvicorn --reload posthog.asgi:application --host $HOST_BIND --log-level debug --reload-include "posthog/" --reload-include "ee/" --reload-include "products/"

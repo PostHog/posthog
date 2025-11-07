@@ -1,5 +1,7 @@
 import { ComponentType, HTMLProps } from 'react'
 
+import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
+
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import {
     DataTableNode,
@@ -11,6 +13,7 @@ import {
 import { InsightLogicProps, TrendResult } from '~/types'
 
 import { ColumnFeature } from './nodes/DataTable/DataTable'
+import { DataTableRow } from './nodes/DataTable/dataTableLogic'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
@@ -39,12 +42,18 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     extraDataTableQueryFeatures?: QueryFeature[]
     /** Allow customization of file name when exporting */
     fileNameForExport?: string
+    /** Cohort ID to enable cohort-specific features like View Replays button */
+    cohortId?: number | null
     /** Custom column features to pass down to the DataTable */
     columnFeatures?: ColumnFeature[]
     /** Key to be used in dataNodeLogic so that we can find the dataNodeLogic */
     dataNodeLogicKey?: string
     /** Override the maximum pagination limit for Data Tables. */
     dataTableMaxPaginationLimit?: number
+    /** Custom expandable config for DataTable rows */
+    expandable?: ExpandableConfig<DataTableRow>
+    /** Ignore action/event names in series labels (show only breakdown/compare values) */
+    ignoreActionsInSeriesLabels?: boolean
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from langchain_core.messages import ToolMessage as LangchainToolMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
@@ -9,6 +11,9 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    DeepResearchNotebook,
+    DeepResearchType,
+    NotebookUpdateMessage,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -17,12 +22,14 @@ from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.report.prompts import DEEP_RESEARCH_REPORT_PROMPT, FINAL_REPORT_USER_PROMPT
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
+    DeepResearchNodeName,
     DeepResearchState,
     PartialDeepResearchState,
 )
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.notebook.notebook_serializer import NotebookContext
 from ee.hogai.utils.types.base import InsightArtifact, TaskArtifact
+from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class FormattedInsight(BaseModel):
@@ -43,6 +50,10 @@ class DeepResearchReportNode(DeepResearchNode):
     2. Formats insight artifacts using the query executor
     3. Generates a final markdown report with embedded insight references
     """
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return DeepResearchNodeName.REPORT
 
     async def arun(self, state: DeepResearchState, config: RunnableConfig) -> PartialDeepResearchState:
         # Collect all artifacts from task results
@@ -77,7 +88,7 @@ class DeepResearchReportNode(DeepResearchNode):
 
         context = self._create_context(all_artifacts)
 
-        notebook_update_message = await self._astream_notebook(
+        notebook = await self._astream_notebook(
             chain,
             config,
             stream_parameters={
@@ -87,8 +98,34 @@ class DeepResearchReportNode(DeepResearchNode):
             context=context,
         )
 
+        notebook_title = notebook.title if notebook else "Research Report"
+        current_notebook_info = DeepResearchNotebook(
+            notebook_type=DeepResearchType.REPORT,
+            notebook_id=notebook.short_id,
+            title=notebook_title,
+        )
+
+        # Update current run notebooks with the report
+        current_run_notebooks = (state.current_run_notebooks or []) + [current_notebook_info]
+
+        # Combine all conversation notebooks with the current report for the final display
+        all_conversation_notebooks = [*state.conversation_notebooks, current_notebook_info]
+
+        notebook_update_message = NotebookUpdateMessage(
+            id=str(uuid4()),
+            notebook_id=notebook.short_id,
+            content=notebook.content,
+            notebook_type="deep_research",
+            conversation_notebooks=all_conversation_notebooks,
+            current_run_notebooks=current_run_notebooks,
+        )
+
+        self.dispatcher.message(notebook_update_message)
+
         return PartialDeepResearchState(
             messages=[notebook_update_message],
+            conversation_notebooks=[current_notebook_info],
+            current_run_notebooks=current_run_notebooks,
         )
 
     def _collect_all_artifacts(self, state: DeepResearchState) -> list[TaskArtifact]:

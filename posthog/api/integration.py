@@ -3,6 +3,7 @@ import json
 from typing import Any
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpResponse
 from django.shortcuts import redirect
@@ -16,11 +17,15 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     ClickUpIntegration,
+    DatabricksIntegration,
+    DatabricksIntegrationError,
     EmailIntegration,
     GitHubIntegration,
+    GitLabIntegration,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     Integration,
@@ -35,6 +40,7 @@ from posthog.models.integration import (
 class NativeEmailIntegrationSerializer(serializers.Serializer):
     email = serializers.EmailField()
     name = serializers.CharField()
+    provider = serializers.ChoiceField(choices=["ses", "mailjet", "maildev"] if settings.DEBUG else ["ses", "mailjet"])
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
@@ -84,6 +90,17 @@ class IntegrationSerializer(serializers.ModelSerializer):
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
             return instance
 
+        elif validated_data["kind"] == "gitlab":
+            config = validated_data.get("config", {})
+            hostname = config.get("hostname")
+            project_id = config.get("project_id")
+            project_access_token = config.get("project_access_token")
+
+            instance = GitLabIntegration.create_integration(
+                hostname, project_id, project_access_token, team_id, request.user
+            )
+            return instance
+
         elif validated_data["kind"] == "twilio":
             config = validated_data.get("config", {})
             account_sid = config.get("account_sid")
@@ -110,6 +127,30 @@ class IntegrationSerializer(serializers.ModelSerializer):
             instance = twilio.integration_from_keys()
             return instance
 
+        elif validated_data["kind"] == "databricks":
+            config = validated_data.get("config", {})
+            server_hostname = config.get("server_hostname")
+            client_id = config.get("client_id")
+            client_secret = config.get("client_secret")
+            if not (server_hostname and client_id and client_secret):
+                raise ValidationError("Server hostname, client ID, and client secret must be provided")
+
+            # ensure all fields are strings
+            if not all(isinstance(value, str) for value in [server_hostname, client_id, client_secret]):
+                raise ValidationError("Server hostname, client ID, and client secret must be strings")
+
+            try:
+                instance = DatabricksIntegration.integration_from_config(
+                    team_id=team_id,
+                    server_hostname=server_hostname,
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    created_by=request.user,
+                )
+            except DatabricksIntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             try:
                 instance = OauthIntegration.integration_from_oauth_response(
@@ -130,9 +171,17 @@ class IntegrationViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    scope_object = "INTERNAL"
+    scope_object = "integration"
+    scope_object_read_actions = ["list", "retrieve", "github_repos"]
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
+
+    def safely_get_queryset(self, queryset):
+        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
+            self.request.successful_authenticator, OAuthAccessTokenAuthentication
+        ):
+            return queryset.filter(kind="github")
+        return queryset
 
     @action(methods=["GET"], detail=False)
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:

@@ -1,4 +1,4 @@
-from posthog.warehouse.types import IncrementalFieldType
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 RESOURCE_SCHEMAS = {
     "ad": {
@@ -102,6 +102,7 @@ RESOURCE_SCHEMAS = {
             "ad_group.id",
             "campaign.id",
             "customer.id",
+            "customer.currency_code",
             "ad_group_ad.ad_group",
             "ad_group.base_ad_group",
             "campaign.base_campaign",
@@ -187,6 +188,7 @@ RESOURCE_SCHEMAS = {
             "ad_group.id",
             "campaign.id",
             "customer.id",
+            "customer.currency_code",
             "ad_group.base_ad_group",
             "campaign.base_campaign",
             "metrics.active_view_cpm",
@@ -273,6 +275,7 @@ RESOURCE_SCHEMAS = {
         "field_names": [
             "campaign.id",
             "customer.id",
+            "customer.currency_code",
             "campaign.base_campaign",
             "metrics.active_view_cpm",
             "metrics.active_view_ctr",
@@ -368,6 +371,7 @@ RESOURCE_SCHEMAS = {
             "ad_group.id",
             "campaign.id",
             "customer.id",
+            "customer.currency_code",
             "ad_group.base_ad_group",
             "campaign.base_campaign",
             "metrics.active_view_cpm",
@@ -443,6 +447,7 @@ RESOURCE_SCHEMAS = {
             "campaign.id",
             "video.channel_id",
             "customer.id",
+            "customer.currency_code",
             "video.id",
             "ad_group_ad.status",
             "metrics.all_conversions_from_interactions_rate",

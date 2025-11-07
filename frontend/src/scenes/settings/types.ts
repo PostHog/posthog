@@ -18,6 +18,7 @@ export type SettingLevelId = (typeof SettingLevelIds)[number]
 export type SettingSectionId =
     | 'environment-details'
     | 'environment-autocapture'
+    | 'environment-customer-analytics'
     | 'environment-product-analytics'
     | 'environment-revenue-analytics'
     | 'environment-marketing-analytics'
@@ -27,9 +28,9 @@ export type SettingSectionId =
     | 'environment-feature-flags'
     | 'environment-error-tracking'
     | 'environment-csp-reporting'
-    | 'environment-crm'
     | 'environment-max'
     | 'environment-integrations'
+    | 'environment-activity-logs'
     | 'environment-access-control'
     | 'environment-danger-zone'
     | 'project-details'
@@ -151,6 +152,10 @@ export type SettingId =
     | 'base-currency'
     | 'marketing-settings'
     | 'mcp-server-configure'
+    | 'activity-log-settings'
+    | 'activity-log-org-level-settings'
+    | 'activity-log-notifications'
+    | 'organization-ip-anonymization-default'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
@@ -174,6 +179,12 @@ export type Setting = {
      * can check if a team should have access to a setting and return false if not
      */
     allowForTeam?: (team: TeamType | TeamPublicType | null) => boolean
+
+    /**
+     * If true, this setting will be hidden when viewing all settings (no specific section selected),
+     * but will still appear when viewing its specific section directly
+     */
+    hideWhenNoSection?: boolean
 }
 
 export interface SettingSection extends Pick<Setting, 'flag'> {

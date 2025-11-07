@@ -51,6 +51,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
     HogQLQueryThrottle,
 )
+from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_migrations.upgrade import upgrade
 
 from common.hogvm.python.utils import HogVMException
@@ -169,6 +170,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
+        except UserAccessControlError as e:
+            raise ValidationError(str(e))
         except ResolutionError as e:
             raise ValidationError(str(e))
         except ConcurrencyLimitExceeded as c:

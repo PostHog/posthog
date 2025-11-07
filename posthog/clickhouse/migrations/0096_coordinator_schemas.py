@@ -21,7 +21,7 @@ from posthog.models.person.sql import (
     PERSONS_TABLE_SQL,
 )
 from posthog.models.person_overrides.sql import PERSON_OVERRIDES_CREATE_TABLE_SQL
-from posthog.models.raw_sessions.sql import DISTRIBUTED_RAW_SESSIONS_TABLE_SQL
+from posthog.models.raw_sessions.sessions_v2 import DISTRIBUTED_RAW_SESSIONS_TABLE_SQL
 from posthog.models.sessions.sql import DISTRIBUTED_SESSIONS_TABLE_SQL
 from posthog.session_recordings.sql.session_recording_event_sql import DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL
 from posthog.session_recordings.sql.session_replay_embeddings_sql import DISTRIBUTED_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL
@@ -29,7 +29,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import DISTRIBUTED_
 
 operations = [
     # Distributed tables
-    run_sql_with_exceptions(DISTRIBUTED_APP_METRICS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
+    run_sql_with_exceptions(DISTRIBUTED_APP_METRICS_TABLE_SQL(), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(CHANNEL_DEFINITION_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(CHANNEL_DEFINITION_DICTIONARY_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(CREATE_COHORTPEOPLE_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
@@ -37,7 +37,7 @@ operations = [
     run_sql_with_exceptions(DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(EVENTS_RECENT_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(GROUPS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
-    run_sql_with_exceptions(DISTRIBUTED_HEATMAPS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
+    run_sql_with_exceptions(DISTRIBUTED_HEATMAPS_TABLE_SQL(), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(LOG_ENTRIES_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(
         DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]

@@ -31,7 +31,7 @@ class EventsSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
 
         This needs to be explicitly called in the test class setUp method.
         """
-        self.configure_events(
+        return self.configure_events(
             [
                 {
                     "eventName": self.PURCHASE_EVENT_NAME,
@@ -68,10 +68,12 @@ class EventsSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
                 currency_config = config_copy["revenueCurrencyProperty"]
                 config_copy["revenueCurrencyProperty"] = RevenueCurrencyPropertyConfig.model_validate(currency_config)
 
-            validated_events.append(RevenueAnalyticsEventItem.model_validate(config_copy).model_dump())
+            validated_events.append(RevenueAnalyticsEventItem.model_validate(config_copy))
 
         self.team.revenue_analytics_config.events = validated_events
         self.team.revenue_analytics_config.save()
+
+        return validated_events
 
     def clear_events(self):
         """Clear all revenue analytics events for the test team."""

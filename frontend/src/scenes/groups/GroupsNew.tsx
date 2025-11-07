@@ -1,15 +1,17 @@
 import { useActions, useValues } from 'kea'
-import { Form, Group } from 'kea-forms'
+import { Form, Group, capitalizeFirstLetter } from 'kea-forms'
 import { router } from 'kea-router'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { GroupsNewLogicProps, groupsNewLogic } from 'scenes/groups/groupsNewLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 export const scene: SceneExport<GroupsNewLogicProps> = {
     component: GroupsNew,
@@ -20,29 +22,43 @@ export const scene: SceneExport<GroupsNewLogicProps> = {
 }
 
 export function GroupsNew(): JSX.Element {
-    const { logicProps, group } = useValues(groupsNewLogic)
+    const { logicProps, group, groupTypeName, groupTypeNamePlural } = useValues(groupsNewLogic)
     const { addFormProperty, removeFormProperty, setGroupValue } = useActions(groupsNewLogic)
 
     return (
-        <div className="groups-new">
-            <Form id="group" logic={groupsNewLogic} props={logicProps} formKey="group" enableFormOnSubmit>
-                <PageHeader
-                    buttons={
-                        <div className="flex items-center gap-2">
+        <Form id="group" logic={groupsNewLogic} props={logicProps} formKey="group" enableFormOnSubmit>
+            <SceneContent className="groups-new">
+                <SceneTitleSection
+                    name={`New ${groupTypeName} group`}
+                    resourceType={{ type: 'group' }}
+                    actions={
+                        <>
                             <LemonButton
                                 data-attr="cancel-group"
                                 type="secondary"
+                                size="small"
                                 onClick={() => {
                                     router.actions.push(urls.groups(logicProps.groupTypeIndex))
                                 }}
                             >
                                 Cancel
                             </LemonButton>
-                            <LemonButton type="primary" data-attr="save-group" htmlType="submit" form="group">
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                data-attr="save-group"
+                                htmlType="submit"
+                                form="group"
+                            >
                                 Save
                             </LemonButton>
-                        </div>
+                        </>
                     }
+                    forceBackTo={{
+                        name: `People / Groups / ${capitalizeFirstLetter(groupTypeNamePlural)}`,
+                        path: urls.groups(logicProps.groupTypeIndex),
+                        key: 'groups',
+                    }}
                 />
                 <div className="deprecated-space-y-2 max-w-200 gap-4">
                     <div className="flex gap-4 flex-wrap">
@@ -167,7 +183,7 @@ export function GroupsNew(): JSX.Element {
                         </LemonButton>
                     </div>
                 </div>
-            </Form>
-        </div>
+            </SceneContent>
+        </Form>
     )
 }

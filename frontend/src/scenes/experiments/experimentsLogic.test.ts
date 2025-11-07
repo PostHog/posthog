@@ -55,12 +55,6 @@ describe('experimentsLogic', () => {
     })
 
     describe('feature flag modal filters', () => {
-        it('loads feature flags on mount', async () => {
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/api\/projects\/\d+\/feature_flags\/\?/))
-        })
-
         it('updates filters and triggers new API call', async () => {
             api.get.mockClear()
 
@@ -87,7 +81,6 @@ describe('experimentsLogic', () => {
                 featureFlagModalFilters: {
                     active: undefined,
                     created_by_id: undefined,
-                    type: undefined,
                     search: undefined,
                     order: undefined,
                     page: 1,
@@ -114,7 +107,6 @@ describe('experimentsLogic', () => {
                     featureFlagModalFilters: {
                         active: undefined,
                         created_by_id: undefined,
-                        type: undefined,
                         search: undefined,
                         order: undefined,
                         page: 1,
@@ -123,7 +115,9 @@ describe('experimentsLogic', () => {
                 })
                 .toFinishAllListeners()
 
-            expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/api\/projects\/\d+\/feature_flags\/\?/))
+            expect(api.get).toHaveBeenCalledWith(
+                expect.stringMatching(/api\/projects\/\d+\/experiments\/eligible_feature_flags\/\?/)
+            )
         })
 
         it('hides pagination when insufficient results', () => {
@@ -190,19 +184,6 @@ describe('experimentsLogic', () => {
             expect(logic.values.featureFlagModalFilters.search).toBe('test')
         })
 
-        it('resets page to 1 when type filter is applied from page 2', () => {
-            // User navigates to page 2
-            logic.actions.setFeatureFlagModalFilters({ page: 2 })
-            expect(logic.values.featureFlagModalFilters.page).toBe(2)
-
-            // User applies a type filter (simulating what FeatureFlagFiltersSection does)
-            logic.actions.setFeatureFlagModalFilters({ type: 'boolean', page: 1 })
-
-            // Should reset to page 1
-            expect(logic.values.featureFlagModalFilters.page).toBe(1)
-            expect(logic.values.featureFlagModalFilters.type).toBe('boolean')
-        })
-
         it('removes ff_page URL parameter when page is reset to 1 via filters', () => {
             // Mock router to capture URL changes
             const mockPush = jest.fn()
@@ -226,7 +207,6 @@ describe('experimentsLogic', () => {
         it('constructs API params correctly', async () => {
             logic.actions.setFeatureFlagModalFilters({
                 search: 'test',
-                type: 'boolean',
                 active: 'true',
                 page: 2,
             })
@@ -234,7 +214,6 @@ describe('experimentsLogic', () => {
             await expectLogic(logic).toMatchValues({
                 featureFlagModalParamsFromFilters: {
                     search: 'test',
-                    type: 'boolean',
                     active: 'true',
                     page: 2,
                     limit: 100,

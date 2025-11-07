@@ -149,14 +149,11 @@ const dashboardActionsMapping: Record<
     last_accessed_at: () => null,
     is_shared: () => null,
     creation_mode: () => null,
-    restriction_level: () => null,
-    effective_restriction_level: () => null,
-    effective_privilege_level: () => null,
-    access_control_version: () => null,
     user_access_level: () => null,
     _highlight: () => null,
     last_refresh: () => null,
     tiles: () => null,
+    last_viewed_at: () => null,
 }
 
 export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -169,7 +166,8 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created the dashboard {nameAndLink(logItem)}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the dashboard{' '}
+                    {nameAndLink(logItem)}
                 </>
             ),
         }
@@ -218,7 +216,7 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         suffix={changeSuffix}
                     />
                 ),

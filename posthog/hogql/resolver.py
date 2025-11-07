@@ -16,8 +16,9 @@ from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
+from posthog.hogql.functions.core import compare_types, validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
-from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, compare_types, validate_function_args
+from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
@@ -196,7 +197,13 @@ class Resolver(CloningVisitor):
             new_expr = self.visit(expr)
             if isinstance(new_expr.type, ast.AsteriskType):
                 columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])
-                select_nodes.extend([self.visit(expr) for expr in columns])
+                for col in columns:
+                    visited_col = self.visit(col)
+                    if isinstance(visited_col, ast.Field):
+                        visited_col.from_asterisk = True
+                    elif isinstance(visited_col, ast.Alias) and isinstance(visited_col.expr, ast.Field):
+                        visited_col.expr.from_asterisk = True
+                    select_nodes.append(visited_col)
             else:
                 select_nodes.append(new_expr)
 
@@ -308,6 +315,8 @@ class Resolver(CloningVisitor):
             table_alias: str = node.alias or table_name_alias
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
+
+            database_table = self.database.get_table(table_name_chain)  # type: ignore
 
             cte_table = self.ctes.get(".".join(table_name_chain))
             if cte_table:
@@ -513,9 +522,9 @@ class Resolver(CloningVisitor):
 
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
-            if node.name == "recording_button":
+            if node.name == "recordingButton":
                 return self.visit(recording_button(node=node, args=node.args))
-            if node.name == "explain_csp_report":
+            if node.name == "explainCSPReport":
                 return self.visit(explain_csp_report(node=node, args=node.args))
             if node.name == "matchesAction":
                 events_alias, _ = self._get_events_table_current_scope()
@@ -543,9 +552,8 @@ class Resolver(CloningVisitor):
 
         return_type = None
 
-        if node.name in HOGQL_CLICKHOUSE_FUNCTIONS:
-            signatures = HOGQL_CLICKHOUSE_FUNCTIONS[node.name].signatures
-            if signatures:
+        if func_meta := HOGQL_CLICKHOUSE_FUNCTIONS.get(node.name, None):
+            if signatures := func_meta.signatures:
                 for sig_arg_types, sig_return_type in signatures:
                     if sig_arg_types is None or compare_types(arg_types, sig_arg_types):
                         return_type = dataclasses.replace(sig_return_type)
@@ -561,9 +569,12 @@ class Resolver(CloningVisitor):
             # )
 
         if node.name == "concat":
-            return_type.nullable = False
-        elif not isinstance(return_type, ast.UnknownType):
+            return_type.nullable = False  # valid only if at least 1 param is not null
+        elif not isinstance(return_type, ast.UnknownType):  # why cannot we set nullability here?
             return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
+
+        if node.name.lower() in ("nullif", "toNullable") or node.name.lower().endswith("OrNull"):
+            return_type.nullable = True
 
         node.type = ast.CallType(
             name=node.name,
@@ -821,6 +832,13 @@ class Resolver(CloningVisitor):
 
     def visit_dict(self, node: ast.Dict):
         return self.visit(convert_to_hx(node))
+
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        node = super().visit_between_expr(node)
+        if node is None:
+            return None
+        node.type = ast.BooleanType(nullable=False)
+        return node
 
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)

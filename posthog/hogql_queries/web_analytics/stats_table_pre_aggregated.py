@@ -9,6 +9,7 @@ from posthog.hogql.database.schema.channel_type import (
     wrap_with_null_if_empty,
 )
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
 from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
@@ -47,6 +48,10 @@ def _nullif_empty_decorator(func):
 
 
 class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
+    # Toggle this to switch between hybrid (False) and bounce-style (True) conversion query implementations
+    # We could've made this a setting, but I think this way will work, but wanted to have them both around for comparing snapshots for a bit
+    USE_BOUNCE_STYLE_CONVERSION_QUERY = False
+
     def __init__(self, runner: "WebStatsTableQueryRunner") -> None:
         super().__init__(runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS)
 
@@ -196,6 +201,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
     def _default_breakdown_query(self) -> ast.SelectQuery:
         previous_period_filter, current_period_filter = self.get_date_ranges()
 
+        if self.runner.query.conversionGoal:
+            # For conversion goals, we need to join events table with pre-aggregated table
+            return self._default_breakdown_query_with_conversions(current_period_filter, previous_period_filter)
+
         query = cast(
             ast.SelectQuery,
             parse_select(
@@ -224,8 +233,261 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return query
 
+    def _default_breakdown_query_with_conversions(
+        self, current_period_filter: ast.Expr, previous_period_filter: ast.Expr
+    ) -> ast.SelectQuery:
+        """
+        Hybrid approach: pre-aggregated tables for visitors, raw events for conversions.
+        Much simpler than querying everything from raw events.
+        """
+        # Build stats subquery from pre-aggregated table for visitor counts
+        stats_subquery = self._build_stats_subquery(current_period_filter, previous_period_filter)
+
+        # Build conversion subquery from raw events
+        conversion_subquery = self._build_conversion_subquery()
+
+        # Combine both queries
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+            SELECT
+                stats.breakdown_value as `context.columns.breakdown_value`,
+                tuple(stats.visitors_current, stats.visitors_previous) AS `context.columns.visitors`,
+                tuple(
+                    coalesce(conversions.total_conversions_current, 0),
+                    coalesce(conversions.total_conversions_previous, 0)
+                ) as `context.columns.total_conversions`,
+                tuple(
+                    coalesce(conversions.unique_conversions_current, 0),
+                    coalesce(conversions.unique_conversions_previous, 0)
+                ) as `context.columns.unique_conversions`,
+                tuple(
+                    if(stats.visitors_current = 0, NULL, conversions.unique_conversions_current / stats.visitors_current),
+                    if(stats.visitors_previous = 0, NULL, conversions.unique_conversions_previous / stats.visitors_previous)
+                ) as `context.columns.conversion_rate`
+            FROM {stats_subquery} as stats
+            LEFT JOIN {conversion_subquery} as conversions
+                ON stats.breakdown_value = conversions.breakdown_value
+            """,
+                placeholders={
+                    "stats_subquery": stats_subquery,
+                    "conversion_subquery": conversion_subquery,
+                },
+            ),
+        )
+
+        return query
+
+    def _build_stats_subquery(
+        self, current_period_filter: ast.Expr, previous_period_filter: ast.Expr
+    ) -> ast.SelectQuery:
+        """
+        Query pre-aggregated table for visitor counts per breakdown.
+        Uses the same breakdown expression as raw events to ensure JOIN matches.
+        """
+        # Use runner's breakdown logic to ensure consistency with conversion subquery
+        breakdown_expr = self._get_breakdown_field()
+
+        stats_select_columns = [
+            ast.Alias(alias="breakdown_value", expr=breakdown_expr),
+            ast.Alias(
+                alias="visitors_current",
+                expr=ast.Call(
+                    name="uniqMergeIf",
+                    args=[ast.Field(chain=["persons_uniq_state"]), current_period_filter],
+                ),
+            ),
+            ast.Alias(
+                alias="visitors_previous",
+                expr=(
+                    ast.Call(
+                        name="uniqMergeIf",
+                        args=[ast.Field(chain=["persons_uniq_state"]), previous_period_filter],
+                    )
+                    if self.runner.query_compare_to_date_range
+                    else ast.Constant(value=0)
+                ),
+            ),
+        ]
+
+        stats_query = ast.SelectQuery(
+            select=cast(list[ast.Expr], stats_select_columns),
+            select_from=ast.JoinExpr(table=ast.Field(chain=[self.stats_table])),
+            where=self._get_filters(table_name=self.stats_table),
+            group_by=[breakdown_expr],
+        )
+
+        return stats_query
+
+    def _build_conversion_subquery(self) -> ast.SelectQuery:
+        """Build subquery that gets conversion counts from raw events, grouped by breakdown"""
+        # Get breakdown value using the runner's existing method
+        breakdown = self.runner._counts_breakdown_value()
+
+        # Inner query: group by session and breakdown, count conversions per session
+        inner_query = parse_select(
+            """
+            SELECT
+                {breakdown_value} AS breakdown_value,
+                session.session_id AS session_id,
+                min(session.$start_timestamp) as start_timestamp,
+                {conversion_count} as conversion_count,
+                {conversion_person_id} as conversion_person_id
+            FROM events
+            WHERE and(
+                {events_session_id} IS NOT NULL,
+                {event_type_expr},
+                {inside_timestamp_period},
+                {all_properties},
+                {where_breakdown}
+            )
+            GROUP BY session_id, breakdown_value
+            """,
+            placeholders={
+                "breakdown_value": breakdown,
+                "conversion_count": self.runner.conversion_count_expr or ast.Constant(value=0),
+                "conversion_person_id": self.runner.conversion_person_id_expr or ast.Constant(value=None),
+                "events_session_id": self.runner.events_session_property,
+                "event_type_expr": self.runner.event_type_expr,
+                "inside_timestamp_period": self.runner._periods_expression("timestamp"),
+                "all_properties": property_to_expr(
+                    self.runner.query.properties + self.runner._test_account_filters, team=self.runner.team
+                ),
+                "where_breakdown": self.runner.where_breakdown(),
+            },
+        )
+
+        assert isinstance(inner_query, ast.SelectQuery)
+
+        # Outer query: aggregate conversions per breakdown with period filtering
+        conversion_select_columns = [
+            ast.Alias(alias="breakdown_value", expr=ast.Field(chain=["breakdown_value"])),
+            ast.Alias(
+                alias="total_conversions_current",
+                expr=ast.Call(
+                    name="sumIf",
+                    args=[
+                        ast.Field(chain=["conversion_count"]),
+                        self.runner._current_period_expression("start_timestamp"),
+                    ],
+                ),
+            ),
+            ast.Alias(
+                alias="total_conversions_previous",
+                expr=(
+                    ast.Call(
+                        name="sumIf",
+                        args=[
+                            ast.Field(chain=["conversion_count"]),
+                            self.runner._previous_period_expression("start_timestamp"),
+                        ],
+                    )
+                    if self.runner.query_compare_to_date_range
+                    else ast.Constant(value=0)
+                ),
+            ),
+            ast.Alias(
+                alias="unique_conversions_current",
+                expr=ast.Call(
+                    name="uniqIf",
+                    args=[
+                        ast.Field(chain=["conversion_person_id"]),
+                        self.runner._current_period_expression("start_timestamp"),
+                    ],
+                ),
+            ),
+            ast.Alias(
+                alias="unique_conversions_previous",
+                expr=(
+                    ast.Call(
+                        name="uniqIf",
+                        args=[
+                            ast.Field(chain=["conversion_person_id"]),
+                            self.runner._previous_period_expression("start_timestamp"),
+                        ],
+                    )
+                    if self.runner.query_compare_to_date_range
+                    else ast.Constant(value=0)
+                ),
+            ),
+        ]
+
+        outer_query = ast.SelectQuery(
+            select=cast(list[ast.Expr], conversion_select_columns),
+            select_from=ast.JoinExpr(table=inner_query),
+            where=self.runner._periods_expression("start_timestamp"),
+            group_by=[ast.Field(chain=["breakdown_value"])],
+        )
+
+        return outer_query
+
+    def _conversion_goal_query_bounce_style(self) -> ast.SelectQuery:
+        """
+        Bounce-rate-style approach: Query stats table and LEFT JOIN conversion subquery.
+        Similar pattern to _path_query() which joins stats with bounce rate data.
+        """
+        previous_period_filter, current_period_filter = self.get_date_ranges(table_name=self.stats_table)
+
+        # Build conversion subquery from raw events (reuse existing method)
+        conversion_subquery = self._build_conversion_subquery()
+
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+            SELECT
+                {breakdown_value} as `context.columns.breakdown_value`,
+                {visitors_tuple} AS `context.columns.visitors`,
+                tuple(
+                    coalesce(any(conversions.total_conversions_current), 0),
+                    coalesce(any(conversions.total_conversions_previous), 0)
+                ) as `context.columns.total_conversions`,
+                tuple(
+                    coalesce(any(conversions.unique_conversions_current), 0),
+                    coalesce(any(conversions.unique_conversions_previous), 0)
+                ) as `context.columns.unique_conversions`,
+                tuple(
+                    if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(coalesce(any(conversions.unique_conversions_current), 0), `context.columns.visitors`.1)),
+                    if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(coalesce(any(conversions.unique_conversions_previous), 0), `context.columns.visitors`.2))
+                ) as `context.columns.conversion_rate`
+            FROM {stats_table}
+            LEFT JOIN ({conversion_subquery}) conversions
+                ON {join_condition}
+            WHERE and({filters}, {breakdown_value} IS NOT NULL)
+            GROUP BY `context.columns.breakdown_value`
+            """,
+                placeholders={
+                    "stats_table": ast.Field(chain=[self.stats_table]),
+                    "breakdown_value": self._get_breakdown_field(),
+                    "visitors_tuple": self._period_comparison_tuple(
+                        "persons_uniq_state",
+                        "uniqMergeIf",
+                        current_period_filter,
+                        previous_period_filter,
+                        table_prefix=self.stats_table,
+                    ),
+                    "conversion_subquery": conversion_subquery,
+                    "join_condition": ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=self._get_breakdown_field(),
+                        right=ast.Field(chain=["conversions", "breakdown_value"]),
+                    ),
+                    "filters": self._get_filters(table_name=self.stats_table),
+                },
+            ),
+        )
+
+        return query
+
     def get_query(self) -> ast.SelectQuery:
-        if self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
+        # For conversion goals, choose implementation based on class flag
+        if self.runner.query.conversionGoal:
+            if self.USE_BOUNCE_STYLE_CONVERSION_QUERY:
+                query = self._conversion_goal_query_bounce_style()
+            else:
+                query = self._default_breakdown_query()
+        elif self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
             query = self._bounce_rate_query()
         elif self.runner.query.breakdownBy == WebStatsBreakdown.PAGE:
             query = self._path_query()
@@ -256,6 +518,12 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 WebStatsBreakdown.PAGE,
             ]:
                 column = "context.columns.bounce_rate"
+            elif field == WebAnalyticsOrderByFields.TOTAL_CONVERSIONS and self.runner.query.conversionGoal:
+                column = "context.columns.total_conversions"
+            elif field == WebAnalyticsOrderByFields.UNIQUE_CONVERSIONS and self.runner.query.conversionGoal:
+                column = "context.columns.unique_conversions"
+            elif field == WebAnalyticsOrderByFields.CONVERSION_RATE and self.runner.query.conversionGoal:
+                column = "context.columns.conversion_rate"
 
             if column:
                 return ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)
@@ -312,6 +580,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
     @_nullif_empty_decorator
     def _get_breakdown_field(self):
         match self.runner.query.breakdownBy:
+            case WebStatsBreakdown.PAGE:
+                return self._apply_path_cleaning(ast.Field(chain=["pathname"]))
+            case WebStatsBreakdown.INITIAL_PAGE:
+                return self._apply_path_cleaning(ast.Field(chain=["entry_pathname"]))
             case WebStatsBreakdown.DEVICE_TYPE:
                 return ast.Field(chain=["device_type"])
             case WebStatsBreakdown.BROWSER:

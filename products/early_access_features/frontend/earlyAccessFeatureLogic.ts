@@ -185,6 +185,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     key: 'EarlyAccessFeatures',
                     path: urls.earlyAccessFeatures(),
                     name: 'Early access features',
+                    iconType: 'early_access_feature',
                 },
                 {
                     key: ['EarlyAccessFeature', earlyAccessFeature.id || 'new'],
@@ -193,6 +194,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     onRename: isEditingFeature
                         ? async (newName) => actions.setEarlyAccessFeatureValue('name', newName)
                         : undefined,
+                    iconType: 'early_access_feature',
                 },
             ],
         ],

@@ -3,12 +3,11 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { IconFlask } from '@posthog/icons'
+import { IconCopy, IconEye, IconFlask, IconPause, IconPlusSmall, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
     LemonDialog,
-    LemonDivider,
     LemonLabel,
     LemonModal,
     LemonSelect,
@@ -21,19 +20,23 @@ import {
 } from '@posthog/lemon-ui'
 
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import {
@@ -46,11 +49,12 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
     ActionFilter,
     AnyPropertyFilter,
     Experiment,
     ExperimentConclusion,
-    ExperimentIdType,
     InsightShortId,
     ProductKey,
     ProgressStatus,
@@ -61,9 +65,8 @@ import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatusColor } from '../experimentsLogic'
-import { getIndexForVariant } from '../legacyExperimentCalculations'
 import { modalsLogic } from '../modalsLogic'
-import { getExperimentInsightColour } from '../utils'
+import { getVariantColor } from '../utils'
 
 // Utility function to create MaxTool configuration for experiment survey creation
 export function createMaxToolExperimentSurveyConfig(
@@ -144,19 +147,15 @@ export function createMaxToolExperimentSurveyConfig(
 }
 
 export function VariantTag({
-    experimentId,
     variantKey,
-    muted = false,
     fontSize,
     className,
 }: {
-    experimentId: ExperimentIdType
     variantKey: string
-    muted?: boolean
     fontSize?: number
     className?: string
 }): JSX.Element {
-    const { experiment, legacyPrimaryMetricsResults, getInsightType } = useValues(experimentLogic({ experimentId }))
+    const { experiment, legacyPrimaryMetricsResults, usesNewQueryRunner } = useValues(experimentLogic)
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
@@ -170,6 +169,10 @@ export function VariantTag({
         return <></>
     }
 
+    const variantColor = experiment.parameters?.feature_flag_variants
+        ? getVariantColor(variantKey, experiment.parameters.feature_flag_variants)
+        : 'var(--text-muted)'
+
     if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
         return (
             <span className={clsx('flex items-center min-w-0', className)}>
@@ -177,13 +180,7 @@ export function VariantTag({
                     className="w-2 h-2 rounded-full shrink-0"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        backgroundColor: getExperimentInsightColour(
-                            getIndexForVariant(
-                                legacyPrimaryMetricsResults[0],
-                                variantKey,
-                                getInsightType(experiment.metrics[0])
-                            )
-                        ),
+                        backgroundColor: variantColor,
                     }}
                 />
                 <LemonTag type="option" className="ml-2">
@@ -195,8 +192,16 @@ export function VariantTag({
 
     return (
         <span className={clsx('flex items-center min-w-0', className)}>
+            {/* Only show color if using new query runner - legacy experiments are using the old funnel component */}
+            {usesNewQueryRunner && (
+                <div
+                    className="w-2 h-2 rounded-full shrink-0"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ backgroundColor: variantColor }}
+                />
+            )}
             <span
-                className={`ml-2 font-semibold truncate ${muted ? 'text-secondary' : ''}`}
+                className="ml-2 text-xs font-semibold truncate text-secondary"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
             >
@@ -385,7 +390,6 @@ export function ExperimentLoadingAnimation(): JSX.Element {
 
 export function PageHeaderCustom(): JSX.Element {
     const {
-        experimentId,
         experiment,
         isExperimentDraft,
         isExperimentRunning,
@@ -396,13 +400,15 @@ export function PageHeaderCustom(): JSX.Element {
         primaryMetricsResults,
         legacyPrimaryMetricsResults,
         hasMinimumExposureForResults,
+        experimentLoading,
+        featureFlags,
     } = useValues(experimentLogic)
-    const { launchExperiment, archiveExperiment, createExposureCohort, createExperimentDashboard } =
+    const { launchExperiment, archiveExperiment, createExposureCohort, createExperimentDashboard, updateExperiment } =
         useActions(experimentLogic)
     const { openShipVariantModal, openStopExperimentModal } = useActions(modalsLogic)
     const { user } = useValues(userLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
-
+    const { newTab } = useActions(sceneLogic)
     // Initialize MaxTool hook for experiment survey creation
     const { openMax } = useMaxTool(createMaxToolExperimentSurveyConfig(experiment, user))
 
@@ -414,135 +420,190 @@ export function PageHeaderCustom(): JSX.Element {
         hasMinimumExposureForResults &&
         (legacyPrimaryMetricsResults.length > 0 || primaryMetricsResults.length > 0)
 
+    const shouldShowStopButton =
+        !isExperimentDraft && isExperimentRunning && featureFlags[FEATURE_FLAGS.EXPERIMENTS_HIDE_STOP_BUTTON] !== 'test'
+
     return (
-        <PageHeader
-            buttons={
-                <>
-                    {experiment && !isExperimentRunning && (
-                        <div className="flex items-center">
-                            <LemonButton
-                                type="primary"
-                                data-attr="launch-experiment"
-                                onClick={() => launchExperiment()}
-                                disabledReason={
-                                    !hasPrimaryMetricSet
-                                        ? 'Add at least one primary metric before launching the experiment'
-                                        : undefined
-                                }
-                            >
-                                Launch
-                            </LemonButton>
-                        </div>
-                    )}
-                    {experiment && isExperimentRunning && (
-                        <div className="flex flex-row gap-2">
-                            <>
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton onClick={() => setDuplicateModalOpen(true)} fullWidth>
-                                                Duplicate
-                                            </LemonButton>
-                                            <LemonButton
-                                                onClick={() => (exposureCohortId ? undefined : createExposureCohort())}
-                                                fullWidth
-                                                data-attr={`${exposureCohortId ? 'view' : 'create'}-exposure-cohort`}
-                                                to={exposureCohortId ? urls.cohort(exposureCohortId) : undefined}
-                                                targetBlank={!!exposureCohortId}
-                                            >
-                                                {exposureCohortId ? 'View' : 'Create'} exposure cohort
-                                            </LemonButton>
-                                            <LemonButton
-                                                onClick={() => createExperimentDashboard()}
-                                                fullWidth
-                                                disabled={isCreatingExperimentDashboard}
-                                            >
-                                                Create dashboard
-                                            </LemonButton>
-                                            {experiment.feature_flag && (
-                                                <LemonButton
-                                                    onClick={openMax || undefined}
-                                                    fullWidth
-                                                    data-attr="create-survey"
-                                                    disabled={!openMax}
-                                                >
-                                                    Create survey
-                                                </LemonButton>
-                                            )}
-                                        </>
+        <>
+            <SceneTitleSection
+                name={experiment?.name}
+                description={null}
+                resourceType={{
+                    type: 'experiment',
+                }}
+                isLoading={experimentLoading}
+                onNameChange={(name) => updateExperiment({ name })}
+                onDescriptionChange={(description) => updateExperiment({ description })}
+                canEdit={userHasAccess(
+                    AccessControlResourceType.Experiment,
+                    AccessControlLevel.Editor,
+                    experiment.user_access_level
+                )}
+                renameDebounceMs={0}
+                saveOnBlur
+                actions={
+                    <>
+                        {experiment && !isExperimentRunning && (
+                            <div className="flex items-center">
+                                <LemonButton
+                                    type="primary"
+                                    data-attr="launch-experiment"
+                                    onClick={() => launchExperiment()}
+                                    disabledReason={
+                                        !hasPrimaryMetricSet
+                                            ? 'Add at least one primary metric before launching the experiment'
+                                            : undefined
                                     }
-                                />
-                                <LemonDivider vertical />
+                                    size="small"
+                                >
+                                    Launch
+                                </LemonButton>
+                            </div>
+                        )}
+                        {experiment && isExperimentRunning && (
+                            <div className="flex flex-row gap-2">
+                                {!experiment.end_date && shouldShowStopButton && (
+                                    <LemonButton
+                                        type="secondary"
+                                        data-attr="stop-experiment"
+                                        status="danger"
+                                        onClick={() => openStopExperimentModal()}
+                                        size="small"
+                                    >
+                                        Stop
+                                    </LemonButton>
+                                )}
+                                {isExperimentStopped && (
+                                    <LemonButton
+                                        type="secondary"
+                                        status="danger"
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: 'Archive this experiment?',
+                                                content: (
+                                                    <div className="text-sm text-secondary">
+                                                        This action will move the experiment to the archived tab. It can
+                                                        be restored at any time.
+                                                    </div>
+                                                ),
+                                                primaryButton: {
+                                                    children: 'Archive',
+                                                    type: 'primary',
+                                                    onClick: () => archiveExperiment(),
+                                                    size: 'small',
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                    type: 'tertiary',
+                                                    size: 'small',
+                                                },
+                                            })
+                                        }}
+                                        size="small"
+                                    >
+                                        <b>Archive</b>
+                                    </LemonButton>
+                                )}
+                            </div>
+                        )}
+                        {shouldShowShipVariantButton && (
+                            <>
+                                <Tooltip title="Choose a variant and roll it out to all users">
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconFlask />}
+                                        onClick={() => openShipVariantModal()}
+                                        size="small"
+                                    >
+                                        <b>Ship a variant</b>
+                                    </LemonButton>
+                                </Tooltip>
+                                <ShipVariantModal />
                             </>
-                            <ResetButton experimentId={experiment.id} />
-                            {!experiment.end_date && (
-                                <LemonButton
-                                    type="secondary"
-                                    data-attr="stop-experiment"
-                                    status="danger"
-                                    onClick={() => openStopExperimentModal()}
-                                >
-                                    Stop
-                                </LemonButton>
-                            )}
-                            {isExperimentStopped && (
-                                <LemonButton
-                                    type="secondary"
-                                    status="danger"
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Archive this experiment?',
-                                            content: (
-                                                <div className="text-sm text-secondary">
-                                                    This action will move the experiment to the archived tab. It can be
-                                                    restored at any time.
-                                                </div>
-                                            ),
-                                            primaryButton: {
-                                                children: 'Archive',
-                                                type: 'primary',
-                                                onClick: () => archiveExperiment(),
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
-                                        })
-                                    }}
-                                >
-                                    <b>Archive</b>
-                                </LemonButton>
-                            )}
-                        </div>
-                    )}
-                    {shouldShowShipVariantButton && (
-                        <>
-                            <Tooltip title="Choose a variant and roll it out to all users">
-                                <LemonButton type="primary" icon={<IconFlask />} onClick={() => openShipVariantModal()}>
-                                    <b>Ship a variant</b>
-                                </LemonButton>
-                            </Tooltip>
-                            <ShipVariantModal experimentId={experimentId} />
-                        </>
-                    )}
-                    {experiment && (
-                        <DuplicateExperimentModal
-                            isOpen={duplicateModalOpen}
-                            onClose={() => setDuplicateModalOpen(false)}
-                            experiment={experiment}
-                        />
-                    )}
-                </>
-            }
-        />
+                        )}
+                        {experiment && (
+                            <DuplicateExperimentModal
+                                isOpen={duplicateModalOpen}
+                                onClose={() => setDuplicateModalOpen(false)}
+                                experiment={experiment}
+                            />
+                        )}
+                    </>
+                }
+            />
+
+            {experiment && isExperimentRunning && (
+                <ScenePanel>
+                    <ScenePanelActionsSection>
+                        <ButtonPrimitive menuItem onClick={() => setDuplicateModalOpen(true)}>
+                            <IconCopy />
+                            Duplicate
+                        </ButtonPrimitive>
+
+                        {exposureCohortId ? (
+                            // TODO: add custom back button to the destination page
+                            <Link
+                                to={urls.cohort(exposureCohortId)}
+                                buttonProps={{
+                                    menuItem: true,
+                                }}
+                                data-attr="view-exposure-cohort"
+                                onClick={() => newTab(urls.cohort(exposureCohortId))}
+                            >
+                                <IconEye /> View exposure cohort as new tab
+                            </Link>
+                        ) : (
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => createExposureCohort()}
+                                data-attr="create-exposure-cohort"
+                            >
+                                <IconPlusSmall /> Create exposure cohort
+                            </ButtonPrimitive>
+                        )}
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => createExperimentDashboard()}
+                            disabledReasons={{
+                                'Creating dashboard...': isCreatingExperimentDashboard,
+                            }}
+                        >
+                            <IconPlusSmall /> Create dashboard
+                        </ButtonPrimitive>
+
+                        {experiment.feature_flag && (
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={openMax || undefined}
+                                disabledReasons={{
+                                    'PostHog AI not available': !openMax,
+                                }}
+                            >
+                                <IconPlusSmall /> Create survey
+                            </ButtonPrimitive>
+                        )}
+
+                        <ResetButton />
+
+                        {!experiment.end_date && (
+                            <ButtonPrimitive
+                                menuItem
+                                data-attr="stop-experiment"
+                                onClick={() => openStopExperimentModal()}
+                            >
+                                <IconPause /> Stop
+                            </ButtonPrimitive>
+                        )}
+                    </ScenePanelActionsSection>
+                </ScenePanel>
+            )}
+        </>
     )
 }
 
-export function ConclusionForm({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { setExperiment } = useActions(experimentLogic({ experimentId }))
+export function ConclusionForm(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { setExperiment } = useActions(experimentLogic)
 
     return (
         <div className="space-y-4">
@@ -599,9 +660,9 @@ export function ConclusionForm({ experimentId }: { experimentId: Experiment['id'
     )
 }
 
-export function EditConclusionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { updateExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic({ experimentId }))
+export function EditConclusionModal(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { updateExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeEditConclusionModal } = useActions(modalsLogic)
     const { isEditConclusionModalOpen } = useValues(modalsLogic)
 
@@ -638,14 +699,14 @@ export function EditConclusionModal({ experimentId }: { experimentId: Experiment
                 </div>
             }
         >
-            <ConclusionForm experimentId={experimentId} />
+            <ConclusionForm />
         </LemonModal>
     )
 }
 
-export function StopExperimentModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { endExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic({ experimentId }))
+export function StopExperimentModal(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { endExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeStopExperimentModal } = useActions(modalsLogic)
     const { isStopExperimentModalOpen } = useValues(modalsLogic)
 
@@ -683,15 +744,15 @@ export function StopExperimentModal({ experimentId }: { experimentId: Experiment
                 <div className="mb-2">
                     Stopping the experiment will end data collection. You can restart it later if needed.
                 </div>
-                <ConclusionForm experimentId={experimentId} />
+                <ConclusionForm />
             </div>
         </LemonModal>
     )
 }
 
-export function ShipVariantModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { shipVariant } = useActions(experimentLogic({ experimentId }))
+export function ShipVariantModal(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { shipVariant } = useActions(experimentLogic)
     const { closeShipVariantModal } = useActions(modalsLogic)
     const { isShipVariantModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -750,7 +811,7 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
                                     value: key,
                                     label: (
                                         <div className="deprecated-space-x-2 inline-flex">
-                                            <VariantTag experimentId={experimentId} variantKey={key} />
+                                            <VariantTag variantKey={key} />
                                         </div>
                                     ),
                                 })) || []
@@ -775,8 +836,8 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
     )
 }
 
-export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }): JSX.Element => {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
+export const ResetButton = (): JSX.Element => {
+    const { experiment } = useValues(experimentLogic)
     const { resetRunningExperiment } = useActions(experimentLogic)
 
     const onClickReset = (): void => {
@@ -814,9 +875,9 @@ export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }
     }
 
     return (
-        <LemonButton type="secondary" onClick={onClickReset}>
-            Reset
-        </LemonButton>
+        <ButtonPrimitive menuItem onClick={onClickReset} data-attr="reset-experiment">
+            <IconRefresh /> Reset experiment
+        </ButtonPrimitive>
     )
 }
 

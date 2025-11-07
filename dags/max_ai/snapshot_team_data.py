@@ -17,6 +17,9 @@ from posthog.schema import (
     TeamTaxonomyQuery,
 )
 
+from posthog.hogql.constants import HogQLGlobalSettings
+
+from posthog.clickhouse.client.connection import Workload
 from posthog.errors import InternalCHQueryError
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
@@ -143,9 +146,14 @@ def snapshot_properties_taxonomy(
     results: list[PropertyTaxonomySnapshot] = []
 
     def wrapped_query_runner(item: TeamTaxonomyItem):
-        response = EventTaxonomyQueryRunner(query=EventTaxonomyQuery(event=item.event), team=team).run(
-            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        )
+        response = EventTaxonomyQueryRunner(
+            query=EventTaxonomyQuery(event=item.event),
+            team=team,
+            settings=HogQLGlobalSettings(
+                max_execution_time=60 * 5  # 5 minutes
+            ),
+            workload=Workload.OFFLINE,
+        ).run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             raise SnapshotUnrecoverableError(f"Unexpected response type from event taxonomy query: {type(response)}")
         return response
@@ -178,9 +186,14 @@ def snapshot_events_taxonomy(
     context.log.info(f"Snapshotting events taxonomy for {team.id}")
 
     def snapshot_events_taxonomy():
-        response = TeamTaxonomyQueryRunner(query=TeamTaxonomyQuery(), team=team).run(
-            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        )
+        response = TeamTaxonomyQueryRunner(
+            query=TeamTaxonomyQuery(),
+            team=team,
+            settings=HogQLGlobalSettings(
+                max_execution_time=60 * 5  # 5 minutes
+            ),
+            workload=Workload.OFFLINE,
+        ).run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         if not isinstance(response, CachedTeamTaxonomyQueryResponse):
             raise SnapshotUnrecoverableError(f"Unexpected response type from events taxonomy query: {type(response)}")
         return response
@@ -254,6 +267,10 @@ def snapshot_actors_property_taxonomy(
                 response = ActorsPropertyTaxonomyQueryRunner(
                     query=ActorsPropertyTaxonomyQuery(groupTypeIndex=index, properties=batch, maxPropertyValues=25),
                     team=team,
+                    settings=HogQLGlobalSettings(
+                        max_execution_time=60 * 5  # 5 minutes
+                    ),
+                    workload=Workload.OFFLINE,
                 ).run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
                 if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
                     raise SnapshotUnrecoverableError(

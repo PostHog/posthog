@@ -7,13 +7,14 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.notebook.notebook import Notebook
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.rbac.user_access_control import AccessSource
 from posthog.utils import render_template
+
+from products.notebooks.backend.models import Notebook
 
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import Role, RoleMembership
@@ -114,6 +115,38 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         assert res.json()["detail"] == "Invalid access level. Must be one of: none, member, admin", res.json()
 
 
+class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
+    def test_action_access_level_cannot_be_below_viewer(self):
+        """Test that action access level cannot be set below minimum 'viewer'"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        from posthog.models.action import Action
+
+        action = Action.objects.create(team=self.team, name="test action")
+
+        res = self.client.put(
+            f"/api/projects/@current/actions/{action.id}/access_controls",
+            {"access_level": "none"},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert "cannot be set below the minimum 'viewer'" in res.json()["detail"]
+
+    def test_action_access_level_accepts_viewer_and_above(self):
+        """Test that action access level accepts viewer, editor, and manager"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        from posthog.models.action import Action
+
+        action = Action.objects.create(team=self.team, name="test action")
+
+        for level in ["viewer", "editor", "manager"]:
+            res = self.client.put(
+                f"/api/projects/@current/actions/{action.id}/access_controls",
+                {"access_level": level},
+            )
+            assert res.status_code == status.HTTP_200_OK, f"Failed for level {level}: {res.json()}"
+
+
 class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
     def setUp(self):
         super().setUp()
@@ -152,6 +185,7 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
             "user_access_level": "manager",
             "default_access_level": "editor",
             "user_can_edit_access_levels": True,
+            "minimum_access_level": "none",
         }
 
     def test_change_rejected_if_not_org_admin(self):
@@ -729,7 +763,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         with self.assertNumQueries(baseline + 4):
             self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
 
-        baseline = 7
+        baseline = 8
         # Getting my own notebook is the same as a dashboard - 3 extra queries
         with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
@@ -738,14 +772,14 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
-        baseline = 7
+        baseline = 8
         # Project access doesn't double query the object
         with self.assertNumQueries(baseline + 7):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
             self.client.get("/api/projects/@current/is_generating_demo_data")
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 8
+        baseline = 9
         with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
@@ -772,7 +806,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 7
+        baseline = 8
 
         # Getting my own notebook is the same as a dashboard - 3 extra queries
         with self.assertNumQueries(baseline + 5):
@@ -785,20 +819,20 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
     def test_query_counts_stable_for_project_access(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
-        baseline = 7
+        baseline = 8
         # Project access doesn't double query the object
         with self.assertNumQueries(baseline + 7):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
             self.client.get("/api/projects/@current/is_generating_demo_data")
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 8
+        baseline = 9
         with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources(self):
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 8
+        baseline = 9
 
         with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
@@ -807,7 +841,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{i}")
 
-        baseline = 45  # This is a lot! There is currently an n+1 issue with the legacy access control system
+        baseline = 16  # This is a lot! There is currently an n+1 issue with the legacy access control system
 
         with self.assertNumQueries(baseline + 7):  # org, roles, preloaded permissions acs, preloaded acs for the list
             self.client.get("/api/projects/@current/feature_flags/")
@@ -815,7 +849,6 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{10 + i}")
 
-        baseline = baseline + (10 * 3)  # The existing access control adds 3 queries per item :(
         with self.assertNumQueries(baseline + 7):  # org, roles, preloaded permissions acs, preloaded acs for the list
             self.client.get("/api/projects/@current/feature_flags/")
 

@@ -157,7 +157,9 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                 icon={<IconX />}
                 tooltip="Clear input"
                 onClick={(e) => {
-                    e.stopPropagation()
+                    if (stopPropagation) {
+                        e.stopPropagation()
+                    }
                     if (type === 'number') {
                         onChange?.(0)
                     } else {

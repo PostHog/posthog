@@ -1,7 +1,12 @@
 import { createHash } from 'crypto'
 
 import { CdpRedis } from '../../redis'
-import { CyclotronJobInvocationHogFunction } from '../../types'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationHogFunction,
+    HogFunctionMasking,
+} from '../../types'
 import { execHog } from '../../utils/hog-exec'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-masker' : '@posthog/hog-masker'
@@ -20,8 +25,55 @@ type MaskContext = {
     threshold: number | null
 }
 
-type HogInvocationContextWithMasker = CyclotronJobInvocationHogFunction & {
+type GenericHogInvocationWithMasker = CyclotronJobInvocation & {
     masker?: MaskContext
+}
+
+function isHogFunctionInvocation(invocation: CyclotronJobInvocation): invocation is CyclotronJobInvocationHogFunction {
+    return (invocation as CyclotronJobInvocationHogFunction).hogFunction !== undefined
+}
+
+function isHogFlowInvocation(invocation: CyclotronJobInvocation): invocation is CyclotronJobInvocationHogFlow {
+    return (invocation as CyclotronJobInvocationHogFlow).hogFlow !== undefined
+}
+
+// Helper to extract masking config from different types
+function extractMaskingConfig(invocation: CyclotronJobInvocation): HogFunctionMasking | null {
+    if (isHogFunctionInvocation(invocation)) {
+        return invocation.hogFunction.masking || null
+    }
+
+    if (isHogFlowInvocation(invocation)) {
+        return invocation.hogFlow.trigger_masking || null
+    }
+
+    throw new Error('Unable to extract masking config from unknown invocation type')
+}
+
+function extractGlobals(invocation: CyclotronJobInvocation): Record<string, any> {
+    if (isHogFunctionInvocation(invocation)) {
+        return invocation.state.globals
+    }
+    if (isHogFlowInvocation(invocation)) {
+        // For hog flows, we need to construct globals from the filter globals and event
+        return {
+            event: invocation.state?.event,
+            person: invocation.person,
+        }
+    }
+
+    throw new Error('Unable to extract globals from unknown invocation type')
+}
+
+// Helper to get entity ID for masking
+function getEntityId(invocation: CyclotronJobInvocation): string {
+    if (isHogFunctionInvocation(invocation)) {
+        return invocation.hogFunction.id
+    }
+    if (isHogFlowInvocation(invocation)) {
+        return invocation.hogFlow.id
+    }
+    return invocation.functionId
 }
 
 /**
@@ -34,19 +86,24 @@ type HogInvocationContextWithMasker = CyclotronJobInvocationHogFunction & {
 export class HogMaskerService {
     constructor(private redis: CdpRedis) {}
 
-    public async filterByMasking(invocations: CyclotronJobInvocationHogFunction[]): Promise<{
-        masked: CyclotronJobInvocationHogFunction[]
-        notMasked: CyclotronJobInvocationHogFunction[]
+    public async filterByMasking<T extends CyclotronJobInvocation>(
+        invocations: T[]
+    ): Promise<{
+        masked: T[]
+        notMasked: T[]
     }> {
-        const invocationsWithMasker: HogInvocationContextWithMasker[] = [...invocations]
+        const invocationsWithMasker: GenericHogInvocationWithMasker[] = [...invocations]
         const masks: Record<string, MaskContext> = {}
 
-        // We find all functions that have a mask and we load their masking from redis
+        // We find all functions/flows that have a mask and we load their masking from redis
         for (const item of invocationsWithMasker) {
-            if (item.hogFunction.masking) {
+            const maskingConfig = extractMaskingConfig(item)
+            if (maskingConfig) {
+                const globals = extractGlobals(item)
+
                 // TODO: Catch errors
-                const execHogResult = await execHog(item.hogFunction.masking.bytecode, {
-                    globals: item.state.globals,
+                const execHogResult = await execHog(maskingConfig.bytecode, {
+                    globals,
                     timeout: 50,
                 })
 
@@ -54,23 +111,21 @@ export class HogMaskerService {
                     continue
                 }
                 // What to do if it is null....
+
                 const hash = createHash('md5')
                     .update(String(execHogResult.execResult.result))
                     .digest('hex')
                     .substring(0, 32)
-                const hashKey = `${item.hogFunction.id}:${hash}`
+                const entityId = getEntityId(item)
+                const hashKey = `${entityId}:${hash}`
                 masks[hashKey] = masks[hashKey] || {
                     hash,
-                    hogFunctionId: item.hogFunction.id,
+                    hogFunctionId: entityId,
                     increment: 0,
-                    ttl: Math.max(
-                        MASKER_MIN_TTL,
-                        Math.min(MASKER_MAX_TTL, item.hogFunction.masking.ttl ?? MASKER_MAX_TTL)
-                    ),
-                    threshold: item.hogFunction.masking.threshold,
+                    ttl: Math.max(MASKER_MIN_TTL, Math.min(MASKER_MAX_TTL, maskingConfig.ttl ?? MASKER_MAX_TTL)),
+                    threshold: maskingConfig.threshold,
                     allowedExecutions: 0,
                 }
-
                 masks[hashKey]!.increment++
                 item.masker = masks[hashKey]
             }
@@ -116,18 +171,18 @@ export class HogMaskerService {
                 if (item.masker) {
                     if (item.masker.allowedExecutions > 0) {
                         item.masker.allowedExecutions--
-                        acc.notMasked.push(item)
+                        acc.notMasked.push(item as T)
                     } else {
-                        acc.masked.push(item)
+                        acc.masked.push(item as T)
                     }
                 } else {
-                    acc.notMasked.push(item)
+                    acc.notMasked.push(item as T)
                 }
                 return acc
             },
             { masked: [], notMasked: [] } as {
-                masked: CyclotronJobInvocationHogFunction[]
-                notMasked: CyclotronJobInvocationHogFunction[]
+                masked: T[]
+                notMasked: T[]
             }
         )
     }

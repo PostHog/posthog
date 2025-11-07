@@ -127,74 +127,6 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestFOSSFunnel.test_funnel_aggregation_with_groups_global_filtering
-  '''
-  SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
-         countIf(ifNull(equals(steps, 2), 0)) AS step_2,
-         avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
-         median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time
-  FROM
-    (SELECT aggregation_target AS aggregation_target,
-            steps AS steps,
-            avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
-            median(step_1_conversion_time) AS step_1_median_conversion_time_inner
-     FROM
-       (SELECT aggregation_target AS aggregation_target,
-               steps AS steps,
-               max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
-                               step_1_conversion_time AS step_1_conversion_time
-        FROM
-          (SELECT aggregation_target AS aggregation_target,
-                  timestamp AS timestamp,
-                  step_0 AS step_0,
-                  latest_0 AS latest_0,
-                  step_1 AS step_1,
-                  latest_1 AS latest_1,
-                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
-                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
-           FROM
-             (SELECT aggregation_target AS aggregation_target,
-                     timestamp AS timestamp,
-                     step_0 AS step_0,
-                     latest_0 AS latest_0,
-                     step_1 AS step_1,
-                     min(latest_1) OVER (PARTITION BY aggregation_target
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1
-              FROM
-                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                        e.`$group_0` AS aggregation_target,
-                        if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
-                        if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                        if(equals(e.event, 'paid'), 1, 0) AS step_1,
-                        if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
-                 FROM events AS e
-                 LEFT JOIN
-                   (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
-                           groups.group_type_index AS index,
-                           groups.group_key AS key
-                    FROM groups
-                    WHERE and(equals(groups.team_id, 99999), equals(index, 0))
-                    GROUP BY groups.group_type_index,
-                             groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
-           WHERE ifNull(equals(step_0, 1), 0)))
-     GROUP BY aggregation_target,
-              steps
-     HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
-                   and isNull(max(max_steps))))
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
-  '''
-# ---
 # name: TestFOSSFunnel.test_funnel_conversion_window_seconds
   '''
   SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
@@ -512,7 +444,28 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter
   '''
-  /* cohort_calculation: */
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND type IN ('QueryFinish',
+                 'ExceptionWhileProcessing')
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.1
+  '''
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -520,9 +473,8 @@
     AND version = 0
   '''
 # ---
-# name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.1
+# name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.2
   '''
-  /* cohort_calculation: */
   SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
          countIf(ifNull(equals(steps, 2), 0)) AS step_2,
          avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
@@ -1055,15 +1007,6 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter
   '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM person_static_cohort
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-  '''
-# ---
-# name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter.1
-  '''
   SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
          countIf(ifNull(equals(steps, 2), 0)) AS step_2,
          avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
@@ -1234,7 +1177,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -1286,6 +1229,8 @@
                       and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1334,7 +1279,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -1393,6 +1338,8 @@
                       and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1441,7 +1388,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -1493,6 +1440,8 @@
                       and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1550,7 +1499,7 @@
                      latest_1 AS latest_1,
                      step_2 AS step_2,
                      latest_2 AS latest_2,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
@@ -1634,6 +1583,9 @@
                       and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1691,7 +1643,7 @@
                      latest_1 AS latest_1,
                      step_2 AS step_2,
                      latest_2 AS latest_2,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
@@ -1775,6 +1727,9 @@
                       and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1832,7 +1787,7 @@
                      latest_1 AS latest_1,
                      step_2 AS step_2,
                      latest_2 AS latest_2,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
@@ -1923,6 +1878,9 @@
                       and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1968,7 +1926,7 @@
                      latest_1 AS latest_1,
                      step_2 AS step_2,
                      latest_2 AS latest_2,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
@@ -2109,7 +2067,7 @@
                      latest_1 AS latest_1,
                      step_2 AS step_2,
                      latest_2 AS latest_2,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
@@ -2250,7 +2208,7 @@
                      latest_1 AS latest_1,
                      step_2 AS step_2,
                      latest_2 AS latest_2,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
@@ -2391,7 +2349,7 @@
                      latest_1 AS latest_1,
                      step_2 AS step_2,
                      latest_2 AS latest_2,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,

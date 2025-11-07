@@ -38,6 +38,8 @@ export interface LemonTabsProps<T extends string | number> {
     barClassName?: string
     className?: string
     sceneInset?: boolean
+    /** Pass in JSX to be sticky to the right of the tabs. */
+    rightSlot?: React.ReactNode
 }
 
 interface LemonTabsCSSProperties extends React.CSSProperties {
@@ -54,6 +56,7 @@ export function LemonTabs<T extends string | number>({
     className,
     'data-attr': dataAttr,
     sceneInset = false,
+    rightSlot,
 }: LemonTabsProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
         HTMLUListElement,
@@ -83,50 +86,62 @@ export function LemonTabs<T extends string | number>({
             data-attr={dataAttr}
         >
             <ul className={cn('LemonTabs__bar', barClassName)} role="tablist" ref={containerRef}>
-                {realTabs.map((tab) => {
-                    const content = (
-                        <>
-                            {tab.label}
-                            {tab.tooltip && <IconInfo className="ml-1 text-base shrink-0" />}
-                        </>
-                    )
-                    return (
-                        <Tooltip
-                            key={tab.key}
-                            title={tab.tooltip}
-                            placement="top"
-                            offset={0}
-                            docLink={tab.tooltipDocLink}
-                        >
-                            <li
-                                className={cn('LemonTabs__tab', tab.key === activeKey && 'LemonTabs__tab--active')}
-                                onClick={onChange ? () => onChange(tab.key) : undefined}
-                                role="tab"
-                                aria-selected={tab.key === activeKey}
-                                tabIndex={0}
-                                onKeyDown={
-                                    onChange
-                                        ? (e) => {
-                                              if (e.key === 'Enter') {
-                                                  onChange(tab.key)
-                                              }
-                                          }
-                                        : undefined
-                                }
-                                ref={tab.key === activeKey ? selectionRef : undefined}
-                                data-attr={tab['data-attr']}
+                <div
+                    className={cn('flex gap-x-4 md:gap-x-8', {
+                        'gap-x-2': size === 'small',
+                        'pr-4': rightSlot,
+                    })}
+                >
+                    {realTabs.map((tab) => {
+                        const content = (
+                            <>
+                                {tab.label}
+                                {tab.tooltip && <IconInfo className="ml-1 text-base shrink-0" />}
+                            </>
+                        )
+                        return (
+                            <Tooltip
+                                key={tab.key}
+                                title={tab.tooltip}
+                                placement="top"
+                                offset={0}
+                                docLink={tab.tooltipDocLink}
                             >
-                                {tab.link ? (
-                                    <Link className="LemonTabs__tab-content" to={tab.link}>
-                                        {content}
-                                    </Link>
-                                ) : (
-                                    <div className="LemonTabs__tab-content">{content}</div>
-                                )}
-                            </li>
-                        </Tooltip>
-                    )
-                })}
+                                <li
+                                    className={cn('LemonTabs__tab', tab.key === activeKey && 'LemonTabs__tab--active')}
+                                    onClick={onChange ? () => onChange(tab.key) : undefined}
+                                    role="tab"
+                                    aria-selected={tab.key === activeKey}
+                                    tabIndex={0}
+                                    onKeyDown={
+                                        onChange
+                                            ? (e) => {
+                                                  if (e.key === 'Enter') {
+                                                      onChange(tab.key)
+                                                  }
+                                              }
+                                            : undefined
+                                    }
+                                    ref={tab.key === activeKey ? selectionRef : undefined}
+                                    data-attr={tab['data-attr']}
+                                >
+                                    {tab.link ? (
+                                        <Link className="LemonTabs__tab-content" to={tab.link}>
+                                            {content}
+                                        </Link>
+                                    ) : (
+                                        <div className="LemonTabs__tab-content">{content}</div>
+                                    )}
+                                </li>
+                            </Tooltip>
+                        )
+                    })}
+                </div>
+                {rightSlot && (
+                    <div className="mb-[1px] flex gap-x-2 shrink-0 items-center justify-end sticky right-0 bg-primary pr-4">
+                        {rightSlot}
+                    </div>
+                )}
             </ul>
             {activeTab && 'content' in activeTab && (
                 <div className={cn('LemonTabs__content', sceneInset && 'p-4')} key={activeKey}>

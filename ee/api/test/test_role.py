@@ -5,7 +5,6 @@ from rest_framework import status
 from posthog.models.organization import Organization, OrganizationMembership
 
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from ee.models.rbac.role import Role
 
 
@@ -86,32 +85,6 @@ class TestRoleAPI(APILicensedTest):
         self.assertEqual(Role.objects.filter(organization=other_org).exists(), True)
         with self.assertRaises(IntegrityError):
             Role.objects.create(name="Marketing", organization=self.organization)
-
-    def test_updating_feature_flags_access_level_for_a_role(self):
-        role = Role.objects.create(organization=self.organization, name="Engineering")
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
-        self.assertEqual(
-            role.feature_flags_access_level,
-            OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
-        )
-        self.client.patch(
-            f"/api/organizations/@current/roles/{role.id}",
-            {"feature_flags_access_level": OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW},
-        )
-        self.assertEqual(
-            Role.objects.first().feature_flags_access_level,
-            OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,  # type: ignore
-        )
-        self.client.patch(
-            f"/api/organizations/@current/roles/{role.id}",
-            {"feature_flags_access_level": OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT},
-        )
-        self.assertEqual(
-            Role.objects.first().feature_flags_access_level,  # type: ignore
-            OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
-        )
 
     def test_returns_correct_results_by_organization(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

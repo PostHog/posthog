@@ -6,13 +6,13 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 
 type SelectableCardProps = {
-    title: string
+    title: ReactNode
     description: ReactNode
     selected: boolean
     onClick: () => void
     className?: string
     'data-attr'?: string
-} & ({ disabled: true; disabledReason: string } | { disabled?: false; disabledReason?: never })
+} & ({ disabled?: false; disabledReason?: never } | { disabled: boolean; disabledReason: string })
 
 export function SelectableCard({
     title,

@@ -3,6 +3,7 @@ pub const FLAG_EVALUATION_ERROR_COUNTER: &str = "flags_flag_evaluation_error_tot
 pub const FLAG_CACHE_HIT_COUNTER: &str = "flags_flag_cache_hit_total";
 pub const FLAG_CACHE_ERRORS_COUNTER: &str = "flags_flag_cache_errors_total";
 pub const FLAG_HASH_KEY_WRITES_COUNTER: &str = "flags_flag_hash_key_writes_total";
+pub const FLAG_HASH_KEY_RETRIES_COUNTER: &str = "flags_hash_key_retries_total";
 pub const TEAM_CACHE_HIT_COUNTER: &str = "flags_team_cache_hit_total";
 pub const TEAM_CACHE_ERRORS_COUNTER: &str = "flags_team_cache_errors_total";
 pub const DB_TEAM_READS_COUNTER: &str = "flags_db_team_reads_total";
@@ -17,6 +18,8 @@ pub const PROPERTY_CACHE_MISSES_COUNTER: &str = "flags_property_cache_misses_tot
 pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
     "flags_db_person_and_group_properties_reads_total";
 pub const FLAG_REQUESTS_COUNTER: &str = "flags_requests_total";
+pub const FLAG_REQUESTS_LATENCY: &str = "flags_requests_duration_ms";
+pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
 
 // Performance monitoring
 pub const DB_CONNECTION_POOL_ACTIVE_COUNTER: &str = "flags_db_connection_pool_active_total";
@@ -44,3 +47,26 @@ pub const FLAG_DB_CONNECTION_TIME: &str = "flags_db_connection_time";
 
 // Flag request kludges (to see how often we have to massage our request data to be able to parse it)
 pub const FLAG_REQUEST_KLUDGE_COUNTER: &str = "flags_request_kludge_total";
+
+// New diagnostic metrics for pool exhaustion investigation
+pub const FLAG_POOL_UTILIZATION_GAUGE: &str = "flags_pool_utilization_ratio";
+pub const FLAG_CONNECTION_HOLD_TIME: &str = "flags_connection_hold_time_ms";
+pub const FLAG_CONNECTION_QUEUE_DEPTH_GAUGE: &str = "flags_connection_queue_depth";
+pub const FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER: &str =
+    "flags_experience_continuity_requests_total";
+
+// Flag definitions rate limiting
+pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
+pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
+
+// Timeout tracking and classification
+pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
+
+// Error classification
+pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
+pub const FLAG_FILTER_DESERIALIZATION_ERROR_COUNTER: &str =
+    "flags_filter_deserialization_error_total";
+
+// Tombstone metric for tracking "impossible" failures that should never happen in production
+// Different failure types are tracked via the "failure_type" label
+pub const TOMBSTONE_COUNTER: &str = "posthog_tombstone_total";
