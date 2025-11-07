@@ -13231,6 +13231,19 @@ class ExperimentRetentionMetric(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class ExperimentRetentionMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    completion_event: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    metric_type: Literal["retention"] = "retention"
+    retention_window_end: int
+    retention_window_start: int
+    retention_window_unit: FunnelConversionWindowTimeUnit
+    start_event: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    start_handling: StartHandling
+
+
 class FunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -14224,9 +14237,21 @@ class ExperimentMetric(
 
 
 class ExperimentMetricTypeProps(
-    RootModel[Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps, ExperimentRatioMetricTypeProps]]
+    RootModel[
+        Union[
+            ExperimentMeanMetricTypeProps,
+            ExperimentFunnelMetricTypeProps,
+            ExperimentRatioMetricTypeProps,
+            ExperimentRetentionMetricTypeProps,
+        ]
+    ]
 ):
-    root: Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps, ExperimentRatioMetricTypeProps]
+    root: Union[
+        ExperimentMeanMetricTypeProps,
+        ExperimentFunnelMetricTypeProps,
+        ExperimentRatioMetricTypeProps,
+        ExperimentRetentionMetricTypeProps,
+    ]
 
 
 class ExperimentQueryResponse(BaseModel):
