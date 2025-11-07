@@ -145,6 +145,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             })
         },
         duplicateTemplate: async () => {
+            if (values.templateChanged) {
+                lemonToast.error('Please save your changes before duplicating')
+                return
+            }
             const template = values.template
             try {
                 const duplicatedTemplate = await api.messaging.createTemplate({

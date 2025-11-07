@@ -48,6 +48,11 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                                                     data-attr="duplicate-message-template"
                                                     fullWidth
                                                     onClick={duplicateTemplate}
+                                                    disabledReason={
+                                                        templateChanged
+                                                            ? 'Save your changes before duplicating'
+                                                            : undefined
+                                                    }
                                                 >
                                                     Duplicate
                                                 </LemonButton>
