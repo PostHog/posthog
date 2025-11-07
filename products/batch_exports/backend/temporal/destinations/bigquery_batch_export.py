@@ -64,12 +64,12 @@ NON_RETRYABLE_ERROR_TYPES = (
     # Invalid token.
     "RefreshError",
     # Usually means the dataset or project_id doesn't exist.
-    # "NotFound",
+    "NotFound",
     # Raised when something about dataset is wrong (not alphanumeric, too long, etc).
-    # "BadRequest",
+    "BadRequest",
     # Raised when table_id isn't valid. Sadly, `ValueError` is rather generic, but we
     # don't anticipate a `ValueError` thrown from our own export code.
-    # "ValueError",
+    "ValueError",
     # Raised when attempting to run a batch export without required BigQuery permissions.
     # Our own version of `Forbidden`.
     "MissingRequiredPermissionsError",
