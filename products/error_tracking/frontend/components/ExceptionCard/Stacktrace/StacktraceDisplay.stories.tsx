@@ -45,6 +45,7 @@ export function GenericDisplayPropertiesLoading(): JSX.Element {
         </ExceptionLogicWrapper>
     )
 }
+GenericDisplayPropertiesLoading.parameters = { testOptions: { waitForLoadersToDisappear: false } }
 
 export function GenericDisplayEmpty(): JSX.Element {
     return (
