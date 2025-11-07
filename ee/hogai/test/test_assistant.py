@@ -1198,7 +1198,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @override_settings(INKEEP_API_KEY="test")
     @patch("ee.hogai.graph.agent_modes.nodes.AgentNode._get_model")
-    @patch("ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model")
+    @patch("ee.hogai.graph.inkeep_docs.nodes.InkeepExecutableNode._get_model")
     async def test_inkeep_docs_basic_search(self, inkeep_docs_model_mock, root_model_mock):
         """Test basic documentation search functionality using Inkeep."""
         graph = (

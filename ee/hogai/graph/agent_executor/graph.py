@@ -20,35 +20,26 @@ class AgentExecutorGraph(BaseAssistantGraph[AssistantState, PartialAssistantStat
     def add_agent_node(self, router: Callable[[AssistantState], AssistantNodeName] | None = None):
         self._has_start_node = True
         root_node = AgentRootNode(self._team, self._user)
-        self.add_node(AssistantNodeName.AGENT_EXECUTOR, root_node)
-        self.add_edge(AssistantNodeName.START, AssistantNodeName.AGENT_EXECUTOR)
+        self.add_node(AssistantNodeName.ROOT, root_node)
+        self.add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
         self._graph.add_conditional_edges(
-            AssistantNodeName.AGENT_EXECUTOR,
+            AssistantNodeName.ROOT,
             router or cast(Callable[[AssistantState], AssistantNodeName], root_node.router),
         )
         return self
 
     def add_agent_tools_node(self, router: Callable[[AssistantState], AssistantNodeName] | None = None):
         agent_tools_node = AgentRootToolsNode(self._team, self._user)
-        self.add_node(AssistantNodeName.AGENT_EXECUTOR_TOOLS, agent_tools_node)
+        self.add_node(AssistantNodeName.ROOT_TOOLS, agent_tools_node)
         self._graph.add_conditional_edges(
-            AssistantNodeName.AGENT_EXECUTOR_TOOLS,
+            AssistantNodeName.ROOT_TOOLS,
             router or cast(Callable[[AssistantState], AssistantNodeName], agent_tools_node.router),
             path_map={
-                "root": AssistantNodeName.AGENT_EXECUTOR,
+                "root": AssistantNodeName.ROOT,
                 "end": AssistantNodeName.END,
             },
         )
         return self
 
-    def compile_full_graph(
-        self,
-        checkpointer: DjangoCheckpointer | None = None,
-        agent_node_router: Callable[[AssistantState], AssistantNodeName] | None = None,
-        agent_tools_node_router: Callable[[AssistantState], AssistantNodeName] | None = None,
-    ):
-        return (
-            self.add_agent_node(agent_node_router)
-            .add_agent_tools_node(agent_tools_node_router)
-            .compile(checkpointer=checkpointer)
-        )
+    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
+        return self.add_agent_node().add_agent_tools_node().compile(checkpointer=checkpointer)

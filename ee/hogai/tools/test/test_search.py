@@ -140,7 +140,7 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_node_instance = MagicMock()
         mock_result = PartialAssistantState(messages=[AssistantMessage(content="Here is the answer from docs")])
 
-        with patch("ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode", return_value=mock_node_instance):
+        with patch("ee.hogai.graph.inkeep_docs.nodes.InkeepExecutableNode", return_value=mock_node_instance):
             with patch("ee.hogai.tools.search.RunnableLambda") as mock_runnable:
                 mock_chain = MagicMock()
                 mock_chain.ainvoke = AsyncMock(return_value=mock_result)
@@ -165,7 +165,7 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode"):
+        with patch("ee.hogai.graph.inkeep_docs.nodes.InkeepExecutableNode"):
             with patch("ee.hogai.tools.search.RunnableLambda", return_value=mock_chain):
                 await self.tool.execute("test query", "custom-tool-call-id")
 

@@ -23,7 +23,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
     async def test_node_handles_plain_response(self):
         test_tool_call_id = str(uuid4())
         with patch(
-            "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
+            "ee.hogai.graph.inkeep_docs.nodes.InkeepExecutableNode._get_model",
             return_value=RunnableLambda(
                 lambda _: LangchainAIMessage(content="Here's what I found in the documentation...")
             ),
@@ -54,7 +54,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         test_tool_call_id = str(uuid4())
         response_with_continuation = f"Here's what I found... {INKEEP_DATA_CONTINUATION_PHRASE}"
         with patch(
-            "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
+            "ee.hogai.graph.inkeep_docs.nodes.InkeepExecutableNode._get_model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content=response_with_continuation)),
         ):
             node = InkeepDocsNode(self.team, self.user)
@@ -98,7 +98,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         """Test that tool_call_id is properly handled in both input and output states."""
         test_tool_call_id = str(uuid4())
         with patch(
-            "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
+            "ee.hogai.graph.inkeep_docs.nodes.InkeepExecutableNode._get_model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content="Response")),
         ):
             node = InkeepDocsNode(self.team, self.user)
@@ -120,7 +120,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
     async def test_message_id_generation(self):
         """Test that each message gets a unique UUID."""
         with patch(
-            "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
+            "ee.hogai.graph.inkeep_docs.nodes.InkeepExecutableNode._get_model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content="Response")),
         ):
             node = InkeepDocsNode(self.team, self.user)

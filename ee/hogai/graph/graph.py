@@ -2,9 +2,8 @@ from collections.abc import Callable
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.agent_executor import AgentExecutorGraph
-from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState
 
 from .memory.nodes import (
     MemoryCollectorNode,
@@ -18,14 +17,10 @@ from .memory.nodes import (
 )
 
 
-class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
+class AssistantGraph(AgentExecutorGraph):
     @property
     def graph_name(self) -> AssistantGraphName:
         return AssistantGraphName.ASSISTANT
-
-    @property
-    def state_type(self) -> type[AssistantState]:
-        return AssistantState
 
     def add_title_generator(self, end_node: AssistantNodeName = AssistantNodeName.END):
         self._has_start_node = True
@@ -41,12 +36,9 @@ class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
         router: Callable[[AssistantState], AssistantNodeName] | None = None,
         tools_router: Callable[[AssistantState], AssistantNodeName] | None = None,
     ):
-        agent_executor = AgentExecutorGraph(self._team, self._user).compile_full_graph(
-            agent_node_router=router, agent_tools_node_router=tools_router
-        )
-        self.add_node(AssistantNodeName.ROOT, agent_executor)
-        self.add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
-        return self
+        # Merge the agent graph into the main graph.
+        # Subgraphs incorrectly merge messages, so please don't use them here.
+        return self.add_agent_node(router=router).add_agent_tools_node(router=tools_router)
 
     def add_memory_onboarding(
         self,

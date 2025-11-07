@@ -20,7 +20,6 @@ from ee.hogai.utils.types.base import (
     AssistantDispatcherEvent,
     AssistantGraphName,
     AssistantMessageUnion,
-    AssistantNodeName,
     AssistantResultUnion,
     BaseStateWithMessages,
     LangGraphUpdateEvent,
@@ -177,15 +176,9 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
             return False
         # The first path is always the top-level graph.
         if len(node_path) > 2:
-            # The second path can either be the agent executor graph or a top-level node.
+            # The second path can is a top-level node.
             # But we have to check the next node to see if it's a nested node or graph.
-
-            # Check if the second path is the agent executor graph and one of the next nodes contains a subgraph.
-            if node_path[1].name == AssistantNodeName.AGENT_EXECUTOR and not find_subgraph(node_path[3:]):
-                return False
-            # Check if the path contains a subgraph.
-            elif find_subgraph(node_path[2:]):
-                return True
+            return find_subgraph(node_path[2:])
 
         return False
 

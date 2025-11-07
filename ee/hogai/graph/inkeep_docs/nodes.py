@@ -14,24 +14,17 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, FailureMessage
 
+from ee.hogai.graph.agent_modes.nodes import AgentNode, AgentToolkit
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.openai import convert_to_openai_messages
-from ee.hogai.utils.state import PartialAssistantState
-from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.composed import MaxNodeName
 
-from ..root.nodes import RootNode
 from .prompts import INKEEP_DATA_CONTINUATION_PHRASE, INKEEP_DOCS_SYSTEM_PROMPT
 
 
-class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same message construction
-    """Node for searching PostHog documentation using Inkeep."""
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.INKEEP_DOCS
-
+class InkeepExecutableNode(AgentNode):  # Inheriting from AgentNode to use the same message construction
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return documentation search results."""
         self.dispatcher.update("Checking PostHog documentation...")
@@ -119,3 +112,17 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
     ) -> list[BaseMessage]:
         # Original node has Anthropic messages, but Inkeep expects OpenAI messages
         return convert_to_openai_messages(conversation_window, tool_result_messages)
+
+
+class InkeepDocsNode(AssistantNode):
+    """Node for searching PostHog documentation using Inkeep."""
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.INKEEP_DOCS
+
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        node = InkeepExecutableNode(
+            team=self._team, user=self._user, toolkit_class=AgentToolkit, node_path=self.node_path
+        )
+        return await node(state, config)
