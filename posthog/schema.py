@@ -11394,6 +11394,10 @@ class RecordingsQueryResponse(BaseModel):
     )
     has_next: bool
     results: list[SessionRecordingType]
+    next_cursor: Optional[str] = Field(
+        default=None,
+        description="Cursor for the next page. Contains the ordering value and session_id from the last record.",
+    )
 
 
 class RetentionEntity(BaseModel):
@@ -13123,6 +13127,10 @@ class RecordingsQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    after: Optional[str] = Field(
+        default=None,
+        description="Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page.",
+    )
     operand: Optional[FilterLogicalOperator] = FilterLogicalOperator.AND_
     order: Optional[RecordingOrder] = RecordingOrder.START_TIME
     order_direction: Optional[RecordingOrderDirection] = Field(
