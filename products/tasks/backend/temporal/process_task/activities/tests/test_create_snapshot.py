@@ -19,7 +19,7 @@ class TestCreateSnapshotActivity:
         """Test real snapshot creation with actual sandbox."""
         config = SandboxConfig(
             name="test-create-snapshot",
-            template=SandboxTemplate.BASE,
+            template=SandboxTemplate.DEFAULT_BASE,
         )
 
         sandbox = None
