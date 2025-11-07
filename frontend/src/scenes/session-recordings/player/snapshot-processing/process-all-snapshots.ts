@@ -524,7 +524,7 @@ function isLengthPrefixedSnappy(uint8Data: Uint8Array): boolean {
 
 const lengthPrefixedSnappyDecompress = async (
     uint8Data: Uint8Array,
-    mode?: string | DecompressionMode,
+    mode?: DecompressionMode,
     posthogInstance?: PostHog
 ): Promise<string> => {
     const workerManager = getDecompressionWorkerManager(mode, posthogInstance)
@@ -571,7 +571,7 @@ const lengthPrefixedSnappyDecompress = async (
 
 const rawSnappyDecompress = async (
     uint8Data: Uint8Array,
-    mode?: string | DecompressionMode,
+    mode?: DecompressionMode,
     posthogInstance?: PostHog
 ): Promise<string> => {
     const workerManager = getDecompressionWorkerManager(mode, posthogInstance)
@@ -585,7 +585,7 @@ const rawSnappyDecompress = async (
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[] | ArrayBuffer | Uint8Array,
     sessionId: string,
-    decompressionMode?: string | DecompressionMode,
+    decompressionMode?: DecompressionMode,
     posthogInstance?: PostHog,
     enableYielding: boolean = false
 ): Promise<RecordingSnapshot[]> => {

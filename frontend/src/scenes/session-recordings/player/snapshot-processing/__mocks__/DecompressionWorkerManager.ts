@@ -1,5 +1,12 @@
 export type DecompressionMode = 'worker' | 'yielding' | 'blocking'
 
+export function normalizeMode(mode?: string | boolean): DecompressionMode {
+    if (mode === 'worker' || mode === 'yielding') {
+        return mode
+    }
+    return 'blocking'
+}
+
 export class DecompressionWorkerManager {
     private mockStats = { totalTime: 0, count: 0, totalSize: 0 }
 
