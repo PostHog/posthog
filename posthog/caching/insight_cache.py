@@ -179,6 +179,8 @@ def update_cached_state(
     result: Any,
     ttl: Optional[int] = None,
 ):
+    if settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
+        return  # In the special prod PG in debug mode, we can't write to PG!
     if result is not None:  # This is particularly the case for HogQL-based queries, which cache.set() on their own
         cache.set(cache_key, result, ttl if ttl is not None else settings.CACHED_RESULTS_TTL)
         INSIGHT_CACHE_WRITE_COUNTER.inc()
