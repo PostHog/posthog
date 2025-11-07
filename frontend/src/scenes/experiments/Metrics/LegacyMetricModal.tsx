@@ -19,7 +19,7 @@ import { TrendsMetricForm } from './TrendsMetricForm'
 export function LegacyMetricModal({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const { experiment, experimentLoading, getInsightType, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
         useValues(experimentLogic)
-    const { updateExperimentMetrics, setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic())
+    const { updateExperimentMetrics, setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closePrimaryMetricModal, closeSecondaryMetricModal } = useActions(modalsLogic)
     const { isPrimaryMetricModalOpen, isSecondaryMetricModalOpen } = useValues(modalsLogic)
 
