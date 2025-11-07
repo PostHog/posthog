@@ -257,14 +257,28 @@ async def upload_manifest_file(
     endpoint_url: str | None,
     files_uploaded: list[str],
     manifest_key: str,
+    use_virtual_style_addressing: bool = False,
 ):
     session = aioboto3.Session()
+
+    config: dict[str, typing.Any] = {
+        # Set checksum calculation to 'when_required' for compatibility with S3-compatible
+        # services like GCS that don't support AWS's newer checksum features
+        "request_checksum_calculation": "when_required",
+        "response_checksum_validation": "when_required",
+    }
+    if use_virtual_style_addressing:
+        config["s3"] = {"addressing_style": "virtual"}
+
+    boto_config = AioConfig(**config)
+
     async with session.client(
         "s3",
         region_name=region_name,
         aws_access_key_id=aws_access_key_id,
         aws_secret_access_key=aws_secret_access_key,
         endpoint_url=endpoint_url,
+        config=boto_config,
     ) as client:
         await client.put_object(
             Bucket=bucket,
@@ -891,6 +905,7 @@ class ConcurrentS3Consumer(Consumer):
                 self.endpoint_url,
                 self.files_uploaded,
                 manifest_key,
+                self.use_virtual_style_addressing,
             )
             self.external_logger.info("All uploads completed. Uploaded %d files", len(self.files_uploaded))
 
