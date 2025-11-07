@@ -220,7 +220,7 @@ describe('insightLogic', () => {
             },
             post: {
                 '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
-                '/api/environments/:team_id/insights/:id/viewed': [201],
+                '/api/environments/:team_id/insights/viewed': [201],
                 '/api/environments/:team_id/insights/': (req) => [
                     200,
                     { id: 12, short_id: Insight12, ...(req.body as any) },

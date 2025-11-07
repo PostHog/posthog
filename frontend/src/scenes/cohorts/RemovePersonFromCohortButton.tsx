@@ -4,18 +4,20 @@ import { IconTrash } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { asDisplay } from 'scenes/persons/person-utils'
 
 import { cohortEditLogic } from '~/scenes/cohorts/cohortEditLogic'
-import { PersonType } from '~/types'
 
-interface RemovePersonFromCohortButtonProps {
-    person: PersonType
-    cohortId: number
+export interface PersonDisplayNameType {
+    display_name: string
+    id: string
 }
 
-export function RemovePersonFromCohortButton({ person, cohortId }: RemovePersonFromCohortButtonProps): JSX.Element {
-    const { removePersonFromCohort } = useActions(cohortEditLogic({ id: cohortId }))
+interface RemovePersonFromCohortButtonProps {
+    person: PersonDisplayNameType
+}
+
+export function RemovePersonFromCohortButton({ person }: RemovePersonFromCohortButtonProps): JSX.Element {
+    const { removePersonFromCohort } = useActions(cohortEditLogic)
 
     const handleRemoveClick = (): void => {
         LemonDialog.open({
@@ -23,7 +25,9 @@ export function RemovePersonFromCohortButton({ person, cohortId }: RemovePersonF
             description: (
                 <>
                     <p className="mt-4">
-                        Are you sure you want to remove <strong>{asDisplay(person)}</strong> from this cohort?
+                        Are you sure you want to remove{' '}
+                        <strong>{person.display_name === person.id ? 'Anonymous' : person.display_name}</strong> from
+                        this cohort?
                     </p>
                     <p>This action cannot be undone.</p>
                 </>

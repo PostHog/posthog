@@ -1,9 +1,10 @@
 import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -22,7 +23,6 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
@@ -52,7 +52,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
-    Breadcrumb,
+    AccessControlLevel,
     BreakdownAttributionType,
     BreakdownType,
     CohortType,
@@ -65,7 +65,6 @@ import {
     InsightType,
     MultivariateFlagVariant,
     ProductKey,
-    ProjectTreeRef,
     PropertyMathType,
     TrendExperimentVariant,
 } from '~/types'
@@ -75,6 +74,7 @@ import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, MetricInsightId } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
+import { experimentSceneLogic } from './experimentSceneLogic'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
@@ -94,7 +94,7 @@ import {
     transformFiltersForWinningVariant,
 } from './utils'
 
-const NEW_EXPERIMENT: Experiment = {
+export const NEW_EXPERIMENT: Experiment = {
     id: 'new',
     name: '',
     type: 'product',
@@ -120,6 +120,7 @@ const NEW_EXPERIMENT: Experiment = {
     exposure_criteria: {
         filterTestAccounts: true,
     },
+    user_access_level: AccessControlLevel.Editor,
 }
 
 export const DEFAULT_MDE = 30
@@ -140,6 +141,7 @@ export type FormModes = (typeof FORM_MODES)[keyof typeof FORM_MODES]
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
     formMode?: FormModes
+    tabId?: string
 }
 
 interface MetricLoadingConfig {
@@ -282,7 +284,10 @@ function convertToTypedExperimentResponse(response: CachedExperimentQueryRespons
 
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
-    key((props) => props.experimentId || 'new'),
+    key((props) => {
+        const baseKey = props.experimentId ?? 'new'
+        return `${baseKey}${props.tabId ? `-${props.tabId}` : ''}`
+    }),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
         values: [
@@ -329,6 +334,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentSharedMetricAssigned',
                 'reportExperimentDashboardCreated',
                 'reportExperimentMetricTimeout',
+                'reportExperimentTimeseriesViewed',
+                'reportExperimentTimeseriesRecalculated',
             ],
             teamLogic,
             ['addProductIntent'],
@@ -342,6 +349,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'closeSecondaryMetricModal',
                 'openPrimarySharedMetricModal',
                 'openSecondarySharedMetricModal',
+                'openStopExperimentModal',
                 'closeStopExperimentModal',
                 'closeShipVariantModal',
                 'openReleaseConditionsModal',
@@ -352,6 +360,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean, folder?: string | null) => ({ draft, folder }),
+        setCreateExperimentLoading: (loading: boolean) => ({ loading }),
         setExperimentType: (type?: string) => ({ type }),
         addVariant: true,
         removeVariant: (idx: number) => ({ idx }),
@@ -825,9 +834,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 setFeatureFlagValidationError: (_, { error }) => error,
             },
         ],
+        createExperimentLoading: [
+            false,
+            {
+                setCreateExperimentLoading: (_, { loading }) => loading,
+            },
+        ],
     }),
-    listeners(({ values, actions, props }) => ({
+    listeners(({ values, actions }) => ({
         createExperiment: async ({ draft, folder }) => {
+            actions.setCreateExperimentLoading(true)
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
 
             actions.touchExperimentField('name')
@@ -837,6 +853,7 @@ export const experimentLogic = kea<experimentLogicType>([
             )
 
             if (hasFormErrors(values.experimentErrors)) {
+                actions.setCreateExperimentLoading(false)
                 return
             }
 
@@ -844,13 +861,14 @@ export const experimentLogic = kea<experimentLogicType>([
             // Terminate if the insight did not manage to load in time
             if (!minimumDetectableEffect) {
                 eventUsageLogic.actions.reportExperimentInsightLoadFailed()
+                actions.setCreateExperimentLoading(false)
                 return lemonToast.error(
                     'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
                 )
             }
 
             let response: Experiment | null = null
-            const isUpdate = props.formMode === 'update'
+            const isUpdate = values.formMode === FORM_MODES.update
             try {
                 if (isUpdate) {
                     response = await api.update(
@@ -883,6 +901,15 @@ export const experimentLogic = kea<experimentLogicType>([
                         return
                     }
                 } else {
+                    // Make experiment eligible for timeseries
+                    const statsConfig = {
+                        ...values.experiment?.stats_config,
+                        ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES] && { timeseries: true }),
+                        ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_QUERY_BUILDER] && {
+                            use_new_query_builder: true,
+                        }),
+                    }
+
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
                         ...values.experiment,
                         parameters:
@@ -891,7 +918,7 @@ export const experimentLogic = kea<experimentLogicType>([
                              * the recommended running time. If we are duplicating we want to
                              * preserve this values.
                              */
-                            props.formMode === FORM_MODES.create
+                            values.formMode === FORM_MODES.create
                                 ? {
                                       ...values.experiment?.parameters,
                                       recommended_running_time: recommendedRunningTime,
@@ -901,6 +928,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 : values.experiment?.parameters,
                         ...(!draft && { start_date: dayjs() }),
                         ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
+                        stats_config: statsConfig,
                     })
 
                     if (response) {
@@ -916,23 +944,33 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to create experiment')
+                actions.setCreateExperimentLoading(false)
                 return
             }
 
             if (response?.id) {
                 const experimentId = response.id
                 refreshTreeItem('experiment', String(experimentId))
-                router.actions.push(urls.experiment(experimentId))
+                const navigateToExperiment = (): void => {
+                    const tabId = values.props.tabId
+                    const scene = tabId ? experimentSceneLogic.findMounted({ tabId }) : null
+                    if (scene) {
+                        scene.actions.setSceneState(experimentId, FORM_MODES.update)
+                    } else {
+                        router.actions.push(urls.experiment(experimentId))
+                    }
+                }
+
+                navigateToExperiment()
                 actions.addToExperiments(response)
                 lemonToast.success(`Experiment ${isUpdate ? 'updated' : 'created'}`, {
                     button: {
                         label: 'View it',
-                        action: () => {
-                            router.actions.push(urls.experiment(experimentId))
-                        },
+                        action: navigateToExperiment,
                     },
                 })
             }
+            actions.setCreateExperimentLoading(false)
         },
         setExperimentType: async ({ type }) => {
             actions.setExperiment({ type: type })
@@ -1053,8 +1091,9 @@ export const experimentLogic = kea<experimentLogicType>([
             if (payload.shouldStopExperiment && !values.isExperimentStopped) {
                 actions.endExperiment()
             }
-            actions.loadExperiment()
             actions.reportExperimentVariantShipped(values.experiment)
+
+            actions.openStopExperimentModal()
         },
         shipVariantFailure: ({ error }) => {
             lemonToast.error(error)
@@ -1342,20 +1381,20 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
     })),
-    loaders(({ actions, props, values }) => ({
+    loaders(({ actions, values }) => ({
         experiment: {
             loadExperiment: async () => {
-                if (props.experimentId && props.experimentId !== 'new') {
+                if (values.experimentId && values.experimentId !== 'new') {
                     try {
                         let response: Experiment = await api.get(
-                            `api/projects/${values.currentProjectId}/experiments/${props.experimentId}`
+                            `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`
                         )
 
                         /**
                          * if we are duplicating, we need to clear a lot of props to ensure that
                          * the experiment will be in draft mode and available for launch
                          */
-                        if (props.formMode === FORM_MODES.duplicate) {
+                        if (values.formMode === FORM_MODES.duplicate) {
                             response = {
                                 ...response,
                                 name: `${response.name} (duplicate)`,
@@ -1405,8 +1444,8 @@ export const experimentLogic = kea<experimentLogicType>([
             null as CohortType | null,
             {
                 createExposureCohort: async () => {
-                    if (props.experimentId && props.experimentId !== 'new' && props.experimentId !== 'web') {
-                        return (await api.experiments.createExposureCohort(props.experimentId)).cohort
+                    if (values.experimentId && values.experimentId !== 'new' && values.experimentId !== 'web') {
+                        return (await api.experiments.createExposureCohort(values.experimentId)).cohort
                     }
                     return null
                 },
@@ -1444,7 +1483,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     const query = setLatestVersionsOnQuery({
                         kind: NodeKind.ExperimentExposureQuery,
-                        experiment_id: props.experimentId,
+                        experiment_id: values.experimentId,
                         experiment_name: experiment.name,
                         exposure_criteria: experiment.exposure_criteria,
                         feature_flag: experiment.feature_flag,
@@ -1463,7 +1502,7 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,
         ],
-        formMode: [() => [(_, props) => props.formMode], (action: FormModes) => action],
+        formMode: [() => [(_, props) => props.formMode ?? FORM_MODES.update], (formMode): FormModes => formMode],
         getInsightType: [
             () => [],
             () =>
@@ -1505,30 +1544,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
                     !experiment.archived
                 )
-            },
-        ],
-        breadcrumbs: [
-            (s) => [s.experiment, s.experimentId],
-            (experiment, experimentId): Breadcrumb[] => {
-                return [
-                    {
-                        key: Scene.Experiments,
-                        name: 'Experiments',
-                        path: urls.experiments(),
-                        iconType: 'experiment',
-                    },
-                    {
-                        key: [Scene.Experiment, experimentId],
-                        name: experiment?.name || '',
-                        iconType: 'experiment',
-                    },
-                ]
-            },
-        ],
-        projectTreeRef: [
-            () => [(_, props: ExperimentLogicProps) => props.experimentId],
-            (experimentId): ProjectTreeRef => {
-                return { type: 'experiment', ref: experimentId === 'new' ? null : String(experimentId) }
             },
         ],
         variants: [
@@ -2016,7 +2031,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     }),
-    forms(({ actions, values, props }) => ({
+    forms(({ actions, values }) => ({
         experiment: {
             options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
@@ -2034,44 +2049,13 @@ export const experimentLogic = kea<experimentLogicType>([
             submit: () => {
                 if (
                     values.experimentId &&
-                    ([FORM_MODES.create, FORM_MODES.duplicate] as FormModes[]).includes(props.formMode!)
+                    ([FORM_MODES.create, FORM_MODES.duplicate] as FormModes[]).includes(values.formMode)
                 ) {
                     actions.createExperiment(true)
                 } else {
                     actions.createExperiment(true, 'Unfiled/Experiments')
                 }
             },
-        },
-    })),
-    urlToAction(({ actions, values }) => ({
-        '/experiments/:id': ({ id }, query, __, currentLocation, previousLocation) => {
-            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
-
-            actions.setEditExperiment(false)
-
-            if (id && didPathChange) {
-                const parsedId = id === 'new' ? 'new' : parseInt(id)
-                if (parsedId === 'new') {
-                    actions.resetExperiment({
-                        ...NEW_EXPERIMENT,
-                        metrics: query.metric ? [query.metric] : [],
-                        name: query.name ?? '',
-                    })
-                }
-                if (parsedId !== 'new' && parsedId === values.experimentId) {
-                    actions.loadExperiment()
-                    if (values.isExperimentRunning) {
-                        actions.loadExposures()
-                    }
-                }
-            }
-        },
-        '/experiments/:id/:formMode': ({ id }, _, __, currentLocation, previousLocation) => {
-            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
-
-            if (id && didPathChange) {
-                actions.loadExperiment()
-            }
         },
     })),
 ])

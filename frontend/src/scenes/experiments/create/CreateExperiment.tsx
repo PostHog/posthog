@@ -1,25 +1,30 @@
 import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import type { Experiment } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { MetricSourceModal } from '../Metrics/MetricSourceModal'
-import { MetricsReorderModal } from '../MetricsView/MetricsReorderModal'
+import { experimentSceneLogic } from '../experimentSceneLogic'
+import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
+import { ExposureCriteriaPanelHeader } from './ExposureCriteriaPanelHeader'
+import { MetricsPanel, MetricsPanelHeader } from './MetricsPanel'
+import { VariantsPanel } from './VariantsPanel'
+import { VariantsPanelHeader } from './VariantsPanelHeader'
 import { createExperimentLogic } from './createExperimentLogic'
-import { ExperimentTypePanel } from './panels/ExperimentTypePanel'
 
 const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
     return (
@@ -29,29 +34,49 @@ const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
     )
 }
 
-export const CreateExperiment = (): JSX.Element => {
-    const { HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
+interface CreateExperimentProps {
+    draftExperiment?: Experiment
+    tabId?: string
+}
 
-    const { experiment, experimentErrors } = useValues(createExperimentLogic)
-    const { setExperiment, setExperimentValue } = useActions(createExperimentLogic)
+export const CreateExperiment = ({ draftExperiment, tabId }: CreateExperimentProps): JSX.Element => {
+    const logic = createExperimentLogic({ experiment: draftExperiment, tabId })
+    useAttachedLogic(logic, tabId ? experimentSceneLogic({ tabId }) : undefined)
+
+    const { experiment, experimentErrors, canSubmitExperiment, sharedMetrics, isExperimentSubmitting, isEditMode } =
+        useValues(logic)
+    const {
+        setExperimentValue,
+        setExperiment,
+        setSharedMetrics,
+        setExposureCriteria,
+        setFeatureFlagConfig,
+        saveExperiment,
+        validateField,
+    } = useActions(logic)
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
 
     return (
         <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
-            <Form logic={createExperimentLogic} formKey="experiment" enableFormOnSubmit>
-                <HogfettiComponent />
-                <SceneContent className="max-w-none flex-1">
+            <div className="max-w-none flex-1">
+                <SceneContent>
                     <SceneTitleSection
                         name={experiment.name}
                         description={null}
                         resourceType={{
                             type: 'experiment',
                         }}
-                        canEdit
+                        canEdit={userHasAccess(
+                            AccessControlResourceType.Experiment,
+                            AccessControlLevel.Editor,
+                            experiment.user_access_level
+                        )}
                         forceEdit
+                        saveOnBlur
                         onNameChange={(name) => {
                             setExperimentValue('name', name)
+                            validateField('name')
                         }}
                         actions={
                             <>
@@ -65,98 +90,190 @@ export const CreateExperiment = (): JSX.Element => {
                                 >
                                     Cancel
                                 </LemonButton>
-                                <LemonButton data-attr="save-experiment" type="primary" size="small" htmlType="submit">
-                                    Save as draft
-                                </LemonButton>
+
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Experiment}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={experiment.user_access_level}
+                                >
+                                    <LemonButton
+                                        loading={isExperimentSubmitting}
+                                        disabledReason={!canSubmitExperiment ? 'Experiment is not valid' : undefined}
+                                        data-attr="save-experiment"
+                                        type="primary"
+                                        size="small"
+                                        onClick={saveExperiment}
+                                    >
+                                        Save as draft
+                                    </LemonButton>
+                                </AccessControlAction>
                             </>
                         }
                     />
                     {experimentErrors.name && typeof experimentErrors.name === 'string' && (
                         <LemonFieldError error={experimentErrors.name} />
                     )}
-                    <SceneDivider />
                     <SceneSection title="Hypothesis" description="Describe your experiment in a few sentences.">
-                        <LemonField name="description">
-                            <LemonTextArea
-                                placeholder="The goal of this experiment is ..."
-                                data-attr="experiment-hypothesis"
-                                value={experiment.description}
-                                onChange={(value) => {
-                                    setExperimentValue('description', value)
-                                }}
-                            />
-                        </LemonField>
+                        <LemonTextArea
+                            placeholder="The goal of this experiment is ..."
+                            data-attr="experiment-hypothesis"
+                            value={experiment.description}
+                            onChange={(value) => {
+                                setExperimentValue('description', value)
+                            }}
+                        />
                     </SceneSection>
                     <SceneDivider />
                     <LemonCollapse
                         activeKey={selectedPanel ?? undefined}
-                        onChange={(key) => {
-                            setSelectedPanel(key as string | null)
-                        }}
+                        defaultActiveKey="experiment-exposure"
+                        onChange={setSelectedPanel}
                         className="bg-surface-primary"
                         panels={[
                             {
-                                key: 'experiment-type',
-                                header: 'Experiment type',
+                                key: 'experiment-exposure',
+                                header: <ExposureCriteriaPanelHeader experiment={experiment} />,
                                 content: (
-                                    <ExperimentTypePanel
+                                    <ExposureCriteriaPanel
                                         experiment={experiment}
-                                        setExperimentType={(type) => setExperiment({ ...experiment, type })}
+                                        onChange={setExposureCriteria}
+                                        onNext={() => setSelectedPanel('experiment-variants')}
                                     />
                                 ),
                             },
                             {
                                 key: 'experiment-variants',
-                                header: 'Feature flag & variants',
+                                header: <VariantsPanelHeader experiment={experiment} disabled={isEditMode} />,
                                 content: (
-                                    <div className="p-4">
-                                        <span>Variants Panel Goes Here</span>
-                                    </div>
-                                ),
-                            },
-                            {
-                                key: 'experiment-targeting',
-                                header: 'Targeting',
-                                content: (
-                                    <div className="p-4">
-                                        <span>Targeting Panel Goes Here</span>
-                                    </div>
-                                ),
-                            },
-                            {
-                                key: 'experiment-exposure',
-                                header: 'Exposure criteria',
-                                content: (
-                                    <div className="p-4">
-                                        <span>Exposure Criteria Panel Goes Here</span>
-                                    </div>
+                                    <VariantsPanel
+                                        experiment={experiment}
+                                        updateFeatureFlag={setFeatureFlagConfig}
+                                        onPrevious={() => setSelectedPanel('experiment-exposure')}
+                                        onNext={() => setSelectedPanel('experiment-metrics')}
+                                        disabled={isEditMode}
+                                    />
                                 ),
                             },
                             {
                                 key: 'experiment-metrics',
-                                header: 'Metrics',
+                                header: <MetricsPanelHeader experiment={experiment} sharedMetrics={sharedMetrics} />,
                                 content: (
-                                    <div className="p-4">
-                                        <span>Metrics Panel Goes Here</span>
-                                    </div>
+                                    <MetricsPanel
+                                        experiment={experiment}
+                                        sharedMetrics={sharedMetrics}
+                                        onSaveMetric={(metric, context) => {
+                                            const isNew = !experiment[context.field].some((m) => m.uuid === metric.uuid)
+
+                                            setExperiment({
+                                                ...experiment,
+                                                [context.field]: isNew
+                                                    ? [...experiment[context.field], metric]
+                                                    : experiment[context.field].map((m) =>
+                                                          m.uuid === metric.uuid ? metric : m
+                                                      ),
+                                                ...(isNew && {
+                                                    [context.orderingField]: [
+                                                        ...(experiment[context.orderingField] ?? []),
+                                                        metric.uuid,
+                                                    ],
+                                                }),
+                                            })
+                                        }}
+                                        onDeleteMetric={(metric, context) => {
+                                            if (metric.isSharedMetric) {
+                                                setExperiment({
+                                                    ...experiment,
+                                                    [context.orderingField]: (
+                                                        experiment[context.orderingField] ?? []
+                                                    ).filter((uuid) => uuid !== metric.uuid),
+                                                    // Remove from saved_metrics so modal shows it as available again
+                                                    saved_metrics: (experiment.saved_metrics ?? []).filter(
+                                                        (sm) => sm.saved_metric !== metric.sharedMetricId
+                                                    ),
+                                                })
+                                                setSharedMetrics({
+                                                    ...sharedMetrics,
+                                                    [context.type]: sharedMetrics[context.type].filter(
+                                                        (m) => m.uuid !== metric.uuid
+                                                    ),
+                                                })
+                                                return
+                                            }
+
+                                            const metricIndex = experiment[context.field].findIndex(
+                                                ({ uuid }) => uuid === metric.uuid
+                                            )
+
+                                            if (metricIndex !== -1) {
+                                                setExperiment({
+                                                    ...experiment,
+                                                    [context.field]: experiment[context.field].filter(
+                                                        ({ uuid }) => uuid !== metric.uuid
+                                                    ),
+                                                    [context.orderingField]: (
+                                                        experiment[context.orderingField] ?? []
+                                                    ).filter((uuid) => uuid !== metric.uuid),
+                                                })
+                                            }
+                                        }}
+                                        onSaveSharedMetrics={(metrics, context) => {
+                                            setExperiment({
+                                                ...experiment,
+                                                [context.orderingField]: [
+                                                    ...(experiment[context.orderingField] ?? []),
+                                                    ...metrics.map((metric) => metric.uuid),
+                                                ],
+                                                saved_metrics: [
+                                                    ...(experiment.saved_metrics ?? []),
+                                                    ...metrics.map((metric) => ({
+                                                        saved_metric: metric.sharedMetricId,
+                                                    })),
+                                                ],
+                                            })
+                                            setSharedMetrics({
+                                                ...sharedMetrics,
+                                                [context.type]: [...sharedMetrics[context.type], ...metrics],
+                                            })
+                                        }}
+                                        onPrevious={() => setSelectedPanel('experiment-variants')}
+                                    />
                                 ),
                             },
                         ]}
                     />
-                </SceneContent>
-            </Form>
-            {/* Sidebar Checklist */}
-            <div className="h-full">
-                <div className="sticky top-16">
-                    <span>Sidebar Checklist Goes Here</span>
-                </div>
-            </div>
 
-            {/* Metric Modals */}
-            <MetricSourceModal isSecondary={false} />
-            <MetricSourceModal isSecondary={true} />
-            <MetricsReorderModal isSecondary={false} />
-            <MetricsReorderModal isSecondary={true} />
+                    <SceneDivider />
+                    <div className="flex justify-end gap-2">
+                        <LemonButton
+                            data-attr="cancel-experiment"
+                            type="secondary"
+                            size="small"
+                            onClick={() => {
+                                router.actions.push(urls.experiments())
+                            }}
+                        >
+                            Cancel
+                        </LemonButton>
+
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Experiment}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={experiment.user_access_level}
+                        >
+                            <LemonButton
+                                loading={isExperimentSubmitting}
+                                disabledReason={!canSubmitExperiment ? 'Experiment is not valid' : undefined}
+                                data-attr="save-experiment"
+                                type="primary"
+                                size="small"
+                                onClick={saveExperiment}
+                            >
+                                Save as draft
+                            </LemonButton>
+                        </AccessControlAction>
+                    </div>
+                </SceneContent>
+            </div>
         </div>
     )
 }

@@ -125,16 +125,14 @@ export function userNameForLogItem(logItem: ActivityLogItem): string {
     return logItem.user ? fullName(logItem.user) : 'A user'
 }
 
-const NO_PLURAL_SCOPES: ActivityScope[] = [
-    ActivityScope.DATA_MANAGEMENT,
-    ActivityScope.EVENT_DEFINITION,
-    ActivityScope.PROPERTY_DEFINITION,
-]
+const NO_PLURAL_SCOPES: ActivityScope[] = [ActivityScope.DATA_MANAGEMENT]
 
 const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plural: string }>> = {
     [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },
     [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },
     [ActivityScope.EXTERNAL_DATA_SOURCE]: { singular: 'Source', plural: 'Sources' },
+    [ActivityScope.HOG_FUNCTION]: { singular: 'Data pipeline', plural: 'Data pipelines' },
+    [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API Key', plural: 'Personal API Keys' },
 }
 
 export function humanizeScope(scope: ActivityScope | string, singular = false): string {
@@ -154,7 +152,7 @@ export function humanizeScope(scope: ActivityScope | string, singular = false): 
 }
 
 export function humanizeActivity(activity: string): string {
-    activity = activity.replace('_', ' ')
+    activity = activity.replace(/_/g, ' ')
 
     return activity.charAt(0).toUpperCase() + activity.slice(1)
 }
@@ -170,7 +168,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted <b>{resource}</b>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted <b>{resource}</b>
                 </>
             ),
         }
@@ -180,7 +178,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created <b>{resource}</b>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created <b>{resource}</b>
                 </>
             ),
         }
@@ -190,7 +188,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> updated <b>{resource}</b>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated <b>{resource}</b>
                 </>
             ),
         }
@@ -202,13 +200,14 @@ export function defaultDescriber(
         if (logItem.scope === 'Comment') {
             description = (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> replied to a {humanizeScope(logItem.scope, true)}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> replied to a{' '}
+                    {humanizeScope(logItem.scope, true)}
                 </>
             )
         } else {
             description = (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> commented
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> commented
                     {asNotification ? <> on a {humanizeScope(logItem.scope, true)}</> : null}
                 </>
             )

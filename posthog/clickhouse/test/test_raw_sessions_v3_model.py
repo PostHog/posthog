@@ -1,10 +1,20 @@
 import datetime
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
-from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
+from posthog.models.raw_sessions.sessions_v3 import (
+    RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
+    RAW_SESSION_TABLE_BACKFILL_SQL_V3,
+)
 from posthog.models.utils import uuid7
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 distinct_id_counter = 0
 session_id_counter = 0
@@ -22,7 +32,10 @@ def create_session_id():
     return str(uuid7(random=session_id_counter))
 
 
+@snapshot_clickhouse_queries
 class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
+    snapshot_replace_all_numbers = True
+
     def select_by_session_id(self, session_id):
         flush_persons_and_events()
         return query_with_columns(
@@ -31,7 +44,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
                 *
             from raw_sessions_v3_v
             where
-                session_id_v7 = toUUID(%(session_id)s)  AND
+                session_id_v7 = toUInt128(toUUID(%(session_id)s)) AND
                 team_id = %(team_id)s
                 """,
             {
@@ -58,7 +71,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
                 team_id
             from raw_sessions_v3_v
             where
-                session_id_v7 = toUUID(%(session_id)s)  AND
+                session_id_v7 = toUInt128(toUUID(%(session_id)s))  AND
                 team_id = %(team_id)s
                 """,
             {
@@ -252,7 +265,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             max_timestamp,
             urls
         FROM raw_sessions_v3
-        WHERE session_id_v7 = toUUID(%(session_id)s) AND team_id = %(team_id)s
+        WHERE session_id_v7 = toUInt128(toUUID(%(session_id)s)) AND team_id = %(team_id)s
         """,
             {
                 "session_id": session_id,
@@ -283,7 +296,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             max_timestamp,
             urls
         FROM raw_sessions_v3_mv
-        WHERE session_id_v7 = toUUID(%(session_id)s) AND team_id = %(team_id)s
+        WHERE session_id_v7 = toUInt128(toUUID(%(session_id)s)) AND team_id = %(team_id)s
         """,
             {
                 "session_id": session_id,
@@ -303,9 +316,23 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             timestamp="2024-03-08",
         )
 
+        produce_replay_summary(
+            team_id=self.team.pk,
+            distinct_id=distinct_id,
+            session_id=session_id,
+            first_timestamp="2024-03-08",
+            last_timestamp="2024-03-08",
+        )
+
         # just test that the backfill SQL can be run without error
         sync_execute(
-            RAW_SESSION_TABLE_BACKFILL_SQL_V3("team_id = %(team_id)s"),
+            RAW_SESSION_TABLE_BACKFILL_SQL_V3("team_id = %(team_id)s AND timestamp >= '2024-03-01'"),
+            {"team_id": self.team.id},
+        )
+        sync_execute(
+            RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(
+                "team_id = %(team_id)s AND min_first_timestamp >= '2024-03-01'"
+            ),
             {"team_id": self.team.id},
         )
 
@@ -565,3 +592,33 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         result = self.select_by_session_id(session_id)
 
         assert set(result[0]["distinct_ids"]) == {distinct_id_1, distinct_id_2}
+
+    def test_has_replay_events(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$current_url": "/", "$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+
+        result_1 = self.select_by_session_id(session_id)
+        assert result_1[0]["has_replay_events"] is False
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            distinct_id=distinct_id,
+            session_id=session_id,
+            first_timestamp="2024-03-08",
+            last_timestamp="2024-03-08",
+        )
+
+        result_2 = self.select_by_session_id(session_id)
+        assert result_2[0]["has_replay_events"] is True
+
+        # everything else except for inserted_at should be the same
+        assert {k: v for k, v in result_1[0].items() if k not in {"has_replay_events", "max_inserted_at"}} == {
+            k: v for k, v in result_2[0].items() if k not in {"has_replay_events", "max_inserted_at"}
+        }

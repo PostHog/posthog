@@ -10,6 +10,7 @@ import { isObject } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import type { llmAnalyticsPlaygroundLogicType } from './llmAnalyticsPlaygroundLogicType'
+import { normalizeRole } from './utils'
 
 export interface ModelOption {
     id: string
@@ -57,19 +58,17 @@ enum InputMessageRole {
 type ConversationRole = NormalizedMessageRole.User | NormalizedMessageRole.Assistant
 
 function extractConversationMessage(rawMessage: RawMessage): Message {
-    // Define mapping for conversation roles only
-    const conversationRoleMap: Partial<Record<string, ConversationRole>> = {
+    const normalizedRole = normalizeRole(rawMessage.role, NormalizedMessageRole.User)
+    const enumMap: Partial<Record<string, ConversationRole>> = {
         [InputMessageRole.User]: NormalizedMessageRole.User,
         [InputMessageRole.Assistant]: NormalizedMessageRole.Assistant,
-        [InputMessageRole.AI]: NormalizedMessageRole.Assistant, // Map 'ai' to 'assistant'
-        [InputMessageRole.Model]: NormalizedMessageRole.Assistant, // Map 'model' to 'assistant'
     }
 
-    const normalizedRole: ConversationRole | undefined = conversationRoleMap[rawMessage.role]
+    const enumRole: ConversationRole | undefined = enumMap[normalizedRole]
 
     // Default to 'user' role when we don't understand the role
     // Better to show the message as a user message than to drop it entirely
-    const roleToUse = normalizedRole ?? NormalizedMessageRole.User
+    const roleToUse = enumRole ?? NormalizedMessageRole.User
 
     return {
         role: roleToUse,

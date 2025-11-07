@@ -1,4 +1,11 @@
-import { BaseMathType, ExperimentConclusion, GroupMathType, HogQLMathType, PropertyMathType } from '~/types'
+import {
+    AccessControlLevel,
+    BaseMathType,
+    ExperimentConclusion,
+    GroupMathType,
+    HogQLMathType,
+    PropertyMathType,
+} from '~/types'
 import type { Experiment } from '~/types'
 
 export enum MetricInsightId {
@@ -84,4 +91,5 @@ export const NEW_EXPERIMENT: Experiment = {
     exposure_criteria: {
         filterTestAccounts: true,
     },
+    user_access_level: AccessControlLevel.Editor,
 }

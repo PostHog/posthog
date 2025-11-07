@@ -15,68 +15,80 @@ export type PipelineConfig = {
 
 /**
  * Unified result handling pipeline that wraps any BatchProcessingPipeline and handles
- * non-success results (DLQ, DROP, REDIRECT) while filtering to only successful values.
+ * non-success results (DLQ, DROP, REDIRECT) by adding side effects.
  */
-export class ResultHandlingPipeline<TInput, TOutput> {
+export class ResultHandlingPipeline<
+    TInput,
+    TOutput,
+    CInput extends { message: Message },
+    COutput extends { message: Message } = CInput,
+> implements BatchPipeline<TInput, TOutput, CInput, COutput>
+{
     constructor(
-        private pipeline: BatchPipeline<TInput, TOutput>,
+        private pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>,
         private config: PipelineConfig
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput>): void {
+    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
         this.pipeline.feed(elements)
     }
 
-    async next(): Promise<TOutput[] | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {
         const results = await this.pipeline.next()
 
         if (results === null) {
             return null
         }
 
-        // Process results and handle non-success cases
-        const processedResults: TOutput[] = []
+        const processedResults: BatchPipelineResultWithContext<TOutput, COutput> = []
 
         for (const resultWithContext of results) {
-            // Report last step for all results (success and failure)
             const lastStep = resultWithContext.context.lastStep
             if (lastStep) {
                 pipelineLastStepCounter.labels(lastStep).inc()
             }
 
             if (isOkResult(resultWithContext.result)) {
-                const value = resultWithContext.result.value as TOutput
-                processedResults.push(value)
+                processedResults.push(resultWithContext)
             } else {
-                // For non-success results, get the message from context
                 const result = resultWithContext.result
                 const originalMessage = resultWithContext.context.message
-                const lastStep = resultWithContext.context.lastStep || 'unknown'
-                await this.handleNonSuccessResult(result, originalMessage, lastStep)
+                const stepName = resultWithContext.context.lastStep || 'unknown'
+                const sideEffects = this.handleNonSuccessResult(result, originalMessage, stepName)
+
+                processedResults.push({
+                    result: resultWithContext.result,
+                    context: {
+                        ...resultWithContext.context,
+                        sideEffects: [...resultWithContext.context.sideEffects, ...sideEffects],
+                    },
+                })
             }
         }
 
-        // Return only successful results
         return processedResults
     }
 
-    private async handleNonSuccessResult(
+    private handleNonSuccessResult(
         result: PipelineResult<TOutput>,
         originalMessage: Message,
         stepName: string
-    ): Promise<void> {
+    ): Promise<unknown>[] {
+        const sideEffects: Promise<unknown>[] = []
+
         if (isDlqResult(result)) {
-            await sendMessageToDLQ(
+            const dlqPromise = sendMessageToDLQ(
                 this.config.kafkaProducer,
                 originalMessage,
                 result.error || new Error(result.reason),
                 stepName,
                 this.config.dlqTopic
             )
+            sideEffects.push(dlqPromise)
         } else if (isDropResult(result)) {
             logDroppedMessage(originalMessage, result.reason, stepName)
         } else if (isRedirectResult(result)) {
-            await redirectMessageToTopic(
+            const redirectPromise = redirectMessageToTopic(
                 this.config.kafkaProducer,
                 this.config.promiseScheduler,
                 originalMessage,
@@ -85,13 +97,9 @@ export class ResultHandlingPipeline<TInput, TOutput> {
                 result.preserveKey ?? true,
                 result.awaitAck ?? true
             )
+            sideEffects.push(redirectPromise)
         }
-    }
 
-    static of<TInput, TOutput>(
-        pipeline: BatchPipeline<TInput, TOutput>,
-        config: PipelineConfig
-    ): ResultHandlingPipeline<TInput, TOutput> {
-        return new ResultHandlingPipeline(pipeline, config)
+        return sideEffects
     }
 }

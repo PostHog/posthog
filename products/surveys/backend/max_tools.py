@@ -15,11 +15,12 @@ from posthog.schema import SurveyAnalysisQuestionGroup, SurveyCreationSchema
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
 from posthog.models import FeatureFlag, Survey, Team, User
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import base_final_answer
+from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
@@ -43,7 +44,6 @@ def get_team_survey_config(team: Team) -> dict[str, Any]:
 class CreateSurveyTool(MaxTool):
     name: str = "create_survey"
     description: str = "Create and optionally launch a survey based on natural language instructions"
-    thinking_message: str = "Creating your survey"
 
     args_schema: type[BaseModel] = SurveyCreatorArgs
 
@@ -160,8 +160,8 @@ class CreateSurveyTool(MaxTool):
 class SurveyToolkit(TaxonomyAgentToolkit):
     """Toolkit for survey creation and feature flag lookup operations."""
 
-    def __init__(self, team: Team):
-        super().__init__(team)
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user)
 
     def get_tools(self) -> list:
         """Get all tools (default + custom). Override in subclasses to add custom tools."""
@@ -181,15 +181,26 @@ class SurveyToolkit(TaxonomyAgentToolkit):
         class final_answer(base_final_answer[SurveyCreationSchema]):
             __doc__ = base_final_answer.__doc__
 
-        return [lookup_feature_flag, final_answer]
+        return [lookup_feature_flag, final_answer, ask_user_for_help]
 
-    def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
+    async def handle_tools(self, tool_metadata: dict[str, list[tuple[TaxonomyTool, str]]]) -> dict[str, str]:
         """Handle custom tool execution."""
-        if tool_name == "lookup_feature_flag":
-            result = self._lookup_feature_flag(tool_input.arguments.flag_key)
-            return tool_name, result
-        return super().handle_tools(tool_name, tool_input)
+        results = {}
+        unhandled_tools = {}
+        for tool_name, tool_inputs in tool_metadata.items():
+            if tool_name == "lookup_feature_flag":
+                if tool_inputs:
+                    for tool_input, tool_call_id in tool_inputs:
+                        result = await self._lookup_feature_flag(tool_input.arguments.flag_key)  # type: ignore
+                        results[tool_call_id] = result
+            else:
+                unhandled_tools[tool_name] = tool_inputs
 
+        if unhandled_tools:
+            results.update(await super().handle_tools(unhandled_tools))
+        return results
+
+    @database_sync_to_async(thread_sensitive=False)
     def _lookup_feature_flag(self, flag_key: str) -> str:
         """Look up feature flag information by key."""
         try:
@@ -328,8 +339,7 @@ class SurveyAnalysisTool(MaxTool):
     description: str = (
         "Analyze survey responses to extract themes, sentiment, and actionable insights from open-ended questions"
     )
-    thinking_message: str = "Analyzing your survey responses"
-    root_system_prompt_template: str = (
+    context_prompt_template: str = (
         "You have access to a survey analysis tool that can analyze open-ended responses to identify themes, sentiment, and actionable insights. "
         "When users ask about analyzing survey responses, summarizing feedback, finding patterns in responses, or extracting insights from survey data, "
         "use the analyze_survey_responses tool. Survey data includes: {formatted_responses}"

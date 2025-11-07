@@ -12,6 +12,7 @@ export enum Scene {
     Action = 'Action',
     Actions = 'Actions',
     AdvancedActivityLogs = 'AdvancedActivityLogs',
+    Annotations = 'Annotations',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
     BatchExportNew = 'BatchExportNew',
@@ -19,8 +20,11 @@ export enum Scene {
     BillingAuthorizationStatus = 'BillingAuthorizationStatus',
     BillingSection = 'BillingSection',
     Canvas = 'Canvas',
+    CLIAuthorize = 'CLIAuthorize',
     Cohort = 'Cohort',
+    CohortCalculationHistory = 'CohortCalculationHistory',
     Cohorts = 'Cohorts',
+    Comments = 'Comments',
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',
     Dashboard = 'Dashboard',
@@ -45,6 +49,7 @@ export enum Scene {
     ErrorTrackingIssue = 'ErrorTrackingIssue',
     ErrorTrackingIssueFingerprints = 'ErrorTrackingIssueFingerprints',
     EventDefinition = 'EventDefinition',
+    EventDefinitions = 'EventDefinitions',
     EventDefinitionEdit = 'EventDefinitionEdit',
     Experiment = 'Experiment',
     Experiments = 'Experiments',
@@ -58,19 +63,24 @@ export enum Scene {
     Groups = 'Groups',
     GroupsNew = 'GroupsNew',
     Heatmaps = 'Heatmaps',
+    Heatmap = 'Heatmap',
+    HeatmapNew = 'HeatmapNew',
+    HeatmapRecording = 'HeatmapRecording',
     HogFunction = 'HogFunction',
     Insight = 'Insight',
     IntegrationsRedirect = 'IntegrationsRedirect',
+    IngestionWarnings = 'IngestionWarnings',
     InviteSignup = 'InviteSignup',
     LegacyPlugin = 'LegacyPlugin',
     Link = 'Link',
     Links = 'Links',
+    LiveDebugger = 'LiveDebugger',
+    Activity = 'Activity',
     LiveEvents = 'LiveEvents',
     Login = 'Login',
     Login2FA = 'Login2FA',
+    EmailMFAVerify = 'EmailMFAVerify',
     Max = 'Max',
-    Messaging = 'Messaging',
-    MessagingCampaign = 'MessagingCampaign',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     NewTab = 'NewTab',
     Notebook = 'Notebook',
@@ -91,6 +101,7 @@ export enum Scene {
     ProjectCreateFirst = 'ProjectCreate',
     ProjectHomepage = 'ProjectHomepage',
     PropertyDefinition = 'PropertyDefinition',
+    PropertyDefinitions = 'PropertyDefinitions',
     PropertyDefinitionEdit = 'PropertyDefinitionEdit',
     Replay = 'Replay',
     ReplayFilePlayback = 'ReplayFilePlayback',
@@ -118,9 +129,31 @@ export enum Scene {
     WebAnalyticsMarketing = 'WebAnalyticsMarketing',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
-    EmbeddedAnalytics = 'EmbeddedAnalytics',
-    QueryEndpoints = 'QueryEndpoints',
+    Endpoints = 'Endpoints',
+    Endpoint = 'Endpoint',
+    EndpointNew = 'EndpointNew',
+    Workflow = 'Workflow',
+    Workflows = 'Workflows',
     Wizard = 'Wizard',
+    EarlyAccessFeature = 'EarlyAccessFeature',
+    EndpointsScene = 'EndpointsScene',
+    EndpointsUsage = 'EndpointsUsage',
+    Game368Hedgehogs = 'Game368Hedgehogs',
+    LLMAnalytics = 'LLMAnalytics',
+    LLMAnalyticsDataset = 'LLMAnalyticsDataset',
+    LLMAnalyticsDatasets = 'LLMAnalyticsDatasets',
+    LLMAnalyticsEvaluation = 'LLMAnalyticsEvaluation',
+    LLMAnalyticsEvaluations = 'LLMAnalyticsEvaluations',
+    LLMAnalyticsPlayground = 'LLMAnalyticsPlayground',
+    LLMAnalyticsTrace = 'LLMAnalyticsTrace',
+    LLMAnalyticsUsers = 'LLMAnalyticsUsers',
+    Logs = 'Logs',
+    ManagedMigration = 'ManagedMigration',
+    ManagedMigrationNew = 'ManagedMigrationNew',
+    MessagingLibraryTemplate = 'MessagingLibraryTemplate',
+    NewAction = 'NewAction',
+    TaskDetail = 'TaskDetail',
+    TaskTracker = 'TaskTracker',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
@@ -156,6 +189,7 @@ export interface SceneTab {
     active: boolean
     customTitle?: string
     iconType: FileSystemIconType | 'loading' | 'blank'
+    pinned?: boolean
 
     sceneId?: string
     sceneKey?: string
@@ -175,6 +209,8 @@ export interface Params {
 export interface SceneConfig {
     /** Custom name for the scene */
     name?: string
+    /** Optional static description of the scene or product. Used both in the UI and by Max AI as context on what the scene is for */
+    description?: string
     /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
@@ -208,10 +244,16 @@ export interface SceneConfig {
     import?: () => Promise<any>
     /** Custom icon for the tabs */
     iconType?: FileSystemIconType
+    /** If true, uses canvas background (--color-bg-surface-primary) for the scene and its tab */
+    canvasBackground?: boolean
 }
 
 // Map scenes to their access control resource types
 export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessControlResourceType>> = {
+    // Actions
+    [Scene.Action]: AccessControlResourceType.Action,
+    [Scene.Actions]: AccessControlResourceType.Action,
+
     // Feature flags
     [Scene.FeatureFlag]: AccessControlResourceType.FeatureFlag,
     [Scene.FeatureFlags]: AccessControlResourceType.FeatureFlag,
@@ -235,4 +277,19 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Revenue analytics
     [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
+
+    // Web Analytics
+    [Scene.WebAnalytics]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsMarketing]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsPageReports]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsWebVitals]: AccessControlResourceType.WebAnalytics,
+
+    // Surveys
+    [Scene.Survey]: AccessControlResourceType.Survey,
+    [Scene.Surveys]: AccessControlResourceType.Survey,
+    [Scene.SurveyTemplates]: AccessControlResourceType.Survey,
+
+    // Experiments
+    [Scene.Experiment]: AccessControlResourceType.Experiment,
+    [Scene.Experiments]: AccessControlResourceType.Experiment,
 }

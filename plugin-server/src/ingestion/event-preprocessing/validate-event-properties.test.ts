@@ -1,5 +1,5 @@
-import { Hub, IncomingEventWithTeam } from '../../types'
-import { PipelineResultType } from '../pipelines/results'
+import { IncomingEventWithTeam } from '../../types'
+import { drop, ok } from '../pipelines/results'
 import { createValidateEventPropertiesStep } from './validate-event-properties'
 
 // Mock the dependencies
@@ -10,18 +10,8 @@ jest.mock('../../main/ingestion-queues/metrics', () => ({
     },
 }))
 
-jest.mock('../../worker/ingestion/utils', () => ({
-    captureIngestionWarning: jest.fn(),
-}))
-
 describe('createValidateEventPropertiesStep', () => {
-    const mockHub = {
-        db: {
-            kafkaProducer: {} as any,
-        },
-    } as Hub
-
-    const step = createValidateEventPropertiesStep(mockHub)
+    const step = createValidateEventPropertiesStep()
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -55,10 +45,25 @@ describe('createValidateEventPropertiesStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.DROP,
-                reason: 'Group key too long',
-            })
+            expect(result).toEqual(
+                drop(
+                    'group_key_too_long',
+                    [],
+                    [
+                        {
+                            type: 'group_key_too_long',
+                            details: {
+                                eventUuid: '123e4567-e89b-12d3-a456-426614174000',
+                                event: '$groupidentify',
+                                distinctId: 'user123',
+                                groupKey: longGroupKey,
+                                groupKeyLength: 401,
+                                maxLength: 400,
+                            },
+                        },
+                    ]
+                )
+            )
         })
 
         it('should allow $groupidentify events with group_key shorter than 400 characters', async () => {
@@ -88,10 +93,7 @@ describe('createValidateEventPropertiesStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.OK,
-                value: input,
-            })
+            expect(result).toEqual(ok(input))
         })
 
         it('should allow $groupidentify events with group_key exactly 400 characters', async () => {
@@ -121,10 +123,7 @@ describe('createValidateEventPropertiesStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.OK,
-                value: input,
-            })
+            expect(result).toEqual(ok(input))
         })
 
         it('should allow $groupidentify events without group_key', async () => {
@@ -151,10 +150,7 @@ describe('createValidateEventPropertiesStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.OK,
-                value: input,
-            })
+            expect(result).toEqual(ok(input))
         })
     })
 
@@ -182,10 +178,7 @@ describe('createValidateEventPropertiesStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.OK,
-                value: input,
-            })
+            expect(result).toEqual(ok(input))
         })
 
         it('should allow regular events', async () => {
@@ -211,10 +204,7 @@ describe('createValidateEventPropertiesStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.OK,
-                value: input,
-            })
+            expect(result).toEqual(ok(input))
         })
     })
 })

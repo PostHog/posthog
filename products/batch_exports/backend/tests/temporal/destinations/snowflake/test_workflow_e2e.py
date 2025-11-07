@@ -4,13 +4,13 @@ Test the Snowflake Export Workflow.
 Note: This module uses a real Snowflake connection.
 """
 
-import typing as t
 import asyncio
 import datetime as dt
 from uuid import uuid4
 
 import pytest
 
+from django.conf import settings
 from django.test import override_settings
 
 from temporalio.client import WorkflowFailureError
@@ -18,7 +18,6 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog import constants
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
@@ -27,7 +26,6 @@ from products.batch_exports.backend.temporal.batch_exports import finish_batch_e
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
-    insert_into_snowflake_activity,
     insert_into_snowflake_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
@@ -42,8 +40,6 @@ pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.django_db,
     SKIP_IF_MISSING_REQUIRED_ENV_VARS,
-    # While we migrate to the new workflow, we need to test both new and old activities
-    pytest.mark.parametrize("use_internal_stage", [False, True]),
 ]
 
 
@@ -64,7 +60,6 @@ async def _run_workflow(
     expected_status: str = "Completed",
     sort_key: str = "event",
     expect_data_interval_start_none: bool = False,
-    use_internal_stage: bool = False,
 ):
     """Helper function to run SnowflakeBatchExportWorkflow and assert records in Snowflake"""
     workflow_id = str(uuid4())
@@ -80,18 +75,15 @@ async def _run_workflow(
     )
 
     settings_overrides = settings_overrides or {}
-    if use_internal_stage:
-        settings_overrides["BATCH_EXPORT_SNOWFLAKE_USE_STAGE_TEAM_IDS"] = [team.pk]
 
     async with (
         await WorkflowEnvironment.start_time_skipping() as activity_environment,
         Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
-                insert_into_snowflake_activity,
                 insert_into_internal_stage_activity,
                 insert_into_snowflake_activity_from_stage,
                 finish_batch_export_run,
@@ -104,7 +96,7 @@ async def _run_workflow(
                 SnowflakeBatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 execution_timeout=execution_timeout,
             )
@@ -143,7 +135,6 @@ async def _run_workflow(
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("model", TEST_MODELS)
 async def test_snowflake_export_workflow(
-    use_internal_stage,
     clickhouse_client,
     snowflake_cursor,
     interval,
@@ -181,14 +172,12 @@ async def test_snowflake_export_workflow(
         batch_export_model=batch_export_model,
         batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
-        use_internal_stage=use_internal_stage,
     )
 
 
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
 async def test_snowflake_export_workflow_with_many_files(
-    use_internal_stage,
     clickhouse_client,
     snowflake_cursor,
     interval,
@@ -229,7 +218,6 @@ async def test_snowflake_export_workflow_with_many_files(
         batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
         settings_overrides={"BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES": 1},
-        use_internal_stage=use_internal_stage,
     )
 
 
@@ -243,7 +231,6 @@ async def test_snowflake_export_workflow_with_many_files(
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
 async def test_snowflake_export_workflow_backfill_earliest_persons(
-    use_internal_stage,
     ateam,
     clickhouse_client,
     data_interval_start,
@@ -286,12 +273,10 @@ async def test_snowflake_export_workflow_backfill_earliest_persons(
         settings_overrides={"BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES": 1},
         execution_timeout=dt.timedelta(minutes=10),
         expect_data_interval_start_none=True,
-        use_internal_stage=use_internal_stage,
     )
 
 
 async def test_snowflake_export_workflow_handles_cancellation(
-    use_internal_stage,
     clickhouse_client,
     ateam,
     snowflake_batch_export,
@@ -328,11 +313,10 @@ async def test_snowflake_export_workflow_handles_cancellation(
         await WorkflowEnvironment.start_time_skipping() as activity_environment,
         Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
-                insert_into_snowflake_activity,
                 insert_into_internal_stage_activity,
                 insert_into_snowflake_activity_from_stage,
                 finish_batch_export_run,
@@ -341,16 +325,12 @@ async def test_snowflake_export_workflow_handles_cancellation(
         ),
     ):
         # We set the chunk size low on purpose to slow things down and give us time to cancel.
-        settings_overrides: dict[str, t.Any] = {"BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES": 1}
-        if use_internal_stage:
-            settings_overrides["BATCH_EXPORT_SNOWFLAKE_USE_STAGE_TEAM_IDS"] = [ateam.pk]
-
-        with override_settings(**settings_overrides):
+        with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1):
             handle = await activity_environment.client.start_workflow(
                 SnowflakeBatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
 

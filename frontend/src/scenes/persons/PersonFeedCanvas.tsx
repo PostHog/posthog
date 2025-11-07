@@ -24,6 +24,7 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
             initialContent={{
                 type: 'doc',
                 content: [
+                    { type: 'ph-usage-metrics', attrs: { personId: id, nodeId: uuid() } },
                     {
                         type: 'ph-person-feed',
                         attrs: {
@@ -47,11 +48,24 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
                                       ]
                                     : []),
                                 {
-                                    type: 'ph-properties',
+                                    type: 'ph-person-properties',
                                     attrs: { id, distinctId, nodeId: uuid() },
                                 },
+                                { type: 'ph-related-groups', attrs: { id, nodeId: uuid(), type: 'group' } },
                             ],
                         },
+                    },
+                    {
+                        type: 'ph-llm-trace',
+                        attrs: { personId: id, nodeId: uuid() },
+                    },
+                    {
+                        type: 'ph-zendesk-tickets',
+                        attrs: { personId: id, nodeId: uuid() },
+                    },
+                    {
+                        type: 'ph-issues',
+                        attrs: { personId: id, nodeId: uuid() },
                     },
                 ],
             }}

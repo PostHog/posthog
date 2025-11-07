@@ -6,6 +6,18 @@ Policies enforce architectural decisions and coding standards.
 
 from abc import ABC, abstractmethod
 
+# Apps owned by PostHog where policies are enforced
+POSTHOG_OWNED_APPS = ["posthog", "ee"]
+
+
+def is_posthog_app(app_label: str) -> bool:
+    """Check if app is owned by PostHog (vs third-party dependency)."""
+    if app_label in POSTHOG_OWNED_APPS:
+        return True
+    if app_label.startswith("products."):
+        return True
+    return False
+
 
 class MigrationPolicy(ABC):
     """Base class for PostHog migration policies."""
@@ -61,8 +73,14 @@ class UUIDPrimaryKeyPolicy(MigrationPolicy):
         return []
 
     def check_migration(self, migration) -> list[str]:
-        """No migration-level checks for this policy."""
-        return []
+        """Only enforce on PostHog-owned apps."""
+        if not is_posthog_app(migration.app_label):
+            return []
+
+        violations = []
+        for op in migration.operations:
+            violations.extend(self.check_operation(op))
+        return violations
 
 
 class SingleMigrationPolicy(MigrationPolicy):
@@ -89,10 +107,10 @@ class SingleMigrationPolicy(MigrationPolicy):
         return []
 
     def check_batch(self) -> list[str]:
-        """Check for multiple migrations per app."""
+        """Check for multiple migrations per app (PostHog apps only)."""
         violations = []
         for app_label, count in self.app_counts.items():
-            if count > 1:
+            if count > 1 and is_posthog_app(app_label):
                 violations.append(
                     f"Found {count} migrations for app '{app_label}'. "
                     "PostHog requires one migration per app per PR to promote easy debugging and revertability."

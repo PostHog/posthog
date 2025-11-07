@@ -19,6 +19,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { OPTIONAL_PROJECT_NON_CAPTURE_GROUP } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
     const { id, distinctId } = attributes
@@ -114,7 +115,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                         <div className="flex gap-2">
                             <PersonIcon person={person} size="xl" />
                             <div>
-                                <div className="font-semibold">{asDisplay(person)}</div>
+                                <div className="font-semibold ph-no-capture">{asDisplay(person)}</div>
                                 <div>{propertyIcons}</div>
                             </div>
                         </div>
@@ -166,7 +167,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
 
 type NotebookNodePersonAttributes = {
     id: string | undefined
-    distinctId: string
+    distinctId: string | undefined
 }
 
 export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttributes>({
@@ -175,17 +176,23 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
     Component,
     minHeight: '10rem',
     expandable: false,
-    href: (attrs) => urls.personByDistinctId(attrs.distinctId),
+    href: (attrs) => {
+        if (attrs.distinctId) {
+            return urls.personByDistinctId(attrs.distinctId)
+        }
+        if (attrs.id) {
+            return urls.personByUUID(attrs.id)
+        }
+    },
     resizeable: true,
     attributes: {
         id: {},
         distinctId: {},
     },
-    // FIXME: pasteOptions is not really working. Maybe change to personByUUID
     pasteOptions: {
-        find: urls.personByDistinctId('(.+)', false),
+        find: OPTIONAL_PROJECT_NON_CAPTURE_GROUP + urls.personByUUID('(.+)', false),
         getAttributes: async (match) => {
-            return { distinctId: match[1], id: undefined }
+            return { distinctId: undefined, id: match[1] }
         },
     },
     serializedText: (attrs) => {

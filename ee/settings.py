@@ -80,11 +80,12 @@ ADMIN_PORTAL_ENABLED = get_from_env("ADMIN_PORTAL_ENABLED", DEMO or DEBUG, type_
 PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES = get_from_env(
     "PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES", 10.0, type_cast=float
 )
+TEMPORAL_TASK_TIMEOUT_MINUTES = PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 1.5
 
 # Assistant
 ANTHROPIC_API_KEY = get_from_env("ANTHROPIC_API_KEY", "")
-OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "https://api.openai.com/v1")
-OPENAI_BASE_URL = get_from_env("OPENAI_BASE_URL", "")
+OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = get_from_env("OPENAI_BASE_URL", "https://api.openai.com/v1")
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
@@ -124,3 +125,20 @@ HARMONIC_BASE_URL = get_from_env("HARMONIC_BASE_URL", "https://api.harmonic.ai",
 # Vercel Integration
 VERCEL_CLIENT_INTEGRATION_ID = get_from_env("VERCEL_CLIENT_INTEGRATION_ID", "", type_cast=str)
 VERCEL_CLIENT_INTEGRATION_SECRET = get_from_env("VERCEL_CLIENT_INTEGRATION_SECRET", "", type_cast=str)
+
+# SCIM Configuration
+# django-scim2 requires these settings
+SCIM_SERVICE_PROVIDER = {
+    "NETLOC": SITE_URL.replace("http://", "").replace("https://", ""),
+    "AUTHENTICATION_SCHEMES": [
+        {
+            "type": "oauthbearertoken",
+            "name": "OAuth Bearer Token",
+            "description": "Authentication scheme using the OAuth Bearer Token Standard",
+            "specUri": "https://www.rfc-editor.org/rfc/rfc6750.txt",
+            "documentationUri": "https://posthog.com/docs/settings/scim",
+        }
+    ],
+    # User model is already configured via AUTH_USER_MODEL = "posthog.User"
+    "GROUP_MODEL": "ee.models.rbac.role.Role",
+}

@@ -1,39 +1,38 @@
+import time
+import uuid
 import asyncio
+import logging
 from typing import Optional
 
+from django.conf import settings
+
+import posthoganalytics
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
-from posthog.constants import TASKS_TASK_QUEUE
+from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.temporal.common.client import async_connect
 
-from .inputs import TaskProcessingInputs
+logger = logging.getLogger(__name__)
 
 
 async def _execute_task_processing_workflow(task_id: str, team_id: int, user_id: Optional[int] = None) -> str:
-    """Execute the task processing workflow asynchronously."""
-
-    inputs = TaskProcessingInputs(task_id=task_id, team_id=team_id, user_id=user_id)
-
-    # Create unique workflow ID based on task and timestamp
-    import time
-    import uuid
-    import logging
-
-    # Use high-resolution timestamp + random suffix to avoid collisions when re-triggering within the same second
     workflow_id = f"task-processing-{task_id}-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
+    workflow_name = "process-task"
+    workflow_input = task_id
 
-    logging.getLogger(__name__).info(f"Starting workflow {workflow_id} for task {task_id}")
+    logger.info(f"Starting workflow {workflow_name} ({workflow_id}) for task {task_id}")
 
     client = await async_connect()
 
     retry_policy = RetryPolicy(maximum_attempts=3)
 
     result = await client.execute_workflow(
-        "process-task-workflow-agnostic",
-        inputs,
+        workflow_name,
+        workflow_input,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=TASKS_TASK_QUEUE,
+        task_queue=settings.TASKS_TASK_QUEUE,
         retry_policy=retry_policy,
     )
 
@@ -47,10 +46,7 @@ def execute_task_processing_workflow(task_id: str, team_id: int, user_id: Option
     but doesn't wait for completion.
     """
     try:
-        import logging
         import threading
-
-        logger = logging.getLogger(__name__)
 
         # Always offload to a dedicated thread with its own event loop.
         # This is safer when called from within a Temporal activity (already running an event loop)
@@ -58,10 +54,6 @@ def execute_task_processing_workflow(task_id: str, team_id: int, user_id: Option
         def run_workflow() -> None:
             try:
                 # Check feature flag in the thread where we can make sync Django calls
-                import posthoganalytics
-
-                from posthog.models.team.team import Team
-                from posthog.models.user import User
 
                 try:
                     if not user_id:
@@ -105,8 +97,4 @@ def execute_task_processing_workflow(task_id: str, team_id: int, user_id: Option
 
     except Exception as e:
         # Don't let workflow execution failures break the main operation
-        import logging
-
-        logger = logging.getLogger(__name__)
         logger.exception(f"Failed to execute task processing workflow: {e}")
-        # Don't re-raise to avoid breaking the API call

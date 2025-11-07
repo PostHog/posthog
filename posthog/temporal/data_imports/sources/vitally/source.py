@@ -23,7 +23,8 @@ from posthog.temporal.data_imports.sources.vitally.vitally import (
     validate_credentials as validate_vitally_credentials,
     vitally_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -77,7 +78,7 @@ class VitallySource(BaseSource[VitallySourceConfig]):
             partition_mode="datetime",
             partition_format="month",
             partition_keys=["created_at"],
-            sort_mode="desc",
+            sort_mode="desc" if inputs.schema_name == "Messages" else "asc",
         )
 
     @property

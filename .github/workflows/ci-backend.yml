@@ -49,6 +49,7 @@ jobs:
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
+            tasks_temporal: ${{ steps.filter.outputs.tasks_temporal }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -89,18 +90,24 @@ jobs:
                         - docker-compose.dev.yml
                         - docker-compose.base.yml
                         - frontend/public/email/*
+                        - docker/clickhouse
                         # These scripts are used in the CI
                         - bin/check_temporal_up
                         - bin/check_kafka_clickhouse_up
                       migrations:
+                        - docker/clickhouse
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
+                        - 'rust/persons_migrations/*.sql'
+                        - 'rust/bin/migrate-persons'
+                      tasks_temporal:
+                        - 'products/tasks/backend/temporal/**/*'
 
     check-migrations:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
-        timeout-minutes: 10
+        timeout-minutes: 20
 
         name: Validate Django and CH migrations
         runs-on: ubuntu-latest
@@ -116,19 +123,33 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
-                  python-version: 3.11.13
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  python-version: 3.12.11
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+
+            - name: Install uv
+              id: setup-uv
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              with:
+                  enable-cache: true
+                  version: 0.8.19
 
             - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
-            - name: Install uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
               with:
-                  enable-cache: true
-                  version: 0.7.8
+                  toolchain: 1.88.0
+                  components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+
+            - name: Install sqlx-cli
+              run: |
+                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
@@ -138,7 +159,7 @@ jobs:
 
             - name: Install python dependencies for master
               run: |
-                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+                  UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
 
             - name: Wait for services to be available
               run: |
@@ -147,7 +168,13 @@ jobs:
 
             - name: Run migrations up to master
               run: |
-                  python manage.py migrate
+                  # Run Django migrations first (excluding managed=False models)
+                  .venv-master/bin/python manage.py migrate
+                  # Then run persons migrations using sqlx; comment out until we've merged
+                  # DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                  #   sqlx database create
+                  # DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                  #   sqlx migrate run --source rust/persons_migrations/
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR
@@ -157,7 +184,7 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Check migrations and post comment
+            - name: Check migrations and post SQL comment
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -174,8 +201,12 @@ jobs:
                   # Initialize comment body for SQL changes
                   COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
 
-                  # Process each changed migration file
+                  # Process each changed migration file (excluding Rust migrations)
                   for file in $CHANGED_FILES; do
+                    # Skip Rust migrations as they're handled separately by sqlx
+                    if [[ $file =~ rust/persons_migrations ]]; then
+                      continue
+                    fi
                     if [[ $file =~ migrations/([0-9]+)_ ]]; then
                       migration_number="${BASH_REMATCH[1]}"
                       # Get app name by looking at the directory structure
@@ -196,61 +227,101 @@ jobs:
                     fi
                   done
 
-                  # Delete previous comments from this workflow
+                  # Get existing comments
                   COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
                     -H "Accept: application/vnd.github.v3+json" \
                     "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
 
-                  echo "Output from listing comments: $COMMENTS"
-                  echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | while read -r comment_id; do
-                    echo "Deleting comment $comment_id"
-                    curl -X DELETE \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
-                  done
+                  # Extract comment ID if exists
+                  SQL_COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | head -1)
+
+                  # Add timestamp and commit SHA to SQL changes
+                  TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+                  COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+                  COMMIT_SHORT="${COMMIT_SHA:0:7}"
+                  COMMENT_BODY+="\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
 
                   # Convert \n into actual newlines
                   COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
                   COMMENT_BODY_JSON=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
 
-                  # Post SQL comment to PR
-                  echo "Posting SQL comment to PR"
-                  echo "$COMMENT_BODY_JSON"
-                  curl -X POST \
-                    -H "Authorization: token $GITHUB_TOKEN" \
-                    -H "Accept: application/vnd.github.v3+json" \
-                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-                    -d "$COMMENT_BODY_JSON"
+                  if [ -n "$SQL_COMMENT_ID" ]; then
+                    # Update existing comment
+                    echo "Updating existing SQL comment $SQL_COMMENT_ID"
+                    curl -X PATCH \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github.v3+json" \
+                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$SQL_COMMENT_ID" \
+                      -d "$COMMENT_BODY_JSON"
+                  else
+                    # Post new SQL comment to PR
+                    echo "Posting new SQL comment to PR"
+                    curl -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github.v3+json" \
+                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+                      -d "$COMMENT_BODY_JSON"
+                  fi
 
-                  # Get risk analysis and post as separate comment
-                  # This automatically detects all unapplied migrations (including third-party)
+            - name: Run migration risk analysis and post comment
+              if: github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  # Get risk analysis for all unapplied migrations (including third-party)
                   set +e  # Don't exit immediately on error
                   RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked 2>/dev/null)
                   EXIT_CODE=$?
                   set -e  # Re-enable exit on error
 
-                  if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
-                    # Delete previous risk analysis comments
-                    echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
-                      echo "Deleting risk analysis comment $comment_id"
-                      curl -X DELETE \
-                        -H "Authorization: token $GITHUB_TOKEN" \
-                        -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
-                    done
+                  # Save analysis to file for artifact upload
+                  if [ -n "$RISK_ANALYSIS" ]; then
+                    echo "$RISK_ANALYSIS" > migration_analysis.md
+                  fi
 
-                    # Post risk analysis comment (output already contains markdown formatting with legend)
-                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS"
+                  # Get existing comments
+                  COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
+
+                  # Extract comment ID if exists
+                  COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | head -1)
+
+                  if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
+                    # Add timestamp and commit SHA to analysis
+                    TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+                    COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+                    COMMIT_SHORT="${COMMIT_SHA:0:7}"
+                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS\n\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
                     RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
                     RISK_COMMENT_JSON=$(jq -n --arg body "$RISK_COMMENT" '{body: $body}')
 
-                    echo "Posting risk analysis comment to PR"
-                    curl -X POST \
+                    if [ -n "$COMMENT_ID" ]; then
+                      # Update existing comment
+                      echo "Updating existing risk analysis comment $COMMENT_ID"
+                      curl -X PATCH \
+                        -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$COMMENT_ID" \
+                        -d "$RISK_COMMENT_JSON"
+                    else
+                      # Create new comment if none exists
+                      echo "Posting new risk analysis comment to PR"
+                      curl -X POST \
+                        -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+                        -d "$RISK_COMMENT_JSON"
+                    fi
+                  elif [ -n "$COMMENT_ID" ]; then
+                    # No migrations to analyze but comment exists - delete it
+                    echo "Deleting risk analysis comment (no migrations to analyze)"
+                    curl -X DELETE \
                       -H "Authorization: token $GITHUB_TOKEN" \
                       -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-                      -d "$RISK_COMMENT_JSON"
+                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$COMMENT_ID"
+                  else
+                    echo "No migrations to analyze and no existing comment"
                   fi
 
                   # Fail the job if there were blocked migrations
@@ -258,34 +329,49 @@ jobs:
                     exit $EXIT_CODE
                   fi
 
+            - name: Upload migration analysis artifact
+              if: always() && github.event_name == 'pull_request'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: migration-analysis
+                  path: migration_analysis.md
+                  if-no-files-found: ignore
+
             - name: Run migrations for this PR
               run: |
+                  # Run Django migrations first (excluding managed=False models)
                   python manage.py migrate
+                  # Then run persons migrations using sqlx
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx migrate run --source rust/persons_migrations/
 
             - name: Check migrations
               run: |
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
                   # Check migration safety using old SQL-based checker (still uses stdin from git diff)
-                  echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | python manage.py test_migrations_are_safe
+                  echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | grep -v 'rust/persons_migrations' | python manage.py test_migrations_are_safe
 
             - name: Check CH migrations
               run: |
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
-                  git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' |  python manage.py test_ch_migrations_are_safe
+                  git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
 
     django:
         needs: [changes]
+        if: needs.changes.outputs.backend == 'true'
         # increase for tmate testing
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: ${{ needs.changes.outputs.backend == 'true' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
+        runs-on: depot-ubuntu-latest
 
         strategy:
             fail-fast: false
             matrix:
-                python-version: ['3.11.13']
+                python-version: ['3.12.11']
                 clickhouse-server-image: ['clickhouse/clickhouse-server:25.6.9.98']
                 segment: ['Core']
                 person-on-events: [false]
@@ -338,146 +424,134 @@ jobs:
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 1
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 2
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 3
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 4
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 5
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 6
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 7
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 8
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 9
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 10
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 3
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 4
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 5
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 6
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 7
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 8
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 9
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 10
 
         steps:
-            # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
-            # All the other ones should rely on `needs.changes.outputs.backend` directly or indirectly, so that they're
-            # effectively skipped if backend code is unchanged. See https://github.com/PostHog/posthog/pull/15174.
-
-            - name: Skip backend tests
-              if: ${{ needs.changes.outputs.backend == 'false' }}
-              run: |
-                  echo "Skipping backend tests - no backend changes detected"
-                  exit 0
-
             - uses: actions/checkout@v4
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               with:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
-                  token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_PAT || github.token }}
 
             - name: 'Safeguard: ensure no stray Python modules at product root'
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               run: |
                   echo "Checking that products/* only contain backend/, frontend/, or shared/ as Python code roots..."
                   BAD_FILES=$(find products -maxdepth 2 -type f -name "*.py" ! -path "*/backend/*" ! -name "__init__.py" ! -name "conftest.py" -o -maxdepth 2 -type d -name "migrations" ! -path "*/backend/*")
@@ -493,7 +567,6 @@ jobs:
 
             # Copies the fully versioned UDF xml file for use in CI testing
             - name: Stop/Start stack with Docker Compose
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image }}
@@ -531,32 +604,29 @@ jobs:
                   ) &
 
             - name: Add Kafka and ClickHouse to /etc/hosts
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: actions/setup-python@v5
               with:
                   python-version: ${{ matrix.python-version }}
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+
+            - name: Install uv
+              id: setup-uv-tests
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              with:
+                  enable-cache: true
+                  version: 0.8.19
 
             - name: Install SAML (python3-saml) dependencies
-              if: ${{ needs.changes.outputs.backend == 'true' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && steps.setup-uv-tests.outputs.cache-hit != 'true' }}
               shell: bash
               run: |
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Install uv
-              if: ${{ needs.changes.outputs.backend == 'true' }}
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
-              with:
-                  enable-cache: true
-                  version: 0.7.8
-
             - name: Determine if hogql-parser has changed compared to master
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               id: hogql-parser-diff
               run: |
@@ -565,11 +635,9 @@ jobs:
                   echo "changed=$changed" >> $GITHUB_OUTPUT
 
             - name: Install pnpm
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
@@ -580,17 +648,14 @@ jobs:
             # this appears to fix it
             # absolute wild tbh https://stackoverflow.com/a/75503402
             - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1
-              if: ${{ needs.changes.outputs.backend == 'true' }}
 
             - name: Install plugin_transpiler
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
                   pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
                   bin/turbo --filter=@posthog/plugin-transpiler build
 
             - name: Install Python dependencies
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -622,7 +687,6 @@ jobs:
                   pip install ./common/hogql_parser
 
             - name: Set up needed files
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
                   mkdir -p frontend/dist
@@ -632,7 +696,6 @@ jobs:
                   ./bin/download-mmdb
 
             - name: Wait for services to be available
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
                   bin/check_kafka_clickhouse_up
@@ -710,9 +773,10 @@ jobs:
               shell: bash
               env:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
+                  RUNLOOP_API_KEY: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.RUNLOOP_API_KEY || '' }}
               run: |
                   set +e
-                  pytest posthog/temporal products/batch_exports/backend/tests/temporal -m "not async_migrations" \
+                  pytest posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
@@ -741,6 +805,12 @@ jobs:
                   include-hidden-files: true
                   retention-days: 2
 
+            - name: Verify new snapshots for flakiness
+              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              shell: bash
+              run: |
+                  .github/scripts/verify-new-snapshots.sh
+
             - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
               if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
@@ -749,7 +819,7 @@ jobs:
                   message: 'Update query snapshots'
                   pull: --rebase --autostash # Make sure we're up-to-date with other segments' updates
                   default_author: github_actions
-                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  github_token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
@@ -779,7 +849,7 @@ jobs:
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     django_tests:
-        needs: [django]
+        needs: [django, check-migrations, async-migrations]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -788,11 +858,24 @@ jobs:
               run: |
                   # The `needs.django.result` will be 'success' only if all jobs in the matrix succeeded.
                   # Otherwise, it will be 'failure'.
-                  if [[ "${{ needs.django.result }}" != "success" ]]; then
+                  if [[ "${{ needs.django.result }}" != "success" && "${{ needs.django.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the Django test matrix failed."
                     exit 1
                   fi
-                  echo "All jobs in the Django test matrix passed."
+
+                  # Check migration validation - must pass for Django Tests to be green
+                  if [[ "${{ needs.check-migrations.result }}" != "success" && "${{ needs.check-migrations.result }}" != "skipped" ]]; then
+                    echo "Migration checks failed."
+                    exit 1
+                  fi
+
+                  # Check async migrations - must pass for Django Tests to be green
+                  if [[ "${{ needs.async-migrations.result }}" != "success" && "${{ needs.async-migrations.result }}" != "skipped" ]]; then
+                    echo "Async migrations tests failed."
+                    exit 1
+                  fi
+
+                  echo "All checks passed."
 
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
@@ -819,18 +902,20 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+
+            - name: Install uv
+              id: setup-uv-async
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              with:
+                  enable-cache: true
+                  version: 0.8.19
 
             - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv-async.outputs.cache-hit != 'true'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Install uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
-              with:
-                  enable-cache: true
-                  version: 0.7.8
             - name: Install python dependencies
               shell: bash
               run: |

@@ -75,6 +75,7 @@ class EventsTable(Table):
         "$session_id": StringDatabaseField(name="$session_id", nullable=False),
         "$session_id_uuid": DatabaseField(name="$session_id_uuid", nullable=False),
         "$window_id": StringDatabaseField(name="$window_id", nullable=False),
+        "person_mode": StringDatabaseField(name="person_mode", nullable=False),
         # Lazy table that adds a join to the persons table
         "pdi": LazyJoin(
             from_field=["distinct_id"],

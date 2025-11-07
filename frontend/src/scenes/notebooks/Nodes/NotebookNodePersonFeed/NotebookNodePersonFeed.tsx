@@ -10,6 +10,7 @@ import { PersonType } from '~/types'
 
 import { createPostHogWidgetNode } from '../NodeWrapper'
 import { notebookNodeLogic } from '../notebookNodeLogic'
+import { AISessionSummary } from './AISessionSummary/AISessionSummary'
 import { Session } from './Session'
 import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
 
@@ -35,6 +36,8 @@ const Feed = ({ person }: FeedProps): JSX.Element => {
 
     return (
         <div className="p-2">
+            <AISessionSummary personId={id} />
+            <h3 className="font-semibold mb-2">Session Timeline</h3>
             {sessions.map((session: any) => (
                 <Session key={session.sessionId} session={session} />
             ))}

@@ -16,7 +16,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
@@ -309,6 +309,7 @@ def enqueue_process_query_task(
         insight_id=insight_id,
         dashboard_id=dashboard_id,
     )
+    query_tags = get_query_tags().model_dump()
     manager.store_query_status(query_status)
 
     if cache_key:
@@ -318,7 +319,7 @@ def enqueue_process_query_task(
             capture_exception(e, {"cache_key": cache_key})
 
     task_signature = process_query_task.si(
-        team.id, user_id, query_id, query_json, is_query_service, LimitContext.QUERY_ASYNC
+        team.id, user_id, query_id, query_json, query_tags, is_query_service, LimitContext.QUERY_ASYNC
     )
 
     if _test_only_bypass_celery:

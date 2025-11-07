@@ -7,11 +7,13 @@ import api from 'lib/api'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
+import { DatabricksSetupModal } from 'scenes/integrations/databricks/DatabricksSetupModal'
+import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
-import { ChannelSetupModal } from 'products/messaging/frontend/Channels/ChannelSetupModal'
+import { ChannelSetupModal } from 'products/workflows/frontend/Channels/ChannelSetupModal'
 
 export type IntegrationConfigureProps = {
     value?: number
@@ -61,6 +63,13 @@ export function IntegrationChoice({
         input.click()
     }
 
+    const handleNewDatabricksIntegration = (integrationId: number | undefined): void => {
+        if (integrationId) {
+            onChange?.(integrationId)
+        }
+        closeNewIntegrationModal()
+    }
+
     const button = (
         <LemonMenu
             items={[
@@ -89,7 +98,7 @@ export function IntegrationChoice({
                       ? {
                             items: [
                                 {
-                                    to: urls.messaging('channels'),
+                                    to: urls.workflows('channels'),
                                     label: 'Configure new email sender domain',
                                 },
                             ],
@@ -103,21 +112,39 @@ export function IntegrationChoice({
                                   },
                               ],
                           }
-                        : {
-                              items: [
-                                  {
-                                      to: api.integrations.authorizeUrl({
-                                          kind,
-                                          next: redirectUrl,
-                                      }),
-                                      disableClientSideRouting: true,
-                                      onClick: beforeRedirect,
-                                      label: integrationsOfKind?.length
-                                          ? `Connect to a different integration for ${kindName}`
-                                          : `Connect to ${kindName}`,
-                                  },
-                              ],
-                          },
+                        : ['databricks'].includes(kind)
+                          ? {
+                                items: [
+                                    {
+                                        label: 'Configure new Databricks account',
+                                        onClick: () => openNewIntegrationModal('databricks'),
+                                    },
+                                ],
+                            }
+                          : ['gitlab'].includes(kind)
+                            ? {
+                                  items: [
+                                      {
+                                          label: 'Configure new GitLab account',
+                                          onClick: () => openNewIntegrationModal('gitlab'),
+                                      },
+                                  ],
+                              }
+                            : {
+                                  items: [
+                                      {
+                                          to: api.integrations.authorizeUrl({
+                                              kind,
+                                              next: redirectUrl,
+                                          }),
+                                          disableClientSideRouting: true,
+                                          onClick: beforeRedirect,
+                                          label: integrationsOfKind?.length
+                                              ? `Connect to a different integration for ${kindName}`
+                                              : `Connect to ${kindName}`,
+                                      },
+                                  ],
+                              },
                 {
                     items: [
                         {
@@ -158,6 +185,12 @@ export function IntegrationChoice({
                 integration={integrationKind || undefined}
                 onComplete={closeNewIntegrationModal}
             />
+            <DatabricksSetupModal
+                isOpen={newIntegrationModalKind === 'databricks'}
+                integration={integrationKind || undefined}
+                onComplete={handleNewDatabricksIntegration}
+            />
+            <GitLabSetupModal isOpen={newIntegrationModalKind === 'gitlab'} onComplete={closeNewIntegrationModal} />
         </>
     )
 }

@@ -1,9 +1,15 @@
 """Operation-specific analyzers for Django migration operations."""
 
+import re
+from typing import Any, Optional
+
 from django.db import models
 
 from posthog.management.migration_analysis.models import OperationRisk
-from posthog.management.migration_analysis.utils import VolatileFunctionDetector
+from posthog.management.migration_analysis.utils import VolatileFunctionDetector, check_drop_properly_staged
+
+# Base URL for migration safety documentation
+SAFE_MIGRATIONS_DOCS_URL = "https://github.com/PostHog/posthog/blob/master/docs/safe-django-migrations.md"
 
 
 class OperationAnalyzer:
@@ -39,12 +45,20 @@ class AddFieldAnalyzer(OperationAnalyzer):
         return self._analyze_not_null_with_default(op, field)
 
     def _analyze_nullable_field(self, op) -> OperationRisk:
-        """Nullable fields are always safe."""
+        """Nullable fields require brief lock but no table rewrite."""
         return OperationRisk(
             type=self.operation_type,
-            score=0,
-            reason="Adding nullable field is safe",
+            score=1,
+            reason="Adding nullable field requires brief lock",
             details={"model": op.model_name, "field": op.name},
+            guidance="""While this operation doesn't rewrite the table, it still acquires an ACCESS EXCLUSIVE lock briefly.
+
+For high-traffic tables, consider:
+- Deploy during low-traffic periods
+- Monitor lock contention and query timeouts during deployment
+- Have a rollback plan ready
+
+For low-traffic tables, this operation is generally safe to deploy anytime.""",
         )
 
     def _risk_not_null_no_default(self, op) -> OperationRisk:
@@ -54,10 +68,12 @@ class AddFieldAnalyzer(OperationAnalyzer):
             score=5,
             reason="Adding NOT NULL field without default locks table",
             details={"model": op.model_name, "field": op.name},
-            guidance="""Add NOT NULL fields in 3 steps:
-1. Add column as nullable (`null=True`), deploy
+            guidance=f"""Add NOT NULL fields in 3 phases:
+1. Add column as nullable, deploy
 2. Backfill data for all rows
-3. Add NOT NULL constraint (or use `ALTER COLUMN SET NOT NULL` in RunSQL), deploy""",
+3. Add NOT NULL constraint, deploy
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#adding-not-null-columns)""",
         )
 
     def _analyze_not_null_with_default(self, op, field) -> OperationRisk:
@@ -86,10 +102,12 @@ class AddFieldAnalyzer(OperationAnalyzer):
                 score=5,
                 reason=f"Adding NOT NULL field with volatile default ({default_name}) rewrites entire table",
                 details={"model": op.model_name, "field": op.name, "default": default_name},
-                guidance="""Volatile defaults (like `uuid4()`, `now()`, `random()`) require a table rewrite. Deploy in 3 steps:
-1. Add column as nullable without default, deploy
-2. Use RunSQL to backfill: `UPDATE table SET column = gen_random_uuid() WHERE column IS NULL`
-3. Add NOT NULL constraint, deploy""",
+                guidance=f"""Volatile defaults (like `uuid4()`, `now()`, `random()`) require a table rewrite. Deploy in 3 phases:
+1. Add column as nullable, deploy
+2. Backfill data for all rows
+3. Add NOT NULL constraint, deploy
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#adding-not-null-columns)""",
             )
 
         return OperationRisk(
@@ -110,10 +128,12 @@ class RemoveFieldAnalyzer(OperationAnalyzer):
             score=5,
             reason="Dropping column breaks backwards compatibility and can't rollback",
             details={"model": op.model_name, "field": op.name},
-            guidance="""**Never drop columns directly.** Deploy in steps:
-1. Remove all code references to the column, deploy
-2. Wait at least one full deploy cycle to ensure no rollback needed
-3. Optionally drop column in a later migration (consider leaving unused columns indefinitely)""",
+            guidance=f"""Multi-phase column drop:
+1. Remove field from Django model (keeps column in DB)
+2. Wait at least one full deployment cycle
+3. Optionally drop column with RemoveField
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
         )
 
 
@@ -127,10 +147,12 @@ class DeleteModelAnalyzer(OperationAnalyzer):
             score=5,
             reason="Dropping table breaks backwards compatibility and can't rollback",
             details={"model": op.name},
-            guidance="""**Never drop tables directly.** Deploy in steps:
-1. Remove all code references to the model, deploy
-2. Wait at least one full deploy cycle to ensure no rollback needed
-3. Optionally drop table in a later migration (consider leaving unused tables indefinitely)""",
+            guidance=f"""Use SeparateDatabaseAndState for multi-phase drops:
+1. Remove model from Django state (state_operations only)
+2. Wait at least one full deployment cycle
+3. Optionally drop table with RunSQL
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
         )
 
 
@@ -177,7 +199,9 @@ class RenameFieldAnalyzer(OperationAnalyzer):
             score=4,
             reason="Renaming column breaks old code during deployment",
             details={"model": op.model_name, "old": op.old_name, "new": op.new_name},
-            guidance="""**Don't rename columns in production** - accept the bad name. If you must: 1) Add new column, deploy code that writes to both but reads from old. 2) Backfill data. 3) Deploy code that reads from new. 4) Never drop the old column - leave it forever.""",
+            guidance=f"""Don't rename columns in production. Use `db_column` to map a better Python name to the existing database column instead.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#renaming-columns)""",
         )
 
 
@@ -185,14 +209,96 @@ class RenameModelAnalyzer(OperationAnalyzer):
     operation_type = "RenameModel"
     default_score = 4
 
-    def analyze(self, op) -> OperationRisk:
+    def analyze(self, op, migration=None) -> OperationRisk:
+        # Check if model has explicit db_table set (makes rename safe)
+        has_db_table, db_table_name = self._check_db_table_set(op, migration)
+
+        if has_db_table:
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="Model rename is safe (db_table explicitly set, no table rename)",
+                details={"old": op.old_name, "new": op.new_name, "db_table": db_table_name},
+                guidance=f"""✅ Safe rename: Model has explicit `db_table` in Meta, so the database table name doesn't change. Only Python code references change.""",
+            )
+
         return OperationRisk(
             type=self.operation_type,
             score=4,
             reason="Renaming table breaks old code during deployment",
             details={"old": op.old_name, "new": op.new_name},
-            guidance="""**Don't rename tables in production** - accept the bad name. If you must: Use views (1. Rename table, create view with old name. 2. Deploy code. 3. Drop view). Or expand-contract (1. Create new table, write to both. 2. Backfill. 3. Read from new. 4. Never drop old table).""",
+            guidance=f"""Don't rename tables in production - accept the original name. Renaming creates significant complexity and risk for minimal benefit.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#renaming-tables)""",
         )
+
+    def _check_db_table_set(self, op, migration) -> tuple[bool, str | None]:
+        """
+        Check if the model rename is safe (table name doesn't change).
+
+        Django's RenameModel compares old_model._meta.db_table vs new_model._meta.db_table.
+        If they're the same, alter_db_table is a no-op.
+
+        This checks:
+        1. Try to get both old and new model from registry
+        2. Compare their db_table values
+        3. Only return SAFE if both have same db_table
+
+        We try both old and new model names since either might exist in the app registry:
+        - Old name exists: before migration is applied
+        - New name exists: after migration is applied or in test environment
+
+        Returns:
+            tuple: (is_safe_rename, db_table_name)
+        """
+        if not migration:
+            return (False, None)
+
+        try:
+            from django.apps import apps
+
+            app_label = migration.app_label
+
+            # Try to get db_table from both old and new models
+            old_db_table = None
+            new_db_table = None
+
+            # Try old model name
+            try:
+                old_model = apps.get_model(app_label, op.old_name)
+                # Use model._meta.model_name which has proper formatting (e.g., "task_progress" not "taskprogress")
+                auto_generated_for_old = f"{app_label}_{old_model._meta.model_name}"
+                # Only consider it if db_table is explicitly set (differs from auto-generated)
+                if old_model._meta.db_table != auto_generated_for_old:
+                    old_db_table = old_model._meta.db_table
+            except LookupError:
+                pass
+
+            # Try new model name
+            try:
+                new_model = apps.get_model(app_label, op.new_name)
+                # Use model._meta.model_name which has proper formatting
+                auto_generated_for_new = f"{app_label}_{new_model._meta.model_name}"
+                # Only consider it if db_table is explicitly set (differs from auto-generated)
+                if new_model._meta.db_table != auto_generated_for_new:
+                    new_db_table = new_model._meta.db_table
+            except LookupError:
+                pass
+
+            # If we found both and they match, it's safe
+            if old_db_table and new_db_table and old_db_table == new_db_table:
+                return (True, old_db_table)
+
+            # If we only found one model with explicit db_table, assume it's the same
+            # (common case: before/after migration, only one model exists)
+            if old_db_table or new_db_table:
+                return (True, old_db_table or new_db_table)
+
+            # Neither model found or no explicit db_table
+            return (False, None)
+        except Exception:
+            # If anything goes wrong, assume not safe
+            return (False, None)
 
 
 class AlterModelTableAnalyzer(OperationAnalyzer):
@@ -213,6 +319,7 @@ class AddIndexAnalyzer(OperationAnalyzer):
     default_score = 0
 
     def analyze(self, op) -> OperationRisk:
+        model_name = getattr(op, "model_name", None)
         if hasattr(op, "index"):
             concurrent = getattr(op.index, "concurrent", False)
             if not concurrent:
@@ -220,14 +327,16 @@ class AddIndexAnalyzer(OperationAnalyzer):
                     type=self.operation_type,
                     score=4,
                     reason="Non-concurrent index creation locks table",
-                    details={},
-                    guidance="Use migrations.AddIndex with index=models.Index(..., name='...', fields=[...]) and set concurrent=True in the index. In PostgreSQL this requires a separate migration with atomic=False.",
+                    details={"model": model_name},
+                    guidance=f"""Use AddIndexConcurrently for existing large tables (requires atomic=False).
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#adding-indexes)""",
                 )
         return OperationRisk(
             type=self.operation_type,
             score=0,
             reason="Concurrent index is safe",
-            details={},
+            details={"model": model_name},
         )
 
 
@@ -236,16 +345,17 @@ class AddConstraintAnalyzer(OperationAnalyzer):
     default_score = 3
 
     def analyze(self, op) -> OperationRisk:
+        model_name = getattr(op, "model_name", None)
         return OperationRisk(
             type=self.operation_type,
             score=3,
             reason="Adding constraint may lock table (use NOT VALID pattern)",
-            details={},
-            guidance="""Add constraints without locking in 2 steps:
-1. Add constraint with `NOT VALID` using RunSQL: `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...) NOT VALID`
-2. In a separate migration, validate: `ALTER TABLE ... VALIDATE CONSTRAINT ...`
+            details={"model": model_name},
+            guidance=f"""Add constraints in 2 phases without locking:
+1. Add constraint with NOT VALID (instant, validates new rows only)
+2. Validate constraint in separate migration (scans table with non-blocking lock)
 
-This allows writes to continue while validation happens in the background.""",
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#adding-constraints)""",
         )
 
 
@@ -253,9 +363,250 @@ class RunSQLAnalyzer(OperationAnalyzer):
     operation_type = "RunSQL"
     default_score = 2
 
-    def analyze(self, op) -> OperationRisk:
-        sql = str(op.sql).upper()
+    def _parse_override_comment(self, op) -> str | None:
+        """
+        Parse migration-analyzer override comments from SQL.
+
+        Expected format:
+        -- migration-analyzer: safe reason=justification here
+        or
+        # migration-analyzer: safe reason=justification here
+
+        Returns the reason string if valid override found, None otherwise.
+        """
+        sql = str(op.sql)
+
+        # Look for override comment (-- or # style)
+        override_pattern = r"(?:--|#)\s*migration-analyzer:\s*safe\s+reason=(.+?)(?:\n|$)"
+        match = re.search(override_pattern, sql, re.IGNORECASE)
+
+        if match:
+            return match.group(1).strip()
+        return None
+
+    def analyze(self, op, migration: Optional[Any] = None, loader: Optional[Any] = None) -> OperationRisk:
+        # Parse override from original SQL (before stripping comments)
+        override = self._parse_override_comment(op)
+
+        # Strip comments before detecting SQL keywords to avoid false matches
+        sql_original = str(op.sql)
+        sql_without_comments = re.sub(r"--[^\n]*", "", sql_original)  # Remove -- comments
+        sql_without_comments = re.sub(r"#[^\n]*", "", sql_without_comments)  # Remove # comments
+        sql = sql_without_comments.upper()
+
+        # Check for CONCURRENTLY operations first (these are safe)
+        # This must come before DROP check to avoid flagging DROP INDEX CONCURRENTLY as dangerous
+        if "CONCURRENTLY" in sql:
+            if "CREATE" in sql and "INDEX" in sql:
+                if "IF NOT EXISTS" in sql:
+                    return OperationRisk(
+                        type=self.operation_type,
+                        score=1,
+                        reason="CREATE INDEX CONCURRENTLY is safe (non-blocking)",
+                        details={"sql": sql},
+                    )
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=2,
+                    reason="CREATE INDEX CONCURRENTLY is safe (non-blocking)",
+                    details={"sql": sql},
+                    guidance="Add IF NOT EXISTS for idempotency: CREATE INDEX CONCURRENTLY IF NOT EXISTS",
+                )
+            elif "DROP" in sql and "INDEX" in sql:
+                if "IF EXISTS" in sql:
+                    return OperationRisk(
+                        type=self.operation_type,
+                        score=1,
+                        reason="DROP INDEX CONCURRENTLY is safe (non-blocking)",
+                        details={"sql": sql},
+                    )
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=2,
+                    reason="DROP INDEX CONCURRENTLY is safe (non-blocking)",
+                    details={"sql": sql},
+                    guidance="Add IF EXISTS for idempotency: DROP INDEX CONCURRENTLY IF EXISTS",
+                )
+            elif "REINDEX" in sql:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=1,
+                    reason="REINDEX CONCURRENTLY is safe (non-blocking)",
+                    details={"sql": sql},
+                )
+
+        # Check for constraint operations (before general ALTER/DROP checks)
+        if "ADD" in sql and "CONSTRAINT" in sql and "USING INDEX" in sql:
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="ADD CONSTRAINT ... USING INDEX is instant (just renames existing index to constraint)",
+                details={"sql": sql},
+                guidance="This operation only updates metadata - the index already exists and enforces uniqueness.",
+            )
+
+        if "ADD" in sql and "CONSTRAINT" in sql and "NOT VALID" in sql:
+            return OperationRisk(
+                type=self.operation_type,
+                score=1,
+                reason="ADD CONSTRAINT ... NOT VALID is safe (validates new rows only, no table scan)",
+                details={"sql": sql},
+                guidance="Follow up with VALIDATE CONSTRAINT in a later migration to check existing rows.",
+            )
+
+        if "VALIDATE" in sql and "CONSTRAINT" in sql:
+            return OperationRisk(
+                type=self.operation_type,
+                score=2,
+                reason="VALIDATE CONSTRAINT can be slow but non-blocking (allows reads/writes)",
+                details={"sql": sql},
+                guidance="Long-running on large tables but uses SHARE UPDATE EXCLUSIVE lock (allows normal operations).",
+            )
+
+        if "DROP" in sql and "CONSTRAINT" in sql:
+            # Check for CASCADE which can be expensive
+            if "CASCADE" in sql:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=3,
+                    reason="DROP CONSTRAINT CASCADE may be slow (drops dependent objects)",
+                    details={"sql": sql},
+                )
+            return OperationRisk(
+                type=self.operation_type,
+                score=2,
+                reason="DROP CONSTRAINT is fast but needs deployment safety review",
+                details={"sql": sql},
+                guidance=f"""⚠️ **Deployment Safety:** While `DROP CONSTRAINT` is instant (no table lock), dropping constraints can break running code during rolling deployments.
+
+**Safe pattern:**
+1. Ensure no running code relies on the constraint (uniqueness checks, foreign key validation, etc.)
+2. If replacing with a new constraint, deploy the new one first
+3. Wait at least one full deployment cycle before dropping the old constraint
+4. Consider keeping unused constraints if removal risk outweighs benefits
+
+**Common scenarios:**
+- Dropping UNIQUE constraints: Ensure code handles potential duplicates
+- Dropping FOREIGN KEY constraints: Ensure code doesn't assume referential integrity
+- Replacing constraints: Add new → deploy → wait → drop old
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL})""",
+            )
+
+        # Check for metadata-only operations (safe and instant)
+        if "COMMENT ON" in sql:
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="COMMENT ON is metadata-only (instant, no locks)",
+                details={"sql": sql},
+            )
+
+        if "SET STATISTICS" in sql or "SET (FILLFACTOR" in sql:
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="Metadata-only operation (instant, no locks)",
+                details={"sql": sql},
+            )
+
         if "DROP" in sql:
+            # Check for DROP COLUMN first (before DROP TABLE check)
+            # ALTER TABLE ... DROP COLUMN can contain both "TABLE" and "DROP" keywords
+            # Use regex to verify it's actually ALTER TABLE ... DROP COLUMN (not just "COLUMN" in table name)
+            column_match = re.search(
+                r"ALTER\s+TABLE\s+([a-zA-Z0-9_]+)\s+DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?([a-zA-Z0-9_]+)", sql
+            )
+
+            if column_match:
+                if migration and loader:
+                    table_name = column_match.group(1).lower()
+                    column_name = column_match.group(2).lower()
+
+                    # Check if properly staged (field removed from state in prior migration)
+                    if check_drop_properly_staged("column", table_name, migration, loader, field_name=column_name):
+                        return OperationRisk(
+                            type=self.operation_type,
+                            score=2,
+                            reason="DROP COLUMN IF EXISTS - properly staged (prior state removal found)",
+                            details={"sql": sql, "table": table_name, "column": column_name},
+                            guidance=f"""✅ **Validated staged drop:** Found prior SeparateDatabaseAndState that removed field from state.
+
+Remaining checklist:
+- Ensure all code references removed (models, serializers, API)
+- Waited at least one full deployment cycle since state removal
+- Verify column is not used in queries or indexes
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
+                        )
+
+                # Not properly staged or can't validate
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=5,
+                    reason="DROP COLUMN - no prior state removal found",
+                    details={"sql": sql},
+                    guidance=f"""❌ **Missing state removal:** Could not find prior SeparateDatabaseAndState that removed this field.
+
+Safe pattern requires:
+1. Prior migration with SeparateDatabaseAndState removes field from Django state
+2. All code references removed (models, serializers, API)
+3. Wait at least one full deployment cycle
+4. Then DROP COLUMN in later migration with RunSQL
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
+                )
+
+            # Special case: DROP TABLE IF EXISTS may be safe if following proper staging pattern
+            if "TABLE" in sql and "IF EXISTS" in sql:
+                # Extract table name from the DROP statement
+                table_name_match = re.search(r"DROP\s+TABLE\s+IF\s+EXISTS\s+([a-zA-Z0-9_]+)", sql)
+                if table_name_match and migration and loader:
+                    table_name = table_name_match.group(1).lower()
+
+                    # Check if properly staged (model removed from state in prior migration)
+                    if check_drop_properly_staged("table", table_name, migration, loader):
+                        return OperationRisk(
+                            type=self.operation_type,
+                            score=2,
+                            reason="DROP TABLE IF EXISTS - properly staged (prior state removal found)",
+                            details={"sql": sql, "table": table_name},
+                            guidance=f"""✅ **Validated staged drop:** Found prior SeparateDatabaseAndState that removed model from state.
+
+Remaining checklist:
+- Ensure all code references removed (API, models, imports)
+- Waited at least one full deployment cycle since state removal
+- No other models reference this table via foreign keys
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
+                        )
+
+                # Not properly staged or can't validate
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=5,
+                    reason="DROP TABLE IF EXISTS - no prior state removal found",
+                    details={"sql": sql},
+                    guidance=f"""❌ **Missing state removal:** Could not find prior SeparateDatabaseAndState that removed this model.
+
+Safe pattern requires:
+1. Prior migration with SeparateDatabaseAndState removes model from Django state
+2. All code references removed (API, models, imports)
+3. Wait at least one full deployment cycle
+4. Then DROP TABLE in later migration
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
+                )
+
+            # Check if using IF EXISTS for other DROP operations (safer but still dangerous)
+            if "IF EXISTS" in sql:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=5,
+                    reason="RunSQL with DROP is dangerous",
+                    details={"sql": sql},
+                    guidance="Good: using IF EXISTS makes this idempotent. Consider using DROP ... CONCURRENTLY for indexes to avoid locks.",
+                )
             return OperationRisk(
                 type=self.operation_type,
                 score=5,
@@ -263,17 +614,46 @@ class RunSQLAnalyzer(OperationAnalyzer):
                 details={"sql": sql},
             )
         elif "UPDATE" in sql or "DELETE" in sql:
+            # Check for developer override for small tables
+            if override:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=2,
+                    reason=f"RunSQL with UPDATE/DELETE - developer override applied for small table",
+                    details={
+                        "sql": sql,
+                        "override_reason": override,
+                    },
+                    guidance=f"""✅ **Developer override applied:**
+Justification: {override}
+
+Reviewer checklist:
+- Verify table is actually small (<1000 rows typical)
+- Confirm justification is valid
+- Check no indexes will cause lock contention
+- Ensure WHERE clause limits scope appropriately
+
+If this override is incorrect, request batching:
+- Batch size: 1,000-10,000 rows per batch
+- Add pauses between batches
+- Use WHERE clauses to limit scope
+- Consider background jobs for very large updates (millions of rows)
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#running-data-migrations)""",
+                )
+
             return OperationRisk(
                 type=self.operation_type,
                 score=4,
                 reason="RunSQL with UPDATE/DELETE needs careful review for locking",
                 details={"sql": sql},
-                guidance="""**Critical for large tables:** UPDATE/DELETE can lock tables for extended periods.
-- Use batching: Update/delete in chunks of 1000-10000 rows with LIMIT and loop
-- Add `WHERE` clauses to limit scope
-- Consider using `SELECT ... FOR UPDATE SKIP LOCKED` for concurrent updates
-- Monitor query duration in production before deploying to large tables
-- For very large updates, consider using a background job instead of a migration""",
+                guidance=f"""Break large updates into batches to avoid long locks:
+- Batch size: 1,000-10,000 rows per batch
+- Add pauses between batches
+- Use WHERE clauses to limit scope
+- Consider background jobs for very large updates (millions of rows)
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#running-data-migrations)""",
             )
         elif "ALTER" in sql:
             return OperationRisk(
@@ -281,6 +661,24 @@ class RunSQLAnalyzer(OperationAnalyzer):
                 score=3,
                 reason="RunSQL with ALTER may cause locks",
                 details={"sql": sql},
+            )
+        elif "CREATE" in sql and "INDEX" in sql:
+            # Non-concurrent index creation (would have been caught earlier if CONCURRENTLY)
+            if "IF NOT EXISTS" in sql:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=2,
+                    reason="CREATE INDEX without CONCURRENTLY locks table",
+                    details={"sql": sql},
+                    guidance="Use CONCURRENTLY to avoid table locks: CREATE INDEX CONCURRENTLY IF NOT EXISTS",
+                )
+            # Missing IF NOT EXISTS - slightly higher score within NEEDS_REVIEW range
+            return OperationRisk(
+                type=self.operation_type,
+                score=3,
+                reason="CREATE INDEX without CONCURRENTLY locks table",
+                details={"sql": sql},
+                guidance="Use CREATE INDEX CONCURRENTLY to avoid table locks. Add IF NOT EXISTS for idempotency and safer retries.",
             )
         else:
             return OperationRisk(
@@ -301,13 +699,14 @@ class RunPythonAnalyzer(OperationAnalyzer):
             score=2,
             reason="RunPython data migration needs review for performance",
             details={},
-            guidance="""**Large-scale considerations for data migrations:**
-- Use `.iterator()` for large querysets to avoid loading all rows into memory
-- Process in batches: `for obj in Model.objects.all().iterator(chunk_size=1000)`
+            guidance=f"""Use batching for large data migrations:
+- Use `.iterator()` to avoid loading all rows into memory
 - Use `.bulk_update()` instead of saving individual objects
-- Add progress logging every N rows for visibility
-- Test on production-sized data before deploying
-- Consider timeout limits - migrations blocking deployment for >10min are problematic""",
+- Batch size: 1,000-10,000 rows per batch
+- Add pauses between batches
+- Consider background jobs for very large updates (millions of rows)
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#running-data-migrations)""",
         )
 
 

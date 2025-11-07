@@ -219,7 +219,11 @@ def _delete_person(
     create_person(
         uuid=str(uuid),
         team_id=team_id,
-        version=version + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
+        # Version + 100 ensures delete takes precedence over normal updates.
+        # Keep in sync with:
+        # - plugin-server/src/utils/db/utils.ts:152 (generateKafkaPersonUpdateMessage)
+        # - posthog/models/person/person.py:112 (split_person uses version + 101 to override deletes)
+        version=version + 100,
         created_at=created_at,
         is_deleted=True,
         sync=sync,

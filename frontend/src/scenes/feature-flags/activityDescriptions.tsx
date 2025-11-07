@@ -306,6 +306,32 @@ const featureFlagActionsMapping: Record<
 
         return { description: changes }
     },
+    evaluation_tags: function onEvaluationTags(change) {
+        const tagsBefore = change?.before as string[]
+        const tagsAfter = change?.after as string[]
+        const addedTags = tagsAfter.filter((t) => tagsBefore.indexOf(t) === -1)
+        const removedTags = tagsBefore.filter((t) => tagsAfter.indexOf(t) === -1)
+
+        const changes: Description[] = []
+        if (addedTags.length) {
+            changes.push(
+                <>
+                    added {pluralize(addedTags.length, 'evaluation tag', 'evaluation tags', false)}{' '}
+                    <ObjectTags tags={addedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                </>
+            )
+        }
+        if (removedTags.length) {
+            changes.push(
+                <>
+                    removed {pluralize(removedTags.length, 'evaluation tag', 'evaluation tags', false)}{' '}
+                    <ObjectTags tags={removedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                </>
+            )
+        }
+
+        return { description: changes }
+    },
     // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,
@@ -328,7 +354,9 @@ const featureFlagActionsMapping: Record<
     status: () => null,
     version: () => null,
     last_modified_by: () => null,
+    last_called_at: () => null,
     _create_in_folder: () => null,
+    _should_create_usage_dashboard: () => null,
 }
 
 const getActorName = (logItem: ActivityLogItem): JSX.Element => {
@@ -336,11 +364,12 @@ const getActorName = (logItem: ActivityLogItem): JSX.Element => {
     if (logItem.detail.trigger?.job_type === 'scheduled_change') {
         return (
             <>
-                <strong>{userName}</strong> <span className="text-muted">(via scheduled change)</span>
+                <strong className="ph-no-capture">{userName}</strong>{' '}
+                <span className="text-muted">(via scheduled change)</span>
             </>
         )
     }
-    return <strong>{userName}</strong>
+    return <strong className="ph-no-capture">{userName}</strong>
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -375,7 +404,11 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
                 continue // feature flag updates have to have a "field" to be described
             }
 
-            const possibleLogItem = featureFlagActionsMapping[change.field as keyof FeatureFlagType](change, logItem)
+            const fieldHandler = featureFlagActionsMapping[change.field as keyof FeatureFlagType]
+            if (!fieldHandler) {
+                console.error({ field: change.field, change }, 'No activity describer found for feature flag field')
+            }
+            const possibleLogItem = fieldHandler ? fieldHandler(change, logItem) : null
             if (possibleLogItem) {
                 const { description, suffix } = possibleLogItem
                 if (description) {

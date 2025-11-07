@@ -76,6 +76,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
     })),
     selectors({
+        context: [() => [(_, props) => props.context], (context) => context],
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
         sourceFeatures: [
             (_, p) => [p.query, (_, props) => props.context],
@@ -185,7 +186,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 columnsInQuery,
                 featureFlags,
                 context
-            ): RequiredExcept<Omit<DataTableNode, 'response'>, 'version'> => {
+            ): RequiredExcept<Omit<DataTableNode, 'response'>, 'version' | 'tags' | 'defaultColumns'> => {
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full
                 const flagQueryRunningTimeEnabled = !!featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]

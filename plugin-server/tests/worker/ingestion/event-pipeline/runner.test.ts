@@ -17,7 +17,7 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
-import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
+import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
 import {
     ClickHouseTimestamp,
     ISOTimestamp,
@@ -31,18 +31,18 @@ import {
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { parseJSON } from '../../../../src/utils/json-parse'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
-import { emitEventStep } from '../../../../src/worker/ingestion/event-pipeline/emitEventStep'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
+import { processPersonlessStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonlessStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { PersonMergeLimitExceededError } from '../../../../src/worker/ingestion/persons/person-merge-types'
 import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 
+jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonlessStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/createEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/emitEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
 
 class TestEventPipelineRunner extends EventPipelineRunner {
@@ -53,7 +53,9 @@ class TestEventPipelineRunner extends EventPipelineRunner {
         step: Step,
         [runner, ...args]: Parameters<Step>,
         teamId: number,
-        sendtoDLQ: boolean = true
+        sendtoDLQ: boolean = true,
+        kafkaAcks: Promise<void>[] = [],
+        warnings: any[] = []
     ) {
         this.steps.push(step.name)
 
@@ -63,14 +65,23 @@ class TestEventPipelineRunner extends EventPipelineRunner {
         // in practice, for better or worse).
         this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(args))])
 
-        return super.runStep<T, Step>(step, [runner, ...args] as Parameters<Step>, teamId, sendtoDLQ)
+        return super.runStep<T, Step>(
+            step,
+            [runner, ...args] as Parameters<Step>,
+            teamId,
+            sendtoDLQ,
+            kafkaAcks,
+            warnings
+        )
     }
 
     protected async runPipelineStep<T, Step extends (...args: any[]) => Promise<PipelineResult<T>>>(
         step: Step,
-        args: Parameters<Step>,
+        [runner, ...args]: Parameters<Step>,
         teamId: number,
-        sendtoDLQ: boolean = true
+        sendtoDLQ: boolean = true,
+        kafkaAcks: Promise<void>[] = [],
+        warnings: any[] = []
     ) {
         this.steps.push(step.name)
 
@@ -78,10 +89,16 @@ class TestEventPipelineRunner extends EventPipelineRunner {
         // and pass the same object around by reference. We want to see a "snapshot" of the args
         // sent to each step, rather than the final mutated object (which many steps actually share
         // in practice, for better or worse).
-        const [runner, ...restArgs] = args
-        this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(restArgs))])
+        this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(args))])
 
-        return super.runPipelineStep<T, Step>(step, [runner, ...args] as Parameters<Step>, teamId, sendtoDLQ)
+        return super.runPipelineStep<T, Step>(
+            step,
+            [runner, ...args] as Parameters<Step>,
+            teamId,
+            sendtoDLQ,
+            kafkaAcks,
+            warnings
+        )
     }
 }
 
@@ -177,6 +194,8 @@ const person: Person = {
 describe('EventPipelineRunner', () => {
     let runner: TestEventPipelineRunner
     let hub: any
+    let personsStoreForBatch: BatchWritingPersonsStoreForBatch
+    let groupStoreForBatch: BatchWritingGroupStoreForBatch
 
     const mockProducer: jest.Mocked<KafkaProducerWrapper> = {
         queueMessages: jest.fn() as any,
@@ -184,6 +203,7 @@ describe('EventPipelineRunner', () => {
     } as any
 
     beforeEach(() => {
+        jest.clearAllMocks()
         jest.mocked(mockProducer.queueMessages).mockImplementation(() => Promise.resolve())
         jest.mocked(mockProducer.produce).mockImplementation(() => Promise.resolve())
 
@@ -200,11 +220,11 @@ describe('EventPipelineRunner', () => {
             TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: 0.0,
         }
 
-        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
+        personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
             new PostgresPersonRepository(hub.db.postgres),
             hub.kafkaProducer
         )
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+        groupStoreForBatch = new BatchWritingGroupStoreForBatch(
             hub.db,
             hub.groupRepository,
             hub.clickhouseGroupRepository
@@ -228,8 +248,6 @@ describe('EventPipelineRunner', () => {
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
 
         jest.mocked(createEventStep).mockResolvedValue(createdEvent)
-
-        jest.mocked(emitEventStep).mockResolvedValue([Promise.resolve()])
     })
 
     describe('runEventPipeline()', () => {
@@ -244,25 +262,20 @@ describe('EventPipelineRunner', () => {
                 'prepareEventStep',
                 'extractHeatmapDataStep',
                 'createEventStep',
-                'emitEventStep',
             ])
             expect(forSnapshot(runner.stepsWithArgs)).toMatchSnapshot()
         })
 
         it('emits metrics for every step', async () => {
-            const eventProcessedAndIngestedCounterSpy = jest.spyOn(metrics.eventProcessedAndIngestedCounter, 'inc')
             const pipelineStepMsSummarySpy = jest.spyOn(metrics.pipelineStepMsSummary, 'labels')
             const pipelineStepErrorCounterSpy = jest.spyOn(metrics.pipelineStepErrorCounter, 'labels')
-
             const result = await runner.runEventPipeline(pluginEvent, team)
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 expect(result.value.error).toBeUndefined()
             }
-
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(8)
-            expect(eventProcessedAndIngestedCounterSpy).toHaveBeenCalledTimes(1)
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('emitEventStep')
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(7)
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('createEventStep')
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
@@ -313,37 +326,6 @@ describe('EventPipelineRunner', () => {
                     expect(result.reason).toBe('Event redirected to async merge topic')
                     expect(result.topic).toBe('async-merge-topic')
                 }
-            })
-        })
-
-        describe('client ingestion error event', () => {
-            it('drops events and adds a warning for special $$client_ingestion_warning event', async () => {
-                const event = {
-                    ...pipelineEvent,
-                    properties: { $$client_ingestion_warning_message: 'My warning message!' },
-                    event: '$$client_ingestion_warning',
-                    team_id: 9,
-                }
-                const team9: Team = {
-                    ...team,
-                    id: 9,
-                }
-
-                await runner.runEventPipeline(event, team9)
-                expect(runner.steps).toEqual([])
-                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-                expect(
-                    parseJSON((mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string)
-                ).toMatchObject({
-                    team_id: 9,
-                    type: 'client_ingestion_warning',
-                    details: JSON.stringify({
-                        eventUuid: 'uuid1',
-                        event: '$$client_ingestion_warning',
-                        distinctId: 'my_id',
-                        message: 'My warning message!',
-                    }),
-                })
             })
         })
 
@@ -401,32 +383,85 @@ describe('EventPipelineRunner', () => {
         })
     })
 
-    describe('EventPipelineRunner $process_person_profile=false', () => {
-        it.each(['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])(
-            'drops event %s that are not allowed when $process_person_profile=false',
-            async (eventName) => {
-                const event = {
-                    ...pipelineEvent,
-                    properties: { $process_person_profile: false },
-                    event: eventName,
-                    team_id: 9,
-                }
-                const team9: Team = {
-                    ...team,
-                    id: 9,
-                }
+    describe('EventPipelineRunner with processPerson flags', () => {
+        beforeEach(() => {
+            jest.mocked(processPersonlessStep).mockResolvedValue(ok(person))
+            jest.mocked(processPersonsStep).mockResolvedValue(
+                ok([
+                    pluginEvent,
+                    { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
+                    Promise.resolve(),
+                ])
+            )
+            jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
+            jest.mocked(createEventStep).mockResolvedValue(createdEvent)
+        })
 
-                await runner.runEventPipeline(event, team9)
-                expect(runner.steps).toEqual([])
-                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-                expect(
-                    parseJSON((mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string)
-                ).toMatchObject({
-                    team_id: 9,
-                    type: 'invalid_event_when_process_person_profile_is_false',
-                    details: JSON.stringify({ eventUuid: 'uuid1', event: eventName, distinctId: 'my_id' }),
-                })
-            }
-        )
+        it('calls processPersonlessStep when processPerson=false and forceDisablePersonProcessing=true', async () => {
+            await runner.runEventPipeline(pipelineEvent, team, false, true)
+
+            expect(processPersonlessStep).toHaveBeenCalledTimes(1)
+            expect(processPersonlessStep).toHaveBeenCalledWith(
+                expect.any(Object), // event
+                expect.any(Object), // team
+                expect.any(Object), // timestamp
+                expect.any(Object), // personStoreBatch
+                true // forceDisablePersonProcessing
+            )
+            expect(processPersonsStep).not.toHaveBeenCalled()
+        })
+
+        it('calls processPersonsStep when processPerson=true', async () => {
+            await runner.runEventPipeline(pipelineEvent, team, true, false)
+
+            expect(processPersonlessStep).not.toHaveBeenCalled()
+            expect(processPersonsStep).toHaveBeenCalledWith(
+                expect.any(Object), // runner
+                expect.any(Object), // event
+                expect.any(Object), // team
+                expect.any(Object), // timestamp
+                true, // processPerson
+                expect.any(Object) // personStoreBatch
+            )
+        })
+
+        it('calls processPersonlessStep when processPerson=false and skips processPersonsStep if no force_upgrade', async () => {
+            await runner.runEventPipeline(pipelineEvent, team, false, false)
+
+            expect(processPersonlessStep).toHaveBeenCalledTimes(1)
+            expect(processPersonsStep).not.toHaveBeenCalled()
+        })
+
+        it('calls both steps when processPerson=false but force_upgrade is set', async () => {
+            const personWithForceUpgrade = { ...person, force_upgrade: true }
+            jest.mocked(processPersonlessStep).mockResolvedValue(ok(personWithForceUpgrade))
+
+            await runner.runEventPipeline(pipelineEvent, team, false, false)
+
+            expect(processPersonlessStep).toHaveBeenCalledTimes(1)
+            expect(processPersonsStep).toHaveBeenCalledTimes(1)
+            expect(processPersonsStep).toHaveBeenCalledWith(
+                expect.any(Object), // runner
+                expect.any(Object), // event
+                expect.any(Object), // team
+                expect.any(Object), // timestamp
+                true, // processPerson forced to true for force_upgrade
+                expect.any(Object) // personStoreBatch
+            )
+        })
+
+        it('uses default values processPerson=true when not specified', async () => {
+            await runner.runEventPipeline(pipelineEvent, team)
+
+            expect(processPersonlessStep).not.toHaveBeenCalled()
+            expect(processPersonsStep).toHaveBeenCalledWith(
+                expect.any(Object), // runner
+                expect.any(Object), // event
+                expect.any(Object), // team
+                expect.any(Object), // timestamp
+                true, // processPerson (default)
+                expect.any(Object) // personStoreBatch
+            )
+        })
     })
 })

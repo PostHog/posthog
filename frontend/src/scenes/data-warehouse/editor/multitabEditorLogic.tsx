@@ -462,6 +462,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         'hogQL',
                         values.activeTab.uri
                     )
+                    cache.createdModels = cache.createdModels || []
+                    cache.createdModels.push(newModel)
 
                     initModel(
                         newModel,
@@ -508,6 +510,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         'hogQL',
                         values.activeTab.uri
                     )
+                    cache.createdModels = cache.createdModels || []
+                    cache.createdModels.push(newModel)
                     initModel(
                         newModel,
                         codeEditorLogic({
@@ -548,14 +552,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.createTab(query, undefined, insight)
         },
         createTab: async ({ query = '', view, insight, draft }) => {
-            const currentModelCount = 1
+            // Use tabId to ensure each browser tab has its own unique Monaco model
             const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
 
             if (props.monaco) {
-                const uri = props.monaco.Uri.parse(currentModelCount.toString())
+                const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
                 let model = props.monaco.editor.getModel(uri)
                 if (!model) {
                     model = props.monaco.editor.createModel(query, 'hogQL', uri)
+                    cache.createdModels = cache.createdModels || []
+                    cache.createdModels.push(model)
                     props.editor?.setModel(model)
                     initModel(
                         model,
@@ -767,7 +773,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             })
             const umount = logic.mount()
             logic.actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
-            window.setTimeout(() => umount(), 1000 * 10) // keep mounted for 10 seconds while we redirect
+            const timeoutId = window.setTimeout(() => umount(), 1000 * 10) // keep mounted for 10 seconds while we redirect
+            cache.timeouts = cache.timeouts || []
+            cache.timeouts.push(timeoutId)
 
             lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
 
@@ -836,11 +844,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         updateView: async ({ view, draftId }) => {
             const latestView = await api.dataWarehouseSavedQueries.get(view.id)
+            // Only check for conflicts if there's an activity log (latest_history_id exists)
+            // When there's no activity log, both edited_history_id and latest_history_id are null/undefined,
+            // and we should allow the update to proceed without showing a false conflict
             if (
-                view.edited_history_id !== latestView?.latest_history_id &&
+                latestView?.latest_history_id != null &&
+                view.edited_history_id !== latestView.latest_history_id &&
                 view.query?.query !== latestView?.query.query
             ) {
                 actions._setSuggestionPayload({
+                    suggestedValue: values.queryInput!,
                     originalValue: latestView?.query.query,
                     acceptText: 'Confirm changes',
                     rejectText: 'Cancel',
@@ -1094,7 +1107,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 !searchParams.output_tab &&
                 !hashParams.q &&
                 !hashParams.view &&
-                !hashParams.insight
+                !hashParams.insight &&
+                values.queryInput !== null
             ) {
                 return
             }
@@ -1215,6 +1229,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     // only when opening the tab
                     actions.createTab(hashParams.q)
                     tabAdded = true
+                } else if (values.queryInput === null) {
+                    actions.createTab('')
+                    tabAdded = true
                 }
             }
 
@@ -1246,5 +1263,20 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     })),
     beforeUnmount(({ cache }) => {
         cache.umountDataNode?.()
+
+        cache.createdModels?.forEach((m: editor.ITextModel) => {
+            try {
+                m.dispose()
+            } catch {}
+        })
+        cache.createdModels = []
+
+        const timeouts = cache.timeouts as Array<number> | undefined
+        timeouts?.forEach((t) => {
+            try {
+                clearTimeout(t)
+            } catch {}
+        })
+        cache.timeouts = []
     }),
 ])

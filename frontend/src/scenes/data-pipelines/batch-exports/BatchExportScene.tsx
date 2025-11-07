@@ -1,10 +1,12 @@
-import { BindLogic, actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { actions, kea, key, path, props, reducers, selectors, useActions, useMountedLogic, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
@@ -14,12 +16,10 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb } from '~/types'
 
 import { PipelineNodeLogs } from '../legacy-plugins/PipelineNodeLogs'
-import { PipelineNodeMetrics } from '../legacy-plugins/PipelineNodeMetrics'
 import { BatchExportConfiguration } from './BatchExportConfiguration'
 import {
     BatchExportConfigurationClearChangesButton,
@@ -101,6 +101,7 @@ export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
         return {
             // All possible routes for this scene need to be listed here
             [urls.batchExport(':id')]: reactToTabChange,
+            [urls.batchExportNew(':service')]: reactToTabChange,
         }
     }),
 ])
@@ -114,9 +115,9 @@ export const scene: SceneExport = {
     }),
 }
 
-function BatchExportSceneHeader(): JSX.Element {
-    const { configuration, batchExportConfigLoading } = useValues(batchExportConfigurationLogic)
-    const { setConfigurationValue } = useActions(batchExportConfigurationLogic)
+function BatchExportSceneHeader({ logicProps }: { logicProps: BatchExportConfigurationLogicProps }): JSX.Element {
+    const { configuration, batchExportConfigLoading } = useValues(batchExportConfigurationLogic(logicProps))
+    const { setConfigurationValue, deleteBatchExport } = useActions(batchExportConfigurationLogic(logicProps))
 
     return (
         <>
@@ -137,6 +138,17 @@ function BatchExportSceneHeader(): JSX.Element {
                 canEdit
                 actions={
                     <>
+                        <More
+                            size="small"
+                            overlay={
+                                <>
+                                    <LemonButton status="danger" fullWidth onClick={() => deleteBatchExport()}>
+                                        Delete
+                                    </LemonButton>
+                                </>
+                            }
+                        />
+                        <LemonDivider vertical />
                         <BatchExportConfigurationClearChangesButton />
                         <BatchExportConfigurationSaveButton />
                     </>
@@ -146,21 +158,30 @@ function BatchExportSceneHeader(): JSX.Element {
     )
 }
 
-export function BatchExportScene(): JSX.Element {
-    const { logicProps } = useValues(batchExportSceneLogic)
-    return (
-        <BindLogic logic={batchExportConfigurationLogic} props={logicProps}>
-            <BatchExportSceneContent />
-        </BindLogic>
-    )
+export function BatchExportScene(componentProps: any): JSX.Element {
+    const { id, service: serviceParam } = componentProps
+    const logicProps: BatchExportConfigurationLogicProps = {
+        id: id ?? null,
+        service: serviceParam ? normalizeBatchExportService(serviceParam) : null,
+    }
+
+    const logic = useMountedLogic(batchExportSceneLogic(logicProps))
+
+    return <BatchExportSceneContent logic={logic} logicProps={logicProps} />
 }
 
-export function BatchExportSceneContent(): JSX.Element {
-    const { currentTab, logicProps } = useValues(batchExportSceneLogic)
-    const { setCurrentTab } = useActions(batchExportSceneLogic)
+export function BatchExportSceneContent({
+    logic,
+    logicProps,
+}: {
+    logic: any
+    logicProps: BatchExportConfigurationLogicProps
+}): JSX.Element {
+    const { currentTab } = useValues(logic)
+    const { setCurrentTab } = useActions(logic)
     const { id, service } = logicProps
 
-    const { batchExportConfig, loading } = useValues(batchExportConfigurationLogic)
+    const { batchExportConfig, loading } = useValues(batchExportConfigurationLogic(logicProps))
 
     if (loading && !batchExportConfig) {
         return (
@@ -189,11 +210,7 @@ export function BatchExportSceneContent(): JSX.Element {
             ? {
                   label: 'Metrics',
                   key: 'metrics',
-                  content: (
-                      <FlaggedFeature flag="batch-export-new-metrics" fallback={<PipelineNodeMetrics id={id} />}>
-                          <BatchExportsMetrics id={id} />
-                      </FlaggedFeature>
-                  ),
+                  content: <BatchExportsMetrics id={id} />,
               }
             : null,
         id
@@ -202,7 +219,7 @@ export function BatchExportSceneContent(): JSX.Element {
                   key: 'logs',
                   content: (
                       <FlaggedFeature flag="batch-export-new-logs" fallback={<PipelineNodeLogs id={id} />}>
-                          <LogsViewer sourceType="batch_export" sourceId={id} instanceLabel="run" />
+                          <LogsViewer sourceType="batch_exports" sourceId={id} instanceLabel="run" />
                       </FlaggedFeature>
                   ),
               }
@@ -225,8 +242,7 @@ export function BatchExportSceneContent(): JSX.Element {
 
     return (
         <SceneContent>
-            <BatchExportSceneHeader />
-            <SceneDivider />
+            <BatchExportSceneHeader logicProps={logicProps} />
             <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
         </SceneContent>
     )

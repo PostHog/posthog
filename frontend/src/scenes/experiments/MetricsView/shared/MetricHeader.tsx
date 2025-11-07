@@ -8,7 +8,9 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
+import { sharedMetricModalLogic } from 'scenes/experiments/Metrics/sharedMetricModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
+import { isEventExposureConfig } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
 import type { EventsNode, ExperimentMetric } from '~/queries/schema/schema-general'
@@ -20,7 +22,15 @@ import { getMetricTag } from './utils'
 
 // Helper function to get the exposure event from experiment
 const getExposureEvent = (experiment: Experiment): string => {
-    return experiment.exposure_criteria?.exposure_config?.event || '$feature_flag_called'
+    const exposureConfig = experiment.exposure_criteria?.exposure_config
+    if (!exposureConfig) {
+        return '$feature_flag_called'
+    }
+    if (isEventExposureConfig(exposureConfig)) {
+        return exposureConfig.event
+    }
+    // Fall back
+    return '$feature_flag_called'
 }
 
 // AddBreakdownButton component for event property breakdowns
@@ -113,6 +123,7 @@ export const MetricHeader = ({
     } = useActions(modalsLogic)
 
     const { openExperimentMetricModal } = useActions(experimentMetricModalLogic)
+    const { openSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     return (
         <div className="text-xs font-semibold flex flex-col justify-between h-full">
@@ -134,10 +145,18 @@ export const MetricHeader = ({
                                 tooltip="Edit"
                                 onClick={() => {
                                     if (metric.isSharedMetric) {
+                                        /**
+                                         * this is for legacy experiments support
+                                         */
                                         const openSharedModal = isPrimaryMetric
                                             ? openPrimarySharedMetricModal
                                             : openSecondarySharedMetricModal
                                         openSharedModal(metric.sharedMetricId)
+
+                                        openSharedMetricModal(
+                                            METRIC_CONTEXTS[isPrimaryMetric ? 'primary' : 'secondary'],
+                                            metric.sharedMetricId
+                                        )
                                     } else {
                                         /**
                                          * this is for legacy experiments support

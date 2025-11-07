@@ -1,6 +1,6 @@
 import datetime as dt
 from dataclasses import dataclass
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.db import IntegrityError
 
@@ -45,6 +45,9 @@ from posthog.constants import PAGEVIEW_EVENT
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.randomization import Industry
 from posthog.models import Action, Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight, InsightViewed
+from posthog.models.event_definition import EventDefinition
+from posthog.models.property_definition import PropertyType
+from posthog.models.schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (
@@ -62,6 +65,10 @@ from .taxonomy import (
     URL_HOME,
     URL_SIGNUP,
 )
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+    from posthog.models.user import User
 
 
 @dataclass
@@ -118,9 +125,10 @@ class HedgeboxMatrix(Matrix):
         self.new_signup_page_experiment_end = self.now - dt.timedelta(days=2, hours=3, seconds=43)
         self.new_signup_page_experiment_start = self.start + (self.new_signup_page_experiment_end - self.start) / 2
 
-    def set_project_up(self, team, user):
+    def set_project_up(self, team: "Team", user: "User"):
         super().set_project_up(team, user)
         team.autocapture_web_vitals_opt_in = True
+        team.session_recording_opt_in = True  # Also see: the hedgebox-dummy/ app
 
         # Actions
         interacted_with_file_action = Action.objects.create(
@@ -942,3 +950,56 @@ class HedgeboxMatrix(Matrix):
             )
         ]
         team.revenue_analytics_config.save()
+
+        # Create File Stats property group
+        try:
+            file_stats_group = SchemaPropertyGroup.objects.create(
+                team=team,
+                project=team.project,
+                name="File Stats",
+                description="",
+                created_by=user,
+            )
+
+            SchemaPropertyGroupProperty.objects.create(
+                property_group=file_stats_group,
+                name="file_size_b",
+                property_type=PropertyType.Numeric,
+                is_required=True,
+                description="",
+            )
+
+            SchemaPropertyGroupProperty.objects.create(
+                property_group=file_stats_group,
+                name="file_type",
+                property_type=PropertyType.String,
+                is_required=False,
+                description="",
+            )
+
+            SchemaPropertyGroupProperty.objects.create(
+                property_group=file_stats_group,
+                name="file_name",
+                property_type=PropertyType.String,
+                is_required=False,
+                description="",
+            )
+
+            uploaded_file_def = EventDefinition.objects.get_or_create(
+                team=team, name=EVENT_UPLOADED_FILE, defaults={"team": team}
+            )[0]
+            downloaded_file_def = EventDefinition.objects.get_or_create(
+                team=team, name=EVENT_DOWNLOADED_FILE, defaults={"team": team}
+            )[0]
+
+            EventSchema.objects.create(
+                event_definition=uploaded_file_def,
+                property_group=file_stats_group,
+            )
+
+            EventSchema.objects.create(
+                event_definition=downloaded_file_def,
+                property_group=file_stats_group,
+            )
+        except IntegrityError:
+            pass

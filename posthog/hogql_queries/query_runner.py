@@ -34,7 +34,9 @@ from posthog.schema import (
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
+    MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
+    NodeKind,
     PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -52,6 +54,7 @@ from posthog.schema import (
     TraceQuery,
     TracesQuery,
     TrendsQuery,
+    UsageMetricsQuery,
     VectorSearchQuery,
     WebGoalsQuery,
     WebOverviewQuery,
@@ -62,9 +65,9 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_user
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 
@@ -173,7 +176,9 @@ RunnableQueryNode = Union[
     WebTrendsQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
+    UsageMetricsQuery,
 ]
 
 
@@ -545,7 +550,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingQuery":
-        from .error_tracking_query_runner import ErrorTrackingQueryRunner
+        from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 
         return ErrorTrackingQueryRunner(
             query=query,
@@ -555,10 +560,49 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "DocumentSimilarityQuery":
+        from .document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
+
+        return DocumentEmbeddingsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "ErrorTrackingIssueCorrelationQuery":
-        from .error_tracking_issue_correlation_query_runner import ErrorTrackingIssueCorrelationQueryRunner
+        from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
+            ErrorTrackingIssueCorrelationQueryRunner,
+        )
 
         return ErrorTrackingIssueCorrelationQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "ErrorTrackingSimilarIssuesQuery":
+        from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
+            ErrorTrackingSimilarIssuesQueryRunner,
+        )
+
+        return ErrorTrackingSimilarIssuesQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "ErrorTrackingBreakdownsQuery":
+        from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
+            ErrorTrackingBreakdownsQueryRunner,
+        )
+
+        return ErrorTrackingBreakdownsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -651,28 +695,15 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "TracesQuery":
-        from .legacy_compatibility.feature_flag import llm_analytics_traces_query_v2
+        from .ai.traces_query_runner import TracesQueryRunner
 
-        if llm_analytics_traces_query_v2(team):
-            from .ai.traces_query_runner_v2 import TracesQueryRunnerV2
-
-            return TracesQueryRunnerV2(
-                query=cast(TracesQuery | dict[str, Any], query),
-                team=team,
-                timings=timings,
-                limit_context=limit_context,
-                modifiers=modifiers,
-            )
-        else:
-            from .ai.traces_query_runner import TracesQueryRunner
-
-            return TracesQueryRunner(
-                query=cast(TracesQuery | dict[str, Any], query),
-                team=team,
-                timings=timings,
-                limit_context=limit_context,
-                modifiers=modifiers,
-            )
+        return TracesQueryRunner(
+            query=cast(TracesQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
     if kind == "TraceQuery":
         from .ai.trace_query_runner import TraceQueryRunner
 
@@ -694,12 +725,36 @@ def get_query_runner(
             modifiers=modifiers,
         )
 
-    if kind == "MarketingAnalyticsTableQuery":
+    if kind == NodeKind.MARKETING_ANALYTICS_TABLE_QUERY:
         from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
             MarketingAnalyticsTableQueryRunner,
         )
 
         return MarketingAnalyticsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.marketing_analytics_aggregated_query_runner import (
+            MarketingAnalyticsAggregatedQueryRunner,
+        )
+
+        return MarketingAnalyticsAggregatedQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "UsageMetricsQuery":
+        from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
+
+        return UsageMetricsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -799,7 +854,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return self.__annotations__["cached_response"]
 
     def is_query_node(self, data) -> TypeGuard[Q]:
-        return isinstance(data, self.query_type)
+        query_type = self.query_type
+        # Resolve type alias if present
+        if hasattr(query_type, "__value__"):
+            query_type = query_type.__value__
+        # Handle both UnionType and typing._UnionGenericAlias
+        if isinstance(query_type, UnionType) or (type(query_type).__name__ == "_UnionGenericAlias"):
+            return any(isinstance(data, t) for t in get_args(query_type))
+        if not isinstance(query_type, type):
+            raise TypeError(f"query_type must be a type, got {type(query_type)}: {query_type}")
+        return isinstance(data, query_type)
 
     def is_cached_response(self, data) -> TypeGuard[dict]:
         return hasattr(data, "is_cached") or (  # Duck typing for backwards compatibility with `CachedQueryResponse`
@@ -889,9 +953,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 {"cache_key": cache_manager.cache_key},
             )
 
-        if self.is_cached_response(cached_response_candidate):
-            assert isinstance(cached_response, CachedResponse)
-
+        if isinstance(cached_response, CachedResponse):
             if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
                 count_query_cache_hit(self.team.pk, hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
@@ -947,6 +1009,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query_id: Optional[str] = None,
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
+        cache_age_seconds: Optional[int] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         start_time = perf_counter()
         cache_key = self.get_cache_key()
@@ -994,6 +1057,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             trigger: str | None = get_query_tag_value("trigger")
 
             self.query_id = query_id or self.query_id
+            self._cache_age_override = cache_age_seconds
             CachedResponse: type[CR] = self.cached_response_type
             cache_manager = get_query_cache_manager(
                 team=self.team,
@@ -1181,7 +1245,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def to_hogql(self, **kwargs) -> str:
         with self.timings.measure("to_hogql"):
-            return print_ast(
+            return prepare_and_print_ast(
                 self.to_query(),
                 HogQLContext(
                     team_id=self.team.pk,
@@ -1191,7 +1255,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 ),
                 "hogql",
                 **kwargs,
-            )
+            )[0]
 
     def get_cache_payload(self) -> dict:
         # remove the tags key, these are used in the query log comment but shouldn't break caching
@@ -1216,9 +1280,32 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def get_cache_key(self) -> str:
         return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
+    def _get_cache_age_override(self, last_refresh: Optional[datetime]) -> Optional[datetime]:
+        """
+        Helper method for subclasses that override cache_target_age().
+        Returns the custom cache target age if _cache_age_override is set, otherwise None.
+
+        Subclasses can call this first in their cache_target_age() implementation:
+        ```
+        override = self._get_cache_age_override(last_refresh)
+        if override is not None:
+            return override
+        # ... custom logic
+        ```
+        """
+        if hasattr(self, "_cache_age_override") and self._cache_age_override is not None and last_refresh is not None:
+            return last_refresh + timedelta(seconds=self._cache_age_override)
+        return None
+
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None
+
+        # Check for custom cache age override (e.g., from Endpoint)
+        override_target_age = self._get_cache_age_override(last_refresh)
+        if override_target_age is not None:
+            return override_target_age
+
         query_date_range = getattr(self, "query_date_range", None)
         interval = query_date_range.interval_name if query_date_range else "minute"
         mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
@@ -1262,11 +1349,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return True
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        # If a custom cache age was provided (e.g., from Endpoint), use our override logic
+        target_age = None
+        if hasattr(self, "_cache_age_override") and self._cache_age_override is not None:
+            target_age = self.cache_target_age(last_refresh, lazy=lazy)
+            if not target_age:
+                return False
+
         query_date_range = getattr(self, "query_date_range", None)
         date_to = query_date_range.date_to() if query_date_range else None
         interval = query_date_range.interval_name if query_date_range else "minute"
         mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
-        return is_stale(self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, mode=mode)
+        return is_stale(
+            self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, mode=mode, target_age=target_age
+        )
 
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)
@@ -1369,7 +1465,7 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         # We create a new context here because we need to access the database
         # below in the to_query method and creating a database is pretty heavy
         # so we'll reuse this database for the query once it eventually runs
-        self.database = create_hogql_database(team=self.team)
+        self.database = Database.create_for(team=self.team)
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database)
 
 

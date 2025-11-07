@@ -8,7 +8,7 @@ from braintrust import EvalCase, Score
 from pydantic import BaseModel
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 
 from posthog.sync import database_sync_to_async
 
@@ -67,7 +67,7 @@ def call_generate_hogql_query(demo_org_team_user):
 @pytest.fixture
 async def database_schema(demo_org_team_user):
     team = demo_org_team_user[1]
-    database = await database_sync_to_async(create_hogql_database)(team=team)
+    database = await database_sync_to_async(Database.create_for)(team=team)
     context = HogQLContext(team=team, enable_select_queries=True, database=database)
     return await serialize_database_schema(database, context)
 
@@ -86,6 +86,15 @@ async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, **k
     )
 
 
+async def no_mustache_scorer(_input: EvalInput, _expected: str, output: str, **_kwargs) -> Score:
+    """Fail if the model outputs templating tokens (double-curly braces, sections)."""
+    bad_tokens = ["{{#", "{{/", "{{", "}}"]
+    found = [tok for tok in bad_tokens if tok in (output or "")]
+    if found:
+        return Score(name="no_mustache", score=0.0, metadata={"forbidden_tokens": found})
+    return Score(name="no_mustache", score=1.0)
+
+
 @pytest.mark.django_db
 async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_schema, demo_org_team_user, pytestconfig):
     _, team, _ = demo_org_team_user
@@ -94,7 +103,7 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
     await MaxPublicEval(
         experiment_name="tool_generate_hogql_query",
         task=call_generate_hogql_query,
-        scores=[sql_syntax_scorer, sql_semantics_scorer],
+        scores=[sql_syntax_scorer, sql_semantics_scorer, no_mustache_scorer],
         data=[
             EvalCase(
                 input=EvalInput(instructions="List all events from the last 7 days"),
@@ -208,6 +217,21 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
                     instructions="Get the daily count of unique users (including anonymous) who triggered any event, broken down by day for the past 2 weeks"
                 ),
                 expected="SELECT toStartOfDay(timestamp) AS day, count(DISTINCT person_id) AS unique_users FROM events WHERE timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day DESC",
+                metadata=metadata,
+            ),
+            EvalCase(
+                input=EvalInput(
+                    current_query="""SELECT
+    p.id AS person_id,
+    p.properties.email AS email,
+    p.properties.org AS organization
+FROM persons p
+WHERE p.properties.email NOT LIKE '%@test.com'
+ORDER BY p.created_at DESC
+LIMIT 1000""",
+                    instructions="Update the query to use variables.org for filtering. If variables.org is null, do not filter by organization. If variables.org is set, filter so that p.properties.org = variables.org.",
+                ),
+                expected="SELECT p.id AS person_id, p.properties.email AS email, p.properties.org AS organization FROM persons p WHERE p.properties.email NOT LIKE '%@test.com' AND (coalesce(variables.org, '') = '' OR p.properties.org = variables.org) ORDER BY p.created_at DESC LIMIT 1000",
                 metadata=metadata,
             ),
         ],

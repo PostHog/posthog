@@ -21,13 +21,14 @@ from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.utils import ExternalDataWorkflowInputs
-from posthog.warehouse.models import ExternalDataJob
-from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
-from posthog.warehouse.models.external_table_definitions import external_tables
+
+from products.data_warehouse.backend.models import ExternalDataJob
+from products.data_warehouse.backend.models.external_data_job import get_latest_run_if_exists
+from products.data_warehouse.backend.models.external_table_definitions import external_tables
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -102,9 +103,7 @@ async def run_external_data_job_workflow(
             AIRBYTE_BUCKET_REGION="us-east-1",
             AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         ),
-        mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.trigger_compaction_job"
-        ) as mock_trigger_compaction_job,
+        mock.patch.object(DeltaTableHelper, "compact_table") as mock_compact_table,
         mock.patch(
             "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
@@ -116,7 +115,7 @@ async def run_external_data_job_workflow(
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                 workflows=[ExternalDataJobWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -127,7 +126,7 @@ async def run_external_data_job_workflow(
                     ExternalDataJobWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -139,7 +138,7 @@ async def run_external_data_job_workflow(
     if expected_rows_synced is not None:
         assert run.rows_synced == expected_rows_synced
 
-    mock_trigger_compaction_job.assert_called()
+    mock_compact_table.assert_called()
     mock_get_data_import_finished_metric.assert_called_with(
         source_type=external_data_source.source_type, status=ExternalDataJob.Status.COMPLETED.lower()
     )
@@ -973,6 +972,53 @@ def stripe_customer_balance_transaction():
                     "metadata": {},
                     "object": "customer_balance_transaction",
                     "type": "adjustment"
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
+def stripe_customer_payment_method():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/payment_methods",
+            "has_more": false,
+            "data": [
+                {
+                    "id": "pm_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "object": "payment_method",
+                    "customer": "cus_NffrFeUfNV2Hib",
+                    "created": 1680644467,
+                    "livemode": false,
+                    "redaction": {
+                        "reason": "duplicate"
+                    },
+                    "metadata": {},
+                    "billing_details": {
+                        "address": {
+                            "city": "San Francisco",
+                            "country": "US",
+                            "line1": "510 Townsend St",
+                            "line2": "Apt 345",
+                            "postal_code": "94103",
+                            "state": "CA"
+                        },
+                        "email": "test@example.com",
+                        "name": "Test test",
+                        "phone": "+15555555555"
+                    },
+                    "card": {
+                        "brand": "visa",
+                        "last4": "4242",
+                        "exp_month": 12,
+                        "exp_year": 2024,
+                        "fingerprint": "mToisGZ01V71BCos"
+                    },
+                    "type": "card"
                 }
             ]
         }

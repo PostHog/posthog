@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { useState } from 'react'
 
-import { IconInfo, IconLock, IconPlusSmall, IconToggle, IconTrash, IconX } from '@posthog/icons'
+import { IconPlusSmall, IconToggle, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonCheckbox,
@@ -14,17 +14,17 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
-import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
@@ -35,19 +35,25 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { FeatureFlagType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, FeatureFlagType } from '~/types'
 
+import { CreateExperiment } from './create/CreateExperiment'
 import { experimentLogic } from './experimentLogic'
-import { featureFlagEligibleForExperiment } from './utils'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { formMode, experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
-        useValues(experimentLogic)
+    const {
+        formMode,
+        experiment,
+        groupTypes,
+        aggregationLabel,
+        hasPrimaryMetricSet,
+        validExistingFeatureFlag,
+        createExperimentLoading,
+    } = useValues(experimentLogic)
     const { addVariant, removeVariant, setExperiment, submitExperiment, setExperimentType, validateFeatureFlag } =
         useActions(experimentLogic)
     const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
-    const { featureFlags } = useValues(enabledFeaturesLogic)
 
     const { reportExperimentFeatureFlagModalOpened, reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
 
@@ -61,13 +67,16 @@ const ExperimentFormFields = (): JSX.Element => {
                 resourceType={{
                     type: 'experiment',
                 }}
-                canEdit
+                canEdit={userHasAccess(
+                    AccessControlResourceType.Experiment,
+                    AccessControlLevel.Editor,
+                    experiment.user_access_level
+                )}
                 onNameChange={(name) => {
                     setExperiment({ name })
                 }}
                 forceEdit={formMode === 'create'}
             />
-            <SceneDivider />
 
             {hasPrimaryMetricSet && formMode !== 'duplicate' && (
                 <LemonBanner type="info" className="my-4">
@@ -190,7 +199,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     <SceneDivider />
                 </>
             )}
-            {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && (
+            {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && !validExistingFeatureFlag && (
                 <>
                     <SceneSection
                         title="Participant type"
@@ -344,125 +353,49 @@ const ExperimentFormFields = (): JSX.Element => {
                     </SceneSection>
                     <SceneDivider />
                     <div className={cn('mt-6 pb-2 max-w-150 mt-0 pb-0')}>
-                        {featureFlags[FEATURE_FLAGS.EXPERIMENT_FORM_PERSISTENCE_FIELD] === 'test' ? (
-                            <SceneSection
-                                title={
-                                    <span className="flex items-center gap-2">
-                                        Variant persistence
-                                        <Tooltip
-                                            title={
-                                                <span>
-                                                    Only relevant if your experiment targets users transitioning from
-                                                    anonymous to logged-in. Persistence requires PostHog servers to
-                                                    perform the check and is incompatible with server-side local
-                                                    evaluation. Learn more in the{' '}
-                                                    <Link
-                                                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                                        target="_blank"
-                                                        className="text-white underline"
-                                                    >
-                                                        documentation
-                                                    </Link>
-                                                    .
-                                                </span>
-                                            }
+                        <LemonField name="parameters.ensure_experience_continuity">
+                            {({ value, onChange }) => (
+                                <label className="border rounded p-4 group" htmlFor="continuity-checkbox">
+                                    <LemonCheckbox
+                                        id="continuity-checkbox"
+                                        label="Persist flag across authentication steps"
+                                        onChange={() => onChange(!value)}
+                                        fullWidth
+                                        checked={value}
+                                    />
+                                    <div className="text-secondary text-sm pl-6">
+                                        If your feature flag is evaluated for anonymous users, use this option to ensure
+                                        the flag value remains consistent after the user logs in. Depending on your
+                                        setup, this option may not always be appropriate. Note that this feature
+                                        requires creating profiles for anonymous users.{' '}
+                                        <Link
+                                            to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                            target="_blank"
                                         >
-                                            <IconInfo className="text-secondary text-lg" />
-                                        </Tooltip>
-                                    </span>
-                                }
-                                description="Choose how experiment variants are handled when users authenticate"
-                            >
-                                <LemonField name="parameters.ensure_experience_continuity">
-                                    {({ value, onChange }) => {
-                                        const currentValue = value ?? false
-                                        return (
-                                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 max-w-160">
-                                                {[
-                                                    {
-                                                        value: false,
-                                                        icon: <IconX />,
-                                                        title: 'Disabled (default)',
-                                                        description: 'Users may see different variants after login.',
-                                                    },
-                                                    {
-                                                        value: true,
-                                                        icon: <IconLock />,
-                                                        title: 'Persist across authentication',
-                                                        description:
-                                                            'Same variant before and after login. Incompatible with server-side flag evaluation.',
-                                                    },
-                                                ].map(({ value, icon, title, description }) => (
-                                                    <div
-                                                        key={value.toString()}
-                                                        className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-primary-light ${
-                                                            currentValue === value
-                                                                ? 'border-primary bg-primary-highlight'
-                                                                : 'border-border'
-                                                        }`}
-                                                        onClick={() => onChange(value)}
-                                                    >
-                                                        <div className="flex items-start gap-3">
-                                                            <div className="text-lg text-muted">{icon}</div>
-                                                            <div className="flex-1">
-                                                                <div className="font-medium text-sm">{title}</div>
-                                                                <div className="text-xs text-muted mt-1">
-                                                                    {description}
-                                                                </div>
-                                                            </div>
-                                                            <input
-                                                                type="radio"
-                                                                name="persistence-mode"
-                                                                checked={currentValue === value}
-                                                                onChange={() => onChange(value)}
-                                                                className="cursor-pointer"
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )
-                                    }}
-                                </LemonField>
-                            </SceneSection>
-                        ) : (
-                            <LemonField name="parameters.ensure_experience_continuity">
-                                {({ value, onChange }) => (
-                                    <label className="border rounded p-4 group" htmlFor="continuity-checkbox">
-                                        <LemonCheckbox
-                                            id="continuity-checkbox"
-                                            label="Persist flag across authentication steps"
-                                            onChange={() => onChange(!value)}
-                                            fullWidth
-                                            checked={value}
-                                        />
-                                        <div className="text-secondary text-sm pl-6">
-                                            If your feature flag is evaluated for anonymous users, use this option to
-                                            ensure the flag value remains consistent after the user logs in. Depending
-                                            on your setup, this option may not always be appropriate. Note that this
-                                            feature requires creating profiles for anonymous users.{' '}
-                                            <Link
-                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                                target="_blank"
-                                            >
-                                                Learn more
-                                            </Link>
-                                        </div>
-                                    </label>
-                                )}
-                            </LemonField>
-                        )}
+                                            Learn more
+                                        </Link>
+                                    </div>
+                                </label>
+                            )}
+                        </LemonField>
                     </div>
                 </>
             )}
-            <LemonButton
-                className={cn('w-fit')}
-                type="primary"
-                data-attr="save-experiment"
-                onClick={() => submitExperiment()}
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Experiment}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={experiment.user_access_level}
             >
-                Save as draft
-            </LemonButton>
+                <LemonButton
+                    className={cn('w-fit')}
+                    type="primary"
+                    data-attr="save-experiment"
+                    onClick={() => submitExperiment()}
+                    loading={createExperimentLoading}
+                >
+                    Save as draft
+                </LemonButton>
+            </AccessControlAction>
         </SceneContent>
     )
 }
@@ -495,7 +428,11 @@ export const HoldoutSelector = (): JSX.Element => {
 }
 
 export function ExperimentForm(): JSX.Element {
-    const { props } = useValues(experimentLogic)
+    const { props, featureFlags } = useValues(experimentLogic)
+
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_CREATE_FORM] === 'test') {
+        return <CreateExperiment />
+    }
 
     return (
         <div>
@@ -568,19 +505,12 @@ const SelectExistingFeatureFlagModal = ({
             <div className="deprecated-space-y-2">
                 <div className="text-muted mb-2 max-w-xl">
                     Select an existing multivariate feature flag to use with this experiment. The feature flag must use
-                    multiple variants with <code>'control'</code> as the first, and not be associated with an existing
-                    experiment.
+                    multiple variants with <code>'control'</code> as the first.
                 </div>
                 {filtersSection}
                 <LemonTable
                     id="ff"
-                    dataSource={featureFlagModalFeatureFlags.results.filter((featureFlag) => {
-                        try {
-                            return featureFlagEligibleForExperiment(featureFlag)
-                        } catch {
-                            return false
-                        }
-                    })}
+                    dataSource={featureFlagModalFeatureFlags.results}
                     loading={featureFlagModalFeatureFlagsLoading}
                     useURLForSorting={false}
                     columns={[

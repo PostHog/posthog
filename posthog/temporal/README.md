@@ -173,13 +173,13 @@ The most important rule when writing asyncio code is: **DO NOT BLOCK** the event
 Asyncio is not new in Python (originally introduced in 3.4, and the new keywords in 3.5), but it has not been widely adopted in PostHog (yet!). This means that there isn't much code we can re-use from the PostHog monolith within Temporal activities. In particular, Django models will issue blocking requests when using the same method calls used anywhere else in PostHog. For this reason, more often than not, some amount of work is required to bring code from other parts of PostHog into activities:
 
 - Sometimes, the library you need to use has adopted asyncio and offers methods that can be a drop-in replacement.
-    - For example: Django models have async methods that just append `a` to the front: `MyModel.objects.get(...)` becomes `await MyModel.objects.aget(...)`. But not all the Django model API has support for asyncio, so check the documentation for our current version of Django.
+  - For example: Django models have async methods that just append `a` to the front: `MyModel.objects.get(...)` becomes `await MyModel.objects.aget(...)`. But not all the Django model API has support for asyncio, so check the documentation for our current version of Django.
 - If the library you require doesn't support asyncio, an alternative may exist.
-    - For example: The popular `requests` is blocking, but multiple alternatives with asyncio support exist, like `aiohttp` and `httpx`, and generally the API is quite similar, and doesn't require many code changes.
-    - Another example: The `aioboto3` implements asyncio support for `boto3`.
-    - One more: The `aiokafka` provides consumer and producer classes with non-blocking methods to interact with Kafka.
+  - For example: The popular `requests` is blocking, but multiple alternatives with asyncio support exist, like `aiohttp` and `httpx`, and generally the API is quite similar, and doesn't require many code changes.
+  - Another example: The `aioboto3` implements asyncio support for `boto3`.
+  - One more: The `aiokafka` provides consumer and producer classes with non-blocking methods to interact with Kafka.
 - If none of the above, you could get around by running blocking code in a thread pool using `concurrent.futures.ThreadPoolExecutor` or just `asyncio.to_thread`.
-    - Python releases the GIL on an I/O operation, so you can send that code to a different thread to avoid blocking the main thread with the asyncio event loop.
+  - Python releases the GIL on an I/O operation, so you can send that code to a different thread to avoid blocking the main thread with the asyncio event loop.
 - Similarly, if the blocking code is CPU bound, you could try using a `concurrent.futures.ProcessPoolExecutor`.
 - If nothing worked, you will need to re-implement the code using asyncio libraries and primitives.
 
@@ -308,9 +308,10 @@ By default, the logger you get from `structlog.get_logger` is configured to do b
 
 > [!NOTE]
 > Do note that producing logs requires extra configuration to fit the `log_entries` table schema:
-> * A `team_id` must be set somewhere in the context.
-> * The function `resolve_log_source` in `posthog/temporal/common/logger.py` must be configured to resolve a `log_source` from your workflow's ID and type.
-> That being said, we want logging to be there when you need it, but otherwise get out of the way. For this reason, writing logs to stdout will always work, regardless of whether the requirements for log production are met or not. Moreover, if the requirements for log production are not met, log production will not crash your workflows.
+>
+> - A `team_id` must be set somewhere in the context.
+> - The function `resolve_log_source` in `posthog/temporal/common/logger.py` must be configured to resolve a `log_source` from your workflow's ID and type.
+>   That being said, we want logging to be there when you need it, but otherwise get out of the way. For this reason, writing logs to stdout will always work, regardless of whether the requirements for log production are met or not. Moreover, if the requirements for log production are not met, log production will not crash your workflows.
 
 > [!TIP]
 > If you don't care about log production, you can use `get_write_only_logger` from `posthog/temporal/common/logger.py` to obtain a logger that only writes to stdout. `get_produce_only_logger` works analogously.
@@ -485,6 +486,6 @@ As you run workflows, you will be able to see the logs in the worker's logs, and
 
 ## Examples in PostHog
 
-All of batch exports is built in Temporal, see some example workflows in [here](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/temporal/destinations).
+All of batch exports is built in Temporal, see [example workflows in batch exports](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/temporal/destinations).
 
-Examples on how to unit test temporal workflows are available [here](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/tests/temporal).
+[Examples on unit testing Temporal workflows](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/tests/temporal) are available in the batch exports tests.

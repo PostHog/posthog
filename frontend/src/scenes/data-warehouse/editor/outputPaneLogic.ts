@@ -7,7 +7,7 @@ export enum OutputTab {
     Visualization = 'visualization',
     Variables = 'variables',
     Materialization = 'materialization',
-    QueryEndpoint = 'query-endpoint',
+    Endpoint = 'endpoint',
 }
 
 export interface OutputTabProps {

@@ -8,6 +8,7 @@ import type { insertionSuggestionsLogicType } from './insertionSuggestionsLogicT
 
 export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
     path(['scenes', 'notebooks', 'Suggestions', 'insertionSuggestionsLogic']),
+
     actions({
         setEditor: (editor: RichContentEditorType | null) => ({ editor }),
         setPreviousNode: (node: RichContentNode | null) => ({ node }),
@@ -68,20 +69,20 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
             }
         },
     })),
-    events(({ cache, actions }) => ({
+    events(({ actions, cache }) => ({
         afterMount: () => {
-            cache.onKeyDown = (e: KeyboardEvent) => {
-                if (e.key === 'Tab') {
-                    e.preventDefault()
-                    actions.onTab()
-                } else if (e.key === 'Escape') {
-                    actions.onEscape()
+            cache.disposables.add(() => {
+                const onKeyDown = (e: KeyboardEvent): void => {
+                    if (e.key === 'Tab') {
+                        e.preventDefault()
+                        actions.onTab()
+                    } else if (e.key === 'Escape') {
+                        actions.onEscape()
+                    }
                 }
-            }
-            window.addEventListener('keydown', cache.onKeyDown)
-        },
-        beforeUnmount: () => {
-            window.removeEventListener('keydown', cache.onKeyDown)
+                window.addEventListener('keydown', onKeyDown)
+                return () => window.removeEventListener('keydown', onKeyDown)
+            }, 'keydownListener')
         },
     })),
 ])

@@ -30,7 +30,7 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): P
 
         const parsedEvent = parseKafkaMessage(message)
         if (!parsedEvent) {
-            return Promise.resolve(drop('Failed to parse Kafka message'))
+            return Promise.resolve(drop('failed_parse_message'))
         }
 
         return Promise.resolve(ok({ ...input, event: parsedEvent }))

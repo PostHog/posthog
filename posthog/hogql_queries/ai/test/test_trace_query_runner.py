@@ -230,7 +230,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
                 for i, event in enumerate(value):
                     self.assertEventEqual(trace.events[i], event)
             elif field == "person":
-                self.assertDictContainsSubset(value, trace.person.model_dump(mode="json", exclude={"uuid"}))
+                self.assertLess(value.items(), trace.person.model_dump(mode="json", exclude={"uuid"}).items())
             else:
                 self.assertEqual(getattr(trace, field), value, f"Field {field} does not match")
 
@@ -332,15 +332,15 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
         self.assertEqual(response.results[0].totalLatency, 10.5)
-        self.assertDictContainsSubset(
+        self.assertLess(
             {
                 "$ai_latency": 10.5,
                 "$ai_provider": "posthog",
                 "$ai_model": "hog-destroyer",
                 "$ai_http_status": 200,
                 "$ai_base_url": "https://us.posthog.com",
-            },
-            response.results[0].events[0].properties,
+            }.items(),
+            response.results[0].events[0].properties.items(),
         )
 
     @freeze_time("2025-01-01T00:00:00Z")
@@ -1301,6 +1301,54 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         # Should sum both root children: 100 + 150 = 250
         self.assertEqual(response.results[0].totalLatency, 250.0)
+
+    def test_embedding_only_trace_cost_aggregation(self):
+        """Test that embedding-only traces properly aggregate costs (regression test)."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "embedding_only_trace"
+
+        # Create multiple embedding events with costs
+        _create_ai_embedding_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            input="First text to embed",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+        _create_ai_embedding_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            input="Second text to embed",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 1),
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        trace = response.results[0]
+
+        # Verify costs are aggregated (not null)
+        # "First text to embed" = 19 chars, "Second text to embed" = 20 chars
+        expected_input_cost = 0.0039
+        self.assertIsNotNone(trace.inputCost)
+        self.assertEqual(trace.inputCost, expected_input_cost)
+        self.assertEqual(trace.totalCost, expected_input_cost)
+
+        # Embeddings typically don't set output cost/tokens, so they'll be None
+        self.assertIsNone(trace.outputCost)
+        self.assertIsNone(trace.outputTokens)
+
+        # Verify input tokens are aggregated
+        expected_input_tokens = 39
+        self.assertIsNotNone(trace.inputTokens)
+        self.assertEqual(trace.inputTokens, expected_input_tokens)
 
     def test_latency_mixed_span_id_presence(self):
         """

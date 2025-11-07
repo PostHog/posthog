@@ -45,7 +45,7 @@ class InsightRagContextNode(AssistantNode):
         self._prewarm_queries()
 
         actions_in_context = []
-        if ui_context := self._get_ui_context(state):
+        if ui_context := self.context_manager.get_ui_context(state):
             actions_in_context = ui_context.actions if ui_context.actions else []
 
         try:

@@ -1,20 +1,21 @@
 import datetime
-from abc import ABC
-from typing import Any, Optional, get_args, get_origin
+from abc import ABC, abstractmethod
+from typing import Any, get_args, get_origin
 from uuid import UUID
 
 from django.utils import timezone
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import ReasoningMessage
+from posthog.schema import CurrencyCode
 
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.user import User
 
-from ee.hogai.utils.types.base import BaseState, BaseStateWithIntermediateSteps
+from ee.hogai.utils.dispatcher import AssistantDispatcher, create_dispatcher_from_config
+from ee.hogai.utils.types.base import BaseStateWithIntermediateSteps, NodePath
 from ee.models import Conversation, CoreMemory
 
 
@@ -87,6 +88,13 @@ class AssistantContextMixin(ABC):
         """
         return self._team.timezone_info.tzname(self._utc_now_datetime)
 
+    @property
+    def project_currency(self) -> str:
+        """
+        Returns the currency of the project, e.g. "USD" or "EUR".
+        """
+        return self._team.base_currency or CurrencyCode.USD.value
+
     def _get_debug_props(self, config: RunnableConfig) -> dict[str, Any]:
         """Properties to be sent to PostHog SDK (error tracking, etc)."""
         metadata = (config.get("configurable") or {}).get("sdk_metadata")
@@ -146,59 +154,73 @@ class StateClassMixin:
         )
 
 
-class ReasoningNodeMixin:
-    REASONING_MESSAGE: Optional[str] = None
+class TaxonomyUpdateDispatcherNodeMixin:
     _team: Team
     _user: User
+    dispatcher: AssistantDispatcher
 
-    async def get_reasoning_message(
-        self, input: BaseState, default_message: Optional[str] = None
-    ) -> ReasoningMessage | None:
-        content = self.REASONING_MESSAGE or default_message
-        return ReasoningMessage(content=content) if content else None
-
-
-class TaxonomyReasoningNodeMixin:
-    _team: Team
-    _user: User
-
-    async def get_reasoning_message(
-        self, input: BaseState, default_message: Optional[str] = None
-    ) -> ReasoningMessage | None:
-        if not isinstance(input, BaseStateWithIntermediateSteps):
-            return None
+    def dispatch_update_message(self, state: BaseStateWithIntermediateSteps) -> None:
         substeps: list[str] = []
-        if input:
-            if intermediate_steps := input.intermediate_steps:
-                for action, _ in intermediate_steps:
-                    assert isinstance(action.tool_input, dict)
-                    match action.tool:
-                        case "retrieve_event_properties":
-                            substeps.append(f"Exploring `{action.tool_input['event_name']}` event's properties")
-                        case "retrieve_entity_properties":
-                            substeps.append(f"Exploring {action.tool_input['entity']} properties")
-                        case "retrieve_event_property_values":
-                            substeps.append(
-                                f"Analyzing `{action.tool_input['event_name']}` event's property `{action.tool_input['property_name']}`"
+        if intermediate_steps := state.intermediate_steps:
+            for action, _ in intermediate_steps:
+                assert isinstance(action.tool_input, dict)
+                match action.tool:
+                    case "retrieve_event_properties":
+                        substeps.append(f"Exploring `{action.tool_input['event_name']}` event's properties")
+                    case "retrieve_entity_properties":
+                        substeps.append(f"Exploring {action.tool_input['entity']} properties")
+                    case "retrieve_event_property_values":
+                        substeps.append(
+                            f"Analyzing `{action.tool_input['event_name']}` event's property `{action.tool_input['property_name']}`"
+                        )
+                    case "retrieve_entity_property_values":
+                        substeps.append(
+                            f"Analyzing {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
+                        )
+                    case "retrieve_action_properties" | "retrieve_action_property_values":
+                        try:
+                            action_model = Action.objects.get(
+                                pk=action.tool_input["action_id"], team__project_id=self._team.project_id
                             )
-                        case "retrieve_entity_property_values":
-                            substeps.append(
-                                f"Analyzing {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
-                            )
-                        case "retrieve_action_properties" | "retrieve_action_property_values":
-                            try:
-                                action_model = await Action.objects.aget(
-                                    pk=action.tool_input["action_id"], team__project_id=self._team.project_id
+                            if action.tool == "retrieve_action_properties":
+                                substeps.append(f"Exploring `{action_model.name}` action properties")
+                            elif action.tool == "retrieve_action_property_values":
+                                substeps.append(
+                                    f"Analyzing `{action.tool_input['property_name']}` action property of `{action_model.name}`"
                                 )
-                                if action.tool == "retrieve_action_properties":
-                                    substeps.append(f"Exploring `{action_model.name}` action properties")
-                                elif action.tool == "retrieve_action_property_values":
-                                    substeps.append(
-                                        f"Analyzing `{action.tool_input['property_name']}` action property of `{action_model.name}`"
-                                    )
-                            except Action.DoesNotExist:
-                                pass
+                        except Action.DoesNotExist:
+                            pass
 
-        # We don't want to reset back to just "Picking relevant events" after running QueryPlannerTools/TaxonomyAgentToolsNode,
-        # so we reuse the last reasoning headline (default message) when going back to QueryPlanner/TaxonomyAgentNode
-        return ReasoningMessage(content=default_message or "Picking relevant events and properties", substeps=substeps)
+        content = "Picking relevant events and properties"
+        if substeps:
+            content = substeps[-1]
+        self.dispatcher.update(content)
+
+
+class AssistantDispatcherMixin(ABC):
+    _node_path: tuple[NodePath, ...]
+    _config: RunnableConfig | None
+    _dispatcher: AssistantDispatcher | None = None
+
+    @property
+    def node_path(self) -> tuple[NodePath, ...]:
+        return self._node_path
+
+    @property
+    @abstractmethod
+    def node_name(self) -> str: ...
+
+    @property
+    def tool_call_id(self) -> str:
+        parent_tool_call_id = next((path.tool_call_id for path in reversed(self._node_path) if path.tool_call_id), None)
+        if not parent_tool_call_id:
+            raise ValueError("No tool call ID found")
+        return parent_tool_call_id
+
+    @property
+    def dispatcher(self) -> AssistantDispatcher:
+        """Create a dispatcher for this node"""
+        if self._dispatcher:
+            return self._dispatcher
+        self._dispatcher = create_dispatcher_from_config(self._config or {}, self.node_path)
+        return self._dispatcher

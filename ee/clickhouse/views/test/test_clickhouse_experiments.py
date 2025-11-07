@@ -55,7 +55,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(17, 18)):
+        with self.assertNumQueries(FuzzyInt(18, 19)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -72,7 +72,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(21, 22)):
+        with self.assertNumQueries(FuzzyInt(22, 23)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2293,6 +2293,45 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_update_experiment_exposure_config_with_action(self):
+        # Create an action
+        action = Action.objects.create(
+            name="Test Action",
+            team=self.team,
+            steps_json=[{"event": "purchase", "properties": [{"key": "plan", "value": "premium", "type": "event"}]}],
+        )
+
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Test Feature Flag",
+            key="test-feature-flag",
+            filters={},
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Test Experiment",
+            description="My test experiment",
+            feature_flag=feature_flag,
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {
+                "exposure_criteria": {
+                    "filterTestAccounts": False,
+                    "exposure_config": {
+                        "kind": "ActionsNode",
+                        "id": action.id,
+                    },
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        experiment = Experiment.objects.get(id=experiment.id)
+        assert experiment.exposure_criteria is not None
+        self.assertEqual(experiment.exposure_criteria["filterTestAccounts"], False)
+        self.assertEqual(experiment.exposure_criteria["exposure_config"]["kind"], "ActionsNode")
+        self.assertEqual(experiment.exposure_criteria["exposure_config"]["id"], action.id)
+
     def test_create_experiment_in_specific_folder(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -2656,9 +2695,9 @@ class TestExperimentCRUD(APILicensedTest):
         initial_metrics = response.json()["metrics"]
 
         expected_initial_fingerprints = {
-            "mean": "fd431b59b934ba0d2dc650f54a37da146f7532eb7a93bbcf78b9cfdbfcad0d26",
-            "funnel": "d25af73845180f7327572cd9a2cd8745432f1eed5bfa6b0d35d0a368c7175038",
-            "ratio": "fb2f447c7b49bc8973fd3dfd5fb5cd4f33523b4ed2281f6bd33def84fe95dc62",
+            "mean": "1a5694c7330b8fb9f920fa6f1e6d871cc07e55e9d87447cb01a3384ed732c605",
+            "funnel": "bf2d01d67d7a1f608177b6f3a9971a6c263870d23ad5935054b5069286575a94",
+            "ratio": "3332b31c0ec0c8be353d5ed1f5740758affc9136d9721dba60434cbe104adb95",
         }
 
         for metric in initial_metrics:
@@ -2717,9 +2756,9 @@ class TestExperimentCRUD(APILicensedTest):
         updated_metrics = response.json()["metrics"]
 
         expected_updated_fingerprints = {
-            "mean": "61e7a1f22f967262749b72ea086eae04fe2ced040eeb179d7d25a3be32a7ea31",
-            "funnel": "5c21352fe6e13282ca63b24f128ed7e0d8f0cc9d5988964b1bf89b11f4405b23",
-            "ratio": "9b81f680dbc8ff74978877e6eb3827bbafc881f7df80841648e5b97c85452977",
+            "mean": "d6a393e5456b71c16961c45e07eb17cb86e4f7972549033f9883c99430248c02",
+            "funnel": "9f7888cb2f7f9c3dac2b6482a964eef6911f97e376ed53305ed6653f7f70ce9b",
+            "ratio": "1b83a833a62ff9c2f01ba86be1f3e578b97749d3264e08ff9e76d863865e3ff3",
         }
 
         for metric in updated_metrics:
@@ -2972,6 +3011,44 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                             "type": "OR",
                             "values": [
                                 {
+                                    "bytecode": [
+                                        "_H",
+                                        1,
+                                        32,
+                                        "custom_exposure_event",
+                                        32,
+                                        "event",
+                                        1,
+                                        1,
+                                        11,
+                                        32,
+                                        "bonk",
+                                        32,
+                                        "bonk",
+                                        32,
+                                        "properties",
+                                        1,
+                                        2,
+                                        11,
+                                        32,
+                                        "x",
+                                        32,
+                                        "y",
+                                        44,
+                                        2,
+                                        32,
+                                        "$current_url",
+                                        32,
+                                        "properties",
+                                        1,
+                                        2,
+                                        21,
+                                        3,
+                                        2,
+                                        3,
+                                        2,
+                                    ],
+                                    "conditionHash": "605645c960b2c67c",
                                     "event_filters": [
                                         {"key": "bonk", "type": "event", "value": "bonk"},
                                         {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},

@@ -10,6 +10,8 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/CustomerAnalyticsScene'),
             projectBased: true,
             name: 'Customer analytics',
+            description: 'Analyze your customers',
+            iconType: 'cohort',
         },
     },
     routes: {
@@ -27,6 +29,7 @@ export const manifest: ProductManifest = {
             href: urls.customerAnalytics(),
             tags: ['alpha'],
             flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
+            sceneKey: 'CustomerAnalytics',
         },
     ],
 }

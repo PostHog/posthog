@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from typing import Optional, cast
 from uuid import uuid4
 
@@ -16,14 +17,15 @@ from posthog.test.base import (
 from unittest import mock
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils import timezone
 
 from flaky import flaky
 from rest_framework import status
+from temporalio import common
 
 import posthog.models.person.deletion
 from posthog.clickhouse.client import sync_execute
-from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.models import Cohort, Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import PersonDistinctId
@@ -408,7 +410,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                         team_id=self.team.id,
                     ),
                     id=f"delete-recordings-with-person-{person.uuid}-1234",
-                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                    retry_policy=common.RetryPolicy(
+                        initial_interval=timedelta(seconds=60),
+                        backoff_coefficient=2.0,
+                        maximum_interval=None,
+                        maximum_attempts=2,
+                        non_retryable_error_types=None,
+                    ),
                 )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
@@ -442,7 +451,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                         team_id=self.team.id,
                     ),
                     id=f"delete-recordings-with-person-{person.uuid}-1234",
-                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                    retry_policy=common.RetryPolicy(
+                        initial_interval=timedelta(seconds=60),
+                        backoff_coefficient=2.0,
+                        maximum_interval=None,
+                        maximum_attempts=2,
+                        non_retryable_error_types=None,
+                    ),
                 )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
@@ -806,9 +822,15 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/person/cohorts/?person_id={person2.uuid}").json()
         response["results"].sort(key=lambda cohort: cohort["name"])
         self.assertEqual(len(response["results"]), 3)
-        self.assertDictContainsSubset({"id": cohort1.id, "count": 2, "name": cohort1.name}, response["results"][0])
-        self.assertDictContainsSubset({"id": cohort3.id, "count": 1, "name": cohort3.name}, response["results"][1])
-        self.assertDictContainsSubset({"id": cohort4.id, "count": 1, "name": cohort4.name}, response["results"][2])
+        self.assertLessEqual(
+            {"id": cohort1.id, "count": 2, "name": cohort1.name}.items(), response["results"][0].items()
+        )
+        self.assertLessEqual(
+            {"id": cohort3.id, "count": 1, "name": cohort3.name}.items(), response["results"][1].items()
+        )
+        self.assertLessEqual(
+            {"id": cohort4.id, "count": 1, "name": cohort4.name}.items(), response["results"][2].items()
+        )
 
     def test_person_cohorts_with_cohort_version(self) -> None:
         PropertyDefinition.objects.create(
@@ -830,7 +852,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/person/cohorts/?person_id={person.uuid}").json()
         self.assertEqual(len(response["results"]), 1)
-        self.assertDictContainsSubset({"id": cohort.id, "count": 1, "name": cohort.name}, response["results"][0])
+        self.assertLessEqual({"id": cohort.id, "count": 1, "name": cohort.name}.items(), response["results"][0].items())
 
         # Update the group to no longer include person
         cohort.groups = [{"properties": [{"key": "no", "value": "no", "type": "person"}]}]
@@ -869,6 +891,121 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(person.distinct_ids), 1)
             matching_row = next(row for row in pdis2 if row[0] == person.uuid)
             self.assertEqual(matching_row, (person.uuid, person.distinct_ids[0], 0))
+
+    def test_split_person_overrides_delete_version(self):
+        """
+        Test that split person correctly sets version to override deleted persons.
+
+        When a person is deleted, the delete event uses version + 100 (e.g., version 100).
+        When splitting, the new person should use version + 101 (e.g., version 101) to ensure
+        ClickHouse sees the split person as more recent than the delete event.
+        """
+        from posthog.models.person.missing_person import uuidFromDistinctId
+        from posthog.models.person.util import delete_person
+
+        # Create person A with UUID derived from the distinct_id (same UUID that split will use)
+        person_a_uuid = uuidFromDistinctId(self.team.pk, "deleted_user")
+        person_a = Person.objects.create(
+            team=self.team,
+            uuid=person_a_uuid,
+            version=0,
+        )
+        PersonDistinctId.objects.create(
+            team=self.team,
+            person=person_a,
+            distinct_id="deleted_user",
+            version=0,
+        )
+        create_person(
+            team_id=self.team.pk,
+            uuid=str(person_a.uuid),
+            version=0,
+            sync=True,
+        )
+        create_person_distinct_id(
+            team_id=self.team.pk,
+            distinct_id="deleted_user",
+            person_id=str(person_a.uuid),
+            version=0,
+            sync=True,
+        )
+
+        # Delete person A (this creates a delete event with version 100 = 0 + 100)
+        delete_person(person_a, sync=True)
+        person_a.delete()
+
+        # Create person B with a different distinct_id (will also have version 0 by default)
+        person_b = _create_person(
+            team=self.team,
+            distinct_ids=["active_user"],
+            immediate=True,
+        )
+
+        # Manually add the deleted distinct_id to person B (simulating a merge scenario)
+        # This would happen in a real scenario where events come in for the deleted distinct_id
+        PersonDistinctId.objects.create(
+            team=self.team,
+            person=person_b,
+            distinct_id="deleted_user",
+            version=2,
+        )
+        create_person_distinct_id(
+            team_id=self.team.pk,
+            distinct_id="deleted_user",
+            person_id=str(person_b.uuid),
+            version=2,
+            sync=True,
+        )
+
+        # Now person_b has both "active_user" and "deleted_user"
+        person_b.refresh_from_db()
+        self.assertEqual(set(person_b.distinct_ids), {"active_user", "deleted_user"})
+
+        # Split person B
+        response = self.client.post("/api/person/{}/split/".format(person_b.uuid)).json()
+        self.assertTrue(response["success"])
+
+        # Verify ClickHouse has the correct state
+        ch_persons = sync_execute(
+            """
+            SELECT id, version, is_deleted
+            FROM person
+            FINAL
+            WHERE team_id = %(team_id)s AND id IN (
+                SELECT DISTINCT person_id
+                FROM person_distinct_id2
+                FINAL
+                WHERE team_id = %(team_id)s AND distinct_id = 'deleted_user'
+            )
+            ORDER BY version DESC
+            """,
+            {"team_id": self.team.pk},
+        )
+
+        # Should have exactly one person (the split creates a new one with version 101)
+        self.assertEqual(len(ch_persons), 1)
+        _, version, is_deleted = ch_persons[0]
+
+        # The split person should have version 101 (person_b version 0 + 101)
+        # which is higher than the delete version 100 (person_a version 0 + 100)
+        self.assertEqual(version, 101)
+        self.assertEqual(is_deleted, 0)
+
+        # Verify person_distinct_id2 for the deleted_user distinct_id
+        ch_pdis = sync_execute(
+            """
+            SELECT person_id, distinct_id, version, is_deleted
+            FROM person_distinct_id2
+            FINAL
+            WHERE team_id = %(team_id)s AND distinct_id = 'deleted_user'
+            """,
+            {"team_id": self.team.pk},
+        )
+
+        self.assertEqual(len(ch_pdis), 1)
+        _, pdi_distinct_id, _, pdi_is_deleted = ch_pdis[0]
+        self.assertEqual(pdi_distinct_id, "deleted_user")
+        self.assertEqual(pdi_is_deleted, 0)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_patch_user_property_activity(self):

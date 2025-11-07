@@ -36,6 +36,8 @@ services:
                         path /batch*
                         path /capture
                         path /capture*
+                        path /ai
+                        path /ai/*
                     }
 
                     @flags {
@@ -108,6 +110,9 @@ services:
             file: docker-compose.base.yml
             service: clickhouse
         hostname: clickhouse
+        # Development performance optimizations
+        mem_limit: 4g
+        cpus: 2
         environment:
             - AWS_ACCESS_KEY_ID=object_storage_root_user
             - AWS_SECRET_ACCESS_KEY=object_storage_root_password
@@ -123,6 +128,7 @@ services:
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./docker/clickhouse/config.d/dev-memory.xml:/etc/clickhouse-server/config.d/dev-memory.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
@@ -242,6 +248,14 @@ services:
             service: otel-collector
         depends_on:
             - jaeger
+            - capture-logs
+
+    capture-logs:
+        extends:
+            file: docker-compose.base.yml
+            service: capture-logs
+        depends_on:
+            - kafka
 
     jaeger:
         extends:

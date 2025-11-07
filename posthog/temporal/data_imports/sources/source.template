@@ -1,0 +1,83 @@
+# 1. TODO: add a new value for your source in the following three places:
+#       - ExternalDataSourceType at `posthog/warehouse/types.py`
+#       - ExternalDataSourceType at `posthog/schema.py`. this is only needed so type checking doesn't initially fail
+#       - externalDataSources at `frontend/src/queries/schema/schema-general.ts`
+#
+#       following the casing conventions for each file whether ALL_CAPS_WITH_UNDERS, PascalCase, or
+#       lower-kebab-case
+# 2. TODO: run django migrations with `DEBUG=1 python manage.py makemigrations && DEBUG=1 ./bin/migrate`
+# 3. TODO: change the name of your source class from TemplateSource
+# 4. TODO: update the return value of source_type to match the ExternalDataSourceType you created in step one
+# 5. TODO: update ExternalDataSourceType in `posthog/schema.py` to include your
+#       source type as an enum value again, the key should be ALL_CAPS_WITH_UNDERS
+#       and the value should be PascalCase
+# 6. TODO: update get_source_config(). update the name to match the SchemaExternalDataSourceType from step 5.
+#       also add any config fields users will need to connect the source. see other sources for examples.
+# 7. TODO: add a line to `posthog/temporal/data_imports/sources/__init__.py` to import your
+#       source and include it in the  __all__ list
+# 8. TODO: run `pnpm run generate:source-configs`. you should see "Generating config for
+#       {YOUR_SOURCE}" in the logs. you should also see a generated config class for your
+#       source in `posthog/temporal/data_imports/sources/generated_configs.py`
+# 9. TODO: update all the references to `Config` in this file to the newly generated source
+#       config class from step 8
+# 10. TODO: implement the logic for your source or mark it as unreleased by setting
+#       unreleasedSource=True in the SourceConfig constructor
+# 11. TODO: add a new .png icon for your source in `frontend/public/services/`
+#       and update the iconPath field in your SourceConfig including the
+#       extension. this is important because the icon is rendered in the frontend
+#       by `frontend/src/scenes/data-warehouse/settings/DataWarehouseSourceIcon.tsx`
+# 12. TODO: rerun `pnpm run generate:source-configs`. you will need to do this every time you
+#       modify the implementation of your source
+# 13. TODO: run `pnpm run schema:build` to update typing information. this also ensures your
+#       source will appear in frontend dropdowns and menus.
+# 14. TODO: phew! you're done. just delete these TODOs before you PR
+
+from typing import cast
+
+from posthog.schema import (
+    ExternalDataSourceType as SchemaExternalDataSourceType,
+    SourceConfig,
+)
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.config import Config
+from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from products.data_warehouse.backend.types import ExternalDataSourceType
+
+
+@SourceRegistry.register
+class TemplateSource(BaseSource[Config]):  # rename this class and replace `Config` with the generated config
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.SOURCE_TYPE  # replace this enum value
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=SchemaExternalDataSourceType.SOURCE_TYPE,  # replace this enum value
+            iconPath="/static/services/template.png",  # update this icon path
+            label="Template",  # only needed if the readable name is complex
+            caption=None,  # only needed if you wanna inline docs
+            docsUrl=None,  # link to the docs in the website, full path including https://
+            fields=cast(list[FieldType], []),  # add source config fields here
+        )
+
+    def validate_credentials(
+        self, config: Config, team_id: int
+    ) -> tuple[bool, str | None]:  # replace `Config` with the generated class
+        return (
+            True,
+            None,
+        )  # implement logic to validate the credentials of your source, e.g. check the validity of API keys. return a tuple of whether the credentials are valid, and if not, return an error message to return to the user
+
+    def get_schemas(
+        self, config: Config, team_id: int, with_counts: bool = False
+    ) -> list[SourceSchema]:  # replace `Config` with the generated class
+        return []  # implement your source logic
+
+    def source_for_pipeline(
+        self, config: Config, inputs: SourceInputs
+    ) -> SourceResponse:  # replace `Config` with the generated class
+        raise NotImplementedError()  # implement your source logic

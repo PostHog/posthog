@@ -23,7 +23,7 @@ jobs:
     # Job to decide if we should run plugin server ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run Node.js checks
         outputs:
@@ -49,69 +49,59 @@ jobs:
                         - '*Dockerfile'
 
     lint:
+        if: needs.changes.outputs.nodejs == 'true'
         name: Node.js Code quality
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         steps:
             - uses: actions/checkout@v4
-              if: needs.changes.outputs.nodejs == 'true'
 
             - name: Install pnpm
-              if: needs.changes.outputs.nodejs == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              if: needs.changes.outputs.nodejs == 'true'
               uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
-              if: needs.changes.outputs.nodejs == 'true'
               run: |
                   pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
                   bin/turbo --filter=@posthog/plugin-server prepare
 
             - name: Check formatting with prettier
-              if: needs.changes.outputs.nodejs == 'true'
               run: pnpm --filter=@posthog/plugin-server prettier:check
 
             - name: Lint with ESLint
-              if: needs.changes.outputs.nodejs == 'true'
               run: pnpm --filter=@posthog/plugin-server lint
 
     build:
+        if: needs.changes.outputs.nodejs == 'true'
         name: Node.js Build
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         steps:
             - uses: actions/checkout@v4
-              if: needs.changes.outputs.nodejs == 'true'
 
             - name: Install pnpm
-              if: needs.changes.outputs.nodejs == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              if: needs.changes.outputs.nodejs == 'true'
               uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
-              if: needs.changes.outputs.nodejs == 'true'
               run: |
                   pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
                   bin/turbo --filter=@posthog/plugin-server prepare
 
             - name: Check builds correctly
-              if: needs.changes.outputs.nodejs == 'true'
               run: pnpm --filter=@posthog/plugin-server build
 
             - name: Sanity check output
-              if: needs.changes.outputs.nodejs == 'true'
               run: |
                   cd plugin-server
                   # We expect it to fail but check that the error isn't "MODULE_NOT_FOUND"
@@ -123,6 +113,7 @@ jobs:
                   fi
 
     tests:
+        if: needs.changes.outputs.nodejs == 'true'
         name: Node.js Tests (${{matrix.shard}}/3)
         needs: changes
         runs-on: depot-ubuntu-24.04-4
@@ -141,67 +132,52 @@ jobs:
 
         steps:
             - name: Code check out
-              # NOTE: We need this check on every step so that it still runs if skipped as we need it to suceed for the CI
-              if: needs.changes.outputs.nodejs == 'true'
               uses: actions/checkout@v4
 
             - name: Stop/Start stack with Docker Compose
-              if: needs.changes.outputs.nodejs == 'true'
               run: |
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d
 
             - name: Add Kafka and ClickHouse to /etc/hosts
-              if: needs.changes.outputs.nodejs == 'true'
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              if: needs.changes.outputs.nodejs == 'true'
               uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              id: setup-uv
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.7.8
+                  version: 0.8.19
 
             - name: Install rust
-              if: needs.changes.outputs.nodejs == 'true'
               uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
 
-            - uses: actions/cache@v4
-              with:
-                  path: |
-                      ~/.cargo/registry
-                      ~/.cargo/git
-                      rust/target
-                  key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
 
             - name: Install sqlx-cli
-              if: needs.changes.outputs.nodejs == 'true'
               working-directory: rust
               run: cargo install sqlx-cli@0.7.3 --locked --no-default-features --features native-tls,postgres
 
             - name: Install SAML (python3-saml) dependencies
-              if: needs.changes.outputs.nodejs == 'true'
+              if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install python dependencies
-              if: needs.changes.outputs.nodejs == 'true'
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install pnpm
-              if: needs.changes.outputs.nodejs == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              if: needs.changes.outputs.nodejs == 'true'
               uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
@@ -209,35 +185,34 @@ jobs:
                   cache-dependency-path: pnpm-lock.yaml
 
             - name: Download MaxMind Database
-              if: needs.changes.outputs.nodejs == 'true'
               run: |
                   ./bin/download-mmdb
 
             - name: Install package.json dependencies with pnpm
-              if: needs.changes.outputs.nodejs == 'true'
               run: pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
 
             - name: Wait for Clickhouse, Redis, Kafka
-              if: needs.changes.outputs.nodejs == 'true'
               run: |
                   docker compose -f docker-compose.dev.yml up kafka redis clickhouse maildev -d --wait
                   bin/check_kafka_clickhouse_up
 
             - name: Set up databases
-              if: needs.changes.outputs.nodejs == 'true'
               env:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+
               run: pnpm --filter=@posthog/plugin-server setup:test
 
             - name: Test with Jest
-              if: needs.changes.outputs.nodejs == 'true'
               env:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
-                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
+                  PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
+                  PERSONS_READONLY_MIGRATION_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
@@ -261,17 +236,17 @@ jobs:
             - run: exit 0
             - name: Check outcomes
               run: |
-                  if [[ "${{ needs.tests.result }}" != "success" ]]; then
+                  if [[ "${{ needs.tests.result }}" != "success" && "${{ needs.tests.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the Node.js test matrix failed."
                     exit 1
                   fi
                   echo "All jobs in the Node.js test matrix passed."
-                  if [[ "${{ needs.build.result }}" != "success" ]]; then
+                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
                     echo "Node.js build failed."
                     exit 1
                   fi
                   echo "Node.js build passed."
-                  if [[ "${{ needs.lint.result }}" != "success" ]]; then
+                  if [[ "${{ needs.lint.result }}" != "success" && "${{ needs.lint.result }}" != "skipped" ]]; then
                     echo "Node.js lint failed."
                     exit 1
                   fi

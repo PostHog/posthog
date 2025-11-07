@@ -7,6 +7,7 @@ import { IconComment } from '@posthog/icons'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { RichContentPreview } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
@@ -75,7 +76,7 @@ function PlayerSeekbarTick({
         >
             <Tooltip
                 placement="top-start"
-                delayMs={50}
+                delayMs={10}
                 onOpen={() => {
                     posthog.capture('player seekbar tick tooltip shown', {
                         item_type: item.type,
@@ -108,7 +109,14 @@ function PlayerSeekbarTick({
                         item.data.comment
                     ) : (
                         <div className="flex flex-col px-4 py-2 gap-y-2">
-                            <TextContent text={item.data.content ?? ''} data-attr="PlayerSeekbarTicks--text-content" />
+                            {item.data.rich_content ? (
+                                <RichContentPreview content={item.data.rich_content} className="rounded-none" />
+                            ) : (
+                                <TextContent
+                                    text={item.data.content ?? ''}
+                                    data-attr="PlayerSeekbarTicks--text-content"
+                                />
+                            )}
                             <ProfilePicture user={item.data.created_by} showName size="md" type="person" />{' '}
                         </div>
                     )

@@ -14,12 +14,13 @@ from collections.abc import AsyncGenerator, Callable
 
 import pytest
 
+from django.conf import settings
+
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog import constants
 from posthog.batch_exports.models import BatchExport
 from posthog.batch_exports.service import (
     BackfillDetails,
@@ -40,11 +41,11 @@ from products.batch_exports.backend.temporal.metrics import BATCH_EXPORT_ACTIVIT
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
-from products.batch_exports.backend.tests.temporal.utils import (
-    fail_on_application_error,
+from products.batch_exports.backend.tests.temporal.utils.records import (
     get_record_batch_from_queue,
     remove_duplicates_from_records,
 )
+from products.batch_exports.backend.tests.temporal.utils.workflow import fail_on_application_error
 
 
 class RetryableTestException(Exception):
@@ -164,7 +165,7 @@ class BaseDestinationTest(ABC):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[self.workflow_class],
                 activities=[
                     start_batch_export_run,
@@ -180,7 +181,7 @@ class BaseDestinationTest(ABC):
                             self.workflow_class.run,  # type: ignore[attr-defined]
                             inputs,
                             id=workflow_id,
-                            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                             retry_policy=RetryPolicy(maximum_attempts=1),
                             execution_timeout=dt.timedelta(minutes=5),
                         )
@@ -190,7 +191,7 @@ class BaseDestinationTest(ABC):
                             self.workflow_class.run,  # type: ignore[attr-defined]
                             inputs,
                             id=workflow_id,
-                            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                             retry_policy=RetryPolicy(maximum_attempts=1),
                             execution_timeout=dt.timedelta(minutes=5),
                         )
@@ -439,35 +440,6 @@ class CommonWorkflowTests:
         await adelete_batch_export(batch_export, temporal_client)
 
     @pytest.fixture
-    async def invalid_batch_export_for_destination(
-        self, ateam, temporal_client, interval, invalid_integration, destination_test, exclude_events
-    ) -> AsyncGenerator[tuple[BatchExport, str], None]:
-        integration, expected_error_message = invalid_integration
-        destination_config = {**destination_test.get_destination_config(ateam.pk), "exclude_events": exclude_events}
-        destination_data = {
-            "type": destination_test.destination_type,
-            "config": destination_config,
-            "integration_id": integration.pk if integration else None,
-        }
-
-        batch_export_data = {
-            "name": "my-production-destination-export",
-            "destination": destination_data,
-            "interval": interval,
-        }
-
-        batch_export = await acreate_batch_export(
-            team_id=ateam.pk,
-            name=batch_export_data["name"],
-            destination_data=batch_export_data["destination"],
-            interval=batch_export_data["interval"],
-        )
-
-        yield batch_export, expected_error_message
-
-        await adelete_batch_export(batch_export, temporal_client)
-
-    @pytest.fixture
     def destination_test(self, ateam: Team):
         raise NotImplementedError("destination_test fixture must be implemented by destination-specific tests")
 
@@ -479,6 +451,12 @@ class CommonWorkflowTests:
     @pytest.fixture
     def simulate_unexpected_error(self):
         raise NotImplementedError("simulate_unexpected_error fixture must be implemented by destination-specific tests")
+
+    @pytest.fixture
+    def simulate_non_retryable_error(self):
+        raise NotImplementedError(
+            "simulate_non_retryable_error fixture must be implemented by destination-specific tests"
+        )
 
     def test_workflow_and_activities_are_registered(
         self,
@@ -637,17 +615,15 @@ class CommonWorkflowTests:
         ateam,
         generate_test_data,
         data_interval_end: dt.datetime,
-        invalid_batch_export_for_destination,
+        batch_export_for_destination,
         setup_destination,
+        simulate_non_retryable_error,
     ):
         """Test that workflow handles non-retryable errors gracefully.
 
         This means we do the right updates to the BatchExportRun model and ensure the workflow succeeds (since we treat
         this as a user error).
-
-        To simulate a user error, we use an integration with invalid connection parameters.
         """
-        batch_export_for_destination, expected_error_message = invalid_batch_export_for_destination
 
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
@@ -662,6 +638,7 @@ class CommonWorkflowTests:
             inputs=inputs,
         )
         assert run.status == "Failed"
+        expected_error_message = simulate_non_retryable_error
         assert run.latest_error == expected_error_message
         assert run.records_completed is None
         assert run.bytes_exported is None

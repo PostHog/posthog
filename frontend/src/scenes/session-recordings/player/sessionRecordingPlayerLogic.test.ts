@@ -7,22 +7,25 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
-import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
-import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { makeLogger } from 'scenes/session-recordings/player/rrweb'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { useMocks } from '~/mocks/jest'
-import { initKeaTests } from '~/test/init'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import {
+    BLOB_SOURCE,
+    overrideSessionRecordingMocks,
+    recordingMetaJson,
+    setupSessionRecordingTest,
+} from './__mocks__/test-setup'
 import { snapshotDataLogic } from './snapshotDataLogic'
+
+jest.mock('./snapshot-processing/DecompressionWorkerManager')
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
@@ -31,43 +34,9 @@ describe('sessionRecordingPlayerLogic', () => {
     beforeEach(() => {
         console.warn = mockWarn
         mockWarn.mockClear()
-        useMocks({
-            get: {
-                '/api/projects/:team_id/session_recordings/:id/comments/': { results: [] },
-                '/api/projects/:team_id/notebooks/recording_comments': { results: [] },
-                '/api/environments/:team_id/session_recordings/:id/snapshots/': (req, res, ctx) => {
-                    // with no sources, returns sources...
-                    if (req.url.searchParams.get('source') === 'blob') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
-                    }
-                    // with no source requested should return sources
-                    return [
-                        200,
-                        {
-                            sources: [
-                                {
-                                    source: 'blob',
-                                    start_timestamp: '2023-08-11T12:03:36.097000Z',
-                                    end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                    blob_key: '1691755416097-1691755492268',
-                                },
-                            ],
-                        },
-                    ]
-                },
-                '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
-            },
-            delete: {
-                '/api/environments/:team_id/session_recordings/:id': { success: true },
-            },
-            post: {
-                '/api/environments/:team_id/query': recordingEventsJson,
-            },
-            patch: {
-                '/api/environments/:team_id/session_recordings/:id': { success: true },
-            },
+        setupSessionRecordingTest({
+            snapshotSources: [BLOB_SOURCE],
         })
-        initKeaTests()
         featureFlagLogic.mount()
         logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test' })
         logic.mount()
@@ -77,25 +46,25 @@ describe('sessionRecordingPlayerLogic', () => {
         it('mounts other logics', async () => {
             await expectLogic(logic).toMount([
                 sessionRecordingEventUsageLogic,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }),
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }),
                 playerSettingsLogic,
             ])
         })
     })
 
     describe('loading session core', () => {
-        it('loads metadata only by default', async () => {
+        it('loads metadata and snapshots by default', async () => {
             silenceKeaLoadersErrors()
 
             await expectLogic(logic).toDispatchActionsInAnyOrder([
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
             ])
 
             expect(logic.values.sessionPlayerData).toMatchSnapshot()
 
-            await expectLogic(logic).toNotHaveDispatchedActions([
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
+            await expectLogic(logic).toDispatchActions([
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
                 snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
             ])
         })
@@ -108,19 +77,12 @@ describe('sessionRecordingPlayerLogic', () => {
             silenceKeaLoadersErrors()
 
             await expectLogic(logic).toDispatchActions([
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingData,
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
                 logic.actionTypes.setPlay,
-            ])
-
-            expect(logic.values.sessionPlayerData).toMatchSnapshot()
-
-            await expectLogic(logic).toDispatchActions([
-                // once to gather sources
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
-                // once to load source from that
-                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSource,
-                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSourceSuccess,
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
             ])
 
             expect(logic.values.sessionPlayerData).toMatchSnapshot()
@@ -141,15 +103,13 @@ describe('sessionRecordingPlayerLogic', () => {
         })
 
         it('load snapshot errors and triggers error state', async () => {
-            useMocks({
-                get: {
+            logic.unmount()
+            overrideSessionRecordingMocks({
+                getMocks: {
                     '/api/environments/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
                     '/api/projects/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
                 },
             })
-
-            // Unmount and remount the logic to trigger fetching the data again after the mock change
-            logic.unmount()
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '2',
                 playerKey: 'test',
@@ -185,7 +145,7 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.mount()
 
             await expectLogic(logic).toDispatchActions([
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
                 'initializePlayerFromStart',
             ])
             expect(logic.cache.hasInitialized).toBeTruthy()
@@ -305,7 +265,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 playerKey: 'test',
                 matchingEventsMatchType: {
                     matchType: 'uuid',
-                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                    matchedEvents: listOfMatchingEvents,
                 },
             })
             logic.mount()
@@ -313,7 +273,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logicProps: expect.objectContaining({
                     matchingEventsMatchType: {
                         matchType: 'uuid',
-                        eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                        matchedEvents: listOfMatchingEvents,
                     },
                 }),
             })
@@ -324,7 +284,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 playerKey: 'test',
                 matchingEventsMatchType: {
                     matchType: 'uuid',
-                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                    matchedEvents: listOfMatchingEvents,
                 },
             })
             logic.mount()
@@ -332,7 +292,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logicProps: expect.objectContaining({
                     matchingEventsMatchType: {
                         matchType: 'uuid',
-                        eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                        matchedEvents: listOfMatchingEvents,
                     },
                 }),
             })
@@ -341,7 +301,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 playerKey: 'test',
                 matchingEventsMatchType: {
                     matchType: 'uuid',
-                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid).slice(0, 1),
+                    matchedEvents: listOfMatchingEvents.slice(0, 1),
                 },
             })
             logic.mount()
@@ -349,7 +309,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logicProps: expect.objectContaining({
                     matchingEventsMatchType: {
                         matchType: 'uuid',
-                        eventUUIDs: listOfMatchingEvents.map((event) => event.uuid).slice(0, 1),
+                        matchedEvents: listOfMatchingEvents.slice(0, 1),
                     },
                 }),
             })

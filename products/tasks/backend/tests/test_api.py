@@ -10,8 +10,7 @@ from posthog.models import Organization, OrganizationMembership, PersonalAPIKey,
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
-from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE
-from products.tasks.backend.models import Task, TaskProgress, TaskWorkflow, WorkflowStage
+from products.tasks.backend.models import Task, TaskRun
 
 
 class BaseTaskAPITest(TestCase):
@@ -52,244 +51,20 @@ class BaseTaskAPITest(TestCase):
 
         self.mock_feature_flag.side_effect = check_flag
 
-    def create_workflow(self, name="Test Workflow", is_default=False, is_active=True):
-        workflow = TaskWorkflow.objects.create(
-            team=self.team,
-            name=name,
-            description="Test Description",
-            is_default=is_default,
-            is_active=is_active,
-        )
-        self.create_workflow_stages(workflow)
-        return workflow
-
-    def create_workflow_stages(self, workflow):
-        return [
-            WorkflowStage.objects.create(
-                workflow=workflow,
-                name="Backlog",
-                key="backlog",
-                position=0,
-                color="#6b7280",
-            ),
-            WorkflowStage.objects.create(
-                workflow=workflow,
-                name="In Progress",
-                key="in_progress",
-                position=1,
-                color="#3b82f6",
-            ),
-            WorkflowStage.objects.create(
-                workflow=workflow,
-                name="Done",
-                key="done",
-                position=2,
-                color="#10b981",
-            ),
-        ]
-
-    def create_task(self, title="Test Task", workflow=None, stage=None):
-        if not workflow:
-            workflow = self.create_workflow()
-        if not stage:
-            stage = workflow.stages.first()
-
+    def create_task(self, title="Test Task"):
         return Task.objects.create(
             team=self.team,
             title=title,
             description="Test Description",
             origin_product=Task.OriginProduct.USER_CREATED,
-            workflow=workflow,
-            current_stage=stage,
             position=0,
         )
 
 
-class TestTaskWorkflowAPI(BaseTaskAPITest):
-    def test_list_workflows(self):
-        self.create_workflow("Workflow 1")
-        self.create_workflow("Workflow 2")
-        self.create_workflow("Inactive", is_active=False)
-
-        response = self.client.get("/api/projects/@current/workflows/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertEqual(len(data["results"]), 2)
-        workflow_names = [w["name"] for w in data["results"]]
-        self.assertIn("Workflow 1", workflow_names)
-        self.assertIn("Workflow 2", workflow_names)
-        self.assertNotIn("Inactive", workflow_names)
-
-    def test_retrieve_workflow(self):
-        workflow = self.create_workflow()
-
-        response = self.client.get(f"/api/projects/@current/workflows/{workflow.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertEqual(data["name"], "Test Workflow")
-        self.assertEqual(data["description"], "Test Description")
-        self.assertEqual(len(data["stages"]), 3)
-
-    def test_create_workflow(self):
-        response = self.client.post(
-            "/api/projects/@current/workflows/",
-            {
-                "name": "New Workflow",
-                "description": "New Description",
-                "is_default": False,
-                "is_active": True,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        data = response.json()
-        self.assertEqual(data["name"], "New Workflow")
-        self.assertEqual(data["description"], "New Description")
-        self.assertFalse(data["is_default"])
-        self.assertTrue(data["is_active"])
-
-    def test_update_workflow(self):
-        workflow = self.create_workflow()
-
-        response = self.client.patch(
-            f"/api/projects/@current/workflows/{workflow.id}/",
-            {"name": "Updated Workflow"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "Updated Workflow")
-
-    def test_delete_workflow(self):
-        workflow = self.create_workflow()
-
-        response = self.client.delete(f"/api/projects/@current/workflows/{workflow.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-
-        self.assertFalse(TaskWorkflow.objects.filter(id=workflow.id).exists())
-
-    def test_set_default_workflow(self):
-        workflow1 = self.create_workflow("Workflow 1", is_default=True)
-        workflow2 = self.create_workflow("Workflow 2", is_default=False)
-
-        response = self.client.post(f"/api/projects/@current/workflows/{workflow2.id}/set_default/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        workflow1.refresh_from_db()
-        workflow2.refresh_from_db()
-        self.assertFalse(workflow1.is_default)
-        self.assertTrue(workflow2.is_default)
-
-    def test_deactivate_workflow(self):
-        workflow = self.create_workflow()
-
-        response = self.client.post(f"/api/projects/@current/workflows/{workflow.id}/deactivate/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        workflow.refresh_from_db()
-        self.assertFalse(workflow.is_active)
-
-    def test_deactivate_default_workflow_fails(self):
-        workflow = self.create_workflow(is_default=True)
-
-        response = self.client.post(f"/api/projects/@current/workflows/{workflow.id}/deactivate/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "Cannot deactivate the default workflow")
-
-    def test_create_default_workflow(self):
-        response = self.client.post("/api/projects/@current/workflows/create_default/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertEqual(data["name"], DEFAULT_WORKFLOW_TEMPLATE.name)
-        self.assertTrue(data["is_default"])
-
-    def test_create_default_workflow_when_exists_fails(self):
-        self.create_workflow(is_default=True)
-
-        response = self.client.post("/api/projects/@current/workflows/create_default/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "Team already has a default workflow")
-
-    def test_permission_denied_without_auth(self):
-        self.client.force_authenticate(None)
-        response = self.client.get("/api/projects/@current/workflows/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_feature_flag_required(self):
-        self.set_tasks_feature_flag(False)
-        response = self.client.get("/api/projects/@current/workflows/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-
-class TestWorkflowStageAPI(BaseTaskAPITest):
-    def test_list_stages(self):
-        workflow = self.create_workflow()
-        WorkflowStage.objects.create(
-            workflow=workflow,
-            name="Archived",
-            key="archived",
-            position=99,
-            is_archived=True,
-        )
-
-        response = self.client.get(f"/api/projects/@current/workflows/{workflow.id}/stages/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertEqual(len(data["results"]), 3)
-        stage_names = [s["name"] for s in data["results"]]
-        self.assertNotIn("Archived", stage_names)
-
-    def test_retrieve_stage(self):
-        workflow = self.create_workflow()
-        stage = workflow.stages.first()
-
-        response = self.client.get(f"/api/projects/@current/workflows/{workflow.id}/stages/{stage.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertEqual(data["name"], "Backlog")
-        self.assertEqual(data["key"], "backlog")
-
-    def test_create_stage(self):
-        workflow = self.create_workflow()
-
-        response = self.client.post(
-            f"/api/projects/@current/workflows/{workflow.id}/stages/",
-            {
-                "workflow": str(workflow.id),
-                "name": "New Stage",
-                "key": "new_stage",
-                "position": 10,
-                "color": "#ff0000",
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        data = response.json()
-        self.assertEqual(data["name"], "New Stage")
-        self.assertEqual(data["key"], "new_stage")
-
-    def test_archive_stage(self):
-        workflow = self.create_workflow()
-        stage = workflow.stages.first()
-
-        response = self.client.post(f"/api/projects/@current/workflows/{workflow.id}/stages/{stage.id}/archive/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        stage.refresh_from_db()
-        self.assertTrue(stage.is_archived)
-
-
 class TestTaskAPI(BaseTaskAPITest):
     def test_list_tasks(self):
-        workflow = self.create_workflow()
-        self.create_task("Task 1", workflow=workflow)
-        self.create_task("Task 2", workflow=workflow)
+        self.create_task("Task 1")
+        self.create_task("Task 2")
 
         response = self.client.get("/api/projects/@current/tasks/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -299,6 +74,41 @@ class TestTaskAPI(BaseTaskAPITest):
         task_titles = [t["title"] for t in data["results"]]
         self.assertIn("Task 1", task_titles)
         self.assertIn("Task 2", task_titles)
+
+    def test_list_tasks_includes_latest_run(self):
+        task1 = self.create_task("Task 1")
+        task2 = self.create_task("Task 2")
+
+        # Create runs for task1
+        TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.STARTED)
+        run1_latest = TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        # Task2 has no runs
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data["results"]), 2)
+
+        # Find task1 and task2 in results
+        task1_data = next((t for t in data["results"] if t["id"] == str(task1.id)), None)
+        task2_data = next((t for t in data["results"] if t["id"] == str(task2.id)), None)
+
+        self.assertIsNotNone(task1_data)
+        self.assertIsNotNone(task2_data)
+        assert task1_data is not None  # Type narrowing
+        assert task2_data is not None  # Type narrowing
+
+        # task1 should have latest_run populated
+        self.assertIn("latest_run", task1_data)
+        self.assertIsNotNone(task1_data["latest_run"])
+        self.assertEqual(task1_data["latest_run"]["id"], str(run1_latest.id))
+        self.assertEqual(task1_data["latest_run"]["status"], "in_progress")
+
+        # task2 should have latest_run as None
+        self.assertIn("latest_run", task2_data)
+        self.assertIsNone(task2_data["latest_run"])
 
     def test_retrieve_task(self):
         task = self.create_task("Test Task")
@@ -310,18 +120,47 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["title"], "Test Task")
         self.assertEqual(data["description"], "Test Description")
 
-    def test_create_task(self):
-        workflow = self.create_workflow()
-        stage = workflow.stages.first()
+    def test_retrieve_task_with_latest_run(self):
+        task = self.create_task("Test Task")
 
+        _run1 = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.STARTED,
+        )
+
+        run2 = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertIn("latest_run", data)
+        self.assertIsNotNone(data["latest_run"])
+        self.assertEqual(data["latest_run"]["id"], str(run2.id))
+        self.assertEqual(data["latest_run"]["status"], "in_progress")
+
+    def test_retrieve_task_without_runs(self):
+        task = self.create_task("Test Task")
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertIn("latest_run", data)
+        self.assertIsNone(data["latest_run"])
+
+    def test_create_task(self):
         response = self.client.post(
             "/api/projects/@current/tasks/",
             {
                 "title": "New Task",
                 "description": "New Description",
                 "origin_product": "user_created",
-                "workflow": str(workflow.id),
-                "current_stage": str(stage.id),
             },
             format="json",
         )
@@ -350,21 +189,6 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertFalse(Task.objects.filter(id=task.id).exists())
 
-    def test_update_stage(self):
-        workflow = self.create_workflow()
-        task = self.create_task(workflow=workflow)
-        new_stage = workflow.stages.last()
-
-        response = self.client.patch(
-            f"/api/projects/@current/tasks/{task.id}/update_stage/",
-            {"current_stage": str(new_stage.id)},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        task.refresh_from_db()
-        self.assertEqual(task.current_stage, new_stage)
-
     def test_update_position(self):
         task = self.create_task()
 
@@ -378,165 +202,144 @@ class TestTaskAPI(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertEqual(task.position, 5)
 
-    def test_bulk_reorder(self):
-        workflow = self.create_workflow()
-        stages = list(workflow.stages.all())
-        task1 = self.create_task(title="Task 1", workflow=workflow, stage=stages[0])
-        task2 = self.create_task(title="Task 2", workflow=workflow, stage=stages[0])
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_triggers_workflow(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_workflow.assert_called_once_with(
+            task_id=str(task.id),
+            team_id=task.team.id,
+            user_id=self.user.id,
+        )
+
+        data = response.json()
+        self.assertEqual(data["id"], str(task.id))
+        self.assertEqual(data["title"], task.title)
+
+
+class TestTaskRunAPI(BaseTaskAPITest):
+    def test_list_runs_for_task(self):
+        task = self.create_task()
+
+        run1 = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.STARTED,
+        )
+
+        run2 = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data["results"]), 2)
+        run_ids = [r["id"] for r in data["results"]]
+        self.assertIn(str(run1.id), run_ids)
+        self.assertIn(str(run2.id), run_ids)
+
+    def test_retrieve_specific_run(self):
+        task = self.create_task()
+
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            log="Test log output",
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data["id"], str(run.id))
+        self.assertEqual(data["status"], "in_progress")
+        self.assertEqual(data["log"], "Test log output")
+
+    def test_list_runs_only_returns_task_runs(self):
+        task1 = self.create_task("Task 1")
+        task2 = self.create_task("Task 2")
+
+        run1 = TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.STARTED)
+        _run2 = TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.STARTED)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task1.id}/runs/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["id"], str(run1.id))
+
+    def test_retrieve_run_from_different_task_fails(self):
+        task1 = self.create_task("Task 1")
+        task2 = self.create_task("Task 2")
+
+        run2 = TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.STARTED)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task1.id}/runs/{run2.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_append_log_entries(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
         response = self.client.post(
-            "/api/projects/@current/tasks/bulk_reorder/",
-            {"columns": {"in_progress": [str(task1.id), str(task2.id)]}},
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
+            {
+                "entries": [
+                    {"type": "info", "message": "Starting task"},
+                    {"type": "progress", "message": "Step 1 complete"},
+                ]
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        data = response.json()
-        self.assertEqual(data["updated"], 2)
+        run.refresh_from_db()
+        self.assertEqual(len(run.log), 2)
+        self.assertEqual(run.log[0]["type"], "info")
+        self.assertEqual(run.log[0]["message"], "Starting task")
+        self.assertEqual(run.log[1]["type"], "progress")
+        self.assertEqual(run.log[1]["message"], "Step 1 complete")
 
-        task1.refresh_from_db()
-        task2.refresh_from_db()
-        self.assertEqual(task1.current_stage.key, "in_progress")
-        self.assertEqual(task2.current_stage.key, "in_progress")
-        self.assertEqual(task1.position, 0)
-        self.assertEqual(task2.position, 1)
-
-    def test_progress(self):
+    def test_append_log_to_existing_entries(self):
         task = self.create_task()
-
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/progress/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertEqual(data["has_progress"], False)
-
-    def test_progress_stream(self):
-        task = self.create_task()
-
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/progress_stream/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertEqual(len(data["progress_updates"]), 0)
-        self.assertIn("server_time", data)
-
-
-class TestTaskProgressAPI(BaseTaskAPITest):
-    def test_progress_with_no_progress_records(self):
-        task = self.create_task()
-
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/progress/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertFalse(data["has_progress"])
-        self.assertEqual(data["message"], "No execution progress found for this task")
-
-    def test_progress_with_existing_records(self):
-        task = self.create_task()
-
-        progress = TaskProgress.objects.create(
+        run = TaskRun.objects.create(
             task=task,
             team=self.team,
-            status=TaskProgress.Status.IN_PROGRESS,
-            current_step="Processing data",
-            completed_steps=2,
-            total_steps=5,
-            output_log="Step 1 completed\nStep 2 in progress",
-            workflow_id="test-workflow-123",
+            status=TaskRun.Status.IN_PROGRESS,
+            log=[{"type": "info", "message": "Initial entry"}],
         )
 
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/progress/")
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
+            {"entries": [{"type": "success", "message": "Task completed"}]},
+            format="json",
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        data = response.json()
-        self.assertTrue(data["has_progress"])
-        self.assertEqual(data["id"], str(progress.id))
-        self.assertEqual(data["status"], "in_progress")
-        self.assertEqual(data["current_step"], "Processing data")
-        self.assertEqual(data["completed_steps"], 2)
-        self.assertEqual(data["total_steps"], 5)
-        self.assertEqual(data["progress_percentage"], 40)
-        self.assertEqual(data["output_log"], "Step 1 completed\nStep 2 in progress")
-        self.assertEqual(data["workflow_id"], "test-workflow-123")
+        run.refresh_from_db()
+        self.assertEqual(len(run.log), 2)
+        self.assertEqual(run.log[0]["message"], "Initial entry")
+        self.assertEqual(run.log[1]["message"], "Task completed")
 
-    def test_progress_stream_with_no_updates(self):
+    def test_append_log_empty_entries_fails(self):
         task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/progress_stream/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertEqual(len(data["progress_updates"]), 0)
-        self.assertIn("server_time", data)
-
-    def test_progress_stream_with_updates(self):
-        task = self.create_task()
-
-        progress1 = TaskProgress.objects.create(
-            task=task,
-            team=self.team,
-            status=TaskProgress.Status.STARTED,
-            current_step="Initializing",
-            completed_steps=0,
-            total_steps=3,
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
+            {"entries": []},
+            format="json",
         )
-
-        progress2 = TaskProgress.objects.create(
-            task=task,
-            team=self.team,
-            status=TaskProgress.Status.COMPLETED,
-            current_step="Finished",
-            completed_steps=3,
-            total_steps=3,
-        )
-
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/progress_stream/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertEqual(len(data["progress_updates"]), 2)
-
-        # Most recent first
-        recent_update = data["progress_updates"][0]
-        self.assertEqual(recent_update["id"], str(progress2.id))
-        self.assertEqual(recent_update["status"], "completed")
-        self.assertEqual(recent_update["completed_steps"], 3)
-
-        # Should include older progress
-        self.assertEqual(len(data["progress_updates"]), 2)
-        older_update = data["progress_updates"][1]
-        self.assertEqual(older_update["id"], str(progress1.id))
-        self.assertEqual(older_update["status"], "started")
-        self.assertEqual(older_update["completed_steps"], 0)
-
-    def test_progress_stream_with_since_parameter(self):
-        task = self.create_task()
-
-        old_progress = TaskProgress.objects.create(
-            task=task, team=self.team, status=TaskProgress.Status.STARTED, current_step="Old step"
-        )
-
-        # Add some time gap
-        import datetime
-
-        from django.utils import timezone
-
-        since_time = timezone.now()
-
-        # Create newer progress after the 'since' time
-        TaskProgress.objects.filter(id=old_progress.id).update(
-            updated_at=timezone.now() + datetime.timedelta(seconds=1)
-        )
-
-        response = self.client.get(
-            f"/api/projects/@current/tasks/{task.id}/progress_stream/", {"since": since_time.isoformat()}
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        # Should include the updated progress
-        self.assertEqual(len(data["progress_updates"]), 1)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestTasksAPIPermissions(BaseTaskAPITest):
@@ -551,28 +354,10 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             level=OrganizationMembership.Level.ADMIN
         )
 
-    def test_workflows_feature_flag_required(self):
-        self.set_tasks_feature_flag(False)
-        workflow = self.create_workflow()
-
-        endpoints = [
-            ("/api/projects/@current/workflows/", "GET"),
-            (f"/api/projects/@current/workflows/{workflow.id}/", "GET"),
-            ("/api/projects/@current/workflows/", "POST"),
-            (f"/api/projects/@current/workflows/{workflow.id}/", "PATCH"),
-            (f"/api/projects/@current/workflows/{workflow.id}/", "DELETE"),
-            (f"/api/projects/@current/workflows/{workflow.id}/set_default/", "POST"),
-            (f"/api/projects/@current/workflows/{workflow.id}/deactivate/", "POST"),
-            ("/api/projects/@current/workflows/create_default/", "POST"),
-        ]
-
-        for url, method in endpoints:
-            response = getattr(self.client, method.lower())(url, format="json")
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
-
     def test_tasks_feature_flag_required(self):
         self.set_tasks_feature_flag(False)
         task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.STARTED)
 
         endpoints = [
             ("/api/projects/@current/tasks/", "GET"),
@@ -580,29 +365,10 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("/api/projects/@current/tasks/", "POST"),
             (f"/api/projects/@current/tasks/{task.id}/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/", "DELETE"),
-            (f"/api/projects/@current/tasks/{task.id}/update_stage/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/update_position/", "PATCH"),
-            ("/api/projects/@current/tasks/bulk_reorder/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/progress/", "GET"),
-            (f"/api/projects/@current/tasks/{task.id}/progress_stream/", "GET"),
-        ]
-
-        for url, method in endpoints:
-            response = getattr(self.client, method.lower())(url, format="json")
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
-
-    def test_workflow_stages_feature_flag_required(self):
-        self.set_tasks_feature_flag(False)
-        workflow = self.create_workflow()
-        stage = workflow.stages.first()
-
-        endpoints = [
-            (f"/api/projects/@current/workflows/{workflow.id}/stages/", "GET"),
-            (f"/api/projects/@current/workflows/{workflow.id}/stages/{stage.id}/", "GET"),
-            (f"/api/projects/@current/workflows/{workflow.id}/stages/", "POST"),
-            (f"/api/projects/@current/workflows/{workflow.id}/stages/{stage.id}/", "PATCH"),
-            (f"/api/projects/@current/workflows/{workflow.id}/stages/{stage.id}/", "DELETE"),
-            (f"/api/projects/@current/workflows/{workflow.id}/stages/{stage.id}/archive/", "POST"),
+            (f"/api/projects/@current/tasks/{task.id}/run/", "POST"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/", "GET"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "GET"),
         ]
 
         for url, method in endpoints:
@@ -610,39 +376,18 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
 
     def test_authentication_required(self):
-        workflow = self.create_workflow()
-        task = self.create_task(workflow=workflow)
+        task = self.create_task()
 
         self.client.force_authenticate(None)
 
         endpoints = [
-            ("/api/projects/@current/workflows/", "GET"),
             ("/api/projects/@current/tasks/", "GET"),
-            (f"/api/projects/@current/workflows/{workflow.id}/stages/", "GET"),
-            (f"/api/projects/@current/tasks/{task.id}/progress/", "GET"),
+            (f"/api/projects/@current/tasks/{task.id}/", "GET"),
         ]
 
         for url, method in endpoints:
             response = getattr(self.client, method.lower())(url)
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
-
-    def test_cross_team_workflow_access_forbidden(self):
-        # Create workflow in other team
-        other_workflow = TaskWorkflow.objects.create(team=self.other_team, name="Other Team Workflow", is_default=True)
-
-        # Try to access other team's workflow
-        response = self.client.get(f"/api/projects/@current/workflows/{other_workflow.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-        # Try to update other team's workflow
-        response = self.client.patch(
-            f"/api/projects/@current/workflows/{other_workflow.id}/", {"name": "Hacked Name"}, format="json"
-        )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-        # Try to delete other team's workflow
-        response = self.client.delete(f"/api/projects/@current/workflows/{other_workflow.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_cross_team_task_access_forbidden(self):
         # Create task in other team
@@ -667,53 +412,17 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         response = self.client.delete(f"/api/projects/@current/tasks/{other_task.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_cross_team_workflow_stage_access_forbidden(self):
-        # Create workflow and stage in other team
-        other_workflow = TaskWorkflow.objects.create(team=self.other_team, name="Other Team Workflow", is_default=True)
-        other_stage = WorkflowStage.objects.create(workflow=other_workflow, name="Other Stage", key="other", position=0)
-
-        # Try to access other team's stages - should return empty list, not 404
-        # because the workflow exists but stages are filtered by team
-        response = self.client.get(f"/api/projects/@current/workflows/{other_workflow.id}/stages/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 0)
-
-        # Try to access specific other team's stage
-        response = self.client.get(f"/api/projects/@current/workflows/{other_workflow.id}/stages/{other_stage.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-        # Try to create stage in other team's workflow
-        response = self.client.post(
-            f"/api/projects/@current/workflows/{other_workflow.id}/stages/",
-            {
-                "workflow": str(other_workflow.id),
-                "name": "Hacked Stage",
-                "key": "hacked",
-                "position": 1,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
     def test_list_endpoints_only_return_team_resources(self):
         # Create resources in both teams
-        my_workflow = self.create_workflow("My Workflow")
+
         my_task = self.create_task("My Task")
 
-        other_workflow = TaskWorkflow.objects.create(team=self.other_team, name="Other Workflow", is_default=True)
         other_task = Task.objects.create(
             team=self.other_team,
             title="Other Task",
             description="Description",
             origin_product=Task.OriginProduct.USER_CREATED,
         )
-
-        # List workflows should only return my team's workflows
-        response = self.client.get("/api/projects/@current/workflows/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        workflow_ids = [w["id"] for w in response.json()["results"]]
-        self.assertIn(str(my_workflow.id), workflow_ids)
-        self.assertNotIn(str(other_workflow.id), workflow_ids)
 
         # List tasks should only return my team's tasks
         response = self.client.get("/api/projects/@current/tasks/")
@@ -726,29 +435,32 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         [
             ("task:read", "GET", "/api/projects/@current/tasks/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/", True),
-            ("task:read", "GET", "/api/projects/@current/workflows/", True),
-            ("task:read", "GET", f"/api/projects/@current/workflows/{{workflow_id}}/", True),
-            ("no_scope", "GET", "/api/projects/@current/agents/", True),
+            ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
+            ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
+            ("no_scope", "GET", "/api/projects/@current/agents/", False),
             ("task:read", "POST", "/api/projects/@current/tasks/", False),
             ("task:read", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", False),
             ("task:read", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", False),
-            ("task:read", "POST", "/api/projects/@current/workflows/", False),
-            ("task:read", "PATCH", f"/api/projects/@current/workflows/{{workflow_id}}/", False),
+            ("task:read", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", False),
             ("task:write", "GET", "/api/projects/@current/tasks/", True),
             ("task:write", "POST", "/api/projects/@current/tasks/", True),
             ("task:write", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", True),
             ("task:write", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", True),
-            ("task:write", "POST", "/api/projects/@current/workflows/", True),
-            ("task:write", "PATCH", f"/api/projects/@current/workflows/{{workflow_id}}/", True),
+            ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
+            ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
+            ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
             ("other_scope:read", "GET", "/api/projects/@current/tasks/", False),
             ("other_scope:write", "POST", "/api/projects/@current/tasks/", False),
             ("*", "GET", "/api/projects/@current/tasks/", True),
             ("*", "POST", "/api/projects/@current/tasks/", True),
+            ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
+            ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
+            ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
         ]
     )
     def test_scoped_api_key_permissions(self, scope, method, url_template, should_have_access):
         task = self.create_task()
-        workflow = task.workflow
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.STARTED)
 
         api_key_value = generate_random_token_personal()
 
@@ -759,26 +471,19 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             scopes=[scope],
         )
 
-        url = url_template.format(task_id=task.id, workflow_id=workflow.id)
+        url = url_template.format(task_id=task.id, run_id=run.id)
 
         self.client.force_authenticate(None)
 
         data = {}
-        if method == "POST" and "tasks" in url:
+        if method == "POST" and url == "/api/projects/@current/tasks/":
             data = {
                 "title": "New Task",
                 "description": "Description",
                 "origin_product": Task.OriginProduct.USER_CREATED,
             }
-        elif method == "POST" and "workflows" in url:
-            data = {
-                "name": "New Workflow",
-                "description": "Description",
-            }
         elif method == "PATCH" and "tasks" in url:
             data = {"title": "Updated Task"}
-        elif method == "PATCH" and "workflows" in url:
-            data = {"name": "Updated Workflow"}
 
         if method == "GET":
             response = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {api_key_value}")

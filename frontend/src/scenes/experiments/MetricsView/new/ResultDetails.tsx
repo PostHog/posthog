@@ -1,18 +1,12 @@
-import { useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
+import { VariantTag } from 'scenes/experiments/ExperimentView/components'
 import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
-import { ResultsBreakdown } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdown'
-import { ResultsBreakdownSkeleton } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdownSkeleton'
-import { ResultsInsightInfoBanner } from 'scenes/experiments/components/ResultsBreakdown/ResultsInsightInfoBanner'
-import { ResultsQuery } from 'scenes/experiments/components/ResultsBreakdown/ResultsQuery'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
@@ -36,7 +30,7 @@ import {
 
 import {
     ExperimentVariantResult,
-    formatChanceToWin,
+    formatChanceToWinForGoal,
     formatMetricValue,
     formatPValue,
     getIntervalLabel,
@@ -53,7 +47,9 @@ function convertExperimentResultToFunnelSteps(
     metric: ExperimentMetric
 ): FunnelStepWithNestedBreakdown[] {
     const allResults = [result.baseline, ...(result.variant_results || [])]
-    const numSteps = (result.baseline.step_counts?.length || 0) + 1
+    // Use step_counts from any variant that has data, not just baseline (which might have 0 users)
+    const stepCountsSource = allResults.find((r) => r.step_counts && r.step_counts.length > 0) || result.baseline
+    const numSteps = (stepCountsSource.step_counts?.length || 0) + 1
     const funnelSteps: FunnelStepWithNestedBreakdown[] = []
 
     for (let stepIndex = 0; stepIndex < numSteps; stepIndex++) {
@@ -71,9 +67,9 @@ function convertExperimentResultToFunnelSteps(
             } else if (isExperimentFunnelMetric(metric) && metric.series?.[stepIndex - 1]) {
                 const series = metric.series[stepIndex - 1]
                 if (series.kind === NodeKind.EventsNode) {
-                    stepName = series.name || series.event || `Step ${stepIndex}`
+                    stepName = series.custom_name || series.name || series.event || `Step ${stepIndex}`
                 } else {
-                    stepName = series.name || `Action ${series.id}`
+                    stepName = series.custom_name || series.name || `Action ${series.id}`
                 }
             } else {
                 stepName = `Step ${stepIndex}`
@@ -106,21 +102,16 @@ export function ResultDetails({
     experiment,
     result,
     metric,
-    isSecondary,
 }: {
     experiment: Experiment
     result: CachedNewExperimentQueryResponse
     metric: ExperimentMetric
-    isSecondary: boolean
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const useExperimentFunnelChart = featureFlags[FEATURE_FLAGS.EXPERIMENTS_FUNNEL_CHART] === 'test'
-
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {
             key: 'variant',
             title: 'Variant',
-            render: (_, item) => <div className="font-semibold">{item.key}</div>,
+            render: (_, item) => <VariantTag variantKey={item.key} />,
         },
         {
             key: 'total-users',
@@ -148,7 +139,7 @@ export function ResultDetails({
                 }
 
                 if (isBayesianResult(item)) {
-                    return <div className="font-semibold">{formatChanceToWin(item.chance_to_win)}</div>
+                    return <div className="font-semibold">{formatChanceToWinForGoal(item, metric.goal)}</div>
                 } else if (isFrequentistResult(item)) {
                     return <div className="font-semibold">{formatPValue(item.p_value)}</div>
                 }
@@ -235,49 +226,19 @@ export function ResultDetails({
     ]
 
     return (
-        <div className="space-y-2">
+        <div className="space-y-4">
             <LemonTable columns={columns} dataSource={dataSource} loading={false} />
-            {isExperimentFunnelMetric(metric) &&
-                (useExperimentFunnelChart ? (
-                    <FunnelChart
-                        steps={convertExperimentResultToFunnelSteps(result, metric)}
-                        showPersonsModal={false}
-                        disableBaseline={true}
-                        inCardView={true}
-                        experimentResult={result}
-                    />
-                ) : (
-                    <ResultsBreakdown
-                        result={result}
-                        experiment={experiment}
-                        metricUuid={metric.uuid || ''}
-                        isPrimary={!isSecondary}
-                    >
-                        {({
-                            query,
-                            breakdownResultsLoading,
-                            breakdownResults,
-                            exposureDifference,
-                            breakdownLastRefresh,
-                        }) => {
-                            return (
-                                <>
-                                    {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
-                                    {query && breakdownResults && (
-                                        <>
-                                            <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
-                                            <ResultsQuery
-                                                query={query}
-                                                breakdownResults={breakdownResults}
-                                                breakdownLastRefresh={breakdownLastRefresh}
-                                            />
-                                        </>
-                                    )}
-                                </>
-                            )
-                        }}
-                    </ResultsBreakdown>
-                ))}
+            {isExperimentFunnelMetric(metric) && (
+                <FunnelChart
+                    steps={convertExperimentResultToFunnelSteps(result, metric)}
+                    showPersonsModal={false}
+                    disableBaseline={true}
+                    inCardView={true}
+                    experimentResult={result}
+                    experiment={experiment}
+                    metric={metric}
+                />
+            )}
         </div>
     )
 }

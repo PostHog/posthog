@@ -1,9 +1,10 @@
-import posthog from 'posthog-js'
+import posthog, { PostHog } from 'posthog-js'
 
 import posthogEE from '@posthog/ee/exports'
 import { EventType, eventWithTime, fullSnapshotEvent } from '@posthog/rrweb-types'
 
-import { isObject } from 'lib/utils'
+import { isEmptyObject, isObject } from 'lib/utils'
+import { getDecompressionWorkerManager } from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 import {
     CHROME_EXTENSION_DENY_LIST,
     stripChromeExtensionDataFromNode,
@@ -12,7 +13,7 @@ import { chunkMutationSnapshot } from 'scenes/session-recordings/player/snapshot
 import { decompressEvent } from 'scenes/session-recordings/player/snapshot-processing/decompress'
 import {
     ViewportResolution,
-    patchMetaEventIntoMobileData,
+    extractDimensionsFromMobileSnapshot,
 } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { throttleCapture } from 'scenes/session-recordings/player/snapshot-processing/throttle-capturing'
@@ -27,6 +28,84 @@ import {
 import { PostHogEE } from '../../../../../@posthog/ee/types'
 
 export type ProcessingCache = Record<SourceKey, RecordingSnapshot[]>
+
+function extractImgNodeFromMobileIncremental(snapshot: RecordingSnapshot): any | undefined {
+    if (snapshot.type !== EventType.IncrementalSnapshot) {
+        return undefined
+    }
+    const data: any = (snapshot as any).data
+
+    if (data?.source !== 0 || !Array.isArray(data.adds)) {
+        return undefined
+    }
+
+    const checksLimit = Math.min(data.adds.length, 3)
+    for (let i = 0; i < checksLimit; i++) {
+        const node = data.adds[i]?.node
+        if (
+            node &&
+            node.type === 2 &&
+            node.tagName === 'img' &&
+            node.attributes?.['data-rrweb-id'] &&
+            node.attributes?.width &&
+            node.attributes?.height
+        ) {
+            return node
+        }
+    }
+
+    return undefined
+}
+
+function isLikelyMobileScreenshot(snapshot: RecordingSnapshot): boolean {
+    return extractImgNodeFromMobileIncremental(snapshot) !== undefined
+}
+
+function createMinimalFullSnapshot(windowId: string | undefined, timestamp: number, imgNode?: any): RecordingSnapshot {
+    // Create a minimal rrweb full document snapshot structure sufficient for playback
+    // For mobile screenshots, include the img node in body so dimension extraction works
+    const bodyChildNodes = imgNode ? [imgNode] : []
+
+    const htmlNode = {
+        type: 2, // Element node
+        tagName: 'html',
+        attributes: {
+            'data-rrweb-id': 'minimal-html',
+        },
+        childNodes: [
+            {
+                type: 2, // Element node
+                tagName: 'head',
+                attributes: {
+                    'data-rrweb-id': 'minimal-head',
+                },
+                childNodes: [],
+            },
+            {
+                type: 2, // Element node
+                tagName: 'body',
+                attributes: {
+                    'data-rrweb-id': 5, // Match mobile transformer body id
+                },
+                childNodes: bodyChildNodes,
+            },
+        ],
+    }
+    const documentNode = {
+        type: 0, // NodeType.Document
+        childNodes: [htmlNode],
+    }
+    return {
+        type: EventType.FullSnapshot,
+        timestamp,
+        windowId,
+        data: {
+            node: documentNode,
+            initialOffset: { top: 0, left: 0 },
+        },
+    } as unknown as RecordingSnapshot
+}
+
 /**
  * NB this mutates processingCache and returns the processed snapshots
  *
@@ -40,7 +119,7 @@ export function processAllSnapshots(
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
     sessionRecordingId: string
 ): RecordingSnapshot[] {
-    if (!sources || !snapshotsBySource) {
+    if (!sources || !snapshotsBySource || isEmptyObject(snapshotsBySource)) {
         return []
     }
 
@@ -48,6 +127,7 @@ export function processAllSnapshots(
     const matchedExtensions = new Set<string>()
 
     let hasSeenMeta = false
+    const seenFullByWindow: Record<string, boolean> = {}
 
     // we loop over this data as little as possible,
     // since it could be large and processed more than once,
@@ -69,13 +149,69 @@ export function processAllSnapshots(
             continue
         }
 
-        // sorting is very cheap for already sorted lists
         const sourceSnapshots = snapshotsBySource[sourceKey].snapshots || []
+        if (!sourceSnapshots.length) {
+            continue
+        }
+
         const sourceResult: RecordingSnapshot[] = []
+        // sorting is very cheap for already sorted lists
         const sortedSnapshots = sourceSnapshots.sort((a, b) => a.timestamp - b.timestamp)
         let snapshotIndex = 0
         let previousTimestamp = null
         let seenHashes = new Set<number>()
+
+        // Helper to inject a Meta event before a full snapshot when missing
+        const pushPatchedMeta = (ts: number, winId?: string, fullSnapshot?: RecordingSnapshot): boolean => {
+            if (hasSeenMeta) {
+                return false
+            }
+
+            // First try to extract dimensions from mobile snapshot data if available
+            let viewport: ViewportResolution | undefined
+            if (fullSnapshot) {
+                viewport = extractDimensionsFromMobileSnapshot(fullSnapshot)
+            }
+
+            // Fallback to event-based viewport lookup
+            if (!viewport) {
+                viewport = viewportForTimestamp(ts)
+            }
+
+            if (viewport && viewport.width && viewport.height) {
+                const metaEvent: RecordingSnapshot = {
+                    type: EventType.Meta,
+                    timestamp: ts,
+                    // windowId is required on RecordingSnapshot type; cast to satisfy typing when undefined
+                    windowId: winId as unknown as string,
+                    data: {
+                        width: parseInt(viewport.width, 10),
+                        height: parseInt(viewport.height, 10),
+                        href: viewport.href || 'unknown',
+                    },
+                }
+                result.push(metaEvent)
+                sourceResult.push(metaEvent)
+                throttleCapture(`${sessionRecordingId}-patched-meta`, () => {
+                    posthog.capture('patched meta into web recording', {
+                        throttleCaptureKey: `${sessionRecordingId}-patched-meta`,
+                        sessionRecordingId,
+                        sourceKey: sourceKey,
+                        feature: 'session-recording-meta-patching',
+                    })
+                })
+                return true
+            }
+            throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
+                posthog.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
+                    throttleCaptureKey: `${sessionRecordingId}-no-viewport-found`,
+                    sessionRecordingId,
+                    sourceKey: sourceKey,
+                    feature: 'session-recording-meta-patching',
+                })
+            })
+            return false
+        }
 
         while (snapshotIndex < sortedSnapshots.length) {
             let snapshot = sortedSnapshots[snapshotIndex]
@@ -108,46 +244,31 @@ export function processAllSnapshots(
                 hasSeenMeta = true
             }
 
+            const windowId = snapshot.windowId
+            const hasSeenFullForWindow = !!seenFullByWindow[windowId]
+
+            if (
+                snapshot.type === EventType.IncrementalSnapshot &&
+                !hasSeenFullForWindow &&
+                isLikelyMobileScreenshot(snapshot)
+            ) {
+                const syntheticTimestamp = Math.max(0, snapshot.timestamp - 1)
+                const imgNode = extractImgNodeFromMobileIncremental(snapshot)
+                const syntheticFull = createMinimalFullSnapshot(snapshot.windowId, syntheticTimestamp, imgNode)
+                const metaInserted = pushPatchedMeta(syntheticTimestamp, snapshot.windowId, syntheticFull)
+
+                result.push(syntheticFull)
+                sourceResult.push(syntheticFull)
+                seenFullByWindow[windowId] = true
+                hasSeenMeta = hasSeenMeta || metaInserted
+            }
+
             // Process chrome extension data
             if (snapshot.type === EventType.FullSnapshot) {
-                // Check if we need to patch a meta event before this full snapshot
-                if (!hasSeenMeta) {
-                    const viewport = viewportForTimestamp(snapshot.timestamp)
-                    if (viewport && viewport.width && viewport.height) {
-                        const metaEvent: RecordingSnapshot = {
-                            type: EventType.Meta,
-                            timestamp: snapshot.timestamp,
-                            windowId: snapshot.windowId,
-                            data: {
-                                width: parseInt(viewport.width, 10),
-                                height: parseInt(viewport.height, 10),
-                                href: viewport.href || 'unknown',
-                            },
-                        }
-                        result.push(metaEvent)
-                        sourceResult.push(metaEvent)
-                        throttleCapture(`${sessionRecordingId}-patched-meta`, () => {
-                            posthog.capture('patched meta into web recording', {
-                                throttleCaptureKey: `${sessionRecordingId}-patched-meta`,
-                                sessionRecordingId,
-                                sourceKey: sourceKey,
-                                feature: 'session-recording-meta-patching',
-                            })
-                        })
-                    } else {
-                        throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
-                            posthog.captureException(
-                                new Error('No event viewport or meta snapshot found for full snapshot'),
-                                {
-                                    throttleCaptureKey: `${sessionRecordingId}-no-viewport-found`,
-                                    sessionRecordingId,
-                                    sourceKey: sourceKey,
-                                    feature: 'session-recording-meta-patching',
-                                }
-                            )
-                        })
-                    }
-                }
+                seenFullByWindow[snapshot.windowId] = true
+
+                // Ensure meta before this full snapshot if missing
+                pushPatchedMeta(snapshot.timestamp, snapshot.windowId, snapshot)
 
                 // Reset for next potential full snapshot
                 hasSeenMeta = false
@@ -175,6 +296,7 @@ export function processAllSnapshots(
                     })
                 }
             }
+
             result.push(snapshot)
             sourceResult.push(snapshot)
             previousTimestamp = currentTimestamp
@@ -230,20 +352,145 @@ function hashSnapshot(snapshot: RecordingSnapshot): number {
 function coerceToEventWithTime(d: unknown, sessionRecordingId: string): eventWithTime {
     // we decompress first so that we could support partial compression on mobile in the future
     const currentEvent = decompressEvent(d, sessionRecordingId)
-    return postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || (currentEvent as eventWithTime)
+    return postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) ?? (currentEvent as eventWithTime)
+}
+
+function isLengthPrefixedSnappy(uint8Data: Uint8Array): boolean {
+    if (uint8Data.byteLength < 4) {
+        return false
+    }
+
+    const firstLength = ((uint8Data[0] << 24) | (uint8Data[1] << 16) | (uint8Data[2] << 8) | uint8Data[3]) >>> 0
+
+    if (firstLength === 0 || firstLength > uint8Data.byteLength) {
+        return false
+    }
+
+    if (4 + firstLength > uint8Data.byteLength) {
+        return false
+    }
+
+    return true
+}
+
+const lengthPrefixedSnappyDecompress = async (
+    uint8Data: Uint8Array,
+    useWorker?: boolean,
+    posthogInstance?: PostHog
+): Promise<string> => {
+    const workerManager = getDecompressionWorkerManager(useWorker, posthogInstance)
+    const decompressedParts: string[] = []
+    let offset = 0
+
+    // Parse length-prefixed blocks: [4 bytes length][compressed block][4 bytes length][compressed block]...
+    while (offset < uint8Data.byteLength) {
+        // Read 4-byte length prefix (big-endian unsigned int)
+        if (offset + 4 > uint8Data.byteLength) {
+            console.error('Incomplete length prefix at offset', offset)
+            break
+        }
+
+        const length =
+            ((uint8Data[offset] << 24) |
+                (uint8Data[offset + 1] << 16) |
+                (uint8Data[offset + 2] << 8) |
+                uint8Data[offset + 3]) >>>
+            0
+        offset += 4
+
+        // Read compressed block
+        if (offset + length > uint8Data.byteLength) {
+            console.error(
+                `Incomplete block at offset ${offset}, expected ${length} bytes, available ${uint8Data.byteLength - offset}`
+            )
+            break
+        }
+
+        const compressedBlock = uint8Data.subarray(offset, offset + length)
+        offset += length
+
+        const decompressedData = await workerManager.decompress(compressedBlock)
+
+        // Convert bytes to string
+        const textDecoder = new TextDecoder('utf-8')
+        const decompressedText = textDecoder.decode(decompressedData)
+        decompressedParts.push(decompressedText)
+    }
+
+    return decompressedParts.join('\n')
+}
+
+const rawSnappyDecompress = async (
+    uint8Data: Uint8Array,
+    useWorker?: boolean,
+    posthogInstance?: PostHog
+): Promise<string> => {
+    const workerManager = getDecompressionWorkerManager(useWorker, posthogInstance)
+
+    const decompressedData = await workerManager.decompress(uint8Data)
+
+    const textDecoder = new TextDecoder('utf-8')
+    return textDecoder.decode(decompressedData)
 }
 
 export const parseEncodedSnapshots = async (
-    items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
-    sessionId: string
+    items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[] | ArrayBuffer | Uint8Array,
+    sessionId: string,
+    useWorker?: boolean,
+    posthogInstance?: PostHog
 ): Promise<RecordingSnapshot[]> => {
     if (!postHogEEModule) {
         postHogEEModule = await posthogEE()
     }
 
+    // Check if we received binary data (ArrayBuffer or Uint8Array)
+    if (items instanceof ArrayBuffer || items instanceof Uint8Array) {
+        const uint8Data = items instanceof Uint8Array ? items : new Uint8Array(items)
+
+        if (isLengthPrefixedSnappy(uint8Data)) {
+            try {
+                const combinedText = await lengthPrefixedSnappyDecompress(uint8Data, useWorker, posthogInstance)
+
+                const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
+                return parseEncodedSnapshots(lines, sessionId, useWorker, posthogInstance)
+            } catch (error) {
+                console.error('Length-prefixed Snappy decompression failed:', error)
+                posthog.captureException(new Error('Failed to decompress length-prefixed snapshot data'), {
+                    sessionId,
+                    error: error instanceof Error ? error.message : 'Unknown error',
+                    feature: 'session-recording-client-side-decompression',
+                })
+                return []
+            }
+        }
+
+        try {
+            const combinedText = await rawSnappyDecompress(uint8Data, useWorker, posthogInstance)
+
+            const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
+            return parseEncodedSnapshots(lines, sessionId, useWorker, posthogInstance)
+        } catch (error) {
+            try {
+                const textDecoder = new TextDecoder('utf-8')
+                const combinedText = textDecoder.decode(uint8Data)
+
+                const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
+                return parseEncodedSnapshots(lines, sessionId, useWorker, posthogInstance)
+            } catch (decodeError) {
+                console.error('Failed to decompress or decode binary data:', error, decodeError)
+                posthog.captureException(new Error('Failed to process snapshot data'), {
+                    sessionId,
+                    decompressionError: error instanceof Error ? error.message : 'Unknown error',
+                    decodeError: decodeError instanceof Error ? decodeError.message : 'Unknown error',
+                    feature: 'session-recording-client-side-decompression',
+                })
+                return []
+            }
+        }
+    }
+
     const lineCount = items.length
     const unparseableLines: string[] = []
-    let isMobileSnapshots = false
 
     const parsedLines: RecordingSnapshot[] = items.flatMap((l) => {
         if (!l) {
@@ -272,10 +519,6 @@ export const parseEncodedSnapshots = async (
             } else {
                 // is loaded from blob storage
                 snapshotData = snapshotLine['data']
-            }
-
-            if (!isMobileSnapshots) {
-                isMobileSnapshots = hasAnyWireframes(snapshotData)
             }
 
             return snapshotData.flatMap((d: unknown) => {
@@ -312,7 +555,7 @@ export const parseEncodedSnapshots = async (
         })
     }
 
-    return isMobileSnapshots ? patchMetaEventIntoMobileData(parsedLines, sessionId) : parsedLines
+    return parsedLines
 }
 
 /*

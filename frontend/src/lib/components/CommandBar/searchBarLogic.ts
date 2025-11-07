@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -69,6 +69,7 @@ function rankProductTreeItems(treeItems: FileSystemImport[], query: string): Tre
 
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
+
     connect(() => ({
         values: [
             commandBarLogic,
@@ -619,52 +620,51 @@ export const searchBarLogic = kea<searchBarLogicType>([
     })),
     afterMount(({ actions, values, cache }) => {
         // register keyboard shortcuts
-        cache.onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Enter') {
-                // open result
-                event.preventDefault()
-                actions.openResult(values.activeResultIndex)
-            } else if (event.key === 'ArrowDown') {
-                // navigate to next result
-                event.preventDefault()
-                actions.onArrowDown(values.activeResultIndex, values.maxIndex)
-            } else if (event.key === 'ArrowUp') {
-                // navigate to previous result
-                event.preventDefault()
-                actions.onArrowUp(values.activeResultIndex, values.maxIndex)
-            } else if (event.key === 'Escape' && event.repeat === false) {
-                // hide command bar
-                actions.hideCommandBar()
-            } else if (event.key === '>') {
-                const { value, selectionStart, selectionEnd } = event.target as HTMLInputElement
-                if (
-                    values.searchQuery.length === 0 ||
-                    (selectionStart !== null &&
-                        selectionEnd !== null &&
-                        (value.substring(0, selectionStart) + value.substring(selectionEnd)).length === 0)
-                ) {
-                    // transition to actions when entering '>' with empty input, or when replacing the whole input
+        cache.disposables.add(() => {
+            const onKeyDown = (event: KeyboardEvent): void => {
+                if (event.key === 'Enter') {
+                    // open result
                     event.preventDefault()
-                    actions.setCommandBar(BarStatus.SHOW_ACTIONS)
-                }
-            } else if (event.key === 'Tab') {
-                event.preventDefault()
+                    actions.openResult(values.activeResultIndex)
+                } else if (event.key === 'ArrowDown') {
+                    // navigate to next result
+                    event.preventDefault()
+                    actions.onArrowDown(values.activeResultIndex, values.maxIndex)
+                } else if (event.key === 'ArrowUp') {
+                    // navigate to previous result
+                    event.preventDefault()
+                    actions.onArrowUp(values.activeResultIndex, values.maxIndex)
+                } else if (event.key === 'Escape' && event.repeat === false) {
+                    // hide command bar
+                    actions.hideCommandBar()
+                } else if (event.key === '>') {
+                    const { value, selectionStart, selectionEnd } = event.target as HTMLInputElement
+                    if (
+                        values.searchQuery.length === 0 ||
+                        (selectionStart !== null &&
+                            selectionEnd !== null &&
+                            (value.substring(0, selectionStart) + value.substring(selectionEnd)).length === 0)
+                    ) {
+                        // transition to actions when entering '>' with empty input, or when replacing the whole input
+                        event.preventDefault()
+                        actions.setCommandBar(BarStatus.SHOW_ACTIONS)
+                    }
+                } else if (event.key === 'Tab') {
+                    event.preventDefault()
 
-                const currentIndex = values.tabs.findIndex((tab) => tab === values.activeTab)
-                if (event.shiftKey) {
-                    const prevIndex = currentIndex === 0 ? values.tabs.length - 1 : currentIndex - 1
-                    actions.setActiveTab(values.tabs[prevIndex])
-                } else {
-                    const nextIndex = currentIndex === values.tabs.length - 1 ? 0 : currentIndex + 1
-                    actions.setActiveTab(values.tabs[nextIndex])
+                    const currentIndex = values.tabs.findIndex((tab) => tab === values.activeTab)
+                    if (event.shiftKey) {
+                        const prevIndex = currentIndex === 0 ? values.tabs.length - 1 : currentIndex - 1
+                        actions.setActiveTab(values.tabs[prevIndex])
+                    } else {
+                        const nextIndex = currentIndex === values.tabs.length - 1 ? 0 : currentIndex + 1
+                        actions.setActiveTab(values.tabs[nextIndex])
+                    }
                 }
             }
-        }
-        window.addEventListener('keydown', cache.onKeyDown)
-    }),
-    beforeUnmount(({ cache }) => {
-        // unregister keyboard shortcuts
-        window.removeEventListener('keydown', cache.onKeyDown)
+            window.addEventListener('keydown', onKeyDown)
+            return () => window.removeEventListener('keydown', onKeyDown)
+        }, 'searchNavigationKeys')
     }),
 ])
 

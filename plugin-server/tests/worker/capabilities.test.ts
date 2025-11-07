@@ -1,4 +1,4 @@
-import { Hub, LogLevel, PluginCapabilities } from '../../src/types'
+import { Hub, PluginCapabilities } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../../src/worker/vm/capabilities'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
@@ -14,7 +14,7 @@ describe('capabilities', () => {
     beforeAll(async () => {
         console.info = jest.fn() as any
         console.warn = jest.fn() as any
-        hub = await createHub({ LOG_LEVEL: LogLevel.Warn })
+        hub = await createHub({ LOG_LEVEL: 'warn' })
     })
 
     afterAll(async () => {

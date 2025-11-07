@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from posthog.schema import (
     CachedRevenueAnalyticsMRRQueryResponse,
+    DatabaseSchemaManagedViewTableKind,
     HogQLQueryResponse,
     ResolvedDateRangeResponse,
     RevenueAnalyticsMRRQuery,
@@ -12,17 +13,15 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import UnknownDatabaseField
 from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
-from products.revenue_analytics.backend.views import (
-    RevenueAnalyticsBaseView,
-    RevenueAnalyticsRevenueItemView,
-    RevenueAnalyticsSubscriptionView,
-)
+from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, RevenueAnalyticsRevenueItemView
+from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -48,9 +47,15 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     cached_response: CachedRevenueAnalyticsMRRQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        subqueries = self.revenue_subqueries(RevenueAnalyticsRevenueItemView)
+        subqueries = list(
+            RevenueAnalyticsQueryRunner.revenue_subqueries(
+                VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM],
+                self.database,
+            )
+        )
         if not subqueries:
-            return ast.SelectQuery.empty(columns=["breakdown_by", "period_start", "amount"])
+            columns = ["breakdown_by", "period_start", "amount"]
+            return ast.SelectQuery.empty(columns={key: UnknownDatabaseField(name=key) for key in columns})
 
         queries = [self._to_query_from(subquery) for subquery in subqueries]
         return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
@@ -349,14 +354,34 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     # items at the end of the query for all of the subscriptions which ended in this period
     # to allow us to properly calculate churn
     def _revenue_item_subquery(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Not doing "SELECT *" here because it'll use an arbitrary order for the columns
+        # since this is expanded to the order stored in Postgres for the saved query (see resolver.py)
+        #
+        # Since Postgres jsonb does NOT store the columns in the same order they were inserted
+        # doing "SELECT *" will cause this to fail the `UNION ALL` below since we have a likely different
+        # order for the columns when creating the fake subscription query below
+        #
+        # This poses some problems because we need to expose all possible fields here if we wanna
+        # be able to UNION ALL so we'll just reimport the fields in the right orders from the schema
+        #
+        # :NERD: It stores them by key length and then alphabetically
+        # https://www.postgresql.org/docs/17/datatype-json.html
         queries: list[ast.SelectQuery | ast.SelectSetQuery] = [
             ast.SelectQuery(
-                select=[ast.Field(chain=["*"])],
+                select=[
+                    ast.Field(chain=[field])
+                    for field in VIEW_SCHEMAS[
+                        DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM
+                    ].fields.keys()
+                ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=[view.name])),
             ),
         ]
 
-        subscription_views = self.revenue_subqueries(RevenueAnalyticsSubscriptionView)
+        subscription_views = RevenueAnalyticsQueryRunner.revenue_subqueries(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION],
+            self.database,
+        )
         subscription_view = next(
             (subscription_view for subscription_view in subscription_views if subscription_view.prefix == view.prefix),
             None,
@@ -488,13 +513,21 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
 
         labels = [format_label_date(date, self.query_date_range, self.team.week_start_day) for date in dates]
 
-        def _build_result(breakdown: str, *, index: int, kind: str | None = None) -> dict:
+        def _build_result(breakdown: str, *, kind: str | None = None) -> dict:
             label = f"{kind} | {breakdown}" if kind else breakdown
+            index = {
+                None: 0,
+                "New": 1,
+                "Expansion": 2,
+                "Contraction": 3,
+                "Churn": 4,
+            }.get(kind, 0)
 
             results = grouped_results[breakdown]
             data = [results[date][index] for date in formatted_dates]
             return {
                 "action": {"days": dates, "id": label, "name": label},
+                "breakdown": {"property": breakdown, "kind": kind},
                 "data": data,
                 "days": formatted_dates,
                 "label": label,
@@ -503,11 +536,11 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
 
         return [
             RevenueAnalyticsMRRQueryResultItem(
-                total=_build_result(breakdown, index=0),
-                new=_build_result(breakdown, index=1, kind="New"),
-                expansion=_build_result(breakdown, index=2, kind="Expansion"),
-                contraction=_build_result(breakdown, index=3, kind="Contraction"),
-                churn=_build_result(breakdown, index=4, kind="Churn"),
+                total=_build_result(breakdown),
+                new=_build_result(breakdown, kind="New"),
+                expansion=_build_result(breakdown, kind="Expansion"),
+                contraction=_build_result(breakdown, kind="Contraction"),
+                churn=_build_result(breakdown, kind="Churn"),
             )
             for breakdown in breakdowns
         ]

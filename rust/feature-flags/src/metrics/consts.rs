@@ -47,3 +47,26 @@ pub const FLAG_DB_CONNECTION_TIME: &str = "flags_db_connection_time";
 
 // Flag request kludges (to see how often we have to massage our request data to be able to parse it)
 pub const FLAG_REQUEST_KLUDGE_COUNTER: &str = "flags_request_kludge_total";
+
+// New diagnostic metrics for pool exhaustion investigation
+pub const FLAG_POOL_UTILIZATION_GAUGE: &str = "flags_pool_utilization_ratio";
+pub const FLAG_CONNECTION_HOLD_TIME: &str = "flags_connection_hold_time_ms";
+pub const FLAG_CONNECTION_QUEUE_DEPTH_GAUGE: &str = "flags_connection_queue_depth";
+pub const FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER: &str =
+    "flags_experience_continuity_requests_total";
+
+// Flag definitions rate limiting
+pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
+pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
+
+// Timeout tracking and classification
+pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
+
+// Error classification
+pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
+pub const FLAG_FILTER_DESERIALIZATION_ERROR_COUNTER: &str =
+    "flags_filter_deserialization_error_total";
+
+// Tombstone metric for tracking "impossible" failures that should never happen in production
+// Different failure types are tracked via the "failure_type" label
+pub const TOMBSTONE_COUNTER: &str = "posthog_tombstone_total";

@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage as LangchainAIMessage
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph import AssistantGraph
+from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
@@ -26,8 +26,9 @@ class MemoryContentRelevance(LLMClassifier):
             prompt_template="""Evaluate if the memory content is relevant and well-formatted.
 
 Context:
-- Memory content should only contain factual information about the product or company
-- Personal information or irrelevant details should be omitted
+- Memory content should contain factual information about the product or company
+- When users explicitly request to save information (e.g., "remember that...", "remember this..."), the information should be saved even if it's not product-related (e.g., personal preferences, user context)
+- Personal information or irrelevant details should be omitted UNLESS explicitly requested
 - Facts should be stated clearly and consistently
 - When replacing facts, the new fact should be logically related to the original
 
@@ -164,6 +165,15 @@ async def eval_memory(call_node, pytestconfig):
                     id="6",
                     name="core_memory_append",
                     args={"memory_content": "Our main KPI is monthly active users (MAU)"},
+                ),
+            ),
+            # Test explicit non-product-related memory request
+            EvalCase(
+                input="Remember my favorite treat is chocolate",
+                expected=AssistantToolCall(
+                    id="7",
+                    name="core_memory_append",
+                    args={"memory_content": "The user's favorite treat is chocolate."},
                 ),
             ),
             # Test /remember slash command with no arg

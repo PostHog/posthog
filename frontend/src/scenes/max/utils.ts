@@ -1,5 +1,3 @@
-import { decodeParams, encodeParams } from 'kea-router'
-
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
@@ -13,10 +11,7 @@ import {
     HumanMessage,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
-    PlanningMessage,
-    ReasoningMessage,
     RootAssistantMessage,
-    TaskExecutionMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import {
@@ -28,14 +23,10 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
-import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
+import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
 import { SuggestionGroup } from './maxLogic'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
-
-export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
-    return message?.type === AssistantMessageType.Reasoning
-}
 
 export function isVisualizationMessage(
     message: RootAssistantMessage | undefined | null
@@ -73,16 +64,6 @@ export function isNotebookUpdateMessage(
     return message?.type === AssistantMessageType.Notebook
 }
 
-export function isPlanningMessage(message: RootAssistantMessage | undefined | null): message is PlanningMessage {
-    return message?.type === AssistantMessageType.Planning
-}
-
-export function isTaskExecutionMessage(
-    message: RootAssistantMessage | undefined | null
-): message is TaskExecutionMessage {
-    return message?.type === AssistantMessageType.TaskExecution
-}
-
 export function castAssistantQuery(
     query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | null
 ): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
@@ -96,28 +77,6 @@ export function castAssistantQuery(
         return query
     }
     throw new Error(`Unsupported query type: ${query?.kind}`)
-}
-
-/**
- * Generate a URL for a conversation.
- */
-export function getConversationUrl({
-    pathname,
-    search,
-    conversationId,
-    includeHash = true,
-}: {
-    pathname: string
-    search: string
-    conversationId: string
-    includeHash?: boolean
-}): string {
-    const params = decodeParams(search, '?')
-    const strParams = encodeParams({
-        ...params,
-        chat: conversationId,
-    })
-    return `${pathname}${strParams ? `?${strParams}` : ''}${includeHash ? `#panel=${SidePanelTab.Max}` : ''}`
 }
 
 export function formatConversationDate(updatedAt: string | null): string {
@@ -177,36 +136,15 @@ export function isDeepResearchReportCompletion(message: NotebookUpdateMessage): 
     )
 }
 
-export function generateBurstPoints(spikeCount: number, spikiness: number): string {
-    if (spikiness < 0 || spikiness > 1) {
-        throw new Error('Spikiness must be between 0 and 1')
-    }
-    if (spikeCount < 1) {
-        throw new Error('Spikes must be at least 1')
-    }
-
-    let points = ''
-    const outerRadius = 50
-    const innerRadius = 50 * (1 - spikiness)
-
-    for (let i = 0; i < spikeCount * 2; i++) {
-        const radius = i % 2 === 0 ? outerRadius : innerRadius
-        const angle = (Math.PI * i) / spikeCount
-        const x = 50 + radius * Math.cos(angle)
-        const y = 50 + radius * Math.sin(angle)
-        points += `${x},${y} `
-    }
-
-    return points.trim()
-}
-
 // Utility functions for transforming data to max context
 export const insightToMaxContext = (
     insight: Partial<QueryBasedInsightModel>,
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>
 ): MaxInsightContext => {
-    const source = (insight.query as any)?.source
+    // Some insights (especially revenue analytics insights) don't have an inner source so we fallback to the outer query
+    const source = (insight.query as any)?.source ?? insight.query
+
     return {
         type: MaxContextType.INSIGHT,
         id: insight.short_id!,

@@ -695,6 +695,32 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             (0, 0, "https://example.com/pathname", "https://example.com/pathname", "/pathname", "/pathname")
         ]
 
+    def test_event_sessions_where(self):
+        session_id = str(uuid7())
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={
+                "$current_url": "https://example.com/pathname",
+                "$pathname": "/pathname",
+                "$session_id": session_id,
+            },
+        )
+
+        response = self.__execute(
+            parse_select(
+                """
+                select
+                    count() from events
+                where events.session.$entry_pathname = '/pathname'
+                """,
+            ),
+        )
+
+        assert response.results == [(1,)]
+
 
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):

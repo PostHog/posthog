@@ -26,20 +26,23 @@ def validate_migration_sql(sql) -> bool:
     operations = sql.split("\n")
     tables_created_so_far: list[str] = []
     for operation_sql in operations:
-        # Extract table name from queries of this format: ALTER TABLE TABLE "posthog_feature"
-        table_being_altered: Optional[str] = (
-            re.findall(r"ALTER TABLE \"([a-z_]+)\"", operation_sql)[0] if "ALTER TABLE" in operation_sql else None
-        )
-        # Extract table name from queries of this format: CREATE TABLE "posthog_feature"
+        # Extract table name from queries of this format: ALTER TABLE "posthog_feature" or ALTER TABLE posthog_feature
+        table_being_altered: Optional[str] = None
+        if "ALTER TABLE" in operation_sql:
+            matches = re.findall(r'ALTER TABLE "?([a-z_]+)"?', operation_sql)
+            table_being_altered = matches[0] if matches else None
+        # Extract table name from queries of this format: CREATE TABLE "posthog_feature" or CREATE TABLE posthog_feature
         if "CREATE TABLE" in operation_sql:
-            table_name = re.findall(r"CREATE TABLE \"([a-z_]+)\"", operation_sql)[0]
-            tables_created_so_far.append(table_name)
+            matches = re.findall(r'CREATE TABLE "?([a-z_]+)"?', operation_sql)
+            if matches:
+                table_name = matches[0]
+                tables_created_so_far.append(table_name)
 
-            if '"id" serial' in operation_sql or '"id" bigserial' in operation_sql:
-                print(
-                    f"\n\n\033[91mFound a new table with an integer id. Please use UUIDModel instead.\nSource: `{operation_sql}`"
-                )
-                return True
+                if '"id" serial' in operation_sql or '"id" bigserial' in operation_sql:
+                    print(
+                        f"\n\n\033[91mFound a new table with an integer id. Please use UUIDModel instead.\nSource: `{operation_sql}`"
+                    )
+                    return True
 
         if (
             "ALTER TABLE" in operation_sql  # Only check ALTER TABLE operations
@@ -187,7 +190,7 @@ class Command(BaseCommand):
             migrations = []
 
         if not migrations:
-            migrations = ["posthog/migrations/0770_teamrevenueanalyticsconfig_filter_test_accounts_and_more.py"]
+            migrations = ["posthog/migrations/0771_teamrevenueanalyticsconfig_filter_test_accounts_and_more.py"]
 
         if len(migrations) > 1:
             print(

@@ -176,6 +176,13 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
         humanReadableResource: [(_, p) => [p.resource], (resource) => resource.replace(/_/g, ' ')],
 
+        minimumAccessLevel: [
+            (s) => [s.accessControls],
+            (accessControls): AccessControlLevel | null => {
+                return accessControls?.minimum_access_level ?? null
+            },
+        ],
+
         availableLevelsWithNone: [
             (s) => [s.accessControls],
             (accessControls): AccessControlLevel[] => {
@@ -205,13 +212,19 @@ export const accessControlLogic = kea<accessControlLogicType>([
         ],
 
         accessControlDefaultOptions: [
-            (s) => [s.availableLevelsWithNone, (_, props) => props.resource],
-            (availableLevelsWithNone): LemonSelectOption<string>[] => {
-                const options = availableLevelsWithNone.map((level) => ({
-                    value: level,
-                    // TODO: Correct "a" and "an"
-                    label: level === 'none' ? 'No access' : toSentenceCase(level),
-                }))
+            (s) => [s.availableLevelsWithNone, s.minimumAccessLevel, (_, props) => props.resource],
+            (availableLevelsWithNone, minimumAccessLevel): LemonSelectOption<string>[] => {
+                const options = availableLevelsWithNone.map((level) => {
+                    const isDisabled = minimumAccessLevel
+                        ? availableLevelsWithNone.indexOf(level) < availableLevelsWithNone.indexOf(minimumAccessLevel)
+                        : false
+                    return {
+                        value: level,
+                        // TODO: Correct "a" and "an"
+                        label: level === 'none' ? 'No access' : toSentenceCase(level),
+                        disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
+                    }
+                })
 
                 return options
             },

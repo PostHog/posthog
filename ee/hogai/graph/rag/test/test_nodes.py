@@ -79,8 +79,8 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         self.assertIn(str(self.action.id), response.rag_context)
         self.assertEqual(embed_mock.call_count, 1)
 
-    @patch.object(InsightRagContextNode, "_get_ui_context")
-    def test_injects_actions_from_context(self, mock_get_ui_context, cohere_mock, embed_mock):
+    @patch.object(InsightRagContextNode, "context_manager", new_callable=lambda: MagicMock())
+    def test_injects_actions_from_context(self, mock_context_manager, cohere_mock, embed_mock):
         # Create a second action that will come from UI context
         context_action = Action.objects.create(
             team=self.team,
@@ -95,7 +95,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         mock_ui_context = MaxUIContext(
             actions=[MaxActionContext(id=context_action.id, name="Context Action", description="From UI Context")]
         )
-        mock_get_ui_context.return_value = mock_ui_context
+        mock_context_manager.get_ui_context.return_value = mock_ui_context
 
         retriever = InsightRagContextNode(team=self.team, user=self.user)
         response = retriever.run(AssistantState(root_tool_insight_plan="Plan", messages=[]), {})
@@ -109,8 +109,8 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         self.assertIn(str(context_action.id), response.rag_context)
         self.assertEqual(embed_mock.call_count, 1)
 
-    @patch.object(InsightRagContextNode, "_get_ui_context")
-    def test_handles_actions_context_when_embedding_fails(self, mock_get_ui_context, cohere_mock, embed_mock):
+    @patch.object(InsightRagContextNode, "context_manager", new_callable=lambda: MagicMock())
+    def test_handles_actions_context_when_embedding_fails(self, mock_context_manager, cohere_mock, embed_mock):
         # Make embedding fail
         embed_mock.side_effect = ValueError("Embedding failed")
 
@@ -125,7 +125,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
                 MaxActionContext(id=context_action.id, name="Context Only Action", description="Only from context")
             ]
         )
-        mock_get_ui_context.return_value = mock_ui_context
+        mock_context_manager.get_ui_context.return_value = mock_ui_context
 
         retriever = InsightRagContextNode(team=self.team, user=self.user)
         response = retriever.run(AssistantState(root_tool_insight_plan="Plan", messages=[]), {})

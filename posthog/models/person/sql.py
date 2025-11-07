@@ -1,11 +1,11 @@
-from posthog import settings
+from django.conf import settings
+
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import CollapsingMergeTree, Distributed, ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person {ON_CLUSTER_CLAUSE()}"
 
@@ -172,9 +172,11 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     )
 )
 
+
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
-PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
+def PERSONS_DISTINCT_ID_TABLE_MV_SQL():
+    return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}_mv ON CLUSTER '{cluster}'
 TO {database}.{table_name}
 AS SELECT
@@ -186,10 +188,11 @@ _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
 """.format(
-    table_name=PERSONS_DISTINCT_ID_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    database=CLICKHOUSE_DATABASE,
-)
+        table_name=PERSONS_DISTINCT_ID_TABLE,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+
 
 #
 # person_distinct_id2 - table currently used for person distinct IDs, its schema is improved over the original
@@ -370,9 +373,9 @@ def PERSON_DISTINCT_ID_OVERRIDES_WRITABLE_TABLE_SQL():
     )
 
 
-TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {PERSON_DISTINCT_ID_OVERRIDES_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
-)
+def TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL():
+    return f"TRUNCATE TABLE IF EXISTS {PERSON_DISTINCT_ID_OVERRIDES_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+
 
 #
 # Static Cohort
@@ -410,9 +413,9 @@ def PERSON_STATIC_COHORT_TABLE_SQL(on_cluster=True):
     )
 
 
-TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
-)
+def TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL():
+    return f"TRUNCATE TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+
 
 INSERT_PERSON_STATIC_COHORT = (
     f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp) VALUES"
@@ -547,7 +550,7 @@ ORDER BY actor_value DESC, actor_id DESC /* Also sorting by ID for determinism *
 """
 
 COMMENT_DISTINCT_ID_COLUMN_SQL = (
-    lambda on_cluster=True: f"ALTER TABLE person_distinct_id {ON_CLUSTER_CLAUSE() if on_cluster else ''} COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
+    lambda: "ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
 )
 
 
@@ -598,7 +601,13 @@ GET_PERSON_COUNT_FOR_TEAM = "SELECT count() AS count FROM person WHERE team_id =
 GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM = "SELECT count() AS count FROM person_distinct_id2 WHERE team_id = %(team_id)s"
 
 
-CREATE_PERSON_DISTINCT_ID_OVERRIDES_DICTIONARY = """
+def CREATE_PERSON_DISTINCT_ID_OVERRIDES_DICTIONARY():
+    """
+    Create dictionary SQL for person_distinct_id_overrides.
+    This must be a function to ensure CLICKHOUSE_DATABASE is evaluated at runtime,
+    not at module import time (which causes issues in E2E tests where env vars aren't loaded yet).
+    """
+    return """
 CREATE OR REPLACE DICTIONARY {database}.person_distinct_id_overrides_dict ON CLUSTER {cluster} (
     `team_id` Int64, -- team_id could be made hierarchical to save some space.
     `distinct_id` String,
@@ -613,6 +622,6 @@ LAYOUT(complex_key_hashed())
 -- ClickHouse will choose a time uniformly within 1 to 5 hours to reload the dictionary (update if necessary to meet SLAs).
 LIFETIME(MIN 3600 MAX 18000)
 """.format(
-    cluster=CLICKHOUSE_CLUSTER,
-    database=CLICKHOUSE_DATABASE,
-)
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
+    )

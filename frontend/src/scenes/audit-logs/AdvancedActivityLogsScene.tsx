@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconActivity } from '@posthog/icons'
+import { IconNotification } from '@posthog/icons'
 import { LemonTabs } from '@posthog/lemon-ui'
 
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { AvailableFeature } from '~/types'
 
 import { AdvancedActivityLogFiltersPanel } from './AdvancedActivityLogFiltersPanel'
 import { AdvancedActivityLogsList } from './AdvancedActivityLogsList'
@@ -21,13 +21,8 @@ export const scene: SceneExport = {
 }
 
 export function AdvancedActivityLogsScene(): JSX.Element | null {
-    const { isFeatureFlagEnabled, activeTab } = useValues(advancedActivityLogsLogic)
+    const { activeTab } = useValues(advancedActivityLogsLogic)
     const { setActiveTab } = useActions(advancedActivityLogsLogic)
-
-    if (!isFeatureFlagEnabled) {
-        window.location.href = urls.projectHomepage()
-        return null
-    }
 
     const tabs = [
         {
@@ -51,19 +46,19 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
         <SceneContent>
             <SceneTitleSection
                 name="Activity logs"
-                description="Track all changes and activities in your organization with detailed filtering and export capabilities."
                 resourceType={{
                     type: 'team_activity',
-                    forceIcon: <IconActivity />,
+                    forceIcon: <IconNotification />,
                 }}
             />
-            <SceneDivider />
-            <LemonTabs
-                activeKey={activeTab}
-                onChange={(key) => setActiveTab(key as 'logs' | 'exports')}
-                tabs={tabs}
-                sceneInset
-            />
+            <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
+                <LemonTabs
+                    activeKey={activeTab}
+                    onChange={(key) => setActiveTab(key as 'logs' | 'exports')}
+                    tabs={tabs}
+                    sceneInset
+                />
+            </PayGateMini>
         </SceneContent>
     )
 }

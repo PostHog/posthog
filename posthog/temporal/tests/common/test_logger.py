@@ -1,3 +1,4 @@
+import ssl
 import json
 import time
 import uuid
@@ -31,7 +32,12 @@ from posthog.clickhouse.log_entries import (
     TRUNCATE_LOG_ENTRIES_TABLE_SQL,
 )
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, resolve_log_source
+from posthog.temporal.common.logger import (
+    BACKGROUND_LOGGER_TASKS,
+    configure_default_ssl_context,
+    configure_logger,
+    resolve_log_source,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -192,6 +198,15 @@ def structlog_context():
 
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(**ctx)
+
+
+def test_configure_default_ssl_context_uses_modern_defaults():
+    """Kafka SSL contexts should rely on the modern TLS client defaults."""
+    context = configure_default_ssl_context()
+
+    assert context.protocol is ssl.PROTOCOL_TLS_CLIENT
+    assert context.verify_mode is ssl.CERT_OPTIONAL
+    assert context.check_hostname is False
 
 
 async def test_logger_context(log_capture, event_loop):
@@ -356,16 +371,6 @@ ACTIVITY_INFOS = [
         workflow_id=f"{ID}-{dt.datetime.now(dt.UTC)}",
         workflow_namespace="prod-us",
         workflow_type="external-data-job",
-        workflow_run_id=str(uuid.uuid4()),
-    ),
-    ActivityInfo(
-        activity_id=random.randint(1, 10000),
-        activity_type="test-activity",
-        attempt=random.randint(1, 10000),
-        task_queue="data-warehouse-task-queue",
-        workflow_id=f"{ID}-compaction",
-        workflow_namespace="prod-us",
-        workflow_type="deltalake-compaction-job",
         workflow_run_id=str(uuid.uuid4()),
     ),
     ActivityInfo(

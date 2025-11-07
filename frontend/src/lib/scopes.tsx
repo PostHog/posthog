@@ -22,7 +22,9 @@ export const API_SCOPES: APIScope[] = [
     { key: 'dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectPlural: 'datasets' },
+    { key: 'desktop_recording', objectPlural: 'desktop recordings' },
     { key: 'early_access_feature', objectPlural: 'early access features' },
+    { key: 'endpoint', objectPlural: 'endpoints' },
     { key: 'event_definition', objectPlural: 'event definitions' },
     { key: 'error_tracking', objectPlural: 'error tracking' },
     { key: 'experiment', objectPlural: 'experiments' },
@@ -31,6 +33,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'group', objectPlural: 'groups' },
     { key: 'hog_function', objectPlural: 'hog functions' },
     { key: 'insight', objectPlural: 'insights' },
+    { key: 'integration', disabledActions: ['write'], objectPlural: 'integrations' },
     { key: 'notebook', objectPlural: 'notebooks' },
     { key: 'organization', disabledWhenProjectScoped: true, objectPlural: 'organizations' },
     {
@@ -183,4 +186,21 @@ export const getMinimumEquivalentScopes = (scopes: string[]): string[] => {
         }
         return `${object}:${action}`
     })
+}
+
+/** Convert scopes array format to object format for easier UI manipulation */
+export const scopesArrayToObject = (scopes: string[]): Record<string, string> => {
+    const result: Record<string, string> = {}
+    scopes.forEach((scope) => {
+        const [key, action] = scope.split(':')
+        if (key && action) {
+            result[key] = action
+        }
+    })
+    return result
+}
+
+/** Convert scopes object format back to array format for API submission */
+export const scopesObjectToArray = (scopesObj: Record<string, string>): string[] => {
+    return Object.entries(scopesObj).map(([key, action]) => `${key}:${action}`)
 }

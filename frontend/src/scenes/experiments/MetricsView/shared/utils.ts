@@ -7,10 +7,12 @@ import type {
     ExperimentTrendsQuery,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
+    NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import {
     ExperimentDataWarehouseNode,
     ExperimentMetricType,
+    ExperimentStatsValidationFailure,
     NodeKind,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
@@ -341,4 +343,29 @@ export function getMetricColors(
         positive: colors.BAR_POSITIVE,
         negative: colors.BAR_NEGATIVE,
     }
+}
+
+export function hasValidationFailures(result: NewExperimentQueryResponse | null): boolean {
+    if (!result) {
+        return false
+    }
+    return !!(
+        result.baseline?.validation_failures?.length ||
+        result.variant_results?.some((v) => v.validation_failures?.length)
+    )
+}
+
+export function getValidationFailureType(variant: ExperimentStatsBaseValidated): 'not-enough-data' | 'error' | null {
+    if (!variant.validation_failures || variant.validation_failures.length === 0) {
+        return null
+    }
+
+    if (
+        variant.validation_failures.includes(ExperimentStatsValidationFailure.NotEnoughExposures) ||
+        variant.validation_failures.includes(ExperimentStatsValidationFailure.NotEnoughMetricData)
+    ) {
+        return 'not-enough-data'
+    }
+
+    return 'error'
 }

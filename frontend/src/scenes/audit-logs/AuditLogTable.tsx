@@ -2,8 +2,7 @@ import { useState } from 'react'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 
-import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { HumanizedActivityLogItem, humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -47,7 +46,7 @@ const columns: LemonTableColumns<HumanizedActivityLogItem> = [
     {
         title: 'Activity',
         key: 'action',
-        render: (_, logItem) => <span className="capitalize">{logItem.unprocessed?.activity || 'Unknown'}</span>,
+        render: (_, logItem) => <span>{humanizeActivity(logItem.unprocessed?.activity || 'unknown')}</span>,
         width: '20%',
     },
     {
@@ -99,7 +98,12 @@ export function AuditLogTable({ logItems, pagination }: AuditLogTableProps): JSX
                 onRowCollapse: (logItem, index) => toggleRowExpansion(logItem, index),
             }}
             onRow={(logItem, index) => ({
-                onClick: () => toggleRowExpansion(logItem, index),
+                onClick: (e) => {
+                    if ((e.target as HTMLElement).closest('.LemonTable__toggle')) {
+                        return
+                    }
+                    toggleRowExpansion(logItem, index)
+                },
                 style: { cursor: 'pointer' },
             })}
             pagination={pagination}

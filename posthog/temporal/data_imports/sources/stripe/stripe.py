@@ -12,6 +12,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME,
@@ -24,7 +25,8 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.sources.stripe.settings import INCREMENTAL_FIELDS
-from posthog.warehouse.models.external_table_definitions import get_dlt_mapping_for_external_table
+
+from products.data_warehouse.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
 
 DEFAULT_LIMIT = 100
 
@@ -76,6 +78,12 @@ def stripe_source(
             CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
             CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
                 method=client.customers.balance_transactions.list,
+                nested_parent_param="customer",
+                parent_id="id",
+                parent=StripeResource(method=client.customers.list),
+            ),
+            CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: StripeNestedResource(
+                method=client.customers.payment_methods.list,
                 nested_parent_param="customer",
                 parent_id="id",
                 parent=StripeResource(method=client.customers.list),

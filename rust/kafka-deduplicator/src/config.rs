@@ -13,6 +13,11 @@ pub struct Config {
     #[envconfig(default = "kafka-deduplicator")]
     pub kafka_consumer_group: String,
 
+    // supplied by k8s deploy env, used as part of kafka
+    // consumer client ID for sticky partition mappings
+    #[envconfig(from = "HOSTNAME")]
+    pub pod_hostname: Option<String>,
+
     #[envconfig(default = "events")]
     pub kafka_consumer_topic: String,
 
@@ -43,6 +48,9 @@ pub struct Config {
 
     // Output topic for deduplicated events (optional - if not set, events are only consumed for metrics)
     pub output_topic: Option<String>,
+
+    // Topic for publishing duplicate detection results (optional)
+    pub duplicate_events_topic: Option<String>,
 
     // RocksDB storage configuration
     #[envconfig(default = "/tmp/deduplication-store")]
@@ -89,16 +97,16 @@ pub struct Config {
     pub port: u16,
 
     // Checkpoint configuration - integrated from checkpoint::config
-    #[envconfig(default = "900")] // 15 minutes in seconds
+    #[envconfig(default = "1800")] // 30 minutes in seconds
     pub checkpoint_interval_secs: u64,
 
-    #[envconfig(default = "1680")] // 28 minutes in seconds
+    #[envconfig(default = "900")] // 15 minutes in seconds
     pub checkpoint_cleanup_interval_secs: u64,
 
-    #[envconfig(default = "72")] // 72 hours
+    #[envconfig(default = "1")] // delete local checkpoints older than this
     pub max_checkpoint_retention_hours: u32,
 
-    #[envconfig(default = "3")]
+    #[envconfig(default = "8")] // max concurrent checkpoints to perform on single node
     pub max_concurrent_checkpoints: usize,
 
     #[envconfig(default = "200")]
@@ -107,8 +115,8 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub checkpoint_worker_shutdown_timeout_secs: u64,
 
-    #[envconfig(default = "5")]
-    pub max_local_checkpoints: usize,
+    #[envconfig(default = "1")]
+    pub checkpoints_per_partition: usize,
 
     #[envconfig(default = "/tmp/checkpoints")]
     pub local_checkpoint_dir: String,
@@ -123,11 +131,19 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub checkpoint_full_upload_interval: u32,
 
+    // number of hours prior to "now" that the checkpoint import mechanism
+    // will search for valid checkpoint attempts in a DR recovery scenario
+    #[envconfig(default = "24")]
+    pub checkpoint_import_window_hours: u32,
+
     #[envconfig(default = "us-east-1")]
     pub aws_region: String,
 
-    #[envconfig(default = "300")] // 5 minutes in seconds
-    pub s3_timeout_secs: u64,
+    #[envconfig(default = "120")] // 2 minutes
+    pub s3_operation_timeout_secs: u64,
+
+    #[envconfig(default = "20")] // 20 seconds
+    pub s3_attempt_timeout_secs: u64,
 
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
@@ -290,13 +306,14 @@ impl Config {
         Duration::from_secs(self.checkpoint_worker_shutdown_timeout_secs)
     }
 
-    pub fn max_local_checkpoints(&self) -> usize {
-        self.max_local_checkpoints
+    /// Get S3 per-operation (including all retries) timeout as Duration
+    pub fn s3_operation_timeout(&self) -> Duration {
+        Duration::from_secs(self.s3_operation_timeout_secs)
     }
 
-    /// Get S3 timeout as Duration
-    pub fn s3_timeout(&self) -> Duration {
-        Duration::from_secs(self.s3_timeout_secs)
+    /// Get S3 per-attempt timeout as Duration
+    pub fn s3_attempt_timeout(&self) -> Duration {
+        Duration::from_secs(self.s3_attempt_timeout_secs)
     }
 
     /// Build Kafka producer configuration

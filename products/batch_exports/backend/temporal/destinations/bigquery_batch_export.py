@@ -27,7 +27,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
@@ -49,6 +49,11 @@ from products.batch_exports.backend.temporal.pipeline.consumer import (
 )
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
+from products.batch_exports.backend.temporal.pipeline.transformer import (
+    ChunkTransformerProtocol,
+    JSONLStreamTransformer,
+    ParquetStreamTransformer,
+)
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
@@ -83,7 +88,7 @@ NON_RETRYABLE_ERROR_TYPES = (
 )
 
 LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 class MissingRequiredPermissionsError(Exception):
@@ -882,7 +887,7 @@ class BigQueryConsumerFromStage(ConsumerFromStage):
         self.table_schema = table_schema
         self.file_format = file_format
 
-        self.logger.bind(table=self.table)
+        self.logger = self.logger.bind(table=self.table)
 
         self.current_file_index = 0
         self.current_buffer = io.BytesIO()
@@ -1108,15 +1113,19 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         file_format="Parquet" if can_perform_merge else "JSONLines",
                     )
 
+                    if can_perform_merge:
+                        transformer: ChunkTransformerProtocol = ParquetStreamTransformer(
+                            compression="zstd",
+                            max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                        )
+                    else:
+                        transformer = JSONLStreamTransformer()
+
                     result = await run_consumer_from_stage(
                         queue=queue,
                         consumer=consumer,
                         producer_task=producer_task,
-                        schema=record_batch_schema,
-                        file_format="Parquet" if can_perform_merge else "JSONLines",
-                        compression="zstd" if can_perform_merge else None,
-                        include_inserted_at=False,
-                        max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                        transformer=transformer,
                         json_columns=() if can_perform_merge else table_schemas.json_columns,
                     )
 

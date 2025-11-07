@@ -35,10 +35,10 @@ AGENTS = [
         description="Automated code generation and GitHub integration",
     ),
     Agent(
-        id="triage",
-        name="Triage Agent",
-        agent_type="triage",
-        description="Automatically triages and categorizes tasks based on content",
+        id="planning",
+        name="Planning Agent",
+        agent_type="planning",
+        description="Automatically plans tasks based on content",
     ),
     Agent(
         id="review",

@@ -1,8 +1,11 @@
 import logging
+from typing import Optional
 
 from pydantic import BaseModel
 
-from .sandbox_environment import ExecutionResult, SandboxEnvironment, SandboxEnvironmentConfig
+from products.tasks.backend.lib.constants import SETUP_REPOSITORY_PROMPT
+
+from .sandbox_environment import ExecutionResult, SandboxEnvironment
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +14,8 @@ REPOSITORY_TARGET_DIR = "repo"
 DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 
 
-class SandboxAgentConfig(BaseModel):
+class SandboxAgentCreateConfig(BaseModel):
+    name: str
     repository_url: str
     github_token: str
     task_id: str
@@ -20,83 +24,85 @@ class SandboxAgentConfig(BaseModel):
 
 
 class SandboxAgent:
-    """
-    Agent that uses sandbox environments to execute tasks.
-    """
+    """Agent that uses sandbox environments to execute tasks."""
 
-    config: SandboxAgentConfig
     sandbox: SandboxEnvironment
 
-    def __init__(self, sandbox: SandboxEnvironment, config: SandboxAgentConfig):
+    def __init__(self, sandbox: SandboxEnvironment):
         self.sandbox = sandbox
-        self.config = config
 
-    @classmethod
-    async def create(
-        cls,
-        sandbox: SandboxEnvironment,
-        config: SandboxAgentConfig,
-    ) -> "SandboxAgent":
-        environment_variables = {
-            "REPOSITORY_URL": config.repository_url,
-            "POSTHOG_CLI_TOKEN": config.posthog_personal_api_key,
-            "POSTHOG_CLI_ENV_ID": config.posthog_project_id,
-        }
+    async def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
+        if not self.sandbox.is_running:
+            raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 
-        sandbox_config = SandboxEnvironmentConfig(
-            name=sandbox.config.name,
-            template=sandbox.config.template,
-            environment_variables=environment_variables,
-            entrypoint=sandbox.config.entrypoint,
+        org, repo = repository.lower().split("/")
+        repo_url = (
+            f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
+            if github_token
+            else f"https://github.com/{org}/{repo}.git"
         )
 
-        sandbox = await SandboxEnvironment.create(sandbox_config)
-        agent = cls(sandbox, config)
+        target_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        return agent
-
-    async def setup_repository(self) -> ExecutionResult:
-        if not self.sandbox.is_running:
-            raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
-
-        return await self.clone_repository(self.config.repository_url)
-
-    async def clone_repository(self, repo_url: str) -> ExecutionResult:
-        if not self.sandbox.is_running:
-            raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
-
-        if repo_url.startswith("https://github.com/"):
-            auth_url = repo_url.replace(
-                "https://github.com/",
-                f"https://x-access-token:{self.config.github_token}@github.com/",
-            )
-        else:
-            raise ValueError("Only GitHub is supported")
-
-        clone_command = f"git clone {auth_url} {WORKING_DIR}/{REPOSITORY_TARGET_DIR}"
-
-        logger.info(f"Cloning repository {repo_url} to {self.repository_dir} in sandbox {self.sandbox.id}")
-        return await self.sandbox.execute(clone_command)
-
-    async def execute_task(self) -> ExecutionResult:
-        """Execute Claude Code commands in the sandbox."""
-        if not self.sandbox.is_running:
-            raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
-
-        full_command = f"cd {self.repository_dir} && {self.get_task_command()}"
-
-        logger.info(
-            f"Executing task {self.config.task_id} in directory {self.repository_dir} in sandbox {self.sandbox.id}"
+        # Wipe existing directory if present, then clone
+        clone_command = (
+            f"rm -rf {target_path} && "
+            f"mkdir -p /tmp/workspace/repos/{org} && "
+            f"cd /tmp/workspace/repos/{org} && "
+            f"git clone {repo_url} {repo}"
         )
-        return await self.sandbox.execute(full_command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
 
-    def get_task_command(self) -> str:
-        """Get the command to execute the task."""
-        # TODO: Replace with actual task execution: posthog-cli task run --task-id {self.config.task_id}
-        return "posthog-cli --help"
+        logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.sandbox.id}")
+        return await self.sandbox.execute(clone_command, timeout_seconds=5 * 60)
+
+    async def setup_repository(self, repository: str) -> ExecutionResult:
+        """Setup a repository for snapshotting using the PostHog Code Agent."""
+        if not self.sandbox.is_running:
+            raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
+
+        org, repo = repository.lower().split("/")
+        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        check_result = await self.sandbox.execute(f"test -d {repo_path} && echo 'exists' || echo 'missing'")
+        if "missing" in check_result.stdout:
+            raise RuntimeError(f"Repository path {repo_path} does not exist. Clone the repository first.")
+
+        setup_command = f"cd {repo_path} && {self._get_setup_command(repo_path)}"
+
+        logger.info(f"Running code agent setup for {repository} in sandbox {self.sandbox.id}")
+        return await self.sandbox.execute(setup_command, timeout_seconds=15 * 60)
+
+    async def is_git_clean(self, repository: str) -> tuple[bool, str]:
+        if not self.sandbox.is_running:
+            raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
+
+        org, repo = repository.lower().split("/")
+        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        result = await self.sandbox.execute(f"cd {repo_path} && git status --porcelain")
+        is_clean = not result.stdout.strip()
+
+        return is_clean, result.stdout
+
+    async def execute_task(self, task_id: str, repository: str) -> ExecutionResult:
+        if not self.sandbox.is_running:
+            raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
+
+        org, repo = repository.lower().split("/")
+        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        command = f"cd {repo_path} && {self._get_task_command(task_id, repo_path)}"
+
+        logger.info(f"Executing task {task_id} in {repo_path} in sandbox {self.sandbox.id}")
+        return await self.sandbox.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
+
+    def _get_task_command(self, task_id: str, repo_path: str) -> str:
+        return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --repositoryPath {repo_path}"
+
+    def _get_setup_command(self, repo_path: str) -> str:
+        return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"
 
     async def destroy(self) -> None:
-        """Destroy the underlying sandbox."""
         await self.sandbox.destroy()
 
     async def __aenter__(self):
@@ -104,14 +110,6 @@ class SandboxAgent:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.destroy()
-
-    @property
-    def working_dir(self) -> str:
-        return WORKING_DIR
-
-    @property
-    def repository_dir(self) -> str:
-        return f"{WORKING_DIR}/{REPOSITORY_TARGET_DIR}"
 
     @property
     def is_running(self) -> bool:

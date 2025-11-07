@@ -7,8 +7,8 @@ from enum import Enum
 class RiskLevel(Enum):
     """Risk level definitions with scoring ranges"""
 
-    SAFE = ("Safe", 0, 1)
-    NEEDS_REVIEW = ("Needs Review", 2, 3)
+    SAFE = ("Safe", 0, 0)
+    NEEDS_REVIEW = ("Needs Review", 1, 3)
     BLOCKED = ("Blocked", 4, 5)
 
     def __init__(self, category: str, min_score: int, max_score: int):
@@ -48,6 +48,7 @@ class MigrationRisk:
     operations: list[OperationRisk]
     combination_risks: list[str] = field(default_factory=list)
     policy_violations: list[str] = field(default_factory=list)  # PostHog-specific coding policies
+    info_messages: list[str] = field(default_factory=list)  # Informational messages (not warnings)
 
     @property
     def max_score(self) -> int:

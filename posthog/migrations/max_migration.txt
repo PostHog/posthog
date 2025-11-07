@@ -1,1 +1,1 @@
-0867_add_updated_at_to_feature_flags
+0904_alter_dashboard_creation_mode

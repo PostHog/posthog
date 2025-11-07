@@ -5,11 +5,6 @@ import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import {
-    AuthorizedUrlListType,
-    authorizedUrlListLogic,
-    defaultAuthorizedUrlProperties,
-} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
@@ -99,14 +94,8 @@ function Warnings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
 
-    const theAuthorizedUrlsLogic = authorizedUrlListLogic({
-        ...defaultAuthorizedUrlProperties,
-        type: AuthorizedUrlListType.RECORDING_DOMAINS,
-    })
-    const { suggestions, authorizedUrls } = useValues(theAuthorizedUrlsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const mightBeRefusingRecordings = suggestions.length > 0 && authorizedUrls.length > 0
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
@@ -178,22 +167,6 @@ function Warnings(): JSX.Element {
                     customHog={FilmCameraHog}
                 />
             )}
-
-            {!recordingsDisabled && mightBeRefusingRecordings ? (
-                <LemonBanner
-                    type="warning"
-                    action={{
-                        type: 'secondary',
-                        icon: <IconGear />,
-                        to: urls.replaySettings('replay-authorized-domains'),
-                        children: 'Configure',
-                    }}
-                    dismissKey={`session-recordings-authorized-domains-warning/${suggestions.join(',')}`}
-                >
-                    You have unauthorized domains trying to send recordings. To accept recordings from these domains,
-                    please check your config.
-                </LemonBanner>
-            ) : null}
         </>
     )
 }
@@ -251,12 +224,11 @@ export function SessionRecordingsPageTabs(): JSX.Element {
 
     return (
         // TRICKY @adamleithp: since session replay doesn't want a scene title section, we need to add our SceneActions to the top of the page
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 relative">
             <LemonTabs
                 activeKey={tab}
                 className={cn('flex -mt-4')}
-                // TRICKY @adamleithp: we need to add a right padding to the tabs bar to account for the SceneActions
-                barClassName="mb-0 pr-48"
+                barClassName="mb-0"
                 onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
                 sceneInset
                 tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
@@ -275,11 +247,8 @@ export function SessionRecordingsPageTabs(): JSX.Element {
                         'data-attr': replayTab['data-attr'],
                     }
                 })}
+                rightSlot={<Header />}
             />
-            {/* TRICKY @adamleithp: position the actions to the right of the tabs bar absolutely */}
-            <div className="absolute right-0 top-0 pt-[6px] pr-4 bg-primary flex gap-x-2 shrink-0">
-                <Header />
-            </div>
         </div>
     )
 }

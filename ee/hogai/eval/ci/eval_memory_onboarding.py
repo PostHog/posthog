@@ -13,7 +13,7 @@ from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph import AssistantGraph
+from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.graph.memory.prompts import (
     ENQUIRY_INITIAL_MESSAGE,
     SCRAPING_SUCCESS_KEY_PHRASE,
@@ -400,6 +400,61 @@ Clash of Clans is a long-running, free-to-play mobile strategy game by Supercell
                     EventTaxonomyItem(property="$host", sample_values=["rotundify.xyz"], sample_count=1),
                 ),
                 expected=SCRAPING_TERMINATION_MESSAGE,  # Should fall back to enquiry flow AFTER scraping
+            ),
+            # Case: Niche music app with multiple bundle IDs
+            EvalCase(
+                input=(
+                    "Snare Music",
+                    EventTaxonomyItem(
+                        property="$app_namespace",
+                        sample_values=["com.jackqcook.snare", "com.snaremusic.snare"],
+                        sample_count=2,
+                    ),
+                ),
+                expected="""
+__Here's what I found on Snare (com.jackqcook.snare / com.snaremusic.snare):__
+
+Snare (aka Snare Music) is a social music-discovery app that converts your listening habits into a feed, letting you follow others, react to their plays, post reviews, and engage over music.
+
+#### Product features
+- Connects with streaming platforms (Spotify / Apple Music) to import recent listening history.
+- Live social feed: shows what friends are currently listening to (or recently listened) in a feed format.
+- Reaction / engagement tools: users can react (likes, comments) to others' plays.
+- Reviews / commentary: ability to write reviews on albums/tracks within the app.
+- Discovery / recommendation features: suggestions (called “Snare Samples” or algorithmic picks) based on user activity.
+- Social graph: following system (you follow friends / users) to tailor the feed.
+- Basic version is free; updates indicate bug fixes, UI tweaks, algorithm improvements (e.g. “better algorithm for Snare Samples”)
+
+#### User / customer segments
+- Music enthusiasts who like to see what peers are listening to and discuss music.
+- Early adopters of social / discovery tools in the music space.
+- Playlist curators, tastemakers, influencers who want social reach or community feedback.
+- Users dissatisfied with “cold” algorithmic recommendations and seeking more human-curated or socially filtered discovery.
+
+#### Business model
+- No public disclosures of paid features or pricing (as of available data).
+- Likely freemium: core features free, with potential premium tier for enhanced discovery / analytics / filtering / no ads (though not confirmed).
+- Monetization might include sponsorships, affiliate revenue (for streaming referrals), or future paid features for power users.
+- No clear revenue metrics or public funding data found.
+
+#### Technical details
+- Website: snaremusic.app — “Discover, rate, and share your favorite albums. Connect with friends … join conversations about the tracks that move you.”
+- App version history: latest version 1.1.0 for iOS at least; update notes mention bug fixes, minor improvements.
+- Key flows / URL paths likely include:
+- /login / connect (to Spotify / Apple Music)
+  - /feed (social feed of plays)
+  - /profile / settings
+  - /review / comment pages
+  - /discover / algorithmic suggestions
+- Mobile first (iOS, possibly Android expectation in future).
+- The app appears “new” / early stage (version numbering low, frequent iterative changes).
+
+Brief history
+- Developer / “Quentin Cook” is listed in app metadata.
+- First public version around August 2025 (v1.0 in August).
+- Update cycle is active (versions 1.0 → 1.0.6 → 1.1.0) with feature tweaks like better algorithms, UI changes.
+- The domain / branding is “Snare — the app for music discovery.
+""".strip(),
             ),
         ],
         pytestconfig=pytestconfig,

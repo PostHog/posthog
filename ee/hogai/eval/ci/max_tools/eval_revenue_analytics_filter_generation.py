@@ -235,10 +235,10 @@ async def eval_tool_filter_revenue_analytics(call_filter_revenue_analytics, pyte
             ),
             # Comprehensive filter combination
             EvalCase(
-                input="Show me my revenue in 2024 split by product for those in Austria",
+                input="Show me my revenue in 2023 split by product for those in Austria",
                 expected=RevenueAnalyticsAssistantFilters(
-                    date_from="2024-01-01T00:00:00:000",
-                    date_to="2024-12-31T23:59:59:999",
+                    date_from="2023-01-01T00:00:00:000",
+                    date_to="2023-12-31T23:59:59:999",
                     properties=[
                         RevenueAnalyticsPropertyFilter(
                             key="revenue_analytics_customer.country",
@@ -254,13 +254,13 @@ async def eval_tool_filter_revenue_analytics(call_filter_revenue_analytics, pyte
             ),
             # Test time-based filtering
             EvalCase(
-                input="Assuming we're in 2024, show me recordings since the 1st of August",
-                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_from": "2024-08-01T00:00:00:000"}),
+                input="Assuming we're in 2023, show me my MRR data since the 1st of August",
+                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_from": "2023-08-01T00:00:00:000"}),
             ),
             EvalCase(
-                input="Assuming we're in 2024, show me recordings from the 1st of September through the 31st of September",
+                input="Assuming we're in 2023, show me my revenue in September",
                 expected=DUMMY_CURRENT_FILTERS.model_copy(
-                    update={"date_from": "2024-09-01T00:00:00:000", "date_to": "2024-09-30T23:59:59:999"}
+                    update={"date_from": "2023-09-01T00:00:00:000", "date_to": "2023-09-30T23:59:59:999"}
                 ),
             ),
         ],

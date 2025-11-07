@@ -1,13 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconApps } from '@posthog/icons'
-
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
@@ -15,14 +13,19 @@ import { ActivityTab } from '~/types'
 
 import { eventsSceneLogic } from './eventsSceneLogic'
 
-const RESOURCE_TYPE = 'event'
-
 export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { query } = useValues(eventsSceneLogic)
     const { setQuery } = useActions(eventsSceneLogic)
 
     return (
         <SceneContent>
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.Activity].name}
+                description={sceneConfigurations[Scene.Activity].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Activity].iconType || 'default_icon_type',
+                }}
+            />
             <LemonTabs
                 activeKey={ActivityTab.ExploreEvents}
                 tabs={[
@@ -39,15 +42,6 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 ]}
                 sceneInset
             />
-            <SceneTitleSection
-                name="Explore events"
-                description="A catalog of all user interactions with your app or website."
-                resourceType={{
-                    type: RESOURCE_TYPE,
-                    forceIcon: <IconApps />,
-                }}
-            />
-            <SceneDivider />
             <Query
                 attachTo={eventsSceneLogic({ tabId })}
                 uniqueKey={`events-scene-${tabId}`}

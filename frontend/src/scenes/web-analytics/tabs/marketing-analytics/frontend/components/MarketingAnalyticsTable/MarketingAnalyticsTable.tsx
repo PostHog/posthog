@@ -1,6 +1,7 @@
 import './MarketingAnalyticsTableStyleOverride.scss'
 
-import { BuiltLogic, LogicWrapper, useActions } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
@@ -17,8 +18,13 @@ import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/
 import { InsightLogicProps } from '~/types'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
 import { MarketingAnalyticsCell } from '../../shared'
+import {
+    MarketingAnalyticsValidationWarningBanner,
+    validateConversionGoals,
+} from '../MarketingAnalyticsValidationWarningBanner'
 import { DraftConversionGoalControls } from './DraftConversionGoalControls'
 import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
 
@@ -35,6 +41,9 @@ export const MarketingAnalyticsTable = ({
 }: MarketingAnalyticsTableProps): JSX.Element => {
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
     const { showColumnConfigModal } = useActions(marketingAnalyticsLogic)
+    const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
+
+    const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
     const handleIncludeAllConversionsChange = (checked: boolean): void => {
         const sourceQuery = query.source as MarketingAnalyticsTableQuery
@@ -89,13 +98,18 @@ export const MarketingAnalyticsTable = ({
                         <LemonSwitch
                             checked={(query.source as MarketingAnalyticsTableQuery).includeAllConversions ?? false}
                             onChange={handleIncludeAllConversionsChange}
-                            label="Show organic conversions"
-                            tooltip="Show conversion goal rows even when they don't match any campaign data from integrations"
+                            label="Non-integrated conversions"
+                            tooltip="Include conversion goal rows even when they don't match any campaign data from integrations. This will be based on the utm campaign and source"
                             size="small"
                         />
                     </div>
                 </div>
             </div>
+            {validationWarnings && validationWarnings.length > 0 && (
+                <div className="pt-2">
+                    <MarketingAnalyticsValidationWarningBanner warnings={validationWarnings} />
+                </div>
+            )}
             <div className="relative marketing-analytics-table-container">
                 <Query
                     attachTo={attachTo}

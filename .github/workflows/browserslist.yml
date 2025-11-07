@@ -15,8 +15,6 @@ jobs:
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
-              with:
-                  fetch-depth: 0
 
             - name: Configure git
               run: |
@@ -35,7 +33,7 @@ jobs:
             - name: Update Browserslist database and create PR if applies
               uses: c2corg/browserslist-update-action@a76abb476199caea5399f9e28ff3f16e491ec566 # v2
               with:
-                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} # This token has permission to open PRs
+                  github_token: ${{ secrets.POSTHOG_BOT_PAT }} # This token has permission to open PRs
                   commit_message: 'build: update Browserslist db'
                   title: 'build: update Browserslist db'
                   labels: 'dependencies, automerge'

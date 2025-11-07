@@ -12,8 +12,8 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import { SessionRecordingPlayerProps } from '../player/SessionRecordingPlayer'
-import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
-import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
+import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
+import type { sessionRecordingDataCoordinatorLogicType } from '../player/sessionRecordingDataCoordinatorLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingFilePlaybackSceneLogicType } from './sessionRecordingFilePlaybackSceneLogicType'
 import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
@@ -58,13 +58,13 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
  */
 const waitForDataLogic = async (
     playerProps: SessionRecordingPlayerProps
-): Promise<BuiltLogic<sessionRecordingDataLogicType>> => {
+): Promise<BuiltLogic<sessionRecordingDataCoordinatorLogicType>> => {
     const maxRetries = 20 // 2 seconds / 100 ms per retry
     let retries = 0
     let dataLogic = null
 
     while (retries < maxRetries) {
-        dataLogic = sessionRecordingDataLogic.findMounted({
+        dataLogic = sessionRecordingDataCoordinatorLogic.findMounted({
             sessionRecordingId: playerProps.sessionRecordingId,
             playerKey: playerProps.playerKey,
         })

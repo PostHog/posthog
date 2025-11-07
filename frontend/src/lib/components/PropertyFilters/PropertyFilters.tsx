@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react'
 
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import {
+    AllowedProperties,
     ExcludedProperties,
     TaxonomicFilterGroupType,
     TaxonomicFilterProps,
@@ -44,7 +45,7 @@ export interface PropertyFiltersProps {
     allowNew?: boolean
     openOnInsert?: boolean
     errorMessages?: JSX.Element[] | null
-    propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
+    propertyAllowList?: AllowedProperties
     excludedProperties?: ExcludedProperties
     allowRelativeDateOptions?: boolean
     disabledReason?: string

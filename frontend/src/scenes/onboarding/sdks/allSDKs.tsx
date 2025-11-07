@@ -1,24 +1,31 @@
-import { Logomark } from '~/toolbar/assets/Logomark'
+import { Logomark } from 'lib/brand/Logomark'
+
 import { SDK, SDKKey, SDKTag } from '~/types'
 
 import androidImage from './logos/android.svg'
 import angularImage from './logos/angular.svg'
+import anthropicImage from './logos/anthropic.svg'
 import djangoImage from './logos/django.svg'
 import docusaurusImage from './logos/docusaurus.svg'
 import elixirImage from './logos/elixir.svg'
 import flutterImage from './logos/flutter.svg'
 import gatsbyImage from './logos/gatsby.svg'
+import geminiImage from './logos/gemini.svg'
 import goImage from './logos/go.svg'
 import gtmImage from './logos/gtm.svg'
 import heliconeImage from './logos/helicone.svg'
 import htmlImage from './logos/html.svg'
 import javaImage from './logos/java.svg'
 import jsImage from './logos/javascript_web.svg'
+import langchainImage from './logos/langchain.svg'
 import langfuseImage from './logos/langfuse.svg'
 import laravelImage from './logos/laravel.svg'
+import litellmImage from './logos/litellm.png'
 import nextjsImage from './logos/nextjs.svg'
 import nodejsImage from './logos/nodejs.svg'
 import nuxtImage from './logos/nuxt.svg'
+import openaiImage from './logos/openai.svg'
+import openrouterImage from './logos/openrouter.png'
 import phpImage from './logos/php.svg'
 import pythonImage from './logos/python.svg'
 import reactImage from './logos/react.svg'
@@ -32,6 +39,7 @@ import sentryImage from './logos/sentry.svg'
 import shopifyImage from './logos/shopify.svg'
 import svelteImage from './logos/svelte.svg'
 import traceloopImage from './logos/traceloop.svg'
+import vercelImage from './logos/vercel.svg'
 import vueImage from './logos/vue.svg'
 import webflowImage from './logos/webflow.svg'
 import wordpressImage from './logos/wordpress.svg'
@@ -41,7 +49,7 @@ export const allSDKs: SDK[] = [
     {
         name: 'Next.js',
         key: SDKKey.NEXT_JS,
-        tags: [SDKTag.WEB, SDKTag.RECOMMENDED],
+        tags: [SDKTag.WEB, SDKTag.SERVER, SDKTag.RECOMMENDED],
         recommended: true,
         image: nextjsImage,
         docsLink: 'https://posthog.com/docs/libraries/next-js',
@@ -238,6 +246,66 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/llm-analytics/integrations/helicone-posthog',
     },
     {
+        name: 'OpenAI',
+        key: SDKKey.OPENAI,
+        tags: [],
+        image: openaiImage,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/openai',
+    },
+    {
+        name: 'Anthropic',
+        key: SDKKey.ANTHROPIC,
+        tags: [],
+        image: anthropicImage,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/anthropic',
+    },
+    {
+        name: 'Google Gemini',
+        key: SDKKey.GOOGLE_GEMINI,
+        tags: [],
+        image: geminiImage,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/google',
+    },
+    {
+        name: 'Vercel AI SDK',
+        key: SDKKey.VERCEL_AI,
+        tags: [],
+        image: vercelImage,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/vercel-ai',
+    },
+    {
+        name: 'LangChain',
+        key: SDKKey.LANGCHAIN,
+        tags: [],
+        image: langchainImage,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/langchain',
+    },
+    {
+        name: 'LiteLLM',
+        key: SDKKey.LITELLM,
+        tags: [],
+        image: litellmImage,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/litellm',
+    },
+    {
+        name: 'OpenRouter',
+        key: SDKKey.OPENROUTER,
+        tags: [],
+        image: openrouterImage,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/openrouter',
+    },
+    {
+        name: 'Manual Capture',
+        key: SDKKey.MANUAL_CAPTURE,
+        tags: [],
+        image: (
+            <span className="flex w-8 pb-3">
+                <Logomark />
+            </span>
+        ),
+        docsLink: 'https://posthog.com/docs/llm-analytics/manual-capture',
+    },
+    {
         name: 'iOS',
         key: SDKKey.IOS,
         tags: [SDKTag.MOBILE],
@@ -287,7 +355,7 @@ export const allSDKs: SDK[] = [
     {
         name: 'Nuxt.js',
         key: SDKKey.NUXT_JS,
-        tags: [SDKTag.WEB],
+        tags: [SDKTag.WEB, SDKTag.SERVER],
         image: nuxtImage,
         docsLink: 'https://posthog.com/docs/libraries/nuxt-js',
     },

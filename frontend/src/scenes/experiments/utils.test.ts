@@ -228,6 +228,7 @@ describe('getViewRecordingFilters', () => {
         created_at: null,
         created_by: null,
         updated_at: null,
+        user_access_level: AccessControlLevel.Editor,
     }
 
     it('adds exposure criteria if present', () => {
@@ -646,6 +647,7 @@ describe('checkFeatureFlagEligibility', () => {
         version: 0,
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+        evaluation_tags: [],
     }
     it('throws an error for a remote configuration feature flag', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }

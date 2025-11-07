@@ -208,8 +208,6 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             ]
         )
 
-        order_by = ",".join([f"step_{i+1} DESC" for i in reversed(range(self.context.max_steps))])
-
         other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
 
         use_breakdown_limit = self.context.breakdown and self.context.breakdownType in [
@@ -223,6 +221,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             if use_breakdown_limit
             else "breakdown"
         )
+        order_by = ",".join([f"step_{i + 1} DESC" for i in reversed(range(self.context.max_steps))])
 
         s = parse_select(
             f"""
@@ -252,6 +251,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             ]
         )
 
+        order_by = ",".join([f"step_{i + 1} DESC" for i in reversed(range(self.context.max_steps))])
         # Weird: unless you reference row_number in this outer block, it doesn't work correctly
         s = cast(
             ast.SelectQuery,
@@ -266,6 +266,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             FROM
                 {{s}}
             GROUP BY final_prop
+            ORDER BY {order_by}
             LIMIT {self.get_breakdown_limit() + 1 if use_breakdown_limit else DEFAULT_RETURNED_ROWS}
         """,
                 {"s": s},
@@ -282,22 +283,34 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         assert actorsQuery is not None
 
         funnelStep = actorsQuery.funnelStep
-        funnelCustomSteps = actorsQuery.funnelCustomSteps
         funnelStepBreakdown = actorsQuery.funnelStepBreakdown
+
+        if funnelStep is None:
+            raise ValueError("Missing funnelStep in actors query")
 
         conditions: list[ast.Expr] = []
 
-        if funnelCustomSteps:
-            # this is an adjustment for how UDF funnels represent steps
-            funnelCustomSteps = [x - 1 for x in funnelCustomSteps]
-            conditions.append(parse_expr(f"step_reached IN {funnelCustomSteps}"))
-        elif funnelStep is not None:
-            if funnelStep >= 0:
-                conditions.append(parse_expr(f"step_reached >= {funnelStep - 1}"))
-            else:
-                conditions.append(parse_expr(f"step_reached = {-funnelStep - 2}"))
+        if funnelStep >= 0:
+            # Check if the user completed this specific step using bitTest
+            conditions.append(parse_expr(f"bitTest(steps_bitfield, {funnelStep - 1})"))
         else:
-            raise ValueError("Missing both funnelStep and funnelCustomSteps")
+            # For dropoff at step N, check that user completed the prior REQUIRED step but not step N
+            # With optional steps, we need to find the last required step before the dropoff step
+            target_step_index = abs(funnelStep) - 1  # 0-indexed step we're checking dropoff at
+
+            # Find the last required step before target_step_index
+            prior_required_step_index = None
+            for i in range(target_step_index - 1, -1, -1):
+                if not getattr(self.context.query.series[i], "optionalInFunnel", False):
+                    prior_required_step_index = i
+                    break
+
+            if prior_required_step_index is None:
+                raise ValueError("Missing prior required step in actors query")
+
+            # User completed the prior required step but not the target step
+            conditions.append(parse_expr(f"bitTest(steps_bitfield, {prior_required_step_index})"))
+            conditions.append(parse_expr(f"NOT bitTest(steps_bitfield, {target_step_index})"))
 
         if funnelStepBreakdown is not None:
             if isinstance(funnelStepBreakdown, int | float) and breakdownType != "cohort":

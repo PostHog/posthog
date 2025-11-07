@@ -21,10 +21,12 @@ import {
 
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -34,7 +36,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
@@ -48,11 +49,12 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
     ActionFilter,
     AnyPropertyFilter,
     Experiment,
     ExperimentConclusion,
-    ExperimentIdType,
     InsightShortId,
     ProductKey,
     ProgressStatus,
@@ -63,9 +65,8 @@ import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatusColor } from '../experimentsLogic'
-import { getIndexForVariant } from '../legacyExperimentCalculations'
 import { modalsLogic } from '../modalsLogic'
-import { getExperimentInsightColour } from '../utils'
+import { getVariantColor } from '../utils'
 
 // Utility function to create MaxTool configuration for experiment survey creation
 export function createMaxToolExperimentSurveyConfig(
@@ -146,19 +147,15 @@ export function createMaxToolExperimentSurveyConfig(
 }
 
 export function VariantTag({
-    experimentId,
     variantKey,
-    muted = false,
     fontSize,
     className,
 }: {
-    experimentId: ExperimentIdType
     variantKey: string
-    muted?: boolean
     fontSize?: number
     className?: string
 }): JSX.Element {
-    const { experiment, legacyPrimaryMetricsResults, getInsightType } = useValues(experimentLogic({ experimentId }))
+    const { experiment, legacyPrimaryMetricsResults, usesNewQueryRunner } = useValues(experimentLogic)
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
@@ -172,6 +169,10 @@ export function VariantTag({
         return <></>
     }
 
+    const variantColor = experiment.parameters?.feature_flag_variants
+        ? getVariantColor(variantKey, experiment.parameters.feature_flag_variants)
+        : 'var(--text-muted)'
+
     if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
         return (
             <span className={clsx('flex items-center min-w-0', className)}>
@@ -179,13 +180,7 @@ export function VariantTag({
                     className="w-2 h-2 rounded-full shrink-0"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        backgroundColor: getExperimentInsightColour(
-                            getIndexForVariant(
-                                legacyPrimaryMetricsResults[0],
-                                variantKey,
-                                getInsightType(experiment.metrics[0])
-                            )
-                        ),
+                        backgroundColor: variantColor,
                     }}
                 />
                 <LemonTag type="option" className="ml-2">
@@ -197,8 +192,16 @@ export function VariantTag({
 
     return (
         <span className={clsx('flex items-center min-w-0', className)}>
+            {/* Only show color if using new query runner - legacy experiments are using the old funnel component */}
+            {usesNewQueryRunner && (
+                <div
+                    className="w-2 h-2 rounded-full shrink-0"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ backgroundColor: variantColor }}
+                />
+            )}
             <span
-                className={`ml-2 font-semibold truncate ${muted ? 'text-secondary' : ''}`}
+                className="ml-2 text-xs font-semibold truncate text-secondary"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
             >
@@ -387,7 +390,6 @@ export function ExperimentLoadingAnimation(): JSX.Element {
 
 export function PageHeaderCustom(): JSX.Element {
     const {
-        experimentId,
         experiment,
         isExperimentDraft,
         isExperimentRunning,
@@ -399,6 +401,7 @@ export function PageHeaderCustom(): JSX.Element {
         legacyPrimaryMetricsResults,
         hasMinimumExposureForResults,
         experimentLoading,
+        featureFlags,
     } = useValues(experimentLogic)
     const { launchExperiment, archiveExperiment, createExposureCohort, createExperimentDashboard, updateExperiment } =
         useActions(experimentLogic)
@@ -417,6 +420,9 @@ export function PageHeaderCustom(): JSX.Element {
         hasMinimumExposureForResults &&
         (legacyPrimaryMetricsResults.length > 0 || primaryMetricsResults.length > 0)
 
+    const shouldShowStopButton =
+        !isExperimentDraft && isExperimentRunning && featureFlags[FEATURE_FLAGS.EXPERIMENTS_HIDE_STOP_BUTTON] !== 'test'
+
     return (
         <>
             <SceneTitleSection
@@ -428,8 +434,13 @@ export function PageHeaderCustom(): JSX.Element {
                 isLoading={experimentLoading}
                 onNameChange={(name) => updateExperiment({ name })}
                 onDescriptionChange={(description) => updateExperiment({ description })}
-                canEdit
-                renameDebounceMs={1000}
+                canEdit={userHasAccess(
+                    AccessControlResourceType.Experiment,
+                    AccessControlLevel.Editor,
+                    experiment.user_access_level
+                )}
+                renameDebounceMs={0}
+                saveOnBlur
                 actions={
                     <>
                         {experiment && !isExperimentRunning && (
@@ -451,7 +462,7 @@ export function PageHeaderCustom(): JSX.Element {
                         )}
                         {experiment && isExperimentRunning && (
                             <div className="flex flex-row gap-2">
-                                {!experiment.end_date && (
+                                {!experiment.end_date && shouldShowStopButton && (
                                     <LemonButton
                                         type="secondary"
                                         data-attr="stop-experiment"
@@ -507,7 +518,7 @@ export function PageHeaderCustom(): JSX.Element {
                                         <b>Ship a variant</b>
                                     </LemonButton>
                                 </Tooltip>
-                                <ShipVariantModal experimentId={experimentId} />
+                                <ShipVariantModal />
                             </>
                         )}
                         {experiment && (
@@ -520,7 +531,6 @@ export function PageHeaderCustom(): JSX.Element {
                     </>
                 }
             />
-            <SceneDivider />
 
             {experiment && isExperimentRunning && (
                 <ScenePanel>
@@ -566,14 +576,14 @@ export function PageHeaderCustom(): JSX.Element {
                                 menuItem
                                 onClick={openMax || undefined}
                                 disabledReasons={{
-                                    'Max AI not available': !openMax,
+                                    'PostHog AI not available': !openMax,
                                 }}
                             >
                                 <IconPlusSmall /> Create survey
                             </ButtonPrimitive>
                         )}
 
-                        <ResetButton experimentId={experiment.id} />
+                        <ResetButton />
 
                         {!experiment.end_date && (
                             <ButtonPrimitive
@@ -591,9 +601,9 @@ export function PageHeaderCustom(): JSX.Element {
     )
 }
 
-export function ConclusionForm({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { setExperiment } = useActions(experimentLogic({ experimentId }))
+export function ConclusionForm(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { setExperiment } = useActions(experimentLogic)
 
     return (
         <div className="space-y-4">
@@ -650,9 +660,9 @@ export function ConclusionForm({ experimentId }: { experimentId: Experiment['id'
     )
 }
 
-export function EditConclusionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { updateExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic({ experimentId }))
+export function EditConclusionModal(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { updateExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeEditConclusionModal } = useActions(modalsLogic)
     const { isEditConclusionModalOpen } = useValues(modalsLogic)
 
@@ -689,14 +699,14 @@ export function EditConclusionModal({ experimentId }: { experimentId: Experiment
                 </div>
             }
         >
-            <ConclusionForm experimentId={experimentId} />
+            <ConclusionForm />
         </LemonModal>
     )
 }
 
-export function StopExperimentModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { endExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic({ experimentId }))
+export function StopExperimentModal(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { endExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeStopExperimentModal } = useActions(modalsLogic)
     const { isStopExperimentModalOpen } = useValues(modalsLogic)
 
@@ -734,15 +744,15 @@ export function StopExperimentModal({ experimentId }: { experimentId: Experiment
                 <div className="mb-2">
                     Stopping the experiment will end data collection. You can restart it later if needed.
                 </div>
-                <ConclusionForm experimentId={experimentId} />
+                <ConclusionForm />
             </div>
         </LemonModal>
     )
 }
 
-export function ShipVariantModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { shipVariant } = useActions(experimentLogic({ experimentId }))
+export function ShipVariantModal(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { shipVariant } = useActions(experimentLogic)
     const { closeShipVariantModal } = useActions(modalsLogic)
     const { isShipVariantModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -801,7 +811,7 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
                                     value: key,
                                     label: (
                                         <div className="deprecated-space-x-2 inline-flex">
-                                            <VariantTag experimentId={experimentId} variantKey={key} />
+                                            <VariantTag variantKey={key} />
                                         </div>
                                     ),
                                 })) || []
@@ -826,8 +836,8 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
     )
 }
 
-export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }): JSX.Element => {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
+export const ResetButton = (): JSX.Element => {
+    const { experiment } = useValues(experimentLogic)
     const { resetRunningExperiment } = useActions(experimentLogic)
 
     const onClickReset = (): void => {

@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { EventHeaders } from '../../types'
+import type { EventHeaders } from '../../types'
 import { logger } from '../../utils/logger'
 import { compareTimestamps } from './timestamp-comparison'
 
@@ -32,6 +32,7 @@ describe('compareTimestamps', () => {
     it('should handle missing event timestamp with headers without throwing', () => {
         const headers: EventHeaders = {
             timestamp: '1672574400000', // 2023-01-01T12:00:00Z
+            force_disable_person_processing: false,
         }
 
         expect(() => {
@@ -43,6 +44,7 @@ describe('compareTimestamps', () => {
         const headers: EventHeaders = {
             token: 'test-token',
             distinct_id: 'test-id',
+            force_disable_person_processing: false,
             // timestamp is missing
         }
 
@@ -54,6 +56,7 @@ describe('compareTimestamps', () => {
     it('should handle invalid timestamp header without throwing', () => {
         const headers: EventHeaders = {
             timestamp: 'not-a-number',
+            force_disable_person_processing: false,
         }
 
         expect(() => {
@@ -66,6 +69,7 @@ describe('compareTimestamps', () => {
         const timestampMs = DateTime.fromISO(timestamp).toMillis()
         const headers: EventHeaders = {
             timestamp: timestampMs.toString(),
+            force_disable_person_processing: false,
         }
 
         expect(() => {
@@ -79,6 +83,7 @@ describe('compareTimestamps', () => {
         const differentTimestampMs = timestampMs + 5000 // 5 seconds difference
         const headers: EventHeaders = {
             timestamp: differentTimestampMs.toString(),
+            force_disable_person_processing: false,
         }
 
         expect(() => {
@@ -98,6 +103,7 @@ describe('compareTimestamps', () => {
     it('should use default context when not provided', () => {
         const headers: EventHeaders = {
             timestamp: '1672574400000', // 2023-01-01T12:00:00Z
+            force_disable_person_processing: false,
         }
 
         expect(() => {
@@ -111,6 +117,7 @@ describe('compareTimestamps', () => {
         const timestampMs = DateTime.fromRFC2822(timestamp).toMillis()
         const headers: EventHeaders = {
             timestamp: timestampMs.toString(),
+            force_disable_person_processing: false,
         }
 
         expect(() => {
@@ -121,6 +128,7 @@ describe('compareTimestamps', () => {
     it('should work without optional parameters', () => {
         const headers: EventHeaders = {
             timestamp: '1672574400000',
+            force_disable_person_processing: false,
         }
 
         expect(() => {
@@ -142,7 +150,7 @@ describe('compareTimestamps', () => {
         ]
 
         testCases.forEach(({ timestamp, header }) => {
-            const headers: EventHeaders = { timestamp: header }
+            const headers: EventHeaders = { timestamp: header, force_disable_person_processing: false }
 
             expect(() => {
                 compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context')
@@ -155,6 +163,7 @@ describe('compareTimestamps', () => {
         const timestampMs = DateTime.fromISO(timestamp).toMillis() + 1000 // 1 second difference
         const headers: EventHeaders = {
             timestamp: timestampMs.toString(),
+            force_disable_person_processing: false,
         }
 
         compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 1.0)
@@ -167,6 +176,7 @@ describe('compareTimestamps', () => {
         const timestampMs = DateTime.fromISO(timestamp).toMillis() + 1000 // 1 second difference
         const headers: EventHeaders = {
             timestamp: timestampMs.toString(),
+            force_disable_person_processing: false,
         }
 
         compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 0.0)
@@ -177,6 +187,7 @@ describe('compareTimestamps', () => {
     it('should always log parse error when sample rate is 1.0', () => {
         const headers: EventHeaders = {
             timestamp: 'invalid-timestamp',
+            force_disable_person_processing: false,
         }
 
         compareTimestamps('invalid-date-format', headers, 123, 'test-uuid', 'test-context', 1.0)
@@ -187,6 +198,7 @@ describe('compareTimestamps', () => {
     it('should never log parse error when sample rate is 0.0', () => {
         const headers: EventHeaders = {
             timestamp: 'invalid-timestamp',
+            force_disable_person_processing: false,
         }
 
         compareTimestamps('invalid-date-format', headers, 123, 'test-uuid', 'test-context', 0.0)
@@ -204,6 +216,7 @@ describe('compareTimestamps', () => {
         const timestampMs = DateTime.fromISO(timestamp).toMillis() + 1000
         const headers: EventHeaders = {
             timestamp: timestampMs.toString(),
+            force_disable_person_processing: false,
         }
 
         try {

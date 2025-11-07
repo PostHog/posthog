@@ -7,6 +7,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
@@ -24,6 +25,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
+import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
@@ -68,7 +70,15 @@ function DashboardScene(): JSX.Element {
         accessDeniedToDashboard,
         hasVariables,
     } = useValues(dashboardLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
+
+    useFileSystemLogView({
+        type: 'dashboard',
+        ref: dashboard?.id,
+        enabled: Boolean(currentTeamId && dashboard?.id && !dashboardFailedToLoad && !accessDeniedToDashboard),
+        deps: [currentTeamId, dashboard?.id, dashboardFailedToLoad, accessDeniedToDashboard],
+    })
 
     useOnMountEffect(() => {
         reportDashboardViewed()
@@ -124,7 +134,11 @@ function DashboardScene(): JSX.Element {
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
-                <div>
+                <div
+                    className={cn({
+                        '-mt-4': placement == DashboardPlacement.ProjectHomepage,
+                    })}
+                >
                     <DashboardOverridesBanner />
 
                     <SceneStickyBar showBorderBottom={false}>
@@ -134,6 +148,7 @@ function DashboardScene(): JSX.Element {
                                 DashboardPlacement.Export,
                                 DashboardPlacement.FeatureFlag,
                                 DashboardPlacement.Group,
+                                DashboardPlacement.Builtin,
                             ].includes(placement) &&
                                 dashboard && <DashboardEditBar />}
                             {[DashboardPlacement.FeatureFlag, DashboardPlacement.Group].includes(placement) &&
@@ -144,7 +159,7 @@ function DashboardScene(): JSX.Element {
                                             : 'Edit dashboard'}
                                     </LemonButton>
                                 )}
-                            {placement !== DashboardPlacement.Export && (
+                            {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
                                 <div
                                     className={clsx('flex shrink-0 deprecated-space-x-4 dashoard-items-actions', {
                                         'mt-7': hasVariables,

@@ -1,3 +1,4 @@
+import { get } from 'lodash'
 import { DateTime } from 'luxon'
 
 import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
@@ -36,11 +37,27 @@ export function createHogFlowInvocation(
     hogFlow: HogFlow,
     filterGlobals: HogFunctionFilterGlobals
 ): CyclotronJobInvocationHogFlow {
+    // Build default variables from hogFlow, then merge in any provided in globals.variables
+    const defaultVariables =
+        hogFlow.variables?.reduce(
+            (acc, variable) => {
+                acc[variable.key] = variable.default || null
+                return acc
+            },
+            {} as Record<string, any>
+        ) || {}
+
+    const mergedVariables = {
+        ...defaultVariables,
+        ...(globals.variables || {}),
+    }
+
     return {
         id: new UUIDT().toString(),
         state: {
             event: globals.event,
             actionStepCount: 0,
+            variables: mergedVariables,
         },
         teamId: hogFlow.team_id,
         functionId: hogFlow.id, // TODO: Include version?
@@ -322,6 +339,10 @@ export class HogFlowExecutorService {
                     hogExecutorOptions: options?.hogExecutorOptions,
                 })
 
+                if (handlerResult.result) {
+                    this.trackActionResult(result, currentAction, handlerResult.result)
+                }
+
                 if (handlerResult.finished) {
                     result.finished = true
                     // Special case for exit - we just track a success metric
@@ -470,5 +491,48 @@ export class HogFlowExecutorService {
             metric_name: metricName,
             count: 1,
         })
+    }
+
+    private trackActionResult(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        action: HogFlowAction,
+        actionResult: unknown
+    ): void {
+        if (action.output_variable?.key) {
+            if (!actionResult) {
+                this.log(
+                    result,
+                    'warn',
+                    `An output variable was specified for [Action:${action.id}], but no output was returned.`
+                )
+                return
+            }
+
+            if (!result.invocation.state.variables) {
+                result.invocation.state.variables = {}
+            }
+
+            result.invocation.state.variables[action.output_variable.key] = action.output_variable?.result_path
+                ? get(actionResult, action.output_variable.result_path)
+                : actionResult
+
+            // Check that result to be stored is below 1kb
+            const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')
+            if (resultSize > 1024) {
+                this.log(
+                    result,
+                    'warn',
+                    `Total variable size after updating '${action.output_variable.key}' is larger than 1KB, this result will not be stored and won't be available in subsequent actions.`
+                )
+                delete result.invocation.state.variables[action.output_variable.key]
+                return
+            }
+
+            this.log(
+                result,
+                'debug',
+                `Stored action result in variable '${action.output_variable.key}': ${JSON.stringify(result.invocation.state.variables[action.output_variable.key])}`
+            )
+        }
     }
 }

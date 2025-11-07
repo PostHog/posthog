@@ -1,13 +1,20 @@
+from datetime import timedelta
 from typing import cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.conf import settings
+from django.test import override_settings
+from django.utils import timezone
+
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.organization import OrganizationSerializer
+from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.models import FeatureFlag, Organization, OrganizationMembership, Team
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.user_permissions import UserPermissions
@@ -184,6 +191,39 @@ class TestOrganizationAPI(APIBaseTest):
             {str(other_org.id)},
             "Only the scoped organization should be listed, the other one should be excluded",
         )
+
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+    )
+    def test_projects_outside_oauth_scoped_organizations_causes_401(self):
+        # TODO: This should filter out the organizations to the scoped organizations, but it causes a 401 due to a bug in APIScopePermission for list endpoints.
+        other_org, _, _ = Organization.objects.bootstrap(self.user)
+
+        oauth_app = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_id="test_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="test_oauth_token",
+            scope="organization:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_organizations=[str(other_org.id)],
+        )
+
+        response = self.client.get("/api/organizations/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_delete_organizations_and_verify_list(self):
         self.organization_membership.level = OrganizationMembership.Level.OWNER

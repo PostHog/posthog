@@ -1,19 +1,17 @@
-from posthog.temporal.messaging.behavioral_cohorts_workflow import (
-    BehavioralCohortsWorkflow,
-    get_unique_conditions_page_activity,
-    process_condition_batch_activity,
+from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
+    RealtimeCohortCalculationWorkflow,
+    process_realtime_cohort_calculation_activity,
 )
-from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import (
-    BehavioralCohortsCoordinatorWorkflow,
-    get_conditions_count_activity,
+from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
+    RealtimeCohortCalculationCoordinatorWorkflow,
+    get_realtime_cohort_calculation_count_activity,
 )
 
 WORKFLOWS = [
-    BehavioralCohortsWorkflow,
-    BehavioralCohortsCoordinatorWorkflow,
+    RealtimeCohortCalculationWorkflow,
+    RealtimeCohortCalculationCoordinatorWorkflow,
 ]
 ACTIVITIES = [
-    get_unique_conditions_page_activity,
-    process_condition_batch_activity,
-    get_conditions_count_activity,
+    get_realtime_cohort_calculation_count_activity,
+    process_realtime_cohort_calculation_activity,
 ]

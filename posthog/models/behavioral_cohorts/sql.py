@@ -1,4 +1,3 @@
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.settings import CLICKHOUSE_CLUSTER
@@ -12,15 +11,23 @@ BEHAVIORAL_COHORTS_MATCHES_TTL_DAYS = 30
 
 
 def DROP_BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE} {ON_CLUSTER_CLAUSE()}"
+    return f"DROP TABLE IF EXISTS {BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE} SYNC"
 
 
 def DROP_BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE} {ON_CLUSTER_CLAUSE()}"
+    return f"DROP TABLE IF EXISTS {BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE}"
 
 
 def DROP_BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {BEHAVIORAL_COHORTS_MATCHES_TABLE} {ON_CLUSTER_CLAUSE()}"
+    return f"DROP TABLE IF EXISTS {BEHAVIORAL_COHORTS_MATCHES_TABLE}"
+
+
+def DROP_BEHAVIORAL_COHORTS_MATCHES_MV_SQL():
+    return f"DROP TABLE IF EXISTS {BEHAVIORAL_COHORTS_MATCHES_MV}"
+
+
+def DROP_BEHAVIORAL_COHORTS_MATCHES_KAFKA_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {BEHAVIORAL_COHORTS_MATCHES_KAFKA_TABLE}"
 
 
 def BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL():
@@ -36,7 +43,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
 ) ENGINE = {engine}
 PARTITION BY toYYYYMM(date)
-ORDER BY (team_id, cohort_id, condition, date)
+ORDER BY (team_id, cohort_id, condition, date, person_id)
 {ttl_period}
 SETTINGS ttl_only_drop_parts = 1
 """.format(

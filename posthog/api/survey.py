@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Min
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
@@ -21,6 +22,7 @@ from axes.decorators import axes_dispatch
 from loginas.utils import is_impersonated_session
 from nanoid import generate
 from posthoganalytics import capture_exception
+from prometheus_client import Counter
 from rest_framework import exceptions, filters, request, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -43,7 +45,7 @@ from posthog.models import Action
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
+from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey, ensure_question_ids, surveys_hypercache
 from posthog.models.surveys.util import (
     SurveyEventName,
     SurveyEventProperties,
@@ -52,9 +54,15 @@ from posthog.models.surveys.util import (
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
 from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
+
+# Constants for better maintainability
+logger = structlog.get_logger(__name__)
+CACHE_TIMEOUT_SECONDS = 300
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
@@ -79,6 +87,19 @@ if "replica" in settings.DATABASES:
     READ_DB_FOR_SURVEYS = "replica"
 else:
     READ_DB_FOR_SURVEYS = "default"
+
+
+COUNTER_SURVEYS_API_USE_REMOTE_CONFIG = Counter(
+    "posthog_surveys_api_use_remote_config",
+    "Number of times the surveys API has been used with remote config",
+    labelnames=["result"],
+)
+
+COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON = Counter(
+    "posthog_surveys_api_remote_config_comparison",
+    "Comparison of surveys response equality",
+    labelnames=["result"],
+)
 
 
 class EventStats(TypedDict):
@@ -108,7 +129,7 @@ SurveyStats = TypedDict(
 )
 
 
-class SurveySerializer(serializers.ModelSerializer):
+class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -170,6 +191,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "user_access_level",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -805,7 +827,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 return feature_flag_serializer.save()
 
 
-class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related("linked_flag", "targeting_flag", "internal_targeting_flag").all()
     filter_backends = [filters.SearchFilter]
@@ -1326,6 +1348,174 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             r.headers["Server-Timing"] = timings_header
         return r
 
+    @action(methods=["POST"], detail=True, required_scopes=["survey:write"])
+    def duplicate_to_projects(self, request: request.Request, **kwargs):
+        """Duplicate a survey to multiple projects in a single transaction.
+
+        Accepts a list of target team IDs and creates a copy of the survey in each project.
+        Uses an all-or-nothing approach - if any duplication fails, all changes are rolled back.
+        """
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        user = cast(User, request.user)
+        survey_id = kwargs["pk"]
+
+        if not Survey.objects.filter(id=survey_id, team__project_id=self.project_id).exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        source_survey = self.get_object()
+        target_team_ids = request.data.get("target_team_ids", [])
+
+        if not target_team_ids or not isinstance(target_team_ids, list):
+            raise exceptions.ValidationError("target_team_ids must be a non-empty list of team IDs")
+
+        user_organization = user.organization
+        if not user_organization:
+            raise exceptions.ValidationError("User must belong to an organization")
+
+        target_teams = Team.objects.filter(id__in=target_team_ids, organization_id=user_organization.id)
+
+        if len(target_teams) != len(target_team_ids):
+            raise exceptions.ValidationError("One or more target teams not found or you don't have access to them")
+
+        duplicate_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        created_surveys = []
+
+        try:
+            with transaction.atomic():
+                # Validate all survey data first
+                surveys_to_create = []
+                for team in target_teams:
+                    cleaned_conditions = None
+                    if source_survey.conditions:
+                        cleaned_conditions = dict(source_survey.conditions)
+                        # Remove project-specific fields: flags, actions, and events don't transfer across projects
+                        cleaned_conditions.pop("linkedFlagVariant", None)
+                        cleaned_conditions.pop("actions", None)
+                        cleaned_conditions.pop("events", None)
+
+                    survey_data = {
+                        "name": f"{source_survey.name} (duplicated at {duplicate_timestamp})",
+                        "description": source_survey.description,
+                        "type": source_survey.type,
+                        "questions": [
+                            {k: v for k, v in q.items() if k != "id"} for q in (source_survey.questions or [])
+                        ],
+                        "appearance": source_survey.appearance,
+                        "conditions": cleaned_conditions,
+                        "archived": False,
+                        "start_date": None,
+                        "end_date": None,
+                        "responses_limit": source_survey.responses_limit,
+                        "iteration_count": source_survey.iteration_count,
+                        "iteration_frequency_days": source_survey.iteration_frequency_days,
+                        "schedule": source_survey.schedule,
+                        "enable_partial_responses": source_survey.enable_partial_responses,
+                    }
+                    # NOTE: linked_flag_id, targeting_flag, and internal flags are intentionally omitted
+                    # as they are project-specific and don't exist in other projects
+
+                    serializer = SurveySerializerCreateUpdateOnly(
+                        data=survey_data,
+                        context={
+                            "request": request,
+                            "team_id": team.id,
+                            "project_id": team.project_id,
+                        },
+                    )
+
+                    serializer.is_valid(raise_exception=True)
+
+                    # Build Survey instance from validated data
+                    new_survey = Survey(
+                        team=team,
+                        created_by=user,
+                        **serializer.validated_data,
+                    )
+                    surveys_to_create.append(new_survey)
+
+                for survey in surveys_to_create:
+                    ensure_question_ids(survey)
+
+                # Bulk create all surveys
+                created_survey_objects = Survey.objects.bulk_create(surveys_to_create)
+
+                # Prepare response data and activity logs
+                for created_survey in created_survey_objects:
+                    created_surveys.append(
+                        {
+                            "team_id": created_survey.team_id,
+                            "survey_id": str(created_survey.id),
+                            "name": created_survey.name,
+                        }
+                    )
+
+                    log_activity(
+                        organization_id=user_organization.id,
+                        team_id=created_survey.team_id,
+                        user=user,
+                        was_impersonated=is_impersonated_session(request),
+                        item_id=created_survey.id,
+                        scope="Survey",
+                        activity="created",
+                        detail=Detail(
+                            name=created_survey.name,
+                            changes=[
+                                Change(
+                                    type="Survey",
+                                    action="created",
+                                    field="source_survey_id",
+                                    after=str(survey_id),
+                                )
+                            ],
+                        ),
+                    )
+
+        except exceptions.ValidationError as e:
+            structlog.get_logger(__name__).error(
+                "bulk_survey_duplication_validation_error",
+                error=str(e),
+                error_detail=e.detail if hasattr(e, "detail") else None,
+                survey_id=survey_id,
+                user_id=user.id,
+                target_team_ids=target_team_ids,
+            )
+            raise
+        except Exception as e:
+            structlog.get_logger(__name__).error(
+                "bulk_survey_duplication_error",
+                error=str(e),
+                error_type=type(e).__name__,
+                survey_id=survey_id,
+                user_id=user.id,
+                target_team_ids=target_team_ids,
+            )
+            capture_exception(e)
+            raise exceptions.ValidationError(
+                {
+                    "error": "Bulk duplication failed due to an unexpected error",
+                }
+            )
+
+        posthoganalytics.capture(
+            event="survey bulk duplicated",
+            distinct_id=str(user.distinct_id),
+            properties={
+                "source_survey_id": str(survey_id),
+                "target_count": len(created_surveys),
+                "target_team_ids": target_team_ids,
+            },
+        )
+
+        return Response(
+            {
+                "created_surveys": created_surveys,
+                "count": len(created_surveys),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
 
 class SurveyConfigSerializer(serializers.ModelSerializer):
     class Meta:
@@ -1450,25 +1640,58 @@ def surveys(request: Request):
             ),
         )
 
-    team = Team.objects.get_team_from_cache_or_token(token)
-    if team is None:
-        return cors_response(
-            request,
-            generate_exception_response(
-                "surveys",
-                "Project API key invalid. You can find your project API key in your PostHog project settings.",
-                type="authentication_error",
-                code="invalid_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
-        )
+    hypercache_response = None
+    response = None
 
-    return cors_response(request, JsonResponse(get_surveys_response(team)))
+    if settings.SURVEYS_API_USE_HYPERCACHE_TOKENS and (
+        "*" in settings.SURVEYS_API_USE_HYPERCACHE_TOKENS or token in settings.SURVEYS_API_USE_HYPERCACHE_TOKENS
+    ):
+        try:
+            hypercache_response = surveys_hypercache.get_from_cache(token)
+            if not hypercache_response:
+                raise Exception("No hypercache response found")
 
+            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="found").inc()
+            response = hypercache_response
 
-# Constants for better maintainability
-logger = structlog.get_logger(__name__)
-CACHE_TIMEOUT_SECONDS = 300
+        except Exception as e:
+            capture_exception(e)
+            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="not_found").inc()
+            pass  # For now fallback
+
+    # If we didn't get a hypercache response or we are comparing then load the normal response to compare
+    if not hypercache_response or settings.SURVEYS_API_USE_REMOTE_CONFIG_COMPARE:
+        team = Team.objects.get_team_from_cache_or_token(token)
+        if team is None:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "surveys",
+                    "Project API key invalid. You can find your project API key in your PostHog project settings.",
+                    type="authentication_error",
+                    code="invalid_api_key",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
+        response = get_surveys_response(team)
+
+        if hypercache_response:
+            # Do the comparison here
+            try:
+                if hypercache_response == response:
+                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON.labels(result="same").inc()
+                else:
+                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON.labels(result="different").inc()
+                    logger.warning(
+                        "SurveyHypercacheResponseDifferentFromAPIResponse",
+                        hypercache_response=hypercache_response,
+                        response=response,
+                    )
+
+            except Exception as e:
+                capture_exception(e)
+
+    return cors_response(request, JsonResponse(response))
 
 
 @csrf_exempt

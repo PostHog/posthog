@@ -17,7 +17,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { CurrencyCode, RevenueAnalyticsGoal } from '~/queries/schema/schema-general'
-import { AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
@@ -103,7 +103,10 @@ function ActionsColumn({
     if (mode === 'edit') {
         return (
             <div className="my-2 flex gap-2 justify-end">
-                <AccessControlAction resourceType={AccessControlResourceType.RevenueAnalytics} minAccessLevel="editor">
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.RevenueAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
                     <LemonButton
                         type="primary"
                         size="small"
@@ -123,7 +126,10 @@ function ActionsColumn({
 
     return (
         <div className="my-2 flex gap-2 justify-end">
-            <AccessControlAction resourceType={AccessControlResourceType.RevenueAnalytics} minAccessLevel="editor">
+            <AccessControlAction
+                resourceType={AccessControlResourceType.RevenueAnalytics}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
                 <LemonButton
                     type="secondary"
                     size="small"
@@ -134,7 +140,10 @@ function ActionsColumn({
                 </LemonButton>
             </AccessControlAction>
 
-            <AccessControlAction resourceType={AccessControlResourceType.RevenueAnalytics} minAccessLevel="editor">
+            <AccessControlAction
+                resourceType={AccessControlResourceType.RevenueAnalytics}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
                 <LemonButton
                     type="secondary"
                     size="small"
@@ -358,7 +367,10 @@ export function GoalsConfiguration(): JSX.Element {
             description="Set revenue targets for specific dates to track your progress. You can track goals based on your monthly/quarterly/yearly targets. These can be displayed either on your MRR/ARR or gross revenue charts on the revenue analytics dashboard!"
         >
             <div className={cn('flex flex-col items-end w-full')}>
-                <AccessControlAction resourceType={AccessControlResourceType.RevenueAnalytics} minAccessLevel="editor">
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.RevenueAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
