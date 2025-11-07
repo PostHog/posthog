@@ -78,6 +78,10 @@ async def _prep_local_db_for_prod_reads():
         await User.objects.using("default").acreate(email=settings.DEBUG_LOG_IN_AS_EMAIL, id=user.id)
     except Exception:
         pass
+    if not user.current_organization_id:
+        raise ValueError(f"User {user.email} has no current organization")
+    if not user.current_team_id:
+        raise ValueError(f"User {user.email} has no current team")
     try:
         await Organization.objects.using("default").acreate(
             name=f"Placeholder for {settings.DEBUG_LOG_IN_AS_EMAIL}",
