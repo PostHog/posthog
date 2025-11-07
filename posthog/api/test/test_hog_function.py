@@ -67,7 +67,7 @@ EXAMPLE_FULL = {
     },
     "filters": {
         "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-        "actions": [{"id": "9", "name": "Test Action", "type": "actions", "order": 1}],
+        "actions": [{"id": "999999", "name": "Test Action", "type": "actions", "order": 1}],
         "filter_test_accounts": True,
     },
 }
@@ -193,8 +193,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         sync_template_to_db(geoip_template)
 
         # Create the action referenced in EXAMPLE_FULL
-        if not Action.objects.filter(id=9, team=self.team).exists():
-            Action.objects.create(id=9, name="Test Action", team=self.team, created_by=self.user)
+        # Use a high ID to avoid conflicts with auto-incrementing sequence
+        if not Action.objects.filter(id=999999, team=self.team).exists():
+            Action.objects.create(id=999999, name="Test Action", team=self.team, created_by=self.user)
 
     def _get_function_activity(
         self,

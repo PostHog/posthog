@@ -193,6 +193,26 @@ pub struct Config {
     #[envconfig(default = "")]
     pub redis_reader_url: String,
 
+    #[envconfig(default = "")]
+    pub redis_writer_url: String,
+
+    // Dedicated Redis for feature flags (critical path: team cache + flags cache)
+    // When empty, falls back to shared Redis URLs above
+    #[envconfig(default = "")]
+    pub flags_redis_url: String,
+
+    #[envconfig(default = "")]
+    pub flags_redis_reader_url: String,
+
+    #[envconfig(default = "")]
+    pub flags_redis_writer_url: String,
+
+    // Controls whether to read from dedicated Redis cache
+    // false = Mode 2: dual-write to both caches, read from shared (warming phase)
+    // true = Mode 3: read and write dedicated Redis only (cutover complete)
+    #[envconfig(default = "false")]
+    pub flags_redis_enabled: FlexBool,
+
     // S3 configuration for HyperCache fallback
     #[envconfig(default = "posthog")]
     pub object_storage_bucket: String,
@@ -202,9 +222,6 @@ pub struct Config {
 
     #[envconfig(default = "")]
     pub object_storage_endpoint: String,
-
-    #[envconfig(default = "")]
-    pub redis_writer_url: String,
 
     // How long to wait for a connection from the pool before timing out
     // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
@@ -293,6 +310,42 @@ pub struct Config {
 
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
+
+    /// Redis TTL for team cache entries in seconds
+    ///
+    /// Controls how long team data is cached in Redis before expiring.
+    /// This prevents indefinite cache growth and ensures stale data is refreshed.
+    ///
+    /// Default: 432000 seconds (5 days) - matches Django's FIVE_DAYS constant
+    /// Environment variable: TEAM_CACHE_TTL_SECONDS
+    ///
+    /// Common values:
+    /// - 3600 (1 hour) - For frequently changing team data
+    /// - 86400 (1 day) - For moderate refresh rate
+    /// - 432000 (5 days) - Default, balances performance and freshness
+    ///
+    /// Minimum value: 1 second (Redis setex does not accept 0 or negative values)
+    #[envconfig(from = "TEAM_CACHE_TTL_SECONDS", default = "432000")]
+    pub team_cache_ttl_seconds: u64,
+
+    /// Redis TTL for feature flags cache entries in seconds
+    ///
+    /// Controls how long feature flag data is cached in Redis before expiring.
+    /// This prevents indefinite cache growth and ensures flag changes are visible
+    /// within a reasonable time.
+    ///
+    /// Default: 432000 seconds (5 days) - matches Django's FIVE_DAYS constant
+    /// Environment variable: FLAGS_CACHE_TTL_SECONDS
+    ///
+    /// Common values:
+    /// - 300 (5 minutes) - For rapid flag development/testing
+    /// - 3600 (1 hour) - For frequently changing flags
+    /// - 86400 (1 day) - For stable flag deployments
+    /// - 432000 (5 days) - Default, balances performance and freshness
+    ///
+    /// Minimum value: 1 second (Redis setex does not accept 0 or negative values)
+    #[envconfig(from = "FLAGS_CACHE_TTL_SECONDS", default = "432000")]
+    pub flags_cache_ttl_seconds: u64,
 
     // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
@@ -407,6 +460,10 @@ impl Config {
             redis_url: "redis://localhost:6379/".to_string(),
             redis_reader_url: "".to_string(),
             redis_writer_url: "".to_string(),
+            flags_redis_url: "".to_string(),
+            flags_redis_reader_url: "".to_string(),
+            flags_redis_writer_url: "".to_string(),
+            flags_redis_enabled: FlexBool(false),
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
                 .to_string(),
             read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
@@ -436,6 +493,8 @@ impl Config {
             team_ids_to_track: TeamIdCollection::All,
             cache_max_cohort_entries: 100_000,
             cache_ttl_seconds: 300,
+            team_cache_ttl_seconds: 432000,
+            flags_cache_ttl_seconds: 432000,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 7200,
@@ -496,6 +555,30 @@ impl Config {
             &self.redis_url
         } else {
             &self.redis_writer_url
+        }
+    }
+
+    /// Get the Redis URL for flags cache reads (critical path: team cache + flags cache)
+    /// Returns None if dedicated flags Redis is not configured
+    pub fn get_flags_redis_reader_url(&self) -> Option<&str> {
+        if !self.flags_redis_reader_url.is_empty() {
+            Some(&self.flags_redis_reader_url)
+        } else if !self.flags_redis_url.is_empty() {
+            Some(&self.flags_redis_url)
+        } else {
+            None
+        }
+    }
+
+    /// Get the Redis URL for flags cache writes (critical path: team cache + flags cache)
+    /// Returns None if dedicated flags Redis is not configured
+    pub fn get_flags_redis_writer_url(&self) -> Option<&str> {
+        if !self.flags_redis_writer_url.is_empty() {
+            Some(&self.flags_redis_writer_url)
+        } else if !self.flags_redis_url.is_empty() {
+            Some(&self.flags_redis_url)
+        } else {
+            None
         }
     }
 

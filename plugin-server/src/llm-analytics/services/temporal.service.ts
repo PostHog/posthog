@@ -1,10 +1,12 @@
 import { Client, Connection, TLSConfig, WorkflowHandle } from '@temporalio/client'
+import fs from 'fs/promises'
 import { Counter } from 'prom-client'
 
 import { Hub } from '../../types'
+import { isDevEnv } from '../../utils/env-utils'
 import { logger } from '../../utils/logger'
 
-const EVALUATION_TASK_QUEUE = 'general-purpose-task-queue'
+const EVALUATION_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'general-purpose-task-queue'
 
 const temporalWorkflowsStarted = new Counter({
     name: 'evaluation_run_workflows_started',
@@ -34,26 +36,49 @@ export class TemporalService {
         return this.client
     }
 
-    private async createClient(): Promise<Client> {
-        // Configure TLS if certificates are provided (for production)
-        let tls: TLSConfig | boolean = false
-        if (this.hub.TEMPORAL_CLIENT_ROOT_CA && this.hub.TEMPORAL_CLIENT_CERT && this.hub.TEMPORAL_CLIENT_KEY) {
-            tls = {
-                serverRootCACertificate: Buffer.from(this.hub.TEMPORAL_CLIENT_ROOT_CA),
-                clientCertPair: {
-                    crt: Buffer.from(this.hub.TEMPORAL_CLIENT_CERT),
-                    key: Buffer.from(this.hub.TEMPORAL_CLIENT_KEY),
-                },
+    private async buildTLSConfig(): Promise<TLSConfig | false> {
+        const { TEMPORAL_CLIENT_ROOT_CA, TEMPORAL_CLIENT_CERT, TEMPORAL_CLIENT_KEY } = this.hub
+
+        if (!(TEMPORAL_CLIENT_ROOT_CA && TEMPORAL_CLIENT_CERT && TEMPORAL_CLIENT_KEY)) {
+            return false
+        }
+
+        let systemCAs = Buffer.alloc(0)
+        try {
+            const fileBuffer = await fs.readFile('/etc/ssl/certs/ca-certificates.crt')
+            systemCAs = Buffer.from(fileBuffer)
+        } catch (err: any) {
+            if (err.code !== 'ENOENT') {
+                logger.warn('⚠️ Failed to load system CA bundle', { err })
+            } else {
+                logger.debug('ℹ️ System CA bundle not found — using only provided root CA')
             }
         }
+
+        const combinedCA = Buffer.concat([systemCAs, Buffer.from(TEMPORAL_CLIENT_ROOT_CA)])
+
+        logger.debug('🔐 TLS configuration built', {
+            systemCABundle: systemCAs.length > 0,
+            combinedCABytes: combinedCA.length,
+        })
+
+        return {
+            serverRootCACertificate: combinedCA,
+            clientCertPair: {
+                crt: Buffer.from(TEMPORAL_CLIENT_CERT),
+                key: Buffer.from(TEMPORAL_CLIENT_KEY),
+            },
+        }
+    }
+
+    private async createClient(): Promise<Client> {
+        const tls = await this.buildTLSConfig()
 
         const port = this.hub.TEMPORAL_PORT || '7233'
         const address = `${this.hub.TEMPORAL_HOST}:${port}`
 
-        // Create connection first
         const connection = await Connection.connect({ address, tls })
 
-        // Then create client with connection
         const client = new Client({
             connection,
             namespace: this.hub.TEMPORAL_NAMESPACE || 'default',
@@ -68,7 +93,11 @@ export class TemporalService {
         return client
     }
 
-    async startEvaluationRunWorkflow(evaluationId: string, targetEventId: string): Promise<WorkflowHandle> {
+    async startEvaluationRunWorkflow(
+        evaluationId: string,
+        targetEventId: string,
+        timestamp: string
+    ): Promise<WorkflowHandle> {
         const client = await this.ensureConnected()
 
         const workflowId = `${evaluationId}-${targetEventId}-ingestion`
@@ -78,6 +107,7 @@ export class TemporalService {
                 {
                     evaluation_id: evaluationId,
                     target_event_id: targetEventId,
+                    timestamp: timestamp,
                 },
             ],
             taskQueue: EVALUATION_TASK_QUEUE,
@@ -91,6 +121,7 @@ export class TemporalService {
             workflowId,
             evaluationId,
             targetEventId,
+            timestamp,
         })
 
         return handle

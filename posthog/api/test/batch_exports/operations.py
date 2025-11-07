@@ -4,6 +4,7 @@ import datetime as dt
 import threading
 from contextlib import contextmanager
 
+from django.conf import settings
 from django.test.client import Client as TestClient
 
 import temporalio.client
@@ -13,7 +14,6 @@ from rest_framework import status
 from temporalio.client import Client as TemporalClient
 from temporalio.worker import Worker
 
-from posthog import constants
 from posthog.models.utils import UUIDT
 
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
@@ -64,7 +64,7 @@ class ThreadedWorker(Worker):
 def start_test_worker(temporal: TemporalClient):
     with ThreadedWorker(
         client=temporal,
-        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
         workflows=WORKFLOWS,
         activities=ACTIVITIES,
         workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
