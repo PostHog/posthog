@@ -110,6 +110,7 @@ def to_dict(query: BaseModel) -> dict:
                         "stacked",
                         "detailedResultsAggregationType",
                         "showFullUrls",
+                        "selectedInterval",
                     ]
                 }
 

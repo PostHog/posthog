@@ -256,11 +256,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 })
             }
 
-            // when we're doing progressive loading, the player logic decides when to continue
-            if (!values.useProgressiveLoading) {
-                // if not then whenever we load a set of data, we try to load the next set right away
-                actions.loadNextSnapshotSource()
-            }
+            // if not then whenever we load a set of data, we try to load the next set right away
+            actions.loadNextSnapshotSource()
         },
 
         maybeStartPolling: () => {
@@ -285,14 +282,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 return
             }
 
-            // when we're progressive loading we'll call this a lot
-            // because it's triggered on player tick
-            // we want to debounce calls because otherwise
-            // particularly early in a recording
-            // we end up loading everything
-            if (values.useProgressiveLoading) {
-                await breakpoint(5)
-            }
+            await breakpoint(1)
 
             // yes this is ugly duplication, but we're going to deprecate v1 and I want it to be clear which is which
             if (values.snapshotSources?.some((s) => s.source === SnapshotSourceType.blob_v2)) {
@@ -325,13 +315,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
     })),
     selectors(({ cache }) => ({
-        useProgressiveLoading: [
-            (s) => [s.featureFlags],
-            (featureFlags) => {
-                return !!featureFlags[FEATURE_FLAGS.REPLAY_PROGRESSIVE_LOADING]
-            },
-        ],
-
         snapshotsLoading: [
             (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.snapshotsBySources],
             (

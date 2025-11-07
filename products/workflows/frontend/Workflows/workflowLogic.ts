@@ -123,7 +123,7 @@ export const workflowLogic = kea<workflowLogicType>([
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
-        triggerManualWorkflow: true,
+        triggerManualWorkflow: (variables: Record<string, any>) => ({ variables }),
         discardChanges: true,
     }),
     loaders(({ props, values }) => ({
@@ -392,7 +392,7 @@ export const workflowLogic = kea<workflowLogicType>([
 
             actions.setWorkflowValues({ edges: [...newEdges, ...edges] })
         },
-        triggerManualWorkflow: async () => {
+        triggerManualWorkflow: async ({ variables }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
                 lemonToast.error('You need to save the workflow before triggering it manually.')
                 return
@@ -409,13 +409,14 @@ export const workflowLogic = kea<workflowLogicType>([
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        user_id: values.user?.id,
+                        user_id: String(values.user?.id),
+                        $variables: variables,
                     }),
                     credentials: 'omit',
                 })
             } catch (e) {
                 lemonToast.error('Error triggering workflow: ' + (e as Error).message)
-                // return
+                return
             }
 
             lemonToast.success('Workflow triggered', {
