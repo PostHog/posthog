@@ -4,7 +4,6 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
-from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
@@ -54,7 +53,7 @@ def external_data_schema_incremental(external_data_source, team):
 
 # mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating the
 # incremental field last value
-@mock.patch.object(PipelineNonDLT, "_chunk_size", 1)
+@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_stripe_source_full_refresh(
@@ -84,7 +83,7 @@ async def test_stripe_source_full_refresh(
 
 # mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating the
 # incremental field last value
-@mock.patch.object(PipelineNonDLT, "_chunk_size", 1)
+@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_stripe_source_incremental(team, mock_stripe_api, external_data_source, external_data_schema_incremental):
