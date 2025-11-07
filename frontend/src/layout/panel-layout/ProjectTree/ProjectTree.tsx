@@ -386,7 +386,9 @@ export function ProjectTree({
                         {treeTableKeys?.headers.slice(0).map((header, index) => {
                             const width = header.width || 0
                             const offset = header.offset || 0
-                            const value = header.key.split('.').reduce((obj, key) => obj?.[key], item)
+                            const value = header.key
+                                .split('.')
+                                .reduce((obj, key) => obj?.[key as keyof typeof obj], item as any)
                             const isFolder =
                                 (item.children && item.children.length > 0) || item.record?.type === 'folder'
                             // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
