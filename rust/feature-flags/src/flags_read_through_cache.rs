@@ -1,4 +1,4 @@
-use common_cache::{CacheResult, ReadThroughCache};
+use common_cache::{CacheResult, ReadThroughCache, ReadThroughCacheWithMetrics};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::hash::Hash;
@@ -21,8 +21,8 @@ use crate::config::Config;
 /// - Warm up dedicated cache in production before cutover
 /// - Cut over to dedicated cache cleanly
 pub struct FlagsReadThroughCache {
-    shared_cache: Arc<ReadThroughCache>,
-    dedicated_cache: Option<Arc<ReadThroughCache>>,
+    shared_cache: Arc<ReadThroughCacheWithMetrics>,
+    dedicated_cache: Option<Arc<ReadThroughCacheWithMetrics>>,
     config: Config,
 }
 
@@ -33,6 +33,22 @@ impl FlagsReadThroughCache {
         dedicated_cache: Option<Arc<ReadThroughCache>>,
         config: Config,
     ) -> Self {
+        // Wrap caches with metrics
+        let shared_cache = Arc::new(ReadThroughCacheWithMetrics::new(
+            shared_cache,
+            "flags",
+            "flag",
+            &[("cache_type".to_string(), "shared".to_string())],
+        ));
+        let dedicated_cache = dedicated_cache.map(|cache| {
+            Arc::new(ReadThroughCacheWithMetrics::new(
+                cache,
+                "flags",
+                "flag",
+                &[("cache_type".to_string(), "dedicated".to_string())],
+            ))
+        });
+
         Self {
             shared_cache,
             dedicated_cache,
@@ -57,20 +73,34 @@ impl FlagsReadThroughCache {
     ) -> Self {
         use crate::flags::flag_models::FeatureFlagList;
 
-        // Always create shared cache
-        let shared_cache = Arc::new(FeatureFlagList::create_cache(
+        // Always create shared cache and wrap with metrics
+        let shared_cache_inner = Arc::new(FeatureFlagList::create_cache(
             shared_redis_reader,
             shared_redis_writer,
             Some(flags_cache_ttl_seconds),
         ));
+        let shared_cache = Arc::new(ReadThroughCacheWithMetrics::new(
+            shared_cache_inner,
+            "flags",
+            "flag",
+            &[("cache_type".to_string(), "shared".to_string())],
+        ));
 
         // Create dedicated cache only if dedicated Redis is configured
         let dedicated_cache = match (flags_redis_reader, flags_redis_writer) {
-            (Some(reader), Some(writer)) => Some(Arc::new(FeatureFlagList::create_cache(
-                reader,
-                writer,
-                Some(flags_cache_ttl_seconds),
-            ))),
+            (Some(reader), Some(writer)) => {
+                let dedicated_cache_inner = Arc::new(FeatureFlagList::create_cache(
+                    reader,
+                    writer,
+                    Some(flags_cache_ttl_seconds),
+                ));
+                Some(Arc::new(ReadThroughCacheWithMetrics::new(
+                    dedicated_cache_inner,
+                    "flags",
+                    "flag",
+                    &[("cache_type".to_string(), "dedicated".to_string())],
+                )))
+            }
             _ => None,
         };
 

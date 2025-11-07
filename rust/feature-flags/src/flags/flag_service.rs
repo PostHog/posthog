@@ -4,8 +4,7 @@ use crate::{
     flags::flag_models::FeatureFlagList,
     flags_read_through_cache::FlagsReadThroughCache,
     metrics::consts::{
-        DB_FLAG_READS_COUNTER, DB_TEAM_READS_COUNTER, FLAG_CACHE_ERRORS_COUNTER,
-        FLAG_CACHE_HIT_COUNTER, TEAM_CACHE_ERRORS_COUNTER, TEAM_CACHE_HIT_COUNTER,
+        DB_TEAM_READS_COUNTER, TEAM_CACHE_ERRORS_COUNTER, TEAM_CACHE_HIT_COUNTER,
         TOKEN_VALIDATION_ERRORS_COUNTER,
     },
     team::team_models::Team,
@@ -187,28 +186,8 @@ impl FlagService {
             })
             .await?;
 
-        // Track cache hits and misses
+        // Metrics are now automatically emitted by ReadThroughCacheWithMetrics wrapper
         let was_cache_hit = cache_result.was_cached();
-        inc(
-            FLAG_CACHE_HIT_COUNTER,
-            &[("cache_hit".to_string(), was_cache_hit.to_string())],
-            1,
-        );
-
-        // Track database reads (when loader was invoked)
-        if cache_result.invoked_loader() {
-            inc(DB_FLAG_READS_COUNTER, &[], 1);
-        }
-
-        // Track cache problems
-        if cache_result.had_cache_problem() {
-            inc(
-                FLAG_CACHE_ERRORS_COUNTER,
-                &[("reason".to_string(), cache_result.source.to_string())],
-                1,
-            );
-        }
-
         let flags = cache_result.value.unwrap_or_default();
 
         Ok(FlagResult {
