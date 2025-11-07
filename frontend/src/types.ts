@@ -1526,6 +1526,7 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
+    SURVEY_ANSWERS = 'surveyAnswers',
 }
 
 export enum GroupsTabType {
