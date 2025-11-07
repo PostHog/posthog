@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { IncomingEventWithTeam } from '../../types'
+import { PipelineEvent } from '../../types'
 import { PipelineResultType } from '../pipelines/results'
 import { MemoryRateLimiter } from '../utils/overflow-detector'
 import { createRateLimitToOverflowStep } from './rate-limit-to-overflow-step'
@@ -18,15 +18,12 @@ describe('createRateLimitToOverflowStep', () => {
 
     const createMockEvent = (token: string, distinctId: string, timestamp?: number) => ({
         message: createMockMessage(timestamp),
-        eventWithTeam: {
-            event: {
-                token,
-                distinct_id: distinctId,
-                event: '$pageview',
-                properties: {},
-            },
-            team: { id: 1 },
-        } as IncomingEventWithTeam,
+        event: {
+            token,
+            distinct_id: distinctId,
+            event: '$pageview',
+            properties: {},
+        } as PipelineEvent,
     })
 
     describe('when overflow is disabled', () => {
@@ -208,8 +205,8 @@ describe('createRateLimitToOverflowStep', () => {
             for (let i = 0; i < results.length; i++) {
                 const result = results[i]
                 if (result.type === PipelineResultType.OK) {
-                    expect(result.value.eventWithTeam.event.token).toBe(events[i].eventWithTeam.event.token)
-                    expect(result.value.eventWithTeam.event.distinct_id).toBe(events[i].eventWithTeam.event.distinct_id)
+                    expect(result.value.event.token).toBe(events[i].event.token)
+                    expect(result.value.event.distinct_id).toBe(events[i].event.distinct_id)
                 }
             }
         })

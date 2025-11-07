@@ -72,9 +72,7 @@ beforeEach(() => {
 describe('createResolveTeamStep()', () => {
     it('event with no token is not processed and the step returns drop', async () => {
         const input = {
-            message: {} as Message,
-            headers: {} as EventHeaders,
-            event: { event: { ...pipelineEvent }, message: {} as Message } as IncomingEvent,
+            event: { ...pipelineEvent },
         }
         const response = await step(input)
         expect(response).toEqual(drop('no_token'))
@@ -91,9 +89,7 @@ describe('createResolveTeamStep()', () => {
 
     it('event with an invalid token is not processed and the step returns drop', async () => {
         const input = {
-            message: {} as Message,
-            headers: {} as EventHeaders,
-            event: { event: { ...pipelineEvent, token: 'unknown' }, message: {} as Message } as IncomingEvent,
+            event: { ...pipelineEvent, token: 'unknown' },
         }
         const response = await step(input)
         expect(response).toEqual(drop('invalid_token'))
@@ -110,20 +106,13 @@ describe('createResolveTeamStep()', () => {
 
     it('event with a valid token calls getTeamByToken with correct token', async () => {
         const input = {
-            message: {} as Message,
-            headers: {} as EventHeaders,
-            event: { event: { ...pipelineEvent, token: teamTwoToken }, message: {} as Message } as IncomingEvent,
+            event: { ...pipelineEvent, token: teamTwoToken },
         }
         const response = await step(input)
         expect(response).toEqual(
             ok({
                 ...input,
-                eventWithTeam: {
-                    event: { ...pipelineEvent, token: teamTwoToken },
-                    team: teamTwo,
-                    message: input.message,
-                    headers: input.headers,
-                },
+                team: teamTwo,
             })
         )
         expect(hub.teamManager.getTeamByToken).toHaveBeenCalledWith(teamTwoToken)
@@ -132,9 +121,7 @@ describe('createResolveTeamStep()', () => {
 
     it('event with team_id but no token is dropped', async () => {
         const input = {
-            message: {} as Message,
-            headers: {} as EventHeaders,
-            event: { event: { ...pipelineEvent, team_id: 3 }, message: {} as Message } as IncomingEvent,
+            event: { ...pipelineEvent, team_id: 3 },
         }
         const response = await step(input)
         expect(response).toEqual(drop('no_token'))
@@ -153,23 +140,13 @@ describe('createResolveTeamStep()', () => {
 
     it('event with both team_id and token uses token for team resolution', async () => {
         const input = {
-            message: {} as Message,
-            headers: {} as EventHeaders,
-            event: {
-                event: { ...pipelineEvent, team_id: 3, token: teamTwoToken },
-                message: {} as Message,
-            } as IncomingEvent,
+            event: { ...pipelineEvent, team_id: 3, token: teamTwoToken },
         }
         const response = await step(input)
         expect(response).toEqual(
             ok({
                 ...input,
-                eventWithTeam: {
-                    event: { ...pipelineEvent, team_id: 3, token: teamTwoToken },
-                    team: teamTwo,
-                    message: input.message,
-                    headers: input.headers,
-                },
+                team: teamTwo,
             })
         )
         expect(hub.teamManager.getTeamByToken).toHaveBeenCalledWith(teamTwoToken)
@@ -179,9 +156,7 @@ describe('createResolveTeamStep()', () => {
     it('PG errors are propagated up to trigger retries', async () => {
         jest.mocked(hub.teamManager.getTeamByToken).mockRejectedValueOnce(new Error('retry me'))
         const input = {
-            message: {} as Message,
-            headers: {} as EventHeaders,
-            event: { event: { ...pipelineEvent, token: teamTwoToken }, message: {} as Message } as IncomingEvent,
+            event: { ...pipelineEvent, token: teamTwoToken },
         }
         await expect(async () => {
             await step(input)

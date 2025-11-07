@@ -45,23 +45,21 @@ describe('createParseKafkaMessageStep', () => {
                 ok({
                     message: mockMessage,
                     event: {
-                        event: {
-                            event: 'test_event',
-                            distinct_id: 'test_user',
-                            team_id: 1,
-                            properties: {
-                                test: 'value',
-                                $ip: '127.0.0.1',
-                                $sent_at: '2023-01-01T00:00:01Z',
-                            },
-                            token: 'test_token',
-                            ip: null,
-                            site_url: 'https://example.com',
-                            uuid: 'test-uuid',
-                            now: '2023-01-01T00:00:00Z',
-                            sent_at: '2023-01-01T00:00:01Z',
-                            kafka_offset: '123',
+                        event: 'test_event',
+                        distinct_id: 'test_user',
+                        team_id: 1,
+                        properties: {
+                            test: 'value',
+                            $ip: '127.0.0.1',
+                            $sent_at: '2023-01-01T00:00:01Z',
                         },
+                        token: 'test_token',
+                        ip: null,
+                        site_url: 'https://example.com',
+                        uuid: 'test-uuid',
+                        now: '2023-01-01T00:00:00Z',
+                        sent_at: '2023-01-01T00:00:01Z',
+                        kafka_offset: '123',
                     },
                 })
             )
@@ -86,12 +84,10 @@ describe('createParseKafkaMessageStep', () => {
                 ok({
                     message: mockMessage,
                     event: {
-                        event: {
-                            event: 'minimal_event',
-                            distinct_id: 'user123',
-                            ip: null,
-                            properties: {},
-                        },
+                        event: 'minimal_event',
+                        distinct_id: 'user123',
+                        ip: null,
+                        properties: {},
                     },
                 })
             )
@@ -118,14 +114,12 @@ describe('createParseKafkaMessageStep', () => {
                 ok({
                     message: mockMessage,
                     event: {
-                        event: {
-                            event: 'test_event',
-                            distinct_id: 'test_user',
-                            custom_field: 'custom_value',
-                            another_field: 42,
-                            ip: null,
-                            properties: {},
-                        },
+                        event: 'test_event',
+                        distinct_id: 'test_user',
+                        custom_field: 'custom_value',
+                        another_field: 42,
+                        ip: null,
+                        properties: {},
                     },
                 })
             )
@@ -153,13 +147,11 @@ describe('createParseKafkaMessageStep', () => {
                 ok({
                     message: mockMessage,
                     event: {
-                        event: {
-                            event: 'test_event',
-                            distinct_id: 'test_user',
-                            properties: { outer: 'value' }, // This will overwrite the inner properties
-                            token: 'test_token',
-                            ip: null,
-                        },
+                        event: 'test_event',
+                        distinct_id: 'test_user',
+                        properties: { outer: 'value' }, // This will overwrite the inner properties
+                        token: 'test_token',
+                        ip: null,
                     },
                 })
             )
@@ -190,19 +182,17 @@ describe('createParseKafkaMessageStep', () => {
                 ok({
                     message: mockMessage,
                     event: {
-                        event: {
-                            event: 'test_event',
-                            distinct_id: 'test\uFFFDuser', // null byte replaced with replacement character
-                            team_id: 1,
-                            properties: {
-                                test: 'value',
-                                $ip: '192.168.1.1', // ip from raw event field added to properties
-                                $sent_at: '2023-01-01T00:00:01Z', // sent_at added to properties
-                            },
-                            token: 'test\uFFFDtoken', // null byte replaced with replacement character
-                            ip: null, // ip field set to null for safety
-                            sent_at: '2023-01-01T00:00:01Z',
+                        event: 'test_event',
+                        distinct_id: 'test\uFFFDuser', // null byte replaced with replacement character
+                        team_id: 1,
+                        properties: {
+                            test: 'value',
+                            $ip: '192.168.1.1', // ip from raw event field added to properties
+                            $sent_at: '2023-01-01T00:00:01Z', // sent_at added to properties
                         },
+                        token: 'test\uFFFDtoken', // null byte replaced with replacement character
+                        ip: null, // ip field set to null for safety
+                        sent_at: '2023-01-01T00:00:01Z',
                     },
                 })
             )
@@ -328,12 +318,10 @@ describe('createParseKafkaMessageStep', () => {
                 ok({
                     message: mockMessage,
                     event: {
-                        event: {
-                            token: 'test_token',
-                            distinct_id: 'undefined',
-                            ip: null,
-                            properties: {},
-                        },
+                        token: 'test_token',
+                        distinct_id: 'undefined',
+                        ip: null,
+                        properties: {},
                     },
                 })
             )
@@ -360,13 +348,11 @@ describe('createParseKafkaMessageStep', () => {
                 ok({
                     message: mockMessage,
                     event: {
-                        event: {
-                            event: 'test_event',
-                            distinct_id: 'null',
-                            properties: {},
-                            token: 'null',
-                            ip: null,
-                        },
+                        event: 'test_event',
+                        distinct_id: 'null',
+                        properties: {},
+                        token: 'null',
+                        ip: null,
                     },
                 })
             )
