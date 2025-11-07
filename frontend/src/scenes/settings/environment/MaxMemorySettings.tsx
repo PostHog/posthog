@@ -25,7 +25,7 @@ export function MaxMemorySettings(): JSX.Element {
                     <LemonSkeleton className="h-16" />
                 </div>
             ) : (
-                <LemonField name="text" label="Max’s memory">
+                <LemonField name="text" label="PostHog AI’s memory">
                     <LemonTextArea
                         id="product-description-textarea" // Slightly dirty ID for .focus() elsewhere
                         placeholder={`What should PostHog AI know about ${

@@ -664,7 +664,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: (
                     // Note: Sync the copy below with AIConsentPopoverWrapper.tsx
                     <>
-                        PostHog AI features, such as our assistant Max, use{' '}
+                        PostHog AI features use{' '}
                         <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: OpenAI`}>
                             <dfn>external AI services</dfn>
                         </Tooltip>{' '}
