@@ -157,8 +157,10 @@ async def send_to_kafka(topic: str | None, messages: list[dict]) -> None:
         messages: List of message dictionaries to send
     """
 
-    logger = LOGGER.bind(topic=topic, message_count=len(messages))
-
+    logger = LOGGER.bind(message_count=len(messages))
+    if not topic:
+        logger.warning("No output topic configured; skipping")
+        return
     if not messages:
         logger.warning("No messages to send to Kafka")
         return
@@ -167,12 +169,17 @@ async def send_to_kafka(topic: str | None, messages: list[dict]) -> None:
     producer = KafkaProducer()
     futures = []
     for message in messages:
-        logger.info("Submitting ingestion warning to Kafka", message=message)
+        logger.info("Submitting ingestion warning to Kafka", topic=topic, message=message)
+        try:
+            data = json.dumps(message).encode("utf-8")
+        except Exception as e:
+            logger.exception("Failed to serialize message", error=str(e), message=message)
+            continue
         futures.append(
             asyncio.to_thread(
                 producer.produce,
                 topic=topic,
-                data=json.dumps(message).encode("utf-8"),
+                data=data,
             )
         )
 
@@ -180,6 +187,8 @@ async def send_to_kafka(topic: str | None, messages: list[dict]) -> None:
     for result in await asyncio.gather(*futures, return_exceptions=True):
         if isinstance(result, Exception):
             logger.exception(f"Failed to submit ingestion warning to Kafka", error=str(result))
+        else:
+            successes += 1
     logger.info(
         "Submitted batch of ingestion warnings to Kafka", successes=successes, failures=len(futures) - successes
     )
