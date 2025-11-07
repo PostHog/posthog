@@ -1,9 +1,9 @@
+import os
 import uuid
 
 import pytest
 
-from django.conf import settings
-
+import aioboto3
 from temporalio.testing._activity import ActivityEnvironment
 
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
@@ -20,19 +20,45 @@ from products.batch_exports.backend.tests.temporal.destinations.s3.utils import 
     TEST_S3_MODELS,
     _run_activity,
     assert_clickhouse_records_in_s3,
+    has_valid_gcs_credentials,
 )
-from products.batch_exports.backend.tests.temporal.utils.s3 import assert_files_in_s3, read_json_file_from_s3
+from products.batch_exports.backend.tests.temporal.utils.s3 import (
+    assert_files_in_s3,
+    delete_all_from_s3,
+    read_json_file_from_s3,
+)
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.django_db,
+    pytest.mark.skipif(
+        not has_valid_gcs_credentials(),
+        reason="GCS credentials (AWS keys) not set in environment or missing GCS_TEST_BUCKET variable",
+    ),
+]
+
+
+@pytest.fixture
+def bucket_name():
+    return os.getenv("GCS_TEST_BUCKET")
+
+
+@pytest.fixture
+async def gcs_client(bucket_name, s3_key_prefix):
+    """Manage an S3 client to interact with a GCS bucket."""
+    async with aioboto3.Session().client("s3", endpoint_url="https://storage.googleapis.com") as s3_client:
+        yield s3_client
+
+        await delete_all_from_s3(s3_client, bucket_name, key_prefix=s3_key_prefix)
 
 
 @pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
-async def test_insert_into_s3_activity_puts_data_into_s3(
+async def test_insert_into_s3_activity_puts_data_into_gcs(
     clickhouse_client,
     bucket_name,
-    minio_client,
+    gcs_client,
     activity_environment: ActivityEnvironment,
     compression,
     exclude_events,
@@ -43,7 +69,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     generate_test_data,
     ateam,
 ):
-    """Test that the insert_into_s3_activity_from_stage function ends up with data into S3.
+    """Test that the insert_into_s3_activity_from_stage function ends up with data into GCS.
 
     We use the generate_test_events_in_clickhouse function to generate several sets
     of events. Some of these sets are expected to be exported, and others not. Expected
@@ -54,7 +80,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     * Match any filters specified in the batch export model.
 
     Once we have these events, we pass them to the assert_clickhouse_records_in_s3 function to check
-    that they appear in the expected S3 bucket and key.
+    that they appear in the expected GCS bucket and key.
     """
 
     if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
@@ -78,9 +104,9 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         team_id=ateam.pk,
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+        endpoint_url="https://storage.googleapis.com",
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,
@@ -113,99 +139,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         sort_key = "session_id"
 
     await assert_clickhouse_records_in_s3(
-        s3_compatible_client=minio_client,
-        clickhouse_client=clickhouse_client,
-        bucket_name=bucket_name,
-        key_prefix=prefix,
-        team_id=ateam.pk,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        batch_export_model=model,
-        exclude_events=exclude_events,
-        include_events=None,
-        compression=compression,
-        file_format=file_format,
-        backfill_details=None,
-        sort_key=sort_key,
-    )
-
-
-@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
-@pytest.mark.parametrize("compression", [None], indirect=True)
-@pytest.mark.parametrize("file_format", ["Parquet"], indirect=True)
-async def test_insert_into_s3_activity_with_exclude_events(
-    clickhouse_client,
-    bucket_name,
-    minio_client,
-    activity_environment: ActivityEnvironment,
-    compression,
-    exclude_events,
-    file_format,
-    data_interval_start,
-    data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
-    generate_test_data,
-    ateam,
-):
-    """Test that the insert_into_s3_activity_from_stage function does not export events that match the exclude_events
-    filter.
-    """
-
-    prefix = str(uuid.uuid4())
-
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
-        batch_export_model = model
-    elif model is not None:
-        batch_export_schema = model
-
-    batch_export_id = str(uuid.uuid4())
-
-    insert_inputs = S3InsertInputs(
-        bucket_name=bucket_name,
-        region="us-east-1",
-        prefix=prefix,
-        team_id=ateam.pk,
-        data_interval_start=data_interval_start.isoformat(),
-        data_interval_end=data_interval_end.isoformat(),
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        compression=compression,
-        exclude_events=exclude_events,
-        file_format=file_format,
-        batch_export_schema=batch_export_schema,
-        batch_export_model=batch_export_model,
-        batch_export_id=batch_export_id,
-        destination_default_fields=s3_default_fields(),
-    )
-
-    result = await _run_activity(activity_environment, insert_inputs)
-    records_exported = result.records_completed
-    bytes_exported = result.bytes_exported
-    assert result.error is None
-
-    events_to_export_created, persons_to_export_created = generate_test_data
-    assert (
-        records_exported == len(events_to_export_created)
-        or records_exported == len(persons_to_export_created)
-        or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
-        or (isinstance(model, BatchExportModel) and model.name == "sessions" and 1 <= records_exported <= 2)
-    )
-
-    assert isinstance(bytes_exported, int)
-    assert bytes_exported > 0
-
-    sort_key = "uuid"
-    if isinstance(model, BatchExportModel) and model.name == "persons":
-        sort_key = "person_id"
-    elif isinstance(model, BatchExportModel) and model.name == "sessions":
-        sort_key = "session_id"
-
-    await assert_clickhouse_records_in_s3(
-        s3_compatible_client=minio_client,
+        s3_compatible_client=gcs_client,
         clickhouse_client=clickhouse_client,
         bucket_name=bucket_name,
         key_prefix=prefix,
@@ -226,10 +160,10 @@ async def test_insert_into_s3_activity_with_exclude_events(
 @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
 @pytest.mark.parametrize("max_file_size_mb", [None, 6])
-async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
+async def test_insert_into_s3_activity_puts_splitted_files_into_gcs(
     clickhouse_client,
     bucket_name,
-    minio_client,
+    gcs_client,
     activity_environment,
     compression,
     max_file_size_mb,
@@ -289,9 +223,9 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
         team_id=ateam.pk,
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+        endpoint_url="https://storage.googleapis.com",
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,
@@ -312,7 +246,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     assert bytes_exported > 0
 
     s3_data, s3_keys = await assert_files_in_s3(
-        s3_compatible_client=minio_client,
+        s3_compatible_client=gcs_client,
         bucket_name=bucket_name,
         key_prefix=prefix,
         file_format=file_format,
@@ -363,53 +297,9 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
 
     manifest_key = f"{prefix}/{data_interval_start.isoformat()}-{data_interval_end.isoformat()}_manifest.json"
     if max_file_size_mb is None:
-        with pytest.raises(minio_client.exceptions.NoSuchKey):
-            await read_json_file_from_s3(minio_client, bucket_name, manifest_key)
+        with pytest.raises(gcs_client.exceptions.NoSuchKey):
+            await read_json_file_from_s3(gcs_client, bucket_name, manifest_key)
     else:
-        manifest_data: dict | list = await read_json_file_from_s3(minio_client, bucket_name, manifest_key)
+        manifest_data: dict | list = await read_json_file_from_s3(gcs_client, bucket_name, manifest_key)
         assert isinstance(manifest_data, dict)
         assert manifest_data["files"] == expected_keys
-
-
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
-@pytest.mark.parametrize("file_format", ["invalid"])
-async def test_insert_into_s3_activity_fails_on_invalid_file_format(
-    clickhouse_client,
-    bucket_name,
-    minio_client,
-    activity_environment,
-    compression,
-    exclude_events,
-    file_format,
-    data_interval_start,
-    data_interval_end,
-    model: BatchExportModel,
-    ateam,
-):
-    """Test the insert_into_s3_activity_from_stage_activity function returns an error when an invalid file format is requested."""
-
-    insert_inputs = S3InsertInputs(
-        bucket_name=bucket_name,
-        region="us-east-1",
-        prefix="any",
-        team_id=ateam.pk,
-        data_interval_start=data_interval_start.isoformat(),
-        data_interval_end=data_interval_end.isoformat(),
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        compression=compression,
-        exclude_events=exclude_events,
-        file_format=file_format,
-        batch_export_schema=None,
-        batch_export_model=model,
-        batch_export_id=str(uuid.uuid4()),
-        destination_default_fields=s3_default_fields(),
-    )
-
-    result = await _run_activity(activity_environment, insert_inputs)
-    assert result.error is not None
-    assert result.error.type == "UnsupportedFileFormatError"
-    assert result.error.message == "'invalid' is not a supported format for S3 batch exports."
-    assert result.error_repr is not None
-    assert result.error_repr == "UnsupportedFileFormatError: 'invalid' is not a supported format for S3 batch exports."
