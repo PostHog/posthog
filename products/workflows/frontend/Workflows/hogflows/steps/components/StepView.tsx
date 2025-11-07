@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
@@ -11,18 +11,29 @@ import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogFlowAction } from '../../types'
 import { useHogFlowStep } from '../HogFlowSteps'
 import { StepViewMetrics } from './StepViewMetrics'
+import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     const { selectedNode, mode } = useValues(hogFlowEditorLogic)
-    const { actionValidationErrorsById } = useValues(workflowLogic)
-    const { setWorkflowAction } = useActions(hogFlowEditorLogic)
+    const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
     const isSelected = selectedNode?.id === action.id
-    const [isEditing, setIsEditing] = useState(false)
-    const [editValue, setEditValue] = useState(action.name)
     const inputRef = useRef<HTMLInputElement>(null)
-    const [isEditingDescription, setIsEditingDescription] = useState(false)
-    const [editDescriptionValue, setEditDescriptionValue] = useState(action.description || '')
     const descriptionInputRef = useRef<HTMLTextAreaElement>(null)
+
+    const stepViewLogicProps: StepViewLogicProps = { action, workflowLogicProps: logicProps }
+    const { isEditingName, isEditingDescription, editNameValue, editDescriptionValue } = useValues(
+        stepViewLogic(stepViewLogicProps)
+    )
+    const {
+        startEditingName,
+        startEditingDescription,
+        setEditNameValue,
+        setEditDescriptionValue,
+        saveName,
+        saveDescription,
+        cancelEditingName,
+        cancelEditingDescription,
+    } = useActions(stepViewLogic(stepViewLogicProps))
 
     const height = mode === 'metrics' ? NODE_HEIGHT + 10 : NODE_HEIGHT
 
@@ -45,30 +56,16 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
 
     useEffect(() => {
-        if (!isEditing) {
-            setEditValue(action.name)
-        }
-    }, [action.name, isEditing])
-
-    useEffect(() => {
-        if (isEditing && inputRef.current) {
+        if (isEditingName && inputRef.current) {
             inputRef.current.focus()
-            // Position cursor at the end instead of selecting all
             const length = inputRef.current.value.length
             inputRef.current.setSelectionRange(length, length)
         }
-    }, [isEditing])
-
-    useEffect(() => {
-        if (!isEditingDescription) {
-            setEditDescriptionValue(action.description || '')
-        }
-    }, [action.description, isEditingDescription])
+    }, [isEditingName])
 
     useEffect(() => {
         if (isEditingDescription && descriptionInputRef.current) {
             descriptionInputRef.current.focus()
-            // Position cursor at the end instead of selecting all
             const length = descriptionInputRef.current.value.length
             descriptionInputRef.current.setSelectionRange(length, length)
         }
@@ -99,44 +96,26 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                 </div>
                 <div className="flex flex-col flex-1 min-w-0">
                     <div className="flex justify-between items-center gap-1">
-                        {isEditing ? (
+                        {isEditingName ? (
                             <input
                                 ref={inputRef}
                                 type="text"
-                                value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
+                                value={editNameValue}
+                                onChange={(e) => setEditNameValue(e.target.value)}
                                 onBlur={(e) => {
                                     e.stopPropagation()
-                                    const trimmedName = editValue.trim()
-                                    if (trimmedName && trimmedName !== action.name) {
-                                        setWorkflowAction(action.id, {
-                                            ...action,
-                                            name: trimmedName,
-                                        })
-                                    } else {
-                                        setEditValue(action.name)
-                                    }
-                                    setIsEditing(false)
+                                    saveName()
+                                    e.currentTarget.blur()
                                 }}
                                 onKeyDown={(e) => {
                                     e.stopPropagation()
                                     if (e.key === 'Enter') {
                                         e.preventDefault()
-                                        const trimmedName = editValue.trim()
-                                        if (trimmedName && trimmedName !== action.name) {
-                                            setWorkflowAction(action.id, {
-                                                ...action,
-                                                name: trimmedName,
-                                            })
-                                        } else {
-                                            setEditValue(action.name)
-                                        }
-                                        setIsEditing(false)
+                                        saveName()
                                         e.currentTarget.blur()
                                     } else if (e.key === 'Escape') {
                                         e.preventDefault()
-                                        setEditValue(action.name)
-                                        setIsEditing(false)
+                                        cancelEditingName()
                                         e.currentTarget.blur()
                                     }
                                 }}
@@ -151,7 +130,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                     className="text-[0.45rem] font-sans font-medium cursor-text hover:bg-fill-button-tertiary-hover rounded px-0.5 -mx-0.5 transition-colors pl-1 truncate min-w-0 flex-1"
                                     onClick={(e) => {
                                         e.stopPropagation()
-                                        setIsEditing(true)
+                                        startEditingName()
                                     }}
                                     onMouseDown={(e) => e.stopPropagation()}
                                 >
@@ -168,36 +147,18 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                             onChange={(e) => setEditDescriptionValue(e.target.value)}
                             onBlur={(e) => {
                                 e.stopPropagation()
-                                const trimmedDescription = editDescriptionValue.trim()
-                                if (trimmedDescription && trimmedDescription !== (action.description || '')) {
-                                    setWorkflowAction(action.id, {
-                                        ...action,
-                                        description: trimmedDescription,
-                                    })
-                                } else {
-                                    setEditDescriptionValue(action.description || '')
-                                }
-                                setIsEditingDescription(false)
+                                saveDescription()
+                                e.currentTarget.blur()
                             }}
                             onKeyDown={(e) => {
                                 e.stopPropagation()
                                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                                     e.preventDefault()
-                                    const trimmedDescription = editDescriptionValue.trim()
-                                    if (trimmedDescription && trimmedDescription !== (action.description || '')) {
-                                        setWorkflowAction(action.id, {
-                                            ...action,
-                                            description: trimmedDescription,
-                                        })
-                                    } else {
-                                        setEditDescriptionValue(action.description || '')
-                                    }
-                                    setIsEditingDescription(false)
+                                    saveDescription()
                                     e.currentTarget.blur()
                                 } else if (e.key === 'Escape') {
                                     e.preventDefault()
-                                    setEditDescriptionValue(action.description || '')
-                                    setIsEditingDescription(false)
+                                    cancelEditingDescription()
                                     e.currentTarget.blur()
                                 }
                             }}
@@ -212,7 +173,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                 className="text-[0.3rem]/1.5 text-muted line-clamp-2 cursor-text hover:bg-fill-button-tertiary-hover rounded px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 overflow-hidden"
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    setIsEditingDescription(true)
+                                    startEditingDescription()
                                 }}
                                 onMouseDown={(e) => e.stopPropagation()}
                             >

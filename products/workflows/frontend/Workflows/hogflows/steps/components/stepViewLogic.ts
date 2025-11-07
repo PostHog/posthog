@@ -1,14 +1,16 @@
-import { kea } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 
+import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import { HogFlowAction } from '../../types'
 import type { stepViewLogicType } from './stepViewLogicType'
 
 export type StepViewLogicProps = {
     action: HogFlowAction
+    workflowLogicProps: WorkflowLogicProps
 }
 
-export const stepViewLogic = kea<stepViewLogicType>({
-    path: (key) => [
+export const stepViewLogic = kea<stepViewLogicType>([
+    path((key) => [
         'products',
         'workflows',
         'frontend',
@@ -18,10 +20,13 @@ export const stepViewLogic = kea<stepViewLogicType>({
         'components',
         'stepViewLogic',
         key,
-    ],
-    key: ({ action }: StepViewLogicProps) => action.id,
-    props: {} as StepViewLogicProps,
-    actions: {
+    ]),
+    props({} as StepViewLogicProps),
+    key(({ action }: StepViewLogicProps) => action.id),
+    connect(({ workflowLogicProps }: StepViewLogicProps) => ({
+        actions: [workflowLogic(workflowLogicProps), ['setWorkflowAction']],
+    })),
+    actions({
         startEditingName: true,
         startEditingDescription: true,
         setEditNameValue: (value: string) => ({ value }),
@@ -30,8 +35,8 @@ export const stepViewLogic = kea<stepViewLogicType>({
         saveDescription: true,
         cancelEditingName: true,
         cancelEditingDescription: true,
-    },
-    reducers: ({ props }) => ({
+    }),
+    reducers(({ props }) => ({
         isEditingName: [
             false,
             {
@@ -52,7 +57,7 @@ export const stepViewLogic = kea<stepViewLogicType>({
             props.action.name,
             {
                 setEditNameValue: (_, { value }) => value,
-                saveName: (state) => state, // Keep the current value until props update
+                saveName: (state) => state,
                 cancelEditingName: () => props.action.name,
             },
         ],
@@ -60,18 +65,37 @@ export const stepViewLogic = kea<stepViewLogicType>({
             props.action.description || '',
             {
                 setEditDescriptionValue: (_, { value }) => value,
-                saveDescription: (state) => state, // Keep the current value until props update
+                saveDescription: (state) => state,
                 cancelEditingDescription: () => props.action.description || '',
             },
         ],
-    }),
-    propsChanged: ({ actions, props, values }: { actions: any; props: StepViewLogicProps; values: any }) => {
-        // Sync edit values when action changes (but only if not currently editing)
+    })),
+    listeners(({ actions, props, values }) => ({
+        saveName: () => {
+            const trimmedName = values.editNameValue.trim()
+            if (trimmedName && trimmedName !== props.action.name) {
+                actions.setWorkflowAction(props.action.id, {
+                    ...props.action,
+                    name: trimmedName,
+                })
+            }
+        },
+        saveDescription: () => {
+            const trimmedDescription = values.editDescriptionValue.trim()
+            if (trimmedDescription && trimmedDescription !== (props.action.description || '')) {
+                actions.setWorkflowAction(props.action.id, {
+                    ...props.action,
+                    description: trimmedDescription,
+                })
+            }
+        },
+    })),
+    propsChanged(({ actions, props, values }) => {
         if (!values.isEditingName && values.editNameValue !== props.action.name) {
             actions.setEditNameValue(props.action.name)
         }
         if (!values.isEditingDescription && values.editDescriptionValue !== (props.action.description || '')) {
             actions.setEditDescriptionValue(props.action.description || '')
         }
-    },
-})
+    }),
+])
