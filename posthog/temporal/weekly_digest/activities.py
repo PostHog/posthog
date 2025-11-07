@@ -521,10 +521,12 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             empty_user_digest_count += 1
                             continue
 
+                        payload = user_specific_digest.render_payload(input.digest)
+
                         if input.dry_run:
                             logger.info(
                                 "DRY RUN - would send digest",
-                                digest=user_specific_digest.render_payload(input.digest),
+                                digest=payload,
                                 user_email=user.email,
                             )
                         else:
@@ -535,12 +537,14 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                                 ph_client.capture(
                                     distinct_id=user.distinct_id,
                                     event="transactional email",
-                                    properties=user_specific_digest.render_payload(input.digest),
+                                    properties=payload,
                                     groups={
                                         "organization": str(organization.id),
                                         "instance": settings.SITE_URL,
                                     },
                                 )
+
+                                ph_client.group_identify("organization", str(organization.id), payload)
 
                         sent_digest_count += 1
                 except Exception as e:
