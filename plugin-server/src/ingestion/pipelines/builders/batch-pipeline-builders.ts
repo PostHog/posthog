@@ -5,6 +5,7 @@ import { Team } from '../../../types'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { BaseBatchPipeline, BatchProcessingStep } from '../base-batch-pipeline'
 import { BatchPipeline } from '../batch-pipeline.interface'
+import { BufferingBatchPipeline } from '../buffering-batch-pipeline'
 import { ConcurrentBatchProcessingPipeline } from '../concurrent-batch-pipeline'
 import { FilterOkBatchPipeline } from '../filter-ok-batch-pipeline'
 import { GatheringBatchPipeline } from '../gathering-batch-pipeline'
@@ -13,6 +14,7 @@ import { MappingBatchPipeline, MappingFunction } from '../mapping-batch-pipeline
 import { Pipeline } from '../pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '../result-handling-pipeline'
 import { SequentialBatchPipeline } from '../sequential-batch-pipeline'
+import { ShardingBatchPipeline, ShardingFunction } from '../sharding-batch-pipeline'
 import { SideEffectHandlingPipeline } from '../side-effect-handling-pipeline'
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
 
@@ -54,6 +56,23 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
     ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
         return new BatchPipelineBuilder(new SequentialBatchPipeline(processor, this.pipeline))
+    }
+
+    sharding<U>(
+        shardingFn: ShardingFunction<TOutput, COutput>,
+        numShards: number,
+        callback: (
+            builder: BatchPipelineBuilder<TOutput, TOutput, COutput, COutput>
+        ) => BatchPipelineBuilder<TOutput, U, COutput, COutput>
+    ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
+        const shardPipelines: BatchPipeline<TOutput, U, COutput, COutput>[] = []
+        for (let i = 0; i < numShards; i++) {
+            const shardPipeline = callback(
+                new BatchPipelineBuilder(new BufferingBatchPipeline<TOutput, COutput>())
+            ).build()
+            shardPipelines.push(shardPipeline)
+        }
+        return new BatchPipelineBuilder(new ShardingBatchPipeline(shardingFn, shardPipelines, this.pipeline))
     }
 
     gather(): BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {

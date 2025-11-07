@@ -1,4 +1,4 @@
-import { IncomingEventWithTeam } from '../../types'
+import { PipelineEvent } from '../../types'
 import { UUID } from '../../utils/utils'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { drop, ok } from '../pipelines/results'
@@ -8,9 +8,7 @@ type ValidateEventUuidError = { error: true; cause: 'empty_uuid' | 'invalid_uuid
 type ValidateEventUuidSuccess = { error: false }
 type ValidateEventUuidResult = ValidateEventUuidSuccess | ValidateEventUuidError
 
-function validateEventUuid(eventWithTeam: IncomingEventWithTeam): ValidateEventUuidResult {
-    const { event } = eventWithTeam
-
+function validateEventUuid(event: PipelineEvent): ValidateEventUuidResult {
     if (!event.uuid) {
         return {
             error: true,
@@ -40,13 +38,10 @@ function validateEventUuid(eventWithTeam: IncomingEventWithTeam): ValidateEventU
     return { error: false }
 }
 
-export function createValidateEventUuidStep<T extends { eventWithTeam: IncomingEventWithTeam }>(): ProcessingStep<
-    T,
-    T
-> {
+export function createValidateEventUuidStep<T extends { event: PipelineEvent }>(): ProcessingStep<T, T> {
     return async function validateEventUuidStep(input) {
-        const { eventWithTeam } = input
-        const result = validateEventUuid(eventWithTeam)
+        const { event } = input
+        const result = validateEventUuid(event)
         if (result.error) {
             return drop(result.cause, [], [result.warning])
         }

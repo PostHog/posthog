@@ -12,7 +12,14 @@ import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/inge
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { CookielessServerHashMode, Hub, IncomingEventWithTeam, PipelineEvent, Team } from '../../src/types'
+import {
+    CookielessServerHashMode,
+    Hub,
+    IncomingEventWithTeam,
+    PipelineEvent,
+    PluginsServerConfig,
+    Team,
+} from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
 import { PostgresUse } from '../utils/db/postgres'
@@ -104,8 +111,20 @@ describe('IngestionConsumer', () => {
     let team2: Team
     let fixedTime: DateTime
 
-    const createIngestionConsumer = async (hub: Hub) => {
-        const ingester = new IngestionConsumer(hub)
+    const createIngestionConsumer = async (
+        hub: Hub,
+        overrides?: Partial<
+            Pick<
+                PluginsServerConfig,
+                | 'INGESTION_CONSUMER_GROUP_ID'
+                | 'INGESTION_CONSUMER_CONSUME_TOPIC'
+                | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
+                | 'INGESTION_CONSUMER_DLQ_TOPIC'
+                | 'INGESTION_CONSUMER_TESTING_TOPIC'
+            >
+        >
+    ) => {
+        const ingester = new IngestionConsumer(hub, overrides)
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
         ingester['kafkaConsumer'] = {
             connect: jest.fn(),
@@ -287,11 +306,14 @@ describe('IngestionConsumer', () => {
             })
 
             it('does not overflow if it is consuming from the overflow topic', async () => {
-                ingester['topic'] = 'events_plugin_ingestion_overflow_test'
-                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
+                // Create a new consumer that consumes from the overflow topic
+                const overflowIngester = await createIngestionConsumer(hub, {
+                    INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
+                })
+                overflowIngester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
 
                 const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
-                await ingester.handleKafkaBatch(overflowMessages)
+                await overflowIngester.handleKafkaBatch(overflowMessages)
 
                 expect(
                     mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
@@ -299,6 +321,8 @@ describe('IngestionConsumer', () => {
                 expect(
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                 ).toHaveLength(1)
+
+                await overflowIngester.stop()
             })
 
             describe('force overflow', () => {
@@ -639,106 +663,6 @@ describe('IngestionConsumer', () => {
                     ).toHaveLength(0)
                 })
             })
-        })
-    })
-
-    describe('event batching', () => {
-        beforeEach(async () => {
-            ingester = await createIngestionConsumer(hub)
-        })
-
-        it('should batch events based on the distinct_id', () => {
-            const messages = [
-                ...createIncomingEventsWithTeam(
-                    [
-                        createEvent({ distinct_id: 'distinct-id-1' }),
-                        createEvent({ distinct_id: 'distinct-id-1' }),
-                        createEvent({ distinct_id: 'distinct-id-2' }),
-                        createEvent({ distinct_id: 'distinct-id-1' }),
-                    ],
-                    team
-                ),
-                ...createIncomingEventsWithTeam(
-                    [createEvent({ token: team2.api_token, distinct_id: 'distinct-id-1' })],
-                    team2
-                ),
-            ]
-
-            const batches = ingester['groupEventsByDistinctId'](messages)
-
-            expect(Object.keys(batches)).toHaveLength(3)
-
-            // Rewrite the test to check for the overall object with the correct length
-            expect(batches).toEqual({
-                [`${team.api_token}:distinct-id-1`]: {
-                    distinctId: 'distinct-id-1',
-                    token: team.api_token,
-                    events: [expect.any(Object), expect.any(Object), expect.any(Object)],
-                },
-                [`${team.api_token}:distinct-id-2`]: {
-                    distinctId: 'distinct-id-2',
-                    token: team.api_token,
-                    events: [expect.any(Object)],
-                },
-                [`${team2.api_token}:distinct-id-1`]: {
-                    distinctId: 'distinct-id-1',
-                    token: team2.api_token,
-                    events: [expect.any(Object)],
-                },
-            })
-        })
-
-        it('should preserve headers when grouping events by distinct_id', () => {
-            const events = [
-                createEvent({ distinct_id: 'distinct-id-1' }),
-                createEvent({ distinct_id: 'distinct-id-2' }),
-            ]
-
-            // Create messages with custom headers
-            const messages: IncomingEventWithTeam[] = events.map((event, index) => {
-                const message = createKafkaMessage(event)
-                message.headers = [
-                    { token: Buffer.from(team.api_token) },
-                    { distinct_id: Buffer.from(event.distinct_id || '') },
-                    { timestamp: Buffer.from((Date.now() + index * 1000).toString()) },
-                ]
-
-                return {
-                    event: { ...event, team_id: team.id },
-                    team: team,
-                    message: message,
-                    headers: {
-                        token: team.api_token,
-                        distinct_id: event.distinct_id || '',
-                        timestamp: (Date.now() + index * 1000).toString(),
-                        force_disable_person_processing: false,
-                    },
-                }
-            })
-
-            const batches = ingester['groupEventsByDistinctId'](messages)
-
-            expect(Object.keys(batches)).toHaveLength(2)
-
-            // Check that headers are preserved in the grouped events
-            expect(batches[`${team.api_token}:distinct-id-1`].events[0].headers).toEqual({
-                token: team.api_token,
-                distinct_id: 'distinct-id-1',
-                timestamp: expect.any(String),
-                force_disable_person_processing: false,
-            })
-
-            expect(batches[`${team.api_token}:distinct-id-2`].events[0].headers).toEqual({
-                token: team.api_token,
-                distinct_id: 'distinct-id-2',
-                timestamp: expect.any(String),
-                force_disable_person_processing: false,
-            })
-
-            // Verify the timestamp values are different
-            const timestamp1 = parseInt(batches[`${team.api_token}:distinct-id-1`].events[0].headers.timestamp!)
-            const timestamp2 = parseInt(batches[`${team.api_token}:distinct-id-2`].events[0].headers.timestamp!)
-            expect(timestamp2 - timestamp1).toBe(1000)
         })
     })
 
@@ -1108,14 +1032,13 @@ describe('IngestionConsumer', () => {
         )
 
         it(
-            'should not call hogwatcher state caching methods when hogwatcher is disabled (sample rate = 0)',
+            'should not call hogwatcher observeResults when hogwatcher is disabled (sample rate = 0)',
             async () => {
                 // Set hogwatcher disabled (0% sample rate)
                 hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
 
-                // Create spies for methods after the service is configured
-                const fetchAndCacheSpy = jest.spyOn(ingester.hogTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(ingester.hogTransformer, 'clearHogFunctionStates')
+                // Create spy for observeResults on hogWatcher
+                const observeResultsSpy = jest.spyOn(ingester.hogTransformer['hogWatcher'], 'observeResults')
 
                 // Process batch with hogwatcher disabled
                 const event = createEvent({
@@ -1126,9 +1049,8 @@ describe('IngestionConsumer', () => {
 
                 await ingester.handleKafkaBatch(messages)
 
-                // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were NOT called
-                expect(fetchAndCacheSpy).not.toHaveBeenCalled()
-                expect(clearStatesSpy).not.toHaveBeenCalled()
+                // Verify that observeResults was NOT called (hogwatcher telemetry is disabled)
+                expect(observeResultsSpy).not.toHaveBeenCalled()
             },
             TRANSFORMATION_TEST_TIMEOUT
         )
@@ -1279,6 +1201,8 @@ describe('IngestionConsumer', () => {
                     "headers": {
                       "distinct_id": "user-1",
                       "event": "$pageview",
+                      "redirect-step": "maybeRedirectToTestingTopicStep",
+                      "redirect-timestamp": "2025-01-01T00:00:00.000Z",
                       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
                       "uuid": "<REPLACED-UUID-0>",
                     },

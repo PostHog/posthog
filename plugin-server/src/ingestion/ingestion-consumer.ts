@@ -1,23 +1,18 @@
 import { Message } from 'node-rdkafka'
-import { Counter } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
+import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
-import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
+import { latestOffsetTimestampGauge } from '../main/ingestion-queues/metrics'
 import {
-    EventHeaders,
     HealthCheckResult,
     HealthCheckResultError,
     Hub,
-    IncomingEvent,
     IncomingEventWithTeam,
-    PipelineEvent,
     PluginServerService,
     PluginsServerConfig,
     Team,
@@ -35,8 +30,10 @@ import {
     createApplyForceOverflowRestrictionsStep,
     createApplyPersonProcessingRestrictionsStep,
     createDropExceptionEventsStep,
+    createMaybeRedirectToTestingTopicStep,
     createParseHeadersStep,
     createParseKafkaMessageStep,
+    createRateLimitToOverflowStep,
     createResolveTeamStep,
     createValidateEventPropertiesStep,
     createValidateEventUuidStep,
@@ -50,63 +47,19 @@ import { createExtractHeatmapDataStep } from './event-processing/extract-heatmap
 import { createHandleClientIngestionWarningStep } from './event-processing/handle-client-ingestion-warning-step'
 import { createNormalizeEventStep } from './event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from './event-processing/normalize-process-person-flag-step'
+import { createPrefetchHogFunctionsStep } from './event-processing/prefetch-hog-functions-step'
 import { createSkipEmitEventStep } from './event-processing/skip-emit-event-step'
+import { createTrackNonPersonEventUpdatesStep } from './event-processing/track-non-person-event-updates-step'
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
-import { createBatch, createContext, createUnwrapper } from './pipelines/helpers'
+import { createBatch, createUnwrapper } from './pipelines/helpers'
 import { PipelineConfig } from './pipelines/result-handling-pipeline'
-import { ok } from './pipelines/results'
 import { MemoryRateLimiter } from './utils/overflow-detector'
-
-const ingestionEventOverflowed = new Counter({
-    name: 'ingestion_event_overflowed',
-    help: 'Indicates that a given event has overflowed capacity and been redirected to a different topic.',
-})
-
-const forcedOverflowEventsCounter = new Counter({
-    name: 'ingestion_forced_overflow_events_total',
-    help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
-})
-
-type EventsForDistinctId = {
-    token: string
-    distinctId: string
-    events: IncomingEventWithTeam[]
-}
-
-type IncomingEventsByDistinctId = {
-    [key: string]: EventsForDistinctId
-}
-
-type PreprocessedEvent = {
-    message: Message
-    headers: EventHeaders
-    event: IncomingEvent
-    eventWithTeam: IncomingEventWithTeam
-}
 
 export interface PerDistinctIdPipelineInput extends IncomingEventWithTeam {
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
-}
-
-const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
-const KNOWN_SET_EVENTS = new Set([
-    '$feature_interaction',
-    '$feature_enrollment_update',
-    'survey dismissed',
-    'survey sent',
-])
-
-const trackIfNonPersonEventUpdatesPersons = (event: PipelineEvent): void => {
-    if (
-        !PERSON_EVENTS.has(event.event) &&
-        !KNOWN_SET_EVENTS.has(event.event) &&
-        (event.properties?.$set || event.properties?.$set_once || event.properties?.$unset)
-    ) {
-        setUsageInNonPersonEventsCounter.inc()
-    }
 }
 
 export class IngestionConsumer {
@@ -131,9 +84,9 @@ export class IngestionConsumer {
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     public readonly promiseScheduler = new PromiseScheduler()
 
-    private preprocessingPipeline!: BatchPipelineUnwrapper<
-        { message: Message },
-        PreprocessedEvent,
+    private pipeline!: BatchPipelineUnwrapper<
+        { message: Message; personsStoreForBatch: PersonsStoreForBatch; groupStoreForBatch: GroupStoreForBatch },
+        void,
         { message: Message }
     >
     private perDistinctIdPipeline!: BatchPipeline<PerDistinctIdPipelineInput, void, { message: Message; team: Team }>
@@ -220,10 +173,7 @@ export class IngestionConsumer {
         ])
 
         // Initialize batch preprocessing pipeline after kafka producer is available
-        this.initializePreprocessingPipeline()
-
-        // Initialize main event pipeline
-        this.initializePerDistinctIdPipeline()
+        this.initializePipeline()
 
         await this.kafkaConsumer.connect(async (messages) => {
             return await instrumentFn(
@@ -236,20 +186,24 @@ export class IngestionConsumer {
         })
     }
 
-    private initializePreprocessingPipeline(): void {
+    private initializePipeline(): void {
         const pipelineConfig: PipelineConfig = {
             kafkaProducer: this.kafkaProducer!,
             dlqTopic: this.dlqTopic,
             promiseScheduler: this.promiseScheduler,
         }
 
-        const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+        const pipeline = newBatchPipelineBuilder<
+            { message: Message; personsStoreForBatch: PersonsStoreForBatch; groupStoreForBatch: GroupStoreForBatch },
+            { message: Message }
+        >()
             .messageAware((builder) =>
                 // All of these steps are synchronous, so we can process the messages sequentially
                 // to avoid buffering due to reordering.
                 builder.sequentially((b) =>
                     b
                         .pipe(createParseHeadersStep())
+                        .pipe(createMaybeRedirectToTestingTopicStep(this.testingTopic ?? null))
                         .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
                         .pipe(
                             createApplyForceOverflowRestrictionsStep(this.eventIngestionRestrictionManager, {
@@ -278,7 +232,7 @@ export class IngestionConsumer {
                 result: element.result,
                 context: {
                     ...element.context,
-                    team: element.result.value.eventWithTeam.team,
+                    team: element.result.value.team,
                 },
             }))
             .messageAware((builder) =>
@@ -299,6 +253,14 @@ export class IngestionConsumer {
                             // We want to call cookieless with the whole batch at once.
                             .gather()
                             .pipeBatch(createApplyCookielessProcessingStep(this.hub))
+                            .pipeBatch(
+                                createRateLimitToOverflowStep(
+                                    this.overflowRateLimiter,
+                                    this.overflowEnabled(),
+                                    this.overflowTopic || '',
+                                    this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
+                                )
+                            )
                     )
                     .handleIngestionWarnings(this.kafkaProducer!)
             )
@@ -306,108 +268,125 @@ export class IngestionConsumer {
             .handleSideEffects(this.promiseScheduler, { await: false })
             // We synchronize once again to ensure we return all events in one batch.
             .gather()
+            // Shard events by distinct_id to ensure ordering guarantees per distinct_id
+            .sharding(
+                (resultWithContext) => {
+                    const event = resultWithContext.result.value.event
+                    const token = event.token ?? ''
+                    const distinctId = event.distinct_id ?? ''
+                    // Hash by token:distinct_id to ensure all events for same distinct_id go to same shard
+                    return this.hashString(`${token}:${distinctId}`)
+                },
+                this.hub.INGESTION_CONCURRENCY,
+                (builder) =>
+                    builder
+                        .messageAware((b) =>
+                            b
+                                .teamAware((team) =>
+                                    team
+                                        .pipeBatch(createPrefetchHogFunctionsStep(this.hub, this.hogTransformer))
+                                        .pipeBatch(createTrackNonPersonEventUpdatesStep())
+                                        // We process the events for the distinct id sequentially to provide ordering guarantees.
+                                        .sequentially((seq) =>
+                                            seq.retry(
+                                                (retry) =>
+                                                    retry.branching<
+                                                        'client_ingestion_warning' | 'heatmap' | 'event',
+                                                        void
+                                                    >(
+                                                        (input) => {
+                                                            switch (input.event.event) {
+                                                                case '$$client_ingestion_warning':
+                                                                    return 'client_ingestion_warning'
+                                                                case '$$heatmap':
+                                                                    return 'heatmap'
+                                                                default:
+                                                                    return 'event'
+                                                            }
+                                                        },
+                                                        (branches) => {
+                                                            branches
+                                                                .branch('client_ingestion_warning', (br) =>
+                                                                    br.pipe(createHandleClientIngestionWarningStep())
+                                                                )
+                                                                .branch('heatmap', (br) =>
+                                                                    br
+                                                                        .pipe(createDisablePersonProcessingStep())
+                                                                        .pipe(createNormalizeEventStep(this.hub))
+                                                                        .pipe(
+                                                                            createEventPipelineRunnerHeatmapStep(
+                                                                                this.hub,
+                                                                                this.hogTransformer
+                                                                            )
+                                                                        )
+                                                                        .pipe(
+                                                                            createExtractHeatmapDataStep({
+                                                                                kafkaProducer: this.kafkaProducer!,
+                                                                                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC:
+                                                                                    this.hub
+                                                                                        .CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                                                                            })
+                                                                        )
+                                                                        .pipe(createSkipEmitEventStep())
+                                                                )
+                                                                .branch('event', (br) =>
+                                                                    br
+                                                                        .pipe(createNormalizeProcessPersonFlagStep())
+                                                                        .pipe(
+                                                                            createEventPipelineRunnerV1Step(
+                                                                                this.hub,
+                                                                                this.hogTransformer
+                                                                            )
+                                                                        )
+                                                                        // TRICKY: Older client versions may still send $heatmap_data as properties on regular events.
+                                                                        // This step extracts and processes that data even though up-to-date clients send dedicated $$heatmap events.
+                                                                        // TODO: Verify if we still receive $heatmap_data on regular events and consider removing this step if not.
+                                                                        .pipe(
+                                                                            createExtractHeatmapDataStep({
+                                                                                kafkaProducer: this.kafkaProducer!,
+                                                                                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC:
+                                                                                    this.hub
+                                                                                        .CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                                                                            })
+                                                                        )
+                                                                        .pipe(createCreateEventStep())
+                                                                        .pipe(
+                                                                            createEmitEventStep({
+                                                                                kafkaProducer: this.kafkaProducer!,
+                                                                                clickhouseJsonEventsTopic:
+                                                                                    this.hub
+                                                                                        .CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                                                                            })
+                                                                        )
+                                                                )
+                                                        }
+                                                    ),
+                                                {
+                                                    tries: 3,
+                                                    sleepMs: 100,
+                                                }
+                                            )
+                                        )
+                                )
+                                .handleIngestionWarnings(this.kafkaProducer!)
+                        )
+                        .handleResults(pipelineConfig)
+                        .handleSideEffects(this.promiseScheduler, { await: false })
+                        .gather()
+            )
             .build()
 
-        this.preprocessingPipeline = createUnwrapper(pipeline)
+        this.pipeline = createUnwrapper(pipeline)
     }
 
-    private initializePerDistinctIdPipeline(): void {
-        const pipelineConfig: PipelineConfig = {
-            kafkaProducer: this.kafkaProducer!,
-            dlqTopic: this.dlqTopic,
-            promiseScheduler: this.promiseScheduler,
+    private hashString(str: string): number {
+        let hash = 0
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i)
+            hash = (hash << 5) - hash + char
+            hash = hash & hash // Convert to 32bit integer
         }
-
-        this.perDistinctIdPipeline = newBatchPipelineBuilder<
-            PerDistinctIdPipelineInput,
-            { message: Message; team: Team }
-        >()
-            .messageAware((builder) =>
-                builder
-                    .teamAware((b) =>
-                        // We process the events for the distinct id sequentially to provide ordering guarantees.
-                        b.sequentially((seq) =>
-                            seq.retry(
-                                (retry) =>
-                                    retry.branching<'client_ingestion_warning' | 'heatmap' | 'event', void>(
-                                        (input) => {
-                                            switch (input.event.event) {
-                                                case '$$client_ingestion_warning':
-                                                    return 'client_ingestion_warning'
-                                                case '$$heatmap':
-                                                    return 'heatmap'
-                                                default:
-                                                    return 'event'
-                                            }
-                                        },
-                                        (branches) => {
-                                            branches
-                                                .branch('client_ingestion_warning', (b) =>
-                                                    b.pipe(createHandleClientIngestionWarningStep())
-                                                )
-                                                .branch('heatmap', (b) =>
-                                                    b
-                                                        .pipe(createDisablePersonProcessingStep())
-                                                        .pipe(createNormalizeEventStep(this.hub))
-                                                        .pipe(
-                                                            createEventPipelineRunnerHeatmapStep(
-                                                                this.hub,
-                                                                this.hogTransformer
-                                                            )
-                                                        )
-                                                        .pipe(
-                                                            createExtractHeatmapDataStep({
-                                                                kafkaProducer: this.kafkaProducer!,
-                                                                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC:
-                                                                    this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                                                            })
-                                                        )
-                                                        .pipe(createSkipEmitEventStep())
-                                                )
-                                                .branch('event', (b) =>
-                                                    b
-                                                        .pipe(createNormalizeProcessPersonFlagStep())
-                                                        .pipe(
-                                                            createEventPipelineRunnerV1Step(
-                                                                this.hub,
-                                                                this.hogTransformer
-                                                            )
-                                                        )
-                                                        // TRICKY: Older client versions may still send $heatmap_data as properties on regular events.
-                                                        // This step extracts and processes that data even though up-to-date clients send dedicated $$heatmap events.
-                                                        // TODO: Verify if we still receive $heatmap_data on regular events and consider removing this step if not.
-                                                        .pipe(
-                                                            createExtractHeatmapDataStep({
-                                                                kafkaProducer: this.kafkaProducer!,
-                                                                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC:
-                                                                    this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                                                            })
-                                                        )
-                                                        .pipe(createCreateEventStep())
-                                                        .pipe(
-                                                            createEmitEventStep({
-                                                                kafkaProducer: this.kafkaProducer!,
-                                                                clickhouseJsonEventsTopic:
-                                                                    this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                                                            })
-                                                        )
-                                                )
-                                        }
-                                    ),
-                                {
-                                    tries: 3,
-                                    sleepMs: 100,
-                                }
-                            )
-                        )
-                    )
-                    .handleIngestionWarnings(this.kafkaProducer!)
-            )
-            .handleResults(pipelineConfig)
-            .handleSideEffects(this.promiseScheduler, { await: false })
-            // We synchronize once again to ensure we return all events in one batch.
-            .gather()
-            .build()
+        return Math.abs(hash)
     }
 
     public async stop(): Promise<void> {
@@ -470,28 +449,12 @@ export class IngestionConsumer {
             this.logBatchStart(messages)
         }
 
-        const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
-        const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents.map((x) => x.eventWithTeam))
-
-        // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
-        const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
-        if (shouldRunHogWatcher) {
-            await this.fetchAndCacheHogFunctionStates(eventsPerDistinctId)
-        }
-
         const personsStoreForBatch = this.personStore.forBatch()
         const groupStoreForBatch = this.groupStore.forBatch()
-        await this.runInstrumented('processBatch', async () => {
-            await Promise.all(
-                Object.values(eventsPerDistinctId).map(async (events) => {
-                    const eventsToProcess = this.redirectEvents(events)
 
-                    return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(eventsToProcess, personsStoreForBatch, groupStoreForBatch)
-                    )
-                })
-            )
-        })
+        await this.runInstrumented('processEvents', () =>
+            this.processEvents(messages, personsStoreForBatch, groupStoreForBatch)
+        )
 
         const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
 
@@ -556,188 +519,22 @@ export class IngestionConsumer {
         await this.kafkaProducer!.flush()
     }
 
-    /**
-     * Redirect events to overflow or testing topic based on their configuration
-     * returning events that have not been redirected
-     */
-    private redirectEvents(eventsForDistinctId: EventsForDistinctId): EventsForDistinctId {
-        if (!eventsForDistinctId.events.length) {
-            return eventsForDistinctId
-        }
-
-        if (this.testingTopic) {
-            void this.promiseScheduler.schedule(
-                this.emitToTestingTopic(eventsForDistinctId.events.map((x) => x.message))
-            )
-            return {
-                ...eventsForDistinctId,
-                events: [],
-            }
-        }
-
-        // NOTE: We know at this point that all these events are the same token distinct_id
-        const token = eventsForDistinctId.token
-        const distinctId = eventsForDistinctId.distinctId
-        const kafkaTimestamp = eventsForDistinctId.events[0].message.timestamp
-        const eventKey = `${token}:${distinctId}`
-
-        // Check if this token is in the force overflow static/dynamic config list
-        const shouldForceOverflow = this.shouldForceOverflow(token, distinctId)
-
-        // Check the rate limiter and emit to overflow if necessary
-        const isBelowRateLimit = this.overflowRateLimiter.consume(
-            eventKey,
-            eventsForDistinctId.events.length,
-            kafkaTimestamp
-        )
-
-        if (this.overflowEnabled() && (shouldForceOverflow || !isBelowRateLimit)) {
-            ingestionEventOverflowed.inc(eventsForDistinctId.events.length)
-
-            if (shouldForceOverflow) {
-                forcedOverflowEventsCounter.inc()
-            } else if (this.ingestionWarningLimiter.consume(eventKey, eventsForDistinctId.events.length)) {
-                logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
-            }
-
-            // NOTE: If we are forcing to overflow we typically want to keep the partition key
-            // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
-            // of random partitioning.
-            const preserveLocality = shouldForceOverflow && !this.shouldSkipPerson(token, distinctId) ? true : undefined
-
-            void this.promiseScheduler.schedule(
-                this.emitToOverflow(
-                    eventsForDistinctId.events.map((x) => x.message),
-                    preserveLocality
-                )
-            )
-
-            return {
-                ...eventsForDistinctId,
-                events: [],
-            }
-        }
-
-        return eventsForDistinctId
-    }
-
-    /**
-     * Fetches and caches hog function states for all teams in the batch
-     */
-    private async fetchAndCacheHogFunctionStates(parsedMessages: IncomingEventsByDistinctId): Promise<void> {
-        await this.runInstrumented('fetchAndCacheHogFunctionStates', async () => {
-            // Clear cached hog function states before fetching new ones
-            this.hogTransformer.clearHogFunctionStates()
-
-            const tokensToFetch = new Set<string>()
-            Object.values(parsedMessages).forEach((eventsForDistinctId) => tokensToFetch.add(eventsForDistinctId.token))
-
-            if (tokensToFetch.size === 0) {
-                return // No teams to process
-            }
-
-            const teams = await this.hub.teamManager.getTeamsByTokens(Array.from(tokensToFetch))
-
-            const teamIdsArray = Object.values(teams)
-                .map((x) => x?.id)
-                .filter(Boolean) as number[]
-
-            // Get hog function IDs for transformations
-            const teamHogFunctionIds = await this.hogTransformer['hogFunctionManager'].getHogFunctionIdsForTeams(
-                teamIdsArray,
-                ['transformation']
-            )
-
-            // Flatten all hog function IDs into a single array
-            const allHogFunctionIds = Object.values(teamHogFunctionIds).flat()
-
-            if (allHogFunctionIds.length > 0) {
-                // Cache the hog function states
-                await this.hogTransformer.fetchAndCacheHogFunctionStates(allHogFunctionIds)
-            }
-        })
-    }
-
-    private async processEventsForDistinctId(
-        eventsForDistinctId: EventsForDistinctId,
+    private async processEvents(
+        messages: Message[],
         personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch
     ): Promise<void> {
-        const preprocessedEventsWithStores: PerDistinctIdPipelineInput[] = eventsForDistinctId.events.map(
-            (incomingEvent) => {
-                // Track $set usage in events that aren't known to use it, before ingestion adds anything there
-                trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
-                return {
-                    ...incomingEvent,
-                    personsStoreForBatch,
-                    groupStoreForBatch,
-                }
-            }
-        )
-
-        // Feed the batch to the main event pipeline
-        const eventsSequence = preprocessedEventsWithStores.map((event) =>
-            createContext(ok(event), { message: event.message, team: event.team })
-        )
-        this.perDistinctIdPipeline.feed(eventsSequence)
-        await this.perDistinctIdPipeline.next()
-    }
-
-    private async preprocessEvents(messages: Message[]): Promise<PreprocessedEvent[]> {
         // Create batch using the helper function
-        const batch = createBatch(messages.map((message) => ({ message })))
+        const batch = createBatch(messages.map((message) => ({ message, personsStoreForBatch, groupStoreForBatch })))
 
         // Feed batch to the pipeline
-        this.preprocessingPipeline.feed(batch)
+        this.pipeline.feed(batch)
 
-        // Get all results from the gather pipeline (should return all results in one call)
-        const result = await this.preprocessingPipeline.next()
-
-        if (result === null) {
-            return []
+        // Process all events through the pipeline
+        let result = await this.pipeline.next()
+        while (result !== null) {
+            result = await this.pipeline.next()
         }
-
-        // Return the results (already filtered to successful ones by ResultHandlingPipeline)
-        return result
-    }
-
-    private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {
-        const groupedEvents: IncomingEventsByDistinctId = {}
-
-        for (const eventWithTeam of messages) {
-            const { message, event, team, headers } = eventWithTeam
-            const token = event.token ?? ''
-            const distinctId = event.distinct_id ?? ''
-            const eventKey = `${token}:${distinctId}`
-
-            // We collect the events grouped by token and distinct_id so that we can process batches in parallel
-            // whilst keeping the order of events for a given distinct_id.
-            if (!groupedEvents[eventKey]) {
-                groupedEvents[eventKey] = {
-                    token: token,
-                    distinctId,
-                    events: [],
-                }
-            }
-
-            groupedEvents[eventKey].events.push({ message, event, team, headers })
-        }
-
-        return groupedEvents
-    }
-
-    private shouldSkipPerson(token?: string, distinctId?: string): boolean {
-        if (!token) {
-            return false
-        }
-        return this.eventIngestionRestrictionManager.shouldSkipPerson(token, distinctId)
-    }
-
-    private shouldForceOverflow(token?: string, distinctId?: string): boolean {
-        if (!token) {
-            return false
-        }
-        return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
     }
 
     private overflowEnabled(): boolean {
@@ -745,52 +542,6 @@ export class IngestionConsumer {
             !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
             this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic &&
             !this.testingTopic
-        )
-    }
-
-    private async emitToOverflow(kafkaMessages: Message[], preservePartitionLocalityOverride?: boolean): Promise<void> {
-        const overflowTopic = this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
-        if (!overflowTopic) {
-            throw new Error('No overflow topic configured')
-        }
-
-        ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
-
-        const preservePartitionLocality =
-            preservePartitionLocalityOverride !== undefined
-                ? preservePartitionLocalityOverride
-                : this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
-
-        await Promise.all(
-            kafkaMessages.map((message) => {
-                return this.kafkaOverflowProducer!.produce({
-                    topic: this.overflowTopic!,
-                    value: message.value,
-                    // ``message.key`` should not be undefined here, but in the
-                    // (extremely) unlikely event that it is, set it to ``null``
-                    // instead as that behavior is safer.
-                    key: preservePartitionLocality ? (message.key ?? null) : null,
-                    headers: parseKafkaHeaders(message.headers),
-                })
-            })
-        )
-    }
-
-    private async emitToTestingTopic(kafkaMessages: Message[]): Promise<void> {
-        const testingTopic = this.testingTopic
-        if (!testingTopic) {
-            throw new Error('No testing topic configured')
-        }
-
-        await Promise.all(
-            kafkaMessages.map((message) =>
-                this.kafkaOverflowProducer!.produce({
-                    topic: this.testingTopic!,
-                    value: message.value,
-                    key: message.key ?? null,
-                    headers: parseKafkaHeaders(message.headers),
-                })
-            )
         )
     }
 }
