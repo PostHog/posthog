@@ -8,12 +8,13 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 import redis.asyncio as redis
+from posthoganalytics import Posthog
 from pydantic import ValidationError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.models.messaging import MessagingRecord, get_email_hash
-from posthog.ph_client import ph_async_scoped_capture
+from posthog.ph_client import get_regional_ph_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.sync import database_sync_to_async
@@ -466,7 +467,13 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
         empty_org_digest_count = 0
         empty_user_digest_count = 0
 
-        async with ph_async_scoped_capture() as capture_event, redis.from_url(_redis_url(input.common)) as r:
+        ph_client: Posthog = get_regional_ph_client()
+
+        if not ph_client and not input.dry_run:
+            logger.error("Failed to set up Posthog client")
+            return
+
+        async with redis.from_url(_redis_url(input.common)) as r:
             batch_start, batch_end = input.batch
             async for organization in query_orgs_for_digest()[batch_start:batch_end]:
                 partial = False
@@ -524,7 +531,8 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             if user.email == "tue@posthog.com":
                                 logger.info("Match - sending digest")
                                 partial = True
-                                capture_event(
+
+                                ph_client.capture(
                                     distinct_id=user.distinct_id,
                                     event="transactional email",
                                     properties=user_specific_digest.render_payload(),
@@ -544,8 +552,12 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                     continue
                 finally:
                     if not input.dry_run and partial:
+                        ph_client.flush()
                         messaging_record.sent_at = timezone.now()
                         await messaging_record.asave()
+
+        if ph_client:
+            ph_client.shutdown()
 
         logger.info(
             "Finished sending weekly digest batch",

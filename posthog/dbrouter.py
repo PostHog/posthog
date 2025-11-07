@@ -1,17 +1,9 @@
-from django.conf import settings
-
-# Models that should always be routed to the local DB, even when connected to prod PG in debug
-MODELS_FORCED_LOCAL_IN_PROD_DEBUG = [
-    "Conversation",
-    "ConversationCheckpoint",
-    "ConversationCheckpointBlob",
-    "ConversationCheckpointWrite",
-]
+from posthog.settings.data_stores import READ_REPLICA_OPT_IN
 
 
 class ReplicaRouter:
     def __init__(self, opt_in=None):
-        self.opt_in = opt_in if opt_in else settings.READ_REPLICA_OPT_IN
+        self.opt_in = opt_in if opt_in else READ_REPLICA_OPT_IN
 
     """
     A database router to route reads to a separate Aurora endpoint
@@ -31,13 +23,9 @@ class ReplicaRouter:
         """
         Reads go to the replica endpoint, but only if opted in
         """
-        if settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
-            # When connected to prod PG in debug, we want most models to go to the prod DB (`replica`),
-            # and only select models use the local `default` - those where we need entities to be created locally
-            return "replica" if model.__name__ not in MODELS_FORCED_LOCAL_IN_PROD_DEBUG else "default"
-
+        # I don't think we could be more explicit!
+        # This could be useful during data migrations, incidents, or testing
         if "ALL_MODELS_USE_READ_REPLICA" in self.opt_in:
-            # We couldn't be more explicit with this value! This can be useful during data migrations, incidents, or testing
             return "replica"
 
         return "replica" if model.__name__ in self.opt_in else "default"
@@ -46,10 +34,6 @@ class ReplicaRouter:
         """
         Writes always go to the writer endpoint
         """
-        if settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
-            # When connected to prod PG in debug, we need writes to go to the production `replica` too,
-            # _even though_ it's a read-only user
-            return "replica" if model.__name__ not in MODELS_FORCED_LOCAL_IN_PROD_DEBUG else "default"
         return "default"
 
     def allow_relation(self, obj1, obj2, **hints):

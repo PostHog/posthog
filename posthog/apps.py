@@ -35,7 +35,7 @@ class PostHogConfig(AppConfig):
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
             posthoganalytics.personal_api_key = None
-        elif settings.TEST or settings.OPT_OUT_CAPTURE or settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
+        elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True
         elif settings.DEBUG:
             # In dev, analytics is by default turned to self-capture, i.e. data going into this very instance of PostHog
@@ -70,7 +70,7 @@ class PostHogConfig(AppConfig):
 
         from posthog.async_migrations.setup import setup_async_migrations
 
-        if settings.SKIP_ASYNC_MIGRATIONS_SETUP or settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
+        if settings.SKIP_ASYNC_MIGRATIONS_SETUP:
             logger.warning("Skipping async migrations setup. This is unsafe in production!")
         else:
             setup_async_migrations()
@@ -78,7 +78,7 @@ class PostHogConfig(AppConfig):
         from posthog.tasks.hog_functions import queue_sync_hog_function_templates
 
         # Skip during tests since we handle this in conftest.py
-        if not settings.TEST and not settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
+        if not settings.TEST:
             queue_sync_hog_function_templates()
 
     def _setup_lazy_admin(self):

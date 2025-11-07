@@ -700,9 +700,8 @@ class DashboardsViewSet(
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
-        if not settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:  # In the special prod PG in debug mode, we can't write to PG!
-            dashboard.last_accessed_at = now()
-            dashboard.save(update_fields=["last_accessed_at"])
+        dashboard.last_accessed_at = now()
+        dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
         response = Response(serializer.data)
         return response
@@ -716,9 +715,8 @@ class DashboardsViewSet(
         dashboard = self.get_object()  # This will raise 404 if not found - let it bubble up normally
 
         # Do all database operations and data loading synchronously first
-        if not settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:  # In the special prod PG in debug mode, we can't write to PG!
-            dashboard.last_accessed_at = now()
-            dashboard.save(update_fields=["last_accessed_at"])
+        dashboard.last_accessed_at = now()
+        dashboard.save(update_fields=["last_accessed_at"])
 
         # Prepare metadata with initial tiles
         metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())
