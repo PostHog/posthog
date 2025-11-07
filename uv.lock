@@ -4551,7 +4551,7 @@ requires-dist = [
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
     { name = "playwright", specifier = ">=1.54.0" },
-    { name = "posthoganalytics", specifier = ">=6.9.0" },
+    { name = "posthoganalytics", specifier = ">=6.9.1" },
     { name = "psutil", specifier = "==6.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -4683,7 +4683,7 @@ dev = [
 
 [[package]]
 name = "posthoganalytics"
-version = "6.9.0"
+version = "6.9.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -4693,9 +4693,9 @@ dependencies = [
     { name = "six" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/af/6c/32d66bf4c34213476e90d1d3116be5c29a84f0717a9d8e98b8434a82b375/posthoganalytics-6.9.0.tar.gz", hash = "sha256:687964cc6ccdbf0fab7c0483ac396bca82a3b09306364132310ac7bcf12cd920", size = 126625, upload-time = "2025-11-06T15:12:52.919Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c3/58/29529c519873cf689640d872bc6eadcb4608fbf5b759321adf5f2ea9f2f7/posthoganalytics-6.9.1.tar.gz", hash = "sha256:7f59f972f12634028aaf43d3db2ff5c09a0eb856a47d343d8ff0d6714aacb0e0", size = 126654, upload-time = "2025-11-07T15:57:29.808Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/42/77/284287628109ceb8f6e3ba8be77cc4041b690fdde20d764a1e2fbbb07831/posthoganalytics-6.9.0-py3-none-any.whl", hash = "sha256:7a189c6232d2fc5c3441f7d88db3451d3b7e4b8835629297c366fd7814cba512", size = 145759, upload-time = "2025-11-06T15:12:51.222Z" },
+    { url = "https://files.pythonhosted.org/packages/ed/51/f0401e9cc538cbc5256bcb9589a0191ce78b2d881f0998b1a640873e4b15/posthoganalytics-6.9.1-py3-none-any.whl", hash = "sha256:fb6d5a19802fd6fad7cd0cfc43c31dec2a10501bbe9f33b2889515522d0a6224", size = 145777, upload-time = "2025-11-07T15:57:28.374Z" },
 ]
 
 [[package]]
