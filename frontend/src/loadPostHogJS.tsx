@@ -1,7 +1,13 @@
 import posthog from 'posthog-js'
+import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+
+const shouldDefer = (): boolean => {
+    const sessionId = posthog.get_session_id()
+    return sampleOnProperty(sessionId, 0.5)
+}
 
 export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
@@ -15,7 +21,7 @@ export function loadPostHogJS(): void {
             opt_in_site_apps: true,
             api_transport: 'fetch',
             disable_surveys: window.IMPERSONATED_SESSION,
-            __preview_deferred_init_extensions: true,
+            __preview_deferred_init_extensions: shouldDefer(),
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
