@@ -1640,7 +1640,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     page: number
     pinned: boolean
     type?: 'collection' | 'saved_filters'
-    collectionType: 'custom' | 'synthetic' | null
+    collectionType: 'custom' | 'synthetic' | 'new-urls' | null
 }
 
 export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
@@ -3648,8 +3648,12 @@ export interface PreflightStatus {
             client_id?: string
         }
     }
-    /** Whether PostHog is running in settings.DEBUG or settings.E2E_TESTING. */
-    is_debug?: boolean
+    /**
+     * Whether PostHog is running in settings.DEBUG or settings.E2E_TESTING.
+     * `local_data` is the standard local development mode, using local Postgres.
+     * `prod_data` is the production mode, using the production Postgres with special configuration.
+     */
+    is_debug?: 'local_data' | 'prod_data'
     /** Whether PostHog is running with settings.TEST. */
     is_test?: boolean
     licensed_users_available?: number | null
@@ -4700,6 +4704,7 @@ export enum ActivityScope {
     PLUGIN = 'Plugin',
     PLUGIN_CONFIG = 'PluginConfig',
     HOG_FUNCTION = 'HogFunction',
+    HOG_FLOW = 'HogFlow',
     DATA_MANAGEMENT = 'DataManagement',
     EVENT_DEFINITION = 'EventDefinition',
     PROPERTY_DEFINITION = 'PropertyDefinition',

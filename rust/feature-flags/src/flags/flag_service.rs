@@ -8,18 +8,18 @@ use crate::{
     },
     team::team_models::Team,
 };
+use common_cache::ReadThroughCache;
 use common_database::PostgresReader;
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
 use common_types::ProjectId;
 use std::sync::Arc;
 
-/// Result of fetching feature flags, including cache hit status and deserialization errors status
+/// Result of fetching feature flags, including cache hit status
 #[derive(Debug, Clone)]
 pub struct FlagResult {
     pub flag_list: FeatureFlagList,
     pub was_cache_hit: bool,
-    pub had_deserialization_errors: bool,
 }
 
 /// Service layer for handling feature flag operations
@@ -28,7 +28,7 @@ pub struct FlagService {
     redis_writer: Arc<dyn RedisClient + Send + Sync>,
     pg_client: PostgresReader,
     team_cache_ttl_seconds: u64,
-    flags_cache_ttl_seconds: u64,
+    flags_cache: ReadThroughCache,
 }
 
 impl FlagService {
@@ -39,12 +39,18 @@ impl FlagService {
         team_cache_ttl_seconds: u64,
         flags_cache_ttl_seconds: u64,
     ) -> Self {
+        let flags_cache = FeatureFlagList::create_cache(
+            redis_reader.clone(),
+            redis_writer.clone(),
+            Some(flags_cache_ttl_seconds),
+        );
+
         Self {
             redis_reader,
             redis_writer,
             pg_client,
             team_cache_ttl_seconds,
-            flags_cache_ttl_seconds,
+            flags_cache,
         }
     }
 
@@ -138,59 +144,46 @@ impl FlagService {
         team_result
     }
 
-    /// Fetches the flags from the cache or the database. Returns a tuple containing
-    /// the flags and a boolean indicating whether there were deserialization errors.
-    /// Also tracks cache hits and misses for a given project_id.
+    /// Fetches the flags from the cache or the database.
+    /// Tracks cache hits and misses for a given project_id.
+    ///
+    /// Uses the ReadThroughCache pattern for automatic cache management.
     pub async fn get_flags_from_cache_or_pg(
         &self,
         project_id: ProjectId,
     ) -> Result<FlagResult, FlagError> {
-        let flag_result = match FeatureFlagList::from_redis(self.redis_reader.clone(), project_id)
-            .await
-        {
-            Ok(flags_from_redis) => Ok(FlagResult {
-                flag_list: flags_from_redis,
-                was_cache_hit: true,
-                had_deserialization_errors: false,
-            }),
-            Err(_) => match FeatureFlagList::from_pg(self.pg_client.clone(), project_id).await {
-                Ok((flags_from_pg, had_deserialization_errors)) => {
-                    inc(DB_FLAG_READS_COUNTER, &[], 1);
-                    if (FeatureFlagList::update_flags_in_redis(
-                        self.redis_writer.clone(),
-                        project_id,
-                        &flags_from_pg,
-                        Some(self.flags_cache_ttl_seconds),
-                    )
-                    .await)
-                        .is_err()
-                    {
-                        inc(
-                            FLAG_CACHE_ERRORS_COUNTER,
-                            &[("reason".to_string(), "redis_update_failed".to_string())],
-                            1,
-                        );
-                    }
-                    Ok(FlagResult {
-                        flag_list: flags_from_pg,
-                        was_cache_hit: false,
-                        had_deserialization_errors,
-                    })
-                }
-                Err(database_error) => Err(database_error),
-            },
-        };
+        let cache_result =
+            FeatureFlagList::get_with_cache(&self.flags_cache, self.pg_client.clone(), project_id)
+                .await?;
 
         // Track cache hits and misses
-        if let Ok(ref result) = flag_result {
+        let was_cache_hit = cache_result.was_cached();
+        inc(
+            FLAG_CACHE_HIT_COUNTER,
+            &[("cache_hit".to_string(), was_cache_hit.to_string())],
+            1,
+        );
+
+        // Track database reads (when loader was invoked)
+        if cache_result.invoked_loader() {
+            inc(DB_FLAG_READS_COUNTER, &[], 1);
+        }
+
+        // Track cache problems
+        if cache_result.had_cache_problem() {
             inc(
-                FLAG_CACHE_HIT_COUNTER,
-                &[("cache_hit".to_string(), result.was_cache_hit.to_string())],
+                FLAG_CACHE_ERRORS_COUNTER,
+                &[("reason".to_string(), cache_result.source.to_string())],
                 1,
             );
         }
 
-        flag_result
+        let flags = cache_result.value.unwrap_or_default();
+
+        Ok(FlagResult {
+            flag_list: FeatureFlagList { flags },
+            was_cache_hit,
+        })
     }
 }
 
@@ -199,8 +192,9 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        flags::flag_models::{
-            FeatureFlag, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
+        flags::{
+            flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX},
+            test_helpers::{get_flags_from_redis, update_flags_in_redis},
         },
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::test_utils::{
@@ -396,14 +390,9 @@ mod tests {
             ],
         };
 
-        FeatureFlagList::update_flags_in_redis(
-            redis_client.clone(),
-            team.project_id(),
-            &mock_flags,
-            None,
-        )
-        .await
-        .expect("Failed to insert mock flags in Redis");
+        update_flags_in_redis(redis_client.clone(), team.project_id(), &mock_flags, None)
+            .await
+            .expect("Failed to insert mock flags in Redis");
 
         let flag_service = FlagService::new(
             redis_client.clone(),
@@ -479,8 +468,7 @@ mod tests {
             .await;
         assert!(result.is_ok());
         // Verify that the flags were re-added to Redis
-        let redis_flags =
-            FeatureFlagList::from_redis(redis_client.clone(), team.project_id()).await;
+        let redis_flags = get_flags_from_redis(redis_client.clone(), team.project_id()).await;
         assert!(redis_flags.is_ok());
         assert_eq!(redis_flags.unwrap().flags.len(), mock_flags.flags.len());
     }

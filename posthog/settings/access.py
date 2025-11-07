@@ -65,6 +65,8 @@ DEFAULT_SECRET_KEY = "<randomly generated secret key>"
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY: str = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
 
+# Debug setting to log in as a specific user. Especially useful for connecting to prod from local dev
+DEBUG_LOG_IN_AS_EMAIL: str | None = os.getenv("DEBUG_LOG_IN_AS_EMAIL")
 
 if not DEBUG and not TEST and not STATIC_COLLECTION and SECRET_KEY == DEFAULT_SECRET_KEY:
     logger.critical(
