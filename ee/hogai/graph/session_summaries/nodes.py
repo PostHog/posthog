@@ -279,9 +279,7 @@ class _SessionSearch:
         recordings_query = convert_filters_to_recordings_query(temp_playlist)
         return recordings_query
 
-    def _get_session_ids_with_filters(
-        self, replay_filters: RecordingsQuery, limit: int = MAX_SESSIONS_TO_SUMMARIZE
-    ) -> list[str] | None:
+    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery, limit: int) -> list[str] | None:
         """Get session ids from DB with filters"""
         from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
@@ -390,8 +388,12 @@ class _SessionSearch:
                 # Use filters when generated successfully
                 replay_filters = self._convert_max_filters_to_recordings_query(filter_generation_result)
             # Query the filters to get session ids
+            query_limit = state.session_summarization_limit
+            if not query_limit or query_limit <= 0 or query_limit > MAX_SESSIONS_TO_SUMMARIZE:
+                # If no limit provided (none or negative) or too large - use the default limit
+                query_limit = MAX_SESSIONS_TO_SUMMARIZE
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
-                replay_filters
+                replay_filters, query_limit
             )
             return session_ids
         except Exception as e:

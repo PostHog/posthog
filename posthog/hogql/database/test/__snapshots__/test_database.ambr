@@ -269,6 +269,7 @@
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
          AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+  ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.3
@@ -511,6 +512,7 @@
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
          AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+  ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
 # name: TestDatabase.test_serialize_database_no_person_on_events

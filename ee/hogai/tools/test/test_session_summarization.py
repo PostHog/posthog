@@ -44,6 +44,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     session_summarization_query="summarize all sessions from yesterday",
                     should_use_current_filters=False,
                     summary_title="All sessions from yesterday",
+                    session_summarization_limit=-1,
                 )
 
                 self.assertEqual(result, "")
@@ -72,6 +73,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     session_summarization_query="analyze mobile user sessions",
                     should_use_current_filters=True,
                     summary_title="Mobile user sessions",
+                    session_summarization_limit=-1,
                 )
 
     async def test_execute_with_should_use_current_filters_false(self):
@@ -92,6 +94,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     session_summarization_query="watch last 300 session recordings",
                     should_use_current_filters=False,
                     summary_title="Last 300 sessions",
+                    session_summarization_limit=300,
                 )
 
     async def test_execute_returns_failure_message_when_result_is_none(self):
@@ -107,6 +110,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     session_summarization_query="test query",
                     should_use_current_filters=False,
                     summary_title="Test",
+                    session_summarization_limit=-1,
                 )
 
                 self.assertEqual(result, "Session summarization failed")
@@ -127,6 +131,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     session_summarization_query="test query",
                     should_use_current_filters=False,
                     summary_title="Test",
+                    session_summarization_limit=-1,
                 )
 
                 self.assertEqual(result, "Session summarization failed")
@@ -148,6 +153,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     session_summarization_query="summarize sessions",
                     should_use_current_filters=False,
                     summary_title="",
+                    session_summarization_limit=-1,
                 )
 
                 self.assertEqual(result, "")
@@ -186,6 +192,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     session_summarization_query="new query",
                     should_use_current_filters=True,
                     summary_title="New Summary",
+                    session_summarization_limit=-1,
                 )
 
         # Verify original state was not modified

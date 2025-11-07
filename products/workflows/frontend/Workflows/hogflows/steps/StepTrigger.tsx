@@ -259,10 +259,9 @@ function StepTriggerConfigurationManual(): JSX.Element {
                 <p className="mb-0">
                     This workflow can be triggered manually via{' '}
                     <Tooltip title="It's up there on the top right ⤴︎">
-                        <span className="font-bold cursor-pointer">the trigger button</span>
+                        <span className="font-bold cursor-pointer">the trigger button on the top</span>
                     </Tooltip>
                 </p>
-                <IconButton fontSize={24} />
             </div>
         </>
     )

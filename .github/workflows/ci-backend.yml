@@ -90,10 +90,12 @@ jobs:
                         - docker-compose.dev.yml
                         - docker-compose.base.yml
                         - frontend/public/email/*
+                        - docker/clickhouse
                         # These scripts are used in the CI
                         - bin/check_temporal_up
                         - bin/check_kafka_clickhouse_up
                       migrations:
+                        - docker/clickhouse
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
@@ -355,7 +357,7 @@ jobs:
             - name: Check CH migrations
               run: |
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
-                  git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' |  python manage.py test_ch_migrations_are_safe
+                  git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
 
     django:
         needs: [changes]
@@ -802,6 +804,12 @@ jobs:
                   path: .test_durations
                   include-hidden-files: true
                   retention-days: 2
+
+            - name: Verify new snapshots for flakiness
+              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              shell: bash
+              run: |
+                  .github/scripts/verify-new-snapshots.sh
 
             - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there

@@ -353,15 +353,15 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         },
     },
     edit_current_dashboard: {
-        name: 'Add insight to the dashboard',
-        description: "Add insight to the dashboard you're viewing",
+        name: 'Add an insight to the dashboard',
+        description: "Add an insight to the dashboard you're viewing",
         product: Scene.Dashboard,
         icon: iconForType('dashboard'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Added insight to the dashboard'
+                return 'Added an insight to the dashboard'
             }
-            return 'Adding insight to the dashboard...'
+            return 'Adding an insight to the dashboard...'
         },
     },
     create_feature_flag: {

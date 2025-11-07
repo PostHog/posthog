@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import React from 'react'
 
 import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import {
@@ -28,20 +29,21 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDuration, objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
-import { EventType } from '~/types'
+import { DashboardPlacement, EventType } from '~/types'
 
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
@@ -66,12 +68,22 @@ export const scene: SceneExport = {
 }
 
 const Filters = (): JSX.Element => {
-    const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, generationsQuery, propertyFilters, activeTab } =
-        useValues(llmAnalyticsLogic)
+    const {
+        dashboardDateFilter,
+        dateFilter,
+        shouldFilterTestAccounts,
+        generationsQuery,
+        propertyFilters,
+        activeTab,
+        selectedDashboardId,
+    } = useValues(llmAnalyticsLogic)
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const dateFrom = activeTab === 'dashboard' ? dashboardDateFilter.dateFrom : dateFilter.dateFrom
     const dateTo = activeTab === 'dashboard' ? dashboardDateFilter.dateTo : dateFilter.dateTo
+
+    const useCustomizableDashboard = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]
 
     return (
         <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
@@ -84,6 +96,11 @@ const Filters = (): JSX.Element => {
             />
             <div className="flex-1" />
             <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
+            {activeTab === 'dashboard' && useCustomizableDashboard && selectedDashboardId && (
+                <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
+                    Edit dashboard
+                </LemonButton>
+            )}
             <LLMAnalyticsReloadAction />
         </div>
     )
@@ -115,11 +132,54 @@ const Tiles = (): JSX.Element => {
 }
 
 function LLMAnalyticsDashboard(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { selectedDashboardId, availableDashboardsLoading, dashboardDateFilter, propertyFilters } =
+        useValues(llmAnalyticsLogic)
+
+    const useCustomizableDashboard = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]
+    const dashboardLogicInstance = React.useMemo(
+        () =>
+            selectedDashboardId
+                ? dashboardLogic({ id: selectedDashboardId, placement: DashboardPlacement.Builtin })
+                : null,
+        [selectedDashboardId]
+    )
+
+    const fallbackLogicInstance = React.useMemo(
+        () => dashboardLogic({ id: 0, placement: DashboardPlacement.Builtin }),
+        []
+    )
+    const dashboardActions = useActions(dashboardLogicInstance || fallbackLogicInstance)
+    const setExternalFilters =
+        dashboardLogicInstance && dashboardActions?.setExternalFilters ? dashboardActions.setExternalFilters : () => {}
+
+    // Set filters using useLayoutEffect to ensure they're set before Dashboard's afterMount event fires
+    React.useLayoutEffect(() => {
+        if (selectedDashboardId && setExternalFilters) {
+            setExternalFilters({
+                date_from: dashboardDateFilter.dateFrom,
+                date_to: dashboardDateFilter.dateTo,
+                properties: propertyFilters.length > 0 ? propertyFilters : null,
+            })
+        }
+    }, [dashboardDateFilter, propertyFilters, selectedDashboardId, setExternalFilters])
+
     return (
         <LLMAnalyticsSetupPrompt>
             <div className="@container/dashboard">
                 <Filters />
-                <Tiles />
+
+                {useCustomizableDashboard ? (
+                    availableDashboardsLoading || !selectedDashboardId ? (
+                        <div className="text-center p-8">
+                            <Spinner />
+                        </div>
+                    ) : (
+                        <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
+                    )
+                ) : (
+                    <Tiles />
+                )}
             </div>
         </LLMAnalyticsSetupPrompt>
     )
@@ -216,7 +276,10 @@ function LLMAnalyticsGenerations(): JSX.Element {
                             ) : (
                                 <strong>
                                     <Tooltip title={value}>
-                                        <Link to={`/llm-analytics/traces/${ids.traceId}?event=${value}`}>
+                                        <Link
+                                            to={`/llm-analytics/traces/${ids.traceId}?event=${value}`}
+                                            data-attr="generation-id-link"
+                                        >
                                             {visualValue}
                                         </Link>
                                     </Tooltip>
@@ -348,6 +411,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         checked={evaluation.enabled}
                         onChange={() => toggleEvaluationEnabled(evaluation.id)}
                         size="small"
+                        data-attr="toggle-evaluation-enabled"
                     />
                     <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
                         {evaluation.enabled ? 'Enabled' : 'Disabled'}
@@ -448,7 +512,12 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         Configure evaluation prompts and triggers to automatically assess your LLM generations.
                     </p>
                 </div>
-                <LemonButton type="primary" icon={<IconPlus />} to={urls.llmAnalyticsEvaluation('new')}>
+                <LemonButton
+                    type="primary"
+                    icon={<IconPlus />}
+                    to={urls.llmAnalyticsEvaluation('new')}
+                    data-attr="create-evaluation-button"
+                >
                     Create Evaluation
                 </LemonButton>
             </div>
@@ -459,6 +528,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                     type="search"
                     placeholder="Search evaluations..."
                     value={evaluationsFilter}
+                    data-attr="evaluations-search-input"
                     onChange={setEvaluationsFilter}
                     prefix={<IconSearch />}
                     className="max-w-sm"
@@ -491,6 +561,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             label: 'Dashboard',
             content: <LLMAnalyticsDashboard />,
             link: combineUrl(urls.llmAnalyticsDashboard(), searchParams).url,
+            'data-attr': 'dashboard-tab',
         },
         {
             key: 'traces',
@@ -501,6 +572,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsTraces(), searchParams).url,
+            'data-attr': 'traces-tab',
         },
         {
             key: 'generations',
@@ -511,6 +583,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsGenerations(), searchParams).url,
+            'data-attr': 'generations-tab',
         },
         {
             key: 'users',
@@ -521,6 +594,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsUsers(), searchParams).url,
+            'data-attr': 'users-tab',
         },
     ]
 
@@ -541,6 +615,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsSessions(), searchParams).url,
+            'data-attr': 'sessions-tab',
         })
     }
 
@@ -557,6 +632,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             ),
             content: <LLMAnalyticsPlaygroundScene />,
             link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
+            'data-attr': 'playground-tab',
         })
     }
 
@@ -616,7 +692,6 @@ export function LLMAnalyticsScene(): JSX.Element {
                         </>
                     }
                 />
-                <SceneDivider />
 
                 <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
             </SceneContent>

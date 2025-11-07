@@ -309,6 +309,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -434,6 +435,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -544,6 +546,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1008,6 +1011,7 @@
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
          AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+  ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.31
@@ -1287,6 +1291,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1412,6 +1417,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1500,6 +1506,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1734,6 +1741,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1876,6 +1884,7 @@
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
          AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+  ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.56
@@ -2196,6 +2205,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -2284,6 +2294,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
