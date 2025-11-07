@@ -45,45 +45,35 @@ export function HogFlowFunctionConfiguration({
 
     const triggerType = workflow?.trigger?.type
 
-    let sampleGlobals = {}
+    const sampleGlobals: Record<string, any> = {
+        variables: workflow.variables || {},
+    }
 
     if (triggerType === 'webhook') {
-        sampleGlobals = {
-            request: {
-                method: 'POST',
-                headers: {
-                    'content-type': 'application/json',
-                    'user-agent': 'PostHog-Webhook/1.0',
-                },
-                body: {
-                    example_key: 'example_value',
-                },
-                url: 'https://your-app.com/webhook',
-            },
+        sampleGlobals.request = {
+            method: 'POST',
+            headers: {},
+            body: {},
+            params: {},
         }
-    } else if (triggerType === 'manual') {
-        sampleGlobals = {}
-    } else {
+    } else if (triggerType === 'event') {
         // Event-based triggers
-        sampleGlobals = {
-            event: {
-                event: 'example_event',
-                distinct_id: 'user123',
-                properties: {
-                    $current_url: 'https://example.com',
-                    custom_property: 'value',
-                },
-                timestamp: '2024-01-01T12:00:00Z',
+        sampleGlobals.event = {
+            event: 'example_event',
+            distinct_id: 'user123',
+            properties: {
+                $current_url: 'https://example.com',
             },
-            person: {
-                id: 'person123',
-                properties: {
-                    email: 'user@example.com',
-                    name: 'John Doe',
-                },
-            },
-            groups: {},
+            timestamp: '2024-01-01T12:00:00Z',
         }
+        sampleGlobals.person = {
+            id: 'person123',
+            properties: {
+                email: 'user@example.com',
+                name: 'John Doe',
+            },
+        }
+        sampleGlobals.groups = {}
     }
 
     return (

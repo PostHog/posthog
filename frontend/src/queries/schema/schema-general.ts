@@ -621,6 +621,7 @@ export enum HogLanguage {
     hogQL = 'hogQL',
     hogQLExpr = 'hogQLExpr',
     hogTemplate = 'hogTemplate',
+    liquid = 'liquid',
 }
 
 export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {

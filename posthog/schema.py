@@ -1718,6 +1718,7 @@ class HogLanguage(StrEnum):
     HOG_QL = "hogQL"
     HOG_QL_EXPR = "hogQLExpr"
     HOG_TEMPLATE = "hogTemplate"
+    LIQUID = "liquid"
 
 
 class BounceRatePageViewMode(StrEnum):

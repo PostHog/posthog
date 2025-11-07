@@ -1,7 +1,10 @@
 import { Monaco } from '@monaco-editor/react'
 import { languages } from 'monaco-editor'
 
+import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
+
+import { HogLanguage } from '~/queries/schema/schema-general'
 
 export const conf: () => languages.LanguageConfiguration = () => ({
     wordPattern: /(-?\d*\.\d\w*)|([^`~!@#$%^&*()\-=+[\]{}|;:'",.<>/?\s]+)/g,
@@ -132,71 +135,6 @@ export const language: () => languages.IMonarchLanguage = () => ({
     },
 })
 
-// Custom autocomplete provider for Liquid that provides basic completions from globals
-const liquidAutocompleteProvider = (): languages.CompletionItemProvider => ({
-    triggerCharacters: ['.', '{'],
-    provideCompletionItems: async (model, position) => {
-        const logic = (model as any).codeEditorLogic
-        if (!logic || !logic.isMounted() || !logic.props.globals) {
-            return { suggestions: [], incomplete: false }
-        }
-
-        const word = model.getWordUntilPosition(position)
-        const range = {
-            startLineNumber: position.lineNumber,
-            endLineNumber: position.lineNumber,
-            startColumn: word.startColumn,
-            endColumn: word.endColumn,
-        }
-
-        const textBeforeCursor = model.getValueInRange({
-            startLineNumber: position.lineNumber,
-            startColumn: 1,
-            endLineNumber: position.lineNumber,
-            endColumn: position.column,
-        })
-
-        const suggestions: languages.CompletionItem[] = []
-
-        // Check if we're inside {{ }} or {% %}
-        const inVariable = /\{\{[^}]*$/.test(textBeforeCursor)
-        const inTag = /\{%[^%]*$/.test(textBeforeCursor)
-
-        if (inVariable || inTag) {
-            // Add top-level globals
-            const globals = logic.props.globals
-            Object.keys(globals).forEach((key) => {
-                suggestions.push({
-                    label: key,
-                    kind: languages.CompletionItemKind.Variable,
-                    insertText: key,
-                    range,
-                    sortText: `1-${key}`,
-                })
-            })
-
-            // If after a dot, provide nested property suggestions
-            const dotMatch = textBeforeCursor.match(/(\w+)\.(\w*)$/)
-            if (dotMatch) {
-                const [, objectName] = dotMatch
-                if (globals[objectName] && typeof globals[objectName] === 'object') {
-                    Object.keys(globals[objectName]).forEach((key) => {
-                        suggestions.push({
-                            label: key,
-                            kind: languages.CompletionItemKind.Property,
-                            insertText: key,
-                            range,
-                            sortText: `1-${key}`,
-                        })
-                    })
-                }
-            }
-        }
-
-        return { suggestions, incomplete: false }
-    },
-})
-
 export function initLiquidLanguage(monaco: Monaco): void {
     if (!monaco.languages.getLanguages().some(({ id }) => id === 'liquid')) {
         monaco.languages.register({
@@ -205,7 +143,7 @@ export function initLiquidLanguage(monaco: Monaco): void {
         })
         monaco.languages.setLanguageConfiguration('liquid', conf())
         monaco.languages.setMonarchTokensProvider('liquid', language())
-        monaco.languages.registerCompletionItemProvider('liquid', liquidAutocompleteProvider())
+        monaco.languages.registerCompletionItemProvider('liquid', hogQLAutocompleteProvider(HogLanguage.liquid))
         monaco.languages.registerCodeActionProvider('liquid', hogQLMetadataProvider())
     }
 }
