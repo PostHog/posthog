@@ -278,6 +278,7 @@ describe('SourceWebhooksConsumer', () => {
                 expect(call.queueScheduledAt.toISO()).toEqual(scheduledAt)
                 await waitForBackgroundTasks()
                 expect(getLogs()).toEqual([
+                    expect.stringContaining('[Action:trigger] Function completed in'),
                     expect.stringContaining(`[Action:trigger] Workflow run scheduled for ${scheduledAt}`),
                 ])
             })

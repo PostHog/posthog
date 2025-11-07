@@ -268,7 +268,9 @@ export const workflowLogic = kea<workflowLogicType>([
                                     email: combinedErrors,
                                 }
                             }
-                        } else if (isFunctionAction(action) || isTriggerFunction(action)) {
+                        }
+
+                        if (isFunctionAction(action) || isTriggerFunction(action)) {
                             const template = hogFunctionTemplatesById[action.config.template_id]
                             if (!template) {
                                 result.valid = false
@@ -284,13 +286,22 @@ export const workflowLogic = kea<workflowLogicType>([
                                 result.valid = configValidation.valid
                                 result.errors = configValidation.errors
                             }
-                        } else if (action.type === 'trigger') {
+                        }
+
+                        if (action.type === 'trigger') {
                             // custom validation here that we can't easily express in the schema
                             if (action.config.type === 'event') {
                                 if (!action.config.filters.events?.length && !action.config.filters.actions?.length) {
                                     result.valid = false
                                     result.errors = {
                                         filters: 'At least one event or action is required',
+                                    }
+                                }
+                            } else if (action.config.type === 'schedule') {
+                                if (!action.config.scheduled_at) {
+                                    result.valid = false
+                                    result.errors = {
+                                        scheduled_at: 'A scheduled time is required',
                                     }
                                 }
                             }
@@ -403,7 +414,7 @@ export const workflowLogic = kea<workflowLogicType>([
 
             const webhookUrl = publicWebhooksHostOrigin() + '/public/webhooks/' + values.workflow.id
 
-            lemonToast.info('Triggering workflow...')
+            lemonToast.info(scheduledAt ? 'Scheduling workflow...' : 'Triggering workflow...')
 
             try {
                 const body: Record<string, any> = {
@@ -445,5 +456,6 @@ export const workflowLogic = kea<workflowLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadWorkflow()
+        actions.loadHogFunctionTemplatesById()
     }),
 ])
