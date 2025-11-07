@@ -91,9 +91,13 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
         request = self.context.get("request")
         # Get viewset from context to access organization_id and team_id
         view = self.context.get("view")
+        if not view:
+            raise serializers.ValidationError("View context is required")
+        if not request:
+            raise serializers.ValidationError("Request context is required")
 
         # Handle enterprise-specific fields
-        if "updated_by" not in validated_data:
+        if "updated_by" not in validated_data and request.user:
             validated_data["updated_by"] = request.user
 
         # Set timestamps to None - will be populated when first real event is ingested
@@ -103,7 +107,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
         validated_data["last_seen_at"] = None
 
         # Handle verified status
-        if validated_data.get("verified", False):
+        if validated_data.get("verified", False) and request.user:
             validated_data["verified_by"] = request.user
             validated_data["verified_at"] = timezone.now()
             validated_data["hidden"] = False
@@ -122,16 +126,17 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
         # Log activity for audit trail
         from posthog.models.utils import UUIDT
 
-        log_activity(
-            organization_id=cast(UUIDT, view.organization_id),
-            team_id=view.team_id,
-            user=request.user,
-            was_impersonated=is_impersonated_session(request),
-            item_id=str(event_definition.id),
-            scope="EventDefinition",
-            activity="created",
-            detail=Detail(name=event_definition.name, changes=None),
-        )
+        if request.user:
+            log_activity(
+                organization_id=cast(UUIDT, view.organization_id),
+                team_id=view.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated_session(request),
+                item_id=str(event_definition.id),
+                scope="EventDefinition",
+                activity="created",
+                detail=Detail(name=event_definition.name, changes=None),
+            )
 
         return event_definition
 

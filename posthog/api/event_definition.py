@@ -129,6 +129,9 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         request = self.context.get("request")
         # Get viewset from context to access organization_id and team_id
         view = self.context.get("view")
+        if not view:
+            raise serializers.ValidationError("View context is required")
+
         validated_data["team_id"] = view.team_id
         validated_data["project_id"] = view.project_id
         # Set timestamps to None - will be populated when first real event is ingested
@@ -141,23 +144,25 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         event_definition = super().create(validated_data)
 
         # Report user action for analytics
-        report_user_action(
-            cast(User, request.user),
-            "event definition created",
-            {"name": event_definition.name},
-        )
+        if request and request.user:
+            report_user_action(
+                cast(User, request.user),
+                "event definition created",
+                {"name": event_definition.name},
+            )
 
         # Log activity for audit trail
-        log_activity(
-            organization_id=cast(UUIDT, view.organization_id),
-            team_id=view.team_id,
-            user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
-            item_id=str(event_definition.id),
-            scope="EventDefinition",
-            activity="created",
-            detail=Detail(name=event_definition.name, changes=None),
-        )
+        if request and request.user:
+            log_activity(
+                organization_id=cast(UUIDT, view.organization_id),
+                team_id=view.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=str(event_definition.id),
+                scope="EventDefinition",
+                activity="created",
+                detail=Detail(name=event_definition.name, changes=None),
+            )
 
         return event_definition
 

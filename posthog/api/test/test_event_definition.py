@@ -140,6 +140,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert activity_log.activity == "deleted"
         assert activity_log.item_id == str(event_definition.id)
         assert activity_log.scope == "EventDefinition"
+        assert activity_log.detail is not None
         assert activity_log.detail["name"] == str(event_definition.name)
 
     def test_pagination_of_event_definitions(self):
@@ -296,6 +297,7 @@ class TestEventDefinitionAPI(APIBaseTest):
             scope="EventDefinition", activity="created", item_id=str(event_def.id)
         ).first()
         assert activity_log is not None
+        assert activity_log.detail is not None
         assert activity_log.detail["name"] == "my_custom_event"
 
     def test_create_event_definition_duplicate_name(self):
