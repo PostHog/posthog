@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useState } from 'react'
 import EmailEditor from 'react-email-editor'
 
 import { IconExternal } from '@posthog/icons'
@@ -10,6 +11,8 @@ import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJ
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { urls } from 'scenes/urls'
@@ -377,37 +380,116 @@ function EmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
     }
 }
 
-function EmailTemplaterModal(): JSX.Element {
-    const { isModalOpen, isEmailEditorReady, emailTemplateChanged } = useValues(emailTemplaterLogic)
-    const { closeWithConfirmation, submitEmailTemplate } = useActions(emailTemplaterLogic)
+function SaveTemplateModal({
+    isOpen,
+    onClose,
+    onSave,
+}: {
+    isOpen: boolean
+    onClose: () => void
+    onSave: (name: string, description: string) => void
+}): JSX.Element {
+    const [templateName, setTemplateName] = useState('')
+    const [templateDescription, setTemplateDescription] = useState('')
 
     return (
         <LemonModal
-            isOpen={isModalOpen}
-            width="90vw"
-            onClose={() => closeWithConfirmation()}
-            hasUnsavedInput={emailTemplateChanged}
+            isOpen={isOpen}
+            onClose={onClose}
+            title="Save as template"
+            description="Create a reusable template from this email"
+            footer={
+                <>
+                    <LemonButton onClick={onClose}>Cancel</LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => {
+                            if (templateName) {
+                                onSave(templateName, templateDescription)
+                                onClose()
+                                setTemplateName('')
+                                setTemplateDescription('')
+                            }
+                        }}
+                        disabledReason={!templateName ? 'Please enter a template name' : undefined}
+                    >
+                        Save template
+                    </LemonButton>
+                </>
+            }
         >
-            <div className="h-[80vh] flex">
-                <div className="flex flex-col flex-1">
-                    <div className="shrink-0">
-                        <h2>Editing email template</h2>
-                    </div>
-                    <EmailTemplaterForm mode="full" />
-                    <div className="flex gap-2 items-center mt-2">
-                        <div className="flex-1" />
-                        <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => submitEmailTemplate()}
-                            disabledReason={isEmailEditorReady ? undefined : 'Loading email editor...'}
-                        >
-                            Save
-                        </LemonButton>
-                    </div>
+            <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Template name</LemonLabel>
+                    <LemonInput
+                        placeholder="My Email Template"
+                        value={templateName}
+                        onChange={setTemplateName}
+                        autoFocus
+                    />
+                </div>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel showOptional>Description</LemonLabel>
+                    <LemonTextArea
+                        placeholder="Describe when to use this template..."
+                        value={templateDescription}
+                        onChange={setTemplateDescription}
+                        rows={3}
+                    />
                 </div>
             </div>
         </LemonModal>
+    )
+}
+
+function EmailTemplaterModal(): JSX.Element {
+    const { isModalOpen, isEmailEditorReady, emailTemplateChanged, logicProps } = useValues(emailTemplaterLogic)
+    const { closeWithConfirmation, submitEmailTemplate, saveAsTemplate } = useActions(emailTemplaterLogic)
+    const [isSaveTemplateModalOpen, setIsSaveTemplateModalOpen] = useState(false)
+
+    return (
+        <>
+            <LemonModal
+                isOpen={isModalOpen}
+                width="90vw"
+                onClose={() => closeWithConfirmation()}
+                hasUnsavedInput={emailTemplateChanged}
+            >
+                <div className="h-[80vh] flex">
+                    <div className="flex flex-col flex-1">
+                        <div className="shrink-0">
+                            <h2>Editing email template</h2>
+                        </div>
+                        <EmailTemplaterForm mode="full" />
+                        <div className="flex gap-2 items-center mt-2">
+                            {(logicProps.type === 'native_email' || logicProps.type === 'native_email_template') && (
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => setIsSaveTemplateModalOpen(true)}
+                                    disabledReason={isEmailEditorReady ? undefined : 'Loading email editor...'}
+                                >
+                                    Save as template
+                                </LemonButton>
+                            )}
+                            <div className="flex-1" />
+                            <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={() => submitEmailTemplate()}
+                                disabledReason={isEmailEditorReady ? undefined : 'Loading email editor...'}
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    </div>
+                </div>
+            </LemonModal>
+            <SaveTemplateModal
+                isOpen={isSaveTemplateModalOpen}
+                onClose={() => setIsSaveTemplateModalOpen(false)}
+                onSave={(name, description) => saveAsTemplate(name, description)}
+            />
+        </>
     )
 }
 
