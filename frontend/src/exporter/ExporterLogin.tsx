@@ -122,10 +122,7 @@ export function ExporterLogin(props: ExporterLoginProps): JSX.Element {
                     {isSuccess ? 'Access granted!' : 'Unlock'}
                 </LemonButton>
             </Form>
-            <div className="text-center mt-4">
-                <p className="font-bold text-lg">Don't have a password?</p>
-                <p>Ask the person who shared this with you!</p>
-            </div>
+            <div className="text-center mt-4">Don't have a password? Ask the person who shared this with you!</div>
         </div>
     )
 
