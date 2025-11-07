@@ -1,9 +1,9 @@
 import equal from 'fast-deep-equal'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { DEFAULT_MDE, experimentLogic } from 'scenes/experiments/experimentLogic'
+import { DEFAULT_MDE } from 'scenes/experiments/experimentLogic'
 
 import { performQuery } from '~/queries/query'
 import {
@@ -36,7 +36,7 @@ export enum ConversionRateInputType {
 }
 
 export interface RunningTimeCalculatorLogicProps {
-    experimentId?: Experiment['id']
+    experiment: Experiment
 }
 
 export interface ExposureEstimateConfig {
@@ -74,9 +74,7 @@ const defaultExposureEstimateConfig: ExposureEstimateConfig = {
 
 export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     path(['scenes', 'experiments', 'RunningTimeCalculator', 'runningTimeCalculatorLogic']),
-    connect(({ experimentId }: RunningTimeCalculatorLogicProps) => ({
-        values: [experimentLogic({ experimentId }), ['experiment']],
-    })),
+    props({} as RunningTimeCalculatorLogicProps),
     actions({
         setMetricIndex: (value: number) => ({ value }),
         setMetricUuid: (value: string) => ({ value }),
@@ -109,7 +107,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         _manualConversionRate: [2 as number, { setManualConversionRate: (_, { value }) => value }],
         _minimumDetectableEffect: [null as number | null, { setMinimumDetectableEffect: (_, { value }) => value }],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, props }) => ({
         metricResult: {
             loadMetricResult: async () => {
                 if (values.metricUuid === null) {
@@ -151,7 +149,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     FunnelsQuery | TrendsQuery | undefined
                 >(
                     getQuery({
-                        filterTestAccounts: !!values.experiment.exposure_criteria?.filterTestAccounts,
+                        filterTestAccounts: !!props.experiment.exposure_criteria?.filterTestAccounts,
                         dateRange: getDefaultDateRange(),
                         funnelsFilter: {
                             funnelVizType: FunnelVizType.Steps,
@@ -200,10 +198,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             setMetricResult: ({ value }) => value,
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         setMetricIndex: ({ value: metricIndex }) => {
             // Convert index to UUID and set it
-            const metric = values.experiment?.metrics?.[metricIndex]
+            const metric = props.experiment.metrics?.[metricIndex]
             if (metric?.uuid) {
                 actions.setMetricUuid(metric.uuid)
             }
@@ -261,9 +259,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     }),
     selectors({
         defaultMetricUuid: [
-            (s) => [s.experiment, s.exposureEstimateConfig],
+            (s) => [(_, props) => props.experiment, s.exposureEstimateConfig],
             (experiment: Experiment, exposureEstimateConfig: ExposureEstimateConfig | null): string | null => {
-                if (!experiment?.metrics || !exposureEstimateConfig?.metric) {
+                if (!experiment.metrics || !exposureEstimateConfig?.metric) {
                     return null
                 }
 
@@ -289,7 +287,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             },
         ],
         exposureEstimateConfig: [
-            (s) => [s._exposureEstimateConfig, s.experiment],
+            (s) => [s._exposureEstimateConfig, (_, props) => props.experiment],
             (
                 localExposureEstimateConfig: ExposureEstimateConfig | null,
                 experiment: Experiment
@@ -336,12 +334,12 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             },
         ],
         minimumDetectableEffect: [
-            (s) => [s._minimumDetectableEffect, s.experiment],
+            (s) => [s._minimumDetectableEffect, (_, props) => props.experiment],
             (minimumDetectableEffect: number | null, experiment: Experiment) =>
                 minimumDetectableEffect ?? experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE,
         ],
         metric: [
-            (s) => [s.metricUuid, s.experiment],
+            (s) => [s.metricUuid, (_, props) => props.experiment],
             (metricUuid: string | null, experiment: Experiment): ExperimentMetric | null => {
                 if (metricUuid === null) {
                     return null
@@ -395,7 +393,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         ],
         standardDeviation: [(s) => [s.variance], (variance: number) => (variance ? Math.sqrt(variance) : null)],
         numberOfVariants: [
-            (s) => [s.experiment],
+            () => [(_, props) => props.experiment],
             (experiment: Experiment) => experiment.feature_flag?.filters.multivariate?.variants.length,
         ],
         recommendedSampleSize: [
