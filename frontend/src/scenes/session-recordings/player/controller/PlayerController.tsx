@@ -58,6 +58,7 @@ function PlayPauseButton(): JSX.Element {
                     <KeyboardShortcut space />
                 </div>
             }
+            data-attr={showPause ? 'recording-pause' : endReached ? 'recording-rewind' : 'recording-play'}
         >
             {showPause ? (
                 <IconPause className="text-3xl" />

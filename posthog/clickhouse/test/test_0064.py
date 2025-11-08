@@ -3,7 +3,6 @@ import importlib
 
 from posthog.test.base import BaseTest, ClickhouseDestroyTablesMixin, _create_event
 from posthog.clickhouse.client import sync_execute
-from posthog.models.utils import UUIDT
 
 module = importlib.import_module("posthog.clickhouse.migrations.0064_materialize_elements_chain")
 
