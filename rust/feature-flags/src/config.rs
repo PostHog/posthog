@@ -454,7 +454,7 @@ pub struct Config {
 
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
-    // Defaults to true in local development, false elsewhere for safe rollout
+    // The `default_test_config()` sets this to true for test/development scenarios.
     #[envconfig(from = "REDIS_COMPRESSION_ENABLED", default = "false")]
     pub redis_compression_enabled: FlexBool,
 }
