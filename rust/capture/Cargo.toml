@@ -52,9 +52,19 @@ futures = { workspace = true }
 assert-json-diff = { workspace = true }
 anyhow = { workspace = true }
 axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" }
+criterion = { version = "0.7", features = ["html_reports"] }
+dashmap = { workspace = true }
 futures = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
 reqwest = { workspace = true, features = ["multipart"] }
 serde_json = { workspace = true }
+
+[[bench]]
+name = "recording_endpoint"
+harness = false
+
+[[bench]]
+name = "snapshot_serialization"
+harness = false

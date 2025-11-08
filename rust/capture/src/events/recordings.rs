@@ -12,22 +12,17 @@
 
 use std::sync::Arc;
 
-use bytes::Bytes;
 use chrono::DateTime;
 use common_types::CapturedEvent;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use tracing::{error, instrument, Span};
 use uuid::Uuid;
 
 use crate::api::CaptureError;
-use crate::payload::Compression;
 use crate::sinks;
 use crate::utils::uuid_v7;
-use crate::v0_request::{
-    DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
-};
+use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext};
 
 /// A recording event optimized for minimal deserialization overhead.
 /// Instead of fully parsing all properties into a HashMap, we only extract
@@ -62,9 +57,42 @@ pub struct RawRecording {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
 
-    /// All event properties - we'll extract session_id, window_id, snapshot_data from here
+    /// Recording-specific properties - only deserialize what we need
     #[serde(default)]
-    pub properties: HashMap<String, Value>,
+    pub properties: RecordingProperties,
+}
+
+/// Recording properties - only the fields we actually use
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub struct RecordingProperties {
+    #[serde(rename = "$session_id", skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<Value>,
+
+    #[serde(rename = "$window_id", skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<Value>,
+
+    #[serde(rename = "$snapshot_data", skip_serializing_if = "Option::is_none")]
+    pub snapshot_data: Option<Value>,
+
+    #[serde(rename = "$snapshot_source", skip_serializing_if = "Option::is_none")]
+    pub snapshot_source: Option<Value>,
+
+    #[serde(rename = "$lib", skip_serializing_if = "Option::is_none")]
+    pub lib: Option<String>,
+
+    #[serde(rename = "$cookieless_mode", skip_serializing_if = "Option::is_none")]
+    pub cookieless_mode: Option<bool>,
+
+    #[serde(rename = "$ignore_sent_at", skip_serializing_if = "Option::is_none")]
+    pub ignore_sent_at: Option<bool>,
+
+    /// Fallback for distinct_id if not at root level
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distinct_id: Option<Value>,
+
+    /// Fallback for token if not at root level
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
 }
 
 /// Container for multiple recording events in a single request
@@ -77,53 +105,11 @@ pub enum RecordingRequest {
     One(Box<RawRecording>),
 }
 
-impl RecordingRequest {
-    /// Parse compressed/encoded bytes directly into RawRecording structs
-    /// This bypasses the RawEvent deserialization used by regular events
-    pub fn from_bytes(
-        bytes: Bytes,
-        compression: Compression,
-        request_id: &str,
-        limit: usize,
-    ) -> Result<Vec<RawRecording>, CaptureError> {
-        // Reuse the decompression logic from RawRequest but deserialize to RecordingRequest
-        // We need to do the same decompression/decoding steps
-        let raw_request = RawRequest::from_bytes(
-            bytes,
-            compression,
-            request_id,
-            limit,
-            "/s/".to_string(), // Recording path
-        )?;
-
-        // Convert RawRequest to RecordingRequest
-        // For now, we'll still go through RawRequest for decompression,
-        // but we can optimize this further later
-        let events = raw_request.events("/s/")?;
-
-        // Convert RawEvent to RawRecording
-        // TODO: fix this by deserializing directly to RawRecording
-        // This is temporary - ideally we'd deserialize directly to RawRecording
-        Ok(events
-            .into_iter()
-            .map(|event| RawRecording {
-                uuid: event.uuid,
-                event: event.event,
-                distinct_id: event.distinct_id,
-                token: event.token,
-                timestamp: event.timestamp,
-                offset: event.offset,
-                properties: event.properties,
-            })
-            .collect())
-    }
-}
-
 impl RawRecording {
     /// Extract the distinct_id, checking both root field and properties
     pub fn extract_distinct_id(&self) -> Option<String> {
         let value = match &self.distinct_id {
-            None | Some(Value::Null) => match self.properties.get("distinct_id") {
+            None | Some(Value::Null) => match &self.properties.distinct_id {
                 None | Some(Value::Null) => return None,
                 Some(id) => id,
             },
@@ -146,21 +132,13 @@ impl RawRecording {
 
     /// Extract token from root field or properties
     pub fn extract_token(&self) -> Option<String> {
-        match &self.token {
-            Some(value) => Some(value.clone()),
-            None => self
-                .properties
-                .get("token")
-                .and_then(Value::as_str)
-                .map(String::from),
-        }
+        self.token.clone().or_else(|| self.properties.token.clone())
     }
 
     /// Extract cookieless mode flag
     pub fn extract_is_cookieless_mode(&self) -> Option<bool> {
-        match self.properties.get("$cookieless_mode") {
-            Some(Value::Bool(b)) => Some(*b),
-            Some(_) => None,
+        match self.properties.cookieless_mode {
+            Some(b) => Some(b),
             None => Some(false),
         }
     }
@@ -176,7 +154,7 @@ impl RawRecording {
 #[instrument(skip_all, fields(events = events.len(), session_id, request_id))]
 pub async fn process_replay_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
-    mut events: Vec<RawRecording>,
+    events: Vec<RawRecording>,
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
     Span::current().record("request_id", &context.request_id);
@@ -185,11 +163,7 @@ pub async fn process_replay_events<'a>(
     let sent_at_utc = context.sent_at.map(|sa| {
         DateTime::from_timestamp(sa.unix_timestamp(), sa.nanosecond()).unwrap_or_default()
     });
-    let ignore_sent_at = events[0]
-        .properties
-        .get("$ignore_sent_at")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let ignore_sent_at = events[0].properties.ignore_sent_at.unwrap_or(false);
 
     let computed_timestamp = common_types::timestamp::parse_event_timestamp(
         events[0].timestamp.as_deref(),
@@ -199,16 +173,30 @@ pub async fn process_replay_events<'a>(
         context.now,
     );
 
-    // Grab metadata about the whole batch from the first event before
-    // we drop all the events as we rip out the snapshot data
-    let session_id = events[0]
-        .properties
-        .remove("$session_id")
-        .ok_or(CaptureError::MissingSessionId)?;
-    // Validate session_id is a valid UUID
-    let session_id_str = session_id.as_str().ok_or(CaptureError::InvalidSessionId)?;
+    // Extract metadata from first event by taking ownership (no clones!)
+    // We split off the first event to extract metadata, then iterate over the rest
+    let mut events_iter = events.into_iter();
+    let mut first_event = events_iter
+        .next()
+        .ok_or(CaptureError::EmptyBatch)?;
 
-    // Reject session_ids that are too long, or that contains non-alphanumeric characters
+    let uuid = first_event.uuid.unwrap_or_else(uuid_v7);
+    let distinct_id = first_event
+        .extract_distinct_id()
+        .ok_or(CaptureError::MissingDistinctId)?;
+    let is_cookieless_mode = first_event
+        .extract_is_cookieless_mode()
+        .ok_or(CaptureError::InvalidCookielessMode)?;
+
+    // Take metadata fields by ownership (no clone!)
+    let session_id = first_event
+        .properties
+        .session_id
+        .take()
+        .ok_or(CaptureError::MissingSessionId)?;
+
+    // Validate session_id
+    let session_id_str = session_id.as_str().ok_or(CaptureError::InvalidSessionId)?;
     if session_id_str.len() > 70
         || !session_id_str
             .chars()
@@ -218,39 +206,57 @@ pub async fn process_replay_events<'a>(
     }
     Span::current().record("session_id", session_id_str);
 
-    let window_id = events[0]
+    let window_id = first_event
         .properties
-        .remove("$window_id")
-        .unwrap_or(session_id.clone());
-    let uuid = events[0].uuid.unwrap_or_else(uuid_v7);
-    let distinct_id = events[0]
-        .extract_distinct_id()
-        .ok_or(CaptureError::MissingDistinctId)?;
-    let snapshot_source = events[0]
+        .window_id
+        .take()
+        .unwrap_or_else(|| session_id.clone());
+
+    let default_snapshot_source = Value::String(String::from("web"));
+    let snapshot_source = first_event
         .properties
-        .remove("$snapshot_source")
-        .unwrap_or(Value::String(String::from("web")));
-    let is_cookieless_mode = events[0]
-        .extract_is_cookieless_mode()
-        .ok_or(CaptureError::InvalidCookielessMode)?;
-    let snapshot_library = events[0]
+        .snapshot_source
+        .take()
+        .unwrap_or(default_snapshot_source);
+
+    let snapshot_library = first_event
         .properties
-        .remove("$lib")
-        .and_then(|v| v.as_str().map(|v| v.to_string()))
+        .lib
+        .take()
         .or_else(|| snapshot_library_fallback_from(context.user_agent.as_ref()))
         .unwrap_or_else(|| String::from("unknown"));
 
-    let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
-    for mut event in events {
-        let Some(snapshot_data) = event.properties.remove("$snapshot_data") else {
+    // Collect snapshot items from all events by taking ownership (no clone!)
+    // Start with the first event's snapshot data, then iterate over the rest
+    let mut snapshot_items: Vec<Value> = Vec::new();
+
+    // Process first event's snapshot_data
+    let Some(snapshot_data) = first_event.properties.snapshot_data.take() else {
+        return Err(CaptureError::MissingSnapshotData);
+    };
+    match snapshot_data {
+        Value::Array(mut arr) => {
+            snapshot_items.append(&mut arr);
+        }
+        Value::Object(obj) => {
+            snapshot_items.push(Value::Object(obj));
+        }
+        _ => {
+            return Err(CaptureError::MissingSnapshotData);
+        }
+    }
+
+    // Process remaining events' snapshot_data
+    for mut event in events_iter {
+        let Some(snapshot_data) = event.properties.snapshot_data.take() else {
             return Err(CaptureError::MissingSnapshotData);
         };
         match snapshot_data {
-            Value::Array(value) => {
-                snapshot_items.extend(value);
+            Value::Array(mut arr) => {
+                snapshot_items.append(&mut arr);
             }
-            Value::Object(value) => {
-                snapshot_items.push(Value::Object(value));
+            Value::Object(obj) => {
+                snapshot_items.push(Value::Object(obj));
             }
             _ => {
                 return Err(CaptureError::MissingSnapshotData);
@@ -279,7 +285,7 @@ pub async fn process_replay_events<'a>(
 
     let event = CapturedEvent {
         uuid,
-        distinct_id: distinct_id.clone(),
+        distinct_id,  // No clone - we own it from extract_distinct_id()
         ip: context.client_ip.clone(),
         data: serialized_data,
         now: context
@@ -381,8 +387,8 @@ mod tests {
         assert_eq!(recording.event, "$snapshot");
         assert_eq!(recording.extract_distinct_id(), Some("user123".to_string()));
         assert_eq!(
-            recording.properties.get("$session_id"),
-            Some(&Value::String("session-abc".to_string()))
+            recording.properties.session_id,
+            Some(Value::String("session-abc".to_string()))
         );
     }
 
