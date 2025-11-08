@@ -1170,6 +1170,120 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 source: {
                     kind: NodeKind.HogQLQuery,
                     query: `
+                -- Error normalization pipeline: extract -> normalize IDs -> normalize UUIDs -> normalize timestamps -> normalize paths -> normalize response IDs -> normalize tool call IDs -> normalize token counts
+                -- This multi-step CTE approach makes it easy to understand and maintain each normalization step
+
+                WITH extracted_errors AS (
+                    -- Step 1: Extract error messages from various JSON structures in $ai_error
+                    -- Different SDKs/libraries format errors differently, so we try multiple paths
+                    SELECT
+                        distinct_id,
+                        timestamp,
+                        JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
+                        JSONExtractRaw(properties, '$ai_session_id') as ai_session_id,
+                        CASE
+                            -- Try: { error: { message: "..." } } (nested error object with message)
+                            WHEN notEmpty(JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'message'))
+                                THEN JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'message')
+                            -- Try: { message: "..." } (direct message property)
+                            WHEN notEmpty(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'message'))
+                                THEN JSONExtractString(JSONExtractString(properties, '$ai_error'), 'message')
+                            -- Try: { error: "..." } (error as string property)
+                            WHEN notEmpty(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'))
+                                THEN JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error')
+                            -- Fallback: use the raw string value
+                            ELSE JSONExtractString(properties, '$ai_error')
+                        END as raw_error
+                    FROM events
+                    WHERE event IN ('$ai_generation', '$ai_span', '$ai_trace', '$ai_embedding')
+                        AND (notEmpty(JSONExtractString(properties, '$ai_error')) OR JSONExtractString(properties, '$ai_is_error') = 'true')
+                        AND {filters}
+                ),
+                ids_normalized AS (
+                    -- Step 2: Normalize large numeric IDs (9+ digits)
+                    -- Replaces timestamps, project IDs, and other long numbers with <ID>
+                    -- Example: "Error 1234567890" -> "Error <ID>"
+                    SELECT
+                        distinct_id,
+                        timestamp,
+                        ai_trace_id,
+                        ai_session_id,
+                        replaceRegexpAll(raw_error, '[0-9]{9,}', '<ID>') as error_text
+                    FROM extracted_errors
+                ),
+                uuids_normalized AS (
+                    -- Step 3: Normalize UUIDs and request IDs
+                    -- Replaces request IDs (req_xxx) and standard UUIDs with <ID>
+                    -- Example: "req_abc123" -> "<ID>", "550e8400-e29b-41d4-a716-446655440000" -> "<ID>"
+                    SELECT
+                        distinct_id,
+                        timestamp,
+                        ai_trace_id,
+                        ai_session_id,
+                        replaceRegexpAll(error_text, '(req_[a-zA-Z0-9]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', '<ID>') as error_text
+                    FROM ids_normalized
+                ),
+                timestamps_normalized AS (
+                    -- Step 4: Normalize ISO timestamps
+                    -- Replaces ISO 8601 timestamps with <TIMESTAMP> to group errors that differ only by time
+                    -- Example: "2025-11-08T14:25:51.767Z" -> "<TIMESTAMP>"
+                    SELECT
+                        distinct_id,
+                        timestamp,
+                        ai_trace_id,
+                        ai_session_id,
+                        replaceRegexpAll(error_text, '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.[0-9]+Z?', '<TIMESTAMP>') as error_text
+                    FROM uuids_normalized
+                ),
+                paths_normalized AS (
+                    -- Step 5: Normalize cloud resource paths
+                    -- Replaces Google Cloud project paths with a generic placeholder
+                    -- Example: "projects/123/locations/us-west2/publishers/google/models/gemini-pro" -> "projects/<PATH>"
+                    SELECT
+                        distinct_id,
+                        timestamp,
+                        ai_trace_id,
+                        ai_session_id,
+                        replaceRegexpAll(error_text, 'projects/[0-9a-z-]+(/[a-z]+/[0-9a-z-]+)+', 'projects/<PATH>') as error_text
+                    FROM timestamps_normalized
+                ),
+                response_ids_normalized AS (
+                    -- Step 6: Normalize responseId fields in error payloads
+                    -- Many LLM providers include unique response IDs in error messages
+                    -- Example: "responseId":"abc123xyz" -> "responseId":"<RESPONSE_ID>" or responseId:abc123xyz -> responseId:<RESPONSE_ID>
+                    SELECT
+                        distinct_id,
+                        timestamp,
+                        ai_trace_id,
+                        ai_session_id,
+                        replaceRegexpAll(error_text, '"responseId":"[a-zA-Z0-9_-]+"', '"responseId":"<RESPONSE_ID>"') as error_text
+                    FROM paths_normalized
+                ),
+                tool_call_ids_normalized AS (
+                    -- Step 7: Normalize tool_call_id values
+                    -- Tool calling frameworks include unique tool call IDs in error messages
+                    -- Example: "tool_call_id='toolu_01LCbNr67BxhgUH6gndPCELW'" -> "tool_call_id='<TOOL_CALL_ID>'"
+                    SELECT
+                        distinct_id,
+                        timestamp,
+                        ai_trace_id,
+                        ai_session_id,
+                        replaceRegexpAll(error_text, 'tool_call_id=[''"][a-zA-Z0-9_-]+[''"]', 'tool_call_id=''<TOOL_CALL_ID>''') as error_text
+                    FROM response_ids_normalized
+                ),
+                token_counts_normalized AS (
+                    -- Step 8: Normalize token count values
+                    -- Token counts are metadata, not part of error identity
+                    -- Example: "tokenCount":7125 -> "tokenCount":<TOKEN_COUNT>
+                    SELECT
+                        distinct_id,
+                        timestamp,
+                        ai_trace_id,
+                        ai_session_id,
+                        replaceRegexpAll(error_text, '"tokenCount":[0-9]+', '"tokenCount":<TOKEN_COUNT>') as normalized_error
+                    FROM tool_call_ids_normalized
+                )
+                -- Final aggregation: group by normalized error and calculate metrics
                 SELECT
                     normalized_error as error,
                     countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
@@ -1179,60 +1293,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     uniq(toDate(timestamp)) as days_seen,
                     min(timestamp) as first_seen,
                     max(timestamp) as last_seen
-                FROM (
-                    SELECT
-                        distinct_id,
-                        timestamp,
-                        JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
-                        JSONExtractRaw(properties, '$ai_session_id') as ai_session_id,
-                        -- Extract and normalize error message from $ai_error property
-                        -- Try extracting from various JSON structures, then normalize by removing dynamic IDs
-                        replaceRegexpAll(
-                            replaceRegexpAll(
-                                replaceRegexpAll(
-                                    replaceRegexpAll(
-                                        replaceRegexpAll(
-                                            replaceRegexpAll(
-                                                -- Extract message using if/then chain
-                                                if(
-                                                    notEmpty(JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'message')),
-                                                    JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'message'),
-                                                    if(
-                                                        notEmpty(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'message')),
-                                                        JSONExtractString(JSONExtractString(properties, '$ai_error'), 'message'),
-                                                        if(
-                                                            notEmpty(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error')),
-                                                            JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'),
-                                                            JSONExtractString(properties, '$ai_error')
-                                                        )
-                                                    )
-                                                ),
-                                                -- Remove request IDs like "req_4eaf36431a034e73bad025076aedc2cc"
-                                                'req_[a-zA-Z0-9]+', '<REQ_ID>'
-                                            ),
-                                            -- Remove UUIDs (8-4-4-4-12 format)
-                                            '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '<UUID>'
-                                        ),
-                                        -- Remove Unix timestamps (13+ digit numbers)
-                                        '[0-9]{13,}', '<TIMESTAMP>'
-                                    ),
-                                    -- Remove ISO timestamps like "2025-11-08T14:14:59.655Z"
-                                    '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}', '<TIMESTAMP>'
-                                ),
-                                -- Remove response IDs
-                                'responseId[^,}]+', 'responseId:<RESPONSE_ID>'
-                            ),
-                            -- Remove project paths like projects/123/locations/us-west2/publishers/...
-                            'projects/[0-9]+/locations/[^/]+/publishers/[^/]+/models/[^ ,"\\}]+', 'projects/<ID>/locations/<REGION>/publishers/<PUBLISHER>/models/<MODEL>'
-                        ),
-                        -- Remove large numeric IDs (9+ digits like project IDs)
-                        '[0-9]{9,}', '<ID>'
-                        ) as normalized_error
-                    FROM events
-                    WHERE event IN ('$ai_generation', '$ai_span', '$ai_trace', '$ai_embedding')
-                        AND (notEmpty(JSONExtractString(properties, '$ai_error')) OR JSONExtractString(properties, '$ai_is_error') = 'true')
-                        AND {filters}
-                )
+                FROM token_counts_normalized
                 GROUP BY normalized_error
                 ORDER BY ${errorsSort.column} ${errorsSort.direction}
                 LIMIT 50

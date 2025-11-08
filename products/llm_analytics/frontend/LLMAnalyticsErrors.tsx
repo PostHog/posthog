@@ -1,8 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
+import { IconCopy } from '@posthog/icons'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -49,26 +53,53 @@ export function LLMAnalyticsErrors(): JSX.Element {
                             const displayValue =
                                 errorString.length > 80 ? errorString.slice(0, 77) + '...' : errorString
 
+                            // Extract a stable part of the error for filtering by removing our normalization placeholders
+                            // This gives us a pattern that should match the original errors
+                            const searchPattern = errorString
+                                .replace(/<ID>/g, '')
+                                .replace(/<TIMESTAMP>/g, '')
+                                .replace(/<PATH>/g, '')
+                                .replace(/<RESPONSE_ID>/g, '')
+                                .replace(/<TOOL_CALL_ID>/g, '')
+                                .replace(/<TOKEN_COUNT>/g, '')
+                                .replace(/\s+/g, ' ') // Collapse multiple spaces
+                                .trim()
+                                .slice(0, 100) // Take first 100 chars of the stable part
+
                             return (
-                                <Tooltip title={errorString}>
-                                    <Link
-                                        to={
-                                            combineUrl(urls.llmAnalyticsTraces(), {
-                                                filters: [
-                                                    {
-                                                        type: PropertyFilterType.Event,
-                                                        key: '$ai_error',
-                                                        operator: 'icontains' as any,
-                                                        value: errorValue,
-                                                    },
-                                                ],
-                                            }).url
-                                        }
-                                        className="font-mono text-sm"
-                                    >
-                                        {displayValue}
-                                    </Link>
-                                </Tooltip>
+                                <div className="flex items-center gap-1">
+                                    <Tooltip title={errorString}>
+                                        <Link
+                                            to={
+                                                combineUrl(urls.llmAnalyticsTraces(), {
+                                                    filters: [
+                                                        {
+                                                            type: PropertyFilterType.Event,
+                                                            key: '$ai_error',
+                                                            operator: 'icontains' as any,
+                                                            value: searchPattern,
+                                                        },
+                                                    ],
+                                                }).url
+                                            }
+                                            className="font-mono text-sm"
+                                        >
+                                            {displayValue}
+                                        </Link>
+                                    </Tooltip>
+                                    <LemonButton
+                                        size="xsmall"
+                                        noPadding
+                                        icon={<IconCopy />}
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            e.stopPropagation()
+                                            copyToClipboard(errorString, 'error')
+                                        }}
+                                        tooltip="Copy error to clipboard"
+                                        className="opacity-50 hover:opacity-100"
+                                    />
+                                </div>
                             )
                         },
                     },
