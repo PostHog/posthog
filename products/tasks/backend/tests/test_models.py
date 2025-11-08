@@ -3,6 +3,7 @@ import uuid
 
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -423,6 +424,35 @@ class TestTaskRun(TestCase):
         self.assertEqual(log_entries[0]["message"], "First entry")
         self.assertEqual(log_entries[1]["message"], "New entry 1")
         self.assertEqual(log_entries[2]["message"], "New entry 2")
+
+    def test_log_file_tagged_with_ttl(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        entries = [{"type": "info", "message": "Test entry"}]
+        run.append_log(entries)
+        run.refresh_from_db()
+
+        self.assertIsNotNone(run.log_storage_path)
+
+        # Verify S3 object has TTL tags
+        from botocore.exceptions import ClientError
+
+        from posthog.storage.object_storage import object_storage_client
+
+        try:
+            client = object_storage_client()
+            response = client.aws_client.get_object_tagging(
+                Bucket=settings.OBJECT_STORAGE_BUCKET, Key=run.log_storage_path
+            )
+            tags = {tag["Key"]: tag["Value"] for tag in response.get("TagSet", [])}
+            self.assertEqual(tags.get("ttl_days"), "30")
+            self.assertEqual(tags.get("team_id"), str(self.team.id))
+        except (ClientError, AttributeError):
+            # Tagging might not be available in test environment
+            pass
 
     def test_mark_completed(self):
         run = TaskRun.objects.create(

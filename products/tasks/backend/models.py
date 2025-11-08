@@ -295,7 +295,8 @@ class TaskRun(models.Model):
 
     def get_log_s3_path(self) -> str:
         """Generate S3 path for this run's logs"""
-        return f"task_run_logs/team_{self.team_id}/task_{self.task_id}/run_{self.id}.jsonl"
+        tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
+        return f"{tasks_folder}/logs/team_{self.team_id}/task_{self.task_id}/run_{self.id}.jsonl"
 
     def append_log(self, entries: list[dict]):
         """Append log entries to S3 storage."""
@@ -305,10 +306,12 @@ class TaskRun(models.Model):
             self.save(update_fields=["log_storage_path"])
 
         existing_content = ""
+        is_new_file = False
         try:
             existing_content = object_storage.read(self.log_storage_path) or ""
         except Exception as e:
             # File doesn't exist yet, that's fine for first write so we just ignore the error
+            is_new_file = True
             logger.debug(
                 "task_run.no_existing_logs",
                 task_run_id=str(self.id),
@@ -320,6 +323,24 @@ class TaskRun(models.Model):
         content = existing_content + ("\n" if existing_content else "") + new_lines
 
         object_storage.write(self.log_storage_path, content)
+
+        # Tag new files with 30-day TTL for S3 lifecycle management
+        if is_new_file:
+            try:
+                object_storage.tag(
+                    self.log_storage_path,
+                    {
+                        "ttl_days": "30",
+                        "team_id": str(self.team_id),
+                    },
+                )
+            except Exception as e:
+                logger.warning(
+                    "task_run.failed_to_tag_logs",
+                    task_run_id=str(self.id),
+                    log_storage_path=self.log_storage_path,
+                    error=str(e),
+                )
 
     def mark_completed(self):
         """Mark the progress as completed."""
