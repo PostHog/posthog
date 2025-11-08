@@ -1025,7 +1025,12 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                       boxClassName="flex flex-col w-full"
                   >
                       {!isCollapsed && (
-                          <div className={clsx('overflow-auto', isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96')}>
+                          <div
+                              className={clsx(
+                                  'flex flex-col overflow-auto',
+                                  isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96'
+                              )}
+                          >
                               <Query query={query} readOnly embedded />
                           </div>
                       )}
