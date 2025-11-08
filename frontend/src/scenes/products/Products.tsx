@@ -142,7 +142,7 @@ export function SelectableProductCard({
                         </p>
                     </div>
 
-                    <div className="flex flex-col-reverse sm:flex-col gap-6 md:gap-12 justify-center items-center w-full">
+                    <div className="flex flex-col gap-6 md:gap-12 justify-center items-center w-full">
                         {useCase ? (
                             // NEW LAYOUT: Horizontal cards with recommendations (when feature flag is ON)
                             <>
@@ -218,8 +218,8 @@ export function SelectableProductCard({
                                     )}
                             </>
                         ) : (
-                            // OLD LAYOUT: Vertical grid (when feature flag is OFF)
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6 justify-items-stretch w-full max-w-lg">
+                            // OLD LAYOUT: Flex wrap layout (when feature flag is OFF)
+                            <div className="flex flex-row flex-wrap gap-4 justify-center max-w-[680px]">
                                 {Object.keys(availableOnboardingProducts).map((productKey) => (
                                     <SelectableProductCard
                                         key={productKey}
@@ -229,6 +229,7 @@ export function SelectableProductCard({
                                         selected={selectedProducts.includes(productKey as ProductKey)}
                                         orientation="vertical"
                                         showDescription={false}
+                                        className="w-[160px]"
                                     />
                                 ))}
                             </div>
