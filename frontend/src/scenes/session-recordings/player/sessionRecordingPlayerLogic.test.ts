@@ -357,6 +357,8 @@ describe('sessionRecordingPlayerLogic', () => {
                     lastTimestamp: null,
                     watchTime: 0,
                     bufferTime: 0,
+                    firstPlayTime: undefined,
+                    firstPlayStartTime: undefined,
                 })
             })
 
@@ -479,6 +481,87 @@ describe('sessionRecordingPlayerLogic', () => {
                 // Buffer time should remain stable
                 expect(logic.values.playingTimeTracking.bufferTime).toBe(1000)
             })
+
+            describe('time_to_first_play_ms tracking', () => {
+                it('does not set firstPlayTime if playing for less than 1 second', () => {
+                    expect(logic.values.playingTimeTracking.firstPlayTime).toBeUndefined()
+
+                    logic.actions.setPlay()
+                    jest.advanceTimersByTime(500)
+
+                    expect(logic.values.playingTimeTracking.firstPlayTime).toBeUndefined()
+                    expect(logic.values.playingTimeTracking.firstPlayStartTime).toBeInstanceOf(Number)
+                })
+
+                it('sets firstPlayTime after playing continuously for 1 second', () => {
+                    expect(logic.values.playingTimeTracking.firstPlayTime).toBeUndefined()
+
+                    logic.actions.setPlay()
+                    jest.advanceTimersByTime(1000)
+                    jest.runOnlyPendingTimers()
+
+                    expect(logic.values.playingTimeTracking.firstPlayTime).toBeInstanceOf(Number)
+                    expect(typeof logic.values.playingTimeTracking.firstPlayTime).toBe('number')
+                })
+
+                it('resets firstPlayStartTime if paused before 1 second', () => {
+                    logic.actions.setPlay()
+                    jest.advanceTimersByTime(500)
+
+                    expect(logic.values.playingTimeTracking.firstPlayStartTime).toBeInstanceOf(Number)
+
+                    logic.actions.setPause()
+
+                    expect(logic.values.playingTimeTracking.firstPlayStartTime).toBeUndefined()
+                    expect(logic.values.playingTimeTracking.firstPlayTime).toBeUndefined()
+                })
+
+                it('resets firstPlayStartTime if buffering before 1 second', () => {
+                    logic.actions.setPlay()
+                    jest.advanceTimersByTime(500)
+
+                    expect(logic.values.playingTimeTracking.firstPlayStartTime).toBeInstanceOf(Number)
+
+                    logic.actions.startBuffer()
+
+                    expect(logic.values.playingTimeTracking.firstPlayStartTime).toBeUndefined()
+                    expect(logic.values.playingTimeTracking.firstPlayTime).toBeUndefined()
+                })
+
+                it('only sets firstPlayTime once, even after multiple play sessions', () => {
+                    logic.actions.setPlay()
+                    jest.advanceTimersByTime(1000)
+                    jest.runOnlyPendingTimers()
+
+                    const firstPlayTime = logic.values.playingTimeTracking.firstPlayTime
+                    expect(firstPlayTime).toBeInstanceOf(Number)
+
+                    logic.actions.setPause()
+                    jest.advanceTimersByTime(1000)
+
+                    logic.actions.setPlay()
+                    jest.advanceTimersByTime(2000)
+                    jest.runOnlyPendingTimers()
+
+                    expect(logic.values.playingTimeTracking.firstPlayTime).toBe(firstPlayTime)
+                })
+
+                it('correctly retries after interruption', () => {
+                    logic.actions.setPlay()
+                    jest.advanceTimersByTime(500)
+                    logic.actions.setPause()
+
+                    expect(logic.values.playingTimeTracking.firstPlayTime).toBeUndefined()
+
+                    jest.advanceTimersByTime(1000)
+
+                    logic.actions.setPlay()
+                    jest.advanceTimersByTime(1000)
+                    jest.runOnlyPendingTimers()
+
+                    expect(logic.values.playingTimeTracking.firstPlayTime).toBeInstanceOf(Number)
+                })
+            })
         })
 
         describe('recording viewed summary analytics', () => {
@@ -493,6 +576,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 // Simulate user interaction that generates play time
                 logic.actions.setPlay()
                 jest.advanceTimersByTime(1000) // Advance time by 1 second
+                jest.runOnlyPendingTimers() // Trigger the firstPlayTime timeout
                 logic.actions.setPause()
 
                 logic.actions.incrementClickCount()
@@ -508,6 +592,7 @@ describe('sessionRecordingPlayerLogic', () => {
                         viewed_time_ms: expect.any(Number),
                         play_time_ms: 1000,
                         buffer_time_ms: 0,
+                        time_to_first_play_ms: expect.any(Number),
                         rrweb_warning_count: 2,
                         error_count_during_recording_playback: 1,
                         engagement_score: 1,
