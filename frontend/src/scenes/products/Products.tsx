@@ -26,8 +26,6 @@ export const scene: SceneExport = {
 const isValidIconKey = (key: string): key is keyof typeof Icons => key in Icons
 type AvailableOnboardingProductKey = keyof typeof availableOnboardingProducts
 const AVAILABLE_ONBOARDING_PRODUCT_KEYS = Object.keys(availableOnboardingProducts) as AvailableOnboardingProductKey[]
-const isAvailableOnboardingProductKey = (key: string | ProductKey): key is AvailableOnboardingProductKey =>
-    key in availableOnboardingProducts
 
 export function getProductIcon(color: string, iconKey?: string | null, className?: string): JSX.Element {
     const resolvedKey: keyof typeof Icons = iconKey && isValidIconKey(iconKey) ? iconKey : 'IconLogomark'
