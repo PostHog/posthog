@@ -45,6 +45,7 @@ import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { DashboardPlacement, EventType } from '~/types'
 
+import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
@@ -597,6 +598,27 @@ export function LLMAnalyticsScene(): JSX.Element {
             'data-attr': 'users-tab',
         },
     ]
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_ERRORS_TAB]) {
+        tabs.push({
+            key: 'errors',
+            label: (
+                <>
+                    Errors{' '}
+                    <LemonTag className="ml-1" type="warning">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsErrors />
+                </LLMAnalyticsSetupPrompt>
+            ),
+            link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
+            'data-attr': 'errors-tab',
+        })
+    }
 
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]) {
         tabs.push({

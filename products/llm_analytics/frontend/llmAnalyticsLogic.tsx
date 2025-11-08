@@ -109,6 +109,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         setTracesQuery: (query: DataTableNode) => ({ query }),
         setSessionsSort: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
         setUsersSort: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
+        setErrorsSort: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
         setGenerationsSort: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
         refreshAllDashboardItems: true,
         setRefreshStatus: (tileId: string, loading?: boolean) => ({ tileId, loading }),
@@ -201,6 +202,13 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             { column: 'last_seen', direction: 'DESC' } as { column: string; direction: 'ASC' | 'DESC' },
             {
                 setUsersSort: (_, { column, direction }) => ({ column, direction }),
+            },
+        ],
+
+        errorsSort: [
+            { column: 'last_seen', direction: 'DESC' } as { column: string; direction: 'ASC' | 'DESC' },
+            {
+                setErrorsSort: (_, { column, direction }) => ({ column, direction }),
             },
         ],
 
@@ -541,6 +549,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     return 'traces'
                 } else if (sceneKey === 'llmAnalyticsUsers') {
                     return 'users'
+                } else if (sceneKey === 'llmAnalyticsErrors') {
+                    return 'errors'
                 } else if (sceneKey === 'llmAnalyticsSessions') {
                     return 'sessions'
                 } else if (sceneKey === 'llmAnalyticsPlayground') {
@@ -1141,6 +1151,115 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 allowSorting: true,
             }),
         ],
+        errorsQuery: [
+            (s) => [
+                s.dateFilter,
+                s.shouldFilterTestAccounts,
+                s.propertyFilters,
+                s.errorsSort,
+                groupsModel.selectors.groupsTaxonomicTypes,
+            ],
+            (
+                dateFilter,
+                shouldFilterTestAccounts,
+                propertyFilters,
+                errorsSort,
+                groupsTaxonomicTypes
+            ): DataTableNode => ({
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                SELECT
+                    normalized_error as error,
+                    countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
+                    count() as generations,
+                    countDistinctIf(ai_session_id, notEmpty(ai_session_id)) as sessions,
+                    uniq(distinct_id) as users,
+                    uniq(toDate(timestamp)) as days_seen,
+                    round(sum(toFloat(ai_total_cost_usd)), 4) as total_cost,
+                    min(timestamp) as first_seen,
+                    max(timestamp) as last_seen
+                FROM (
+                    SELECT
+                        distinct_id,
+                        timestamp,
+                        JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
+                        JSONExtractRaw(properties, '$ai_session_id') as ai_session_id,
+                        JSONExtractRaw(properties, '$ai_total_cost_usd') as ai_total_cost_usd,
+                        -- Extract and normalize error message from $ai_error property
+                        -- Try extracting from various JSON structures, then normalize by removing dynamic IDs
+                        replaceRegexpAll(
+                            replaceRegexpAll(
+                                replaceRegexpAll(
+                                    -- Extract message using if/then chain
+                                    if(
+                                        notEmpty(JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'message')),
+                                        JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'message'),
+                                        if(
+                                            notEmpty(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'message')),
+                                            JSONExtractString(JSONExtractString(properties, '$ai_error'), 'message'),
+                                            if(
+                                                notEmpty(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error')),
+                                                JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'),
+                                                JSONExtractString(properties, '$ai_error')
+                                            )
+                                        )
+                                    ),
+                                    -- Remove request IDs like "req_4eaf36431a034e73bad025076aedc2cc"
+                                    'req_[a-zA-Z0-9]+', '<REQ_ID>'
+                                ),
+                                -- Remove UUIDs (8-4-4-4-12 format)
+                                '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '<UUID>'
+                            ),
+                            -- Remove timestamps (13+ digit numbers, typically millisecond timestamps)
+                            '\\b[0-9]{13,}\\b', '<TIMESTAMP>'
+                        ) as normalized_error
+                    FROM events
+                    WHERE event IN ('$ai_generation', '$ai_span')
+                        AND (notEmpty(JSONExtractString(properties, '$ai_error')) OR JSONExtractString(properties, '$ai_is_error') = 'true')
+                        AND {filters}
+                )
+                GROUP BY normalized_error
+                ORDER BY ${errorsSort.column} ${errorsSort.direction}
+                LIMIT 50
+                    `,
+                    filters: {
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || null,
+                            date_to: dateFilter.dateTo || null,
+                        },
+                        filterTestAccounts: shouldFilterTestAccounts,
+                        properties: propertyFilters,
+                    },
+                },
+                columns: [
+                    'error',
+                    'traces',
+                    'generations',
+                    'sessions',
+                    'users',
+                    'days_seen',
+                    'total_cost',
+                    'first_seen',
+                    'last_seen',
+                ],
+                showDateRange: true,
+                showReload: true,
+                showSearch: true,
+                showPropertyFilter: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    ...groupsTaxonomicTypes,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ],
+                showTestAccountFilters: true,
+                showExport: true,
+                showColumnConfigurator: true,
+                allowSorting: true,
+            }),
+        ],
         sessionsQuery: [
             (s) => [
                 s.dateFilter,
@@ -1266,6 +1385,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsErrors()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsSessions()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
         }
