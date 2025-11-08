@@ -167,8 +167,8 @@ export function PlayerController(): JSX.Element {
             <Seekbar />
             <div className="w-full px-2 py-1 relative flex items-center justify-between" ref={ref}>
                 <div className="flex gap-0.5 items-center justify-center">
-                    <SeekSkip direction="backward" />
                     <PlayPauseButton />
+                    <SeekSkip direction="backward" />
                     <SeekSkip direction="forward" />
                     <Timestamp size={size} />
                 </div>
