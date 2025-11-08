@@ -46,35 +46,41 @@ export function SelectableProductCard({
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[productKey]
     const vertical = orientation === 'vertical'
     return (
-        <LemonCard
-            data-attr={`${productKey}-onboarding-card`}
-            className={clsx('flex justify-center cursor-pointer', vertical ? 'flex-col' : 'items-center', className)}
-            key={productKey}
-            onClick={onClick}
-            focused={selected}
-        >
-            {onboardingCompleted && (
-                <Tooltip
-                    title="You've already set up this product. Click to return to this product's page."
-                    placement="right"
-                >
-                    <div
-                        className="relative"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            router.actions.push(getProductUri(productKey as ProductKey))
-                        }}
-                        data-attr={`return-to-${productKey}`}
+        <Tooltip title={product.description} placement="top">
+            <LemonCard
+                data-attr={`${productKey}-onboarding-card`}
+                className={clsx(
+                    'flex justify-center cursor-pointer',
+                    vertical ? 'flex-col' : 'items-center',
+                    className
+                )}
+                key={productKey}
+                onClick={onClick}
+                focused={selected}
+            >
+                {onboardingCompleted && (
+                    <Tooltip
+                        title="You've already set up this product. Click to return to this product's page."
+                        placement="right"
                     >
-                        <IconCheckCircle className="absolute top-0 right-0" color="green" />
-                    </div>
-                </Tooltip>
-            )}
-            <div className="grid grid-rows-[repeat(2,_48px)] justify-items-center select-none">
-                <div className="self-center">{getProductIcon(product.iconColor, product.icon, 'text-2xl')}</div>
-                <div className="font-bold text-center self-start text-md">{product.name}</div>
-            </div>
-        </LemonCard>
+                        <div
+                            className="relative"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                router.actions.push(getProductUri(productKey as ProductKey))
+                            }}
+                            data-attr={`return-to-${productKey}`}
+                        >
+                            <IconCheckCircle className="absolute top-0 right-0" color="green" />
+                        </div>
+                    </Tooltip>
+                )}
+                <div className="grid grid-rows-[repeat(2,_48px)] justify-items-center select-none">
+                    <div className="self-center">{getProductIcon(product.iconColor, product.icon, 'text-2xl')}</div>
+                    <div className="font-bold text-center self-start text-md">{product.name}</div>
+                </div>
+            </LemonCard>
+        </Tooltip>
     )
 }
 
