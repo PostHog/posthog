@@ -206,7 +206,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         ],
 
         errorsSort: [
-            { column: 'last_seen', direction: 'DESC' } as { column: string; direction: 'ASC' | 'DESC' },
+            { column: 'generations', direction: 'DESC' } as { column: string; direction: 'ASC' | 'DESC' },
             {
                 setErrorsSort: (_, { column, direction }) => ({ column, direction }),
             },
@@ -1177,7 +1177,6 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     countDistinctIf(ai_session_id, notEmpty(ai_session_id)) as sessions,
                     uniq(distinct_id) as users,
                     uniq(toDate(timestamp)) as days_seen,
-                    round(sum(toFloat(ai_total_cost_usd)), 4) as total_cost,
                     min(timestamp) as first_seen,
                     max(timestamp) as last_seen
                 FROM (
@@ -1186,7 +1185,6 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         timestamp,
                         JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
                         JSONExtractRaw(properties, '$ai_session_id') as ai_session_id,
-                        JSONExtractRaw(properties, '$ai_total_cost_usd') as ai_total_cost_usd,
                         -- Extract and normalize error message from $ai_error property
                         -- Try extracting from various JSON structures, then normalize by removing dynamic IDs
                         replaceRegexpAll(
@@ -1240,7 +1238,6 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     'sessions',
                     'users',
                     'days_seen',
-                    'total_cost',
                     'first_seen',
                     'last_seen',
                 ],

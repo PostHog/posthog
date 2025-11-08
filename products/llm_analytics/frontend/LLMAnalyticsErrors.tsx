@@ -113,19 +113,6 @@ export function LLMAnalyticsErrors(): JSX.Element {
                             </Tooltip>
                         ),
                     },
-                    total_cost: {
-                        renderTitle: () => (
-                            <Tooltip title="Total cost of all generations with this error">
-                                {renderSortableColumnTitle('total_cost', 'Cost')}
-                            </Tooltip>
-                        ),
-                        render: function RenderCost({ value }) {
-                            if (!value || !Number(value)) {
-                                return <span>N/A</span>
-                            }
-                            return <span>${Number(value).toFixed(4)}</span>
-                        },
-                    },
                 },
             }}
             uniqueKey="llm-analytics-errors"
