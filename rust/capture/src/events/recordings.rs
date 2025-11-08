@@ -265,16 +265,17 @@ pub async fn process_replay_events<'a>(
         event_name: "$snapshot_items".to_string(),
     };
 
-    // Serialize snapshot data on blocking thread pool to avoid blocking executor
-    let serialized_data = serialize_snapshot_data_async(
-        distinct_id.clone(),
-        session_id.clone(),
-        window_id.clone(),
-        snapshot_source.clone(),
-        snapshot_items,
-        snapshot_library.clone(),
-    )
-    .await?;
+    // Serialize snapshot data synchronously
+    // Benchmarks show that sync serialization performs better under high concurrency (50-100+ requests)
+    // than offloading to spawn_blocking, which has significant overhead
+    let serialized_data = serialize_snapshot_data_sync(
+        &distinct_id,
+        &session_id,
+        &window_id,
+        &snapshot_source,
+        &snapshot_items,
+        &snapshot_library,
+    );
 
     let event = CapturedEvent {
         uuid,
@@ -307,12 +308,12 @@ pub async fn serialize_snapshot_data_async(
 ) -> Result<String, CaptureError> {
     tokio::task::spawn_blocking(move || {
         serialize_snapshot_data_sync(
-            distinct_id,
-            session_id,
-            window_id,
-            snapshot_source,
-            snapshot_items,
-            snapshot_library,
+            &distinct_id,
+            &session_id,
+            &window_id,
+            &snapshot_source,
+            &snapshot_items,
+            &snapshot_library,
         )
     })
     .await
@@ -328,12 +329,12 @@ pub async fn serialize_snapshot_data_async(
 /// Synchronously serialize snapshot data to JSON string
 /// This function is CPU-intensive and should be called from a blocking thread pool
 pub fn serialize_snapshot_data_sync(
-    distinct_id: String,
-    session_id: Value,
-    window_id: Value,
-    snapshot_source: Value,
-    snapshot_items: Vec<Value>,
-    snapshot_library: String,
+    distinct_id: &str,
+    session_id: &Value,
+    window_id: &Value,
+    snapshot_source: &Value,
+    snapshot_items: &Vec<Value>,
+    snapshot_library: &String,
 ) -> String {
     json!({
         "event": "$snapshot_items",
