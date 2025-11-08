@@ -313,12 +313,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
 
         # Verify logs are stored in S3
-        self.assertIsNotNone(run.log_storage_path)
+        assert run.log_storage_path is not None
         self.assertTrue(run.has_s3_logs)
 
         log_content = object_storage.read(run.log_storage_path)
-        self.assertIsNotNone(log_content)
-        assert log_content is not None  # Type narrowing for mypy
+        assert log_content is not None
 
         # Parse newline-delimited JSON
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
@@ -355,12 +354,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
 
         # All logs should be stored in S3
-        self.assertIsNotNone(run.log_storage_path)
+        assert run.log_storage_path is not None
         self.assertTrue(run.has_s3_logs)
 
         log_content = object_storage.read(run.log_storage_path)
-        self.assertIsNotNone(log_content)
-        assert log_content is not None  # Type narrowing for mypy
+        assert log_content is not None
 
         # Parse newline-delimited JSON
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]

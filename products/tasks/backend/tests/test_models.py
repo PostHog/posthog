@@ -361,11 +361,10 @@ class TestTaskRun(TestCase):
         run.append_log(entries)
         run.refresh_from_db()
 
-        self.assertIsNotNone(run.log_storage_path)
+        assert run.log_storage_path is not None
         self.assertTrue(run.has_s3_logs)
         log_content = object_storage.read(run.log_storage_path)
-        self.assertIsNotNone(log_content)
-        assert log_content is not None  # Type narrowing for mypy
+        assert log_content is not None
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
         self.assertEqual(len(log_entries), 1)
@@ -386,12 +385,11 @@ class TestTaskRun(TestCase):
         run.append_log(entries)
         run.refresh_from_db()
 
-        self.assertIsNotNone(run.log_storage_path)
+        assert run.log_storage_path is not None
         self.assertTrue(run.has_s3_logs)
 
         log_content = object_storage.read(run.log_storage_path)
-        self.assertIsNotNone(log_content)
-        assert log_content is not None  # Type narrowing for mypy
+        assert log_content is not None
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
         self.assertEqual(len(log_entries), 3)
@@ -415,12 +413,11 @@ class TestTaskRun(TestCase):
         run.append_log(new_entries)
         run.refresh_from_db()
 
-        self.assertIsNotNone(run.log_storage_path)
+        assert run.log_storage_path is not None
         self.assertTrue(run.has_s3_logs)
 
         log_content = object_storage.read(run.log_storage_path)
-        self.assertIsNotNone(log_content)
-        assert log_content is not None  # Type narrowing for mypy
+        assert log_content is not None
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
         self.assertEqual(len(log_entries), 3)
