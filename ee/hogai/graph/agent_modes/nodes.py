@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Mapping, Sequence
-from typing import TYPE_CHECKING, Literal, TypeVar
+from typing import TYPE_CHECKING, ClassVar, Literal, TypeVar, cast
 from uuid import uuid4
 
 import structlog
@@ -72,6 +72,7 @@ from .prompts import (
 
 if TYPE_CHECKING:
     from ee.hogai.tool import MaxTool
+    from ee.hogai.tools.todo_write import TodoWriteExample
 
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage | ContextMessage
@@ -91,7 +92,30 @@ logger = structlog.get_logger(__name__)
 
 
 class AgentToolkit:
-    def __init__(self, *, team: Team, user: User, context_manager: AssistantContextManager):
+    POSITIVE_TODO_EXAMPLES: ClassVar[Sequence["TodoWriteExample"] | None] = None
+    """
+    Positive examples that will be injected into the `todo_write` tool. Use this field to explain the agent how it should orchestrate complex tasks using provided tools.
+    """
+    NEGATIVE_TODO_EXAMPLES: ClassVar[Sequence["TodoWriteExample"] | None] = None
+    """
+    Negative examples that will be injected into the `todo_write` tool. Use this field to explain the agent how it should **NOT** orchestrate tasks using provided tools.
+    """
+
+    def __init__(
+        self,
+        *,
+        team: Team,
+        user: User,
+        context_manager: AssistantContextManager,
+    ):
+        """
+        Initialize the agent toolkit.
+
+        Args:
+            team: The team to use for the agent.
+            user: The user to use for the agent.
+            context_manager: The context manager to use for the agent.
+        """
         self._team = team
         self._user = user
         self._context_manager = context_manager
@@ -116,17 +140,29 @@ class AgentToolkit:
         available_tools: list[MaxTool] = []
 
         # Initialize the static toolkit
-        dynamic_tools = (
-            tool_class.create_tool_class(
-                team=self._team,
-                user=self._user,
-                state=state,
-                config=config,
-                context_manager=self._context_manager,
-            )
-            for tool_class in tool_classes
-        )
-        available_tools.extend(await asyncio.gather(*dynamic_tools))
+        static_tools: list[Awaitable[MaxTool]] = []
+        for tool_class in tool_classes:
+            if tool_class is TodoWriteTool:
+                todo_future = cast(type[TodoWriteTool], tool_class).create_tool_class(
+                    team=self._team,
+                    user=self._user,
+                    state=state,
+                    config=config,
+                    context_manager=self._context_manager,
+                    positive_examples=self.POSITIVE_TODO_EXAMPLES,
+                    negative_examples=self.NEGATIVE_TODO_EXAMPLES,
+                )
+                static_tools.append(todo_future)
+            else:
+                tool_future = tool_class.create_tool_class(
+                    team=self._team,
+                    user=self._user,
+                    state=state,
+                    config=config,
+                    context_manager=self._context_manager,
+                )
+                static_tools.append(tool_future)
+        available_tools.extend(await asyncio.gather(*static_tools))
 
         # Inject contextual tools
         tool_names = self._context_manager.get_contextual_tools().keys()
@@ -145,7 +181,13 @@ class AgentToolkit:
                 )
             )
 
-        available_tools.extend(await asyncio.gather(*awaited_contextual_tools))
+        contextual_tools = await asyncio.gather(*awaited_contextual_tools)
+
+        # Deduplicate contextual tools
+        initialized_tool_names = {tool.get_name() for tool in available_tools}
+        for tool in contextual_tools:
+            if tool.get_name() not in initialized_tool_names:
+                available_tools.append(tool)
 
         return available_tools
 
@@ -430,7 +472,7 @@ class AgentExecutable(BaseAgentExecutable):
         self, generated_message: AssistantMessage, current_mode: AgentMode | None
     ) -> AgentMode | None:
         for tool_call in generated_message.tool_calls or []:
-            if tool_call.name == "switch_mode" and (new_mode := validate_mode(tool_call.args.get("mode"))):
+            if tool_call.name == "switch_mode" and (new_mode := validate_mode(tool_call.args.get("new_mode"))):
                 return new_mode
         return current_mode
 
