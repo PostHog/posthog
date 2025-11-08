@@ -20,21 +20,21 @@ npx @posthog/wizard@latest mcp add
 
 ```json
 {
-  "mcpServers": {
-    "posthog": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "mcp-remote@latest",
-        "https://mcp.posthog.com/mcp", // You can replace this with https://mcp.posthog.com/sse if your client does not support Streamable HTTP
-        "--header",
-        "Authorization:${POSTHOG_AUTH_HEADER}"
-      ],
-      "env": {
-        "POSTHOG_AUTH_HEADER": "Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}"
-      }
+    "mcpServers": {
+        "posthog": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "mcp-remote@latest",
+                "https://mcp.posthog.com/mcp", // You can replace this with https://mcp.posthog.com/sse if your client does not support Streamable HTTP
+                "--header",
+                "Authorization:${POSTHOG_AUTH_HEADER}"
+            ],
+            "env": {
+                "POSTHOG_AUTH_HEADER": "Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}"
+            }
+        }
     }
-  }
 }
 ```
 
@@ -51,27 +51,27 @@ If you want to call MCP from Node (outside an IDE), use the Model Context Protoc
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js'
+import { URL } from 'node:url'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { URL } from 'node:url'
 
 const AUTH = process.env.POSTHOG_AUTH_HEADER // "Bearer phx_…"
 const MCP_URL = process.env.MCP_URL || 'https://mcp.posthog.com/mcp'
 
 if (!AUTH?.startsWith('Bearer ')) {
-  console.error('Set POSTHOG_AUTH_HEADER="Bearer phx_..."')
-  process.exit(1)
+    console.error('Set POSTHOG_AUTH_HEADER="Bearer phx_..."')
+    process.exit(1)
 }
 
 const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), {
-  requestInit: {
-    headers: {
-      Authorization: AUTH,
-      // Required for Streamable HTTP (JSON + SSE)
-      Accept: 'application/json, text/event-stream',
+    requestInit: {
+        headers: {
+            Authorization: AUTH,
+            // Required for Streamable HTTP (JSON + SSE)
+            Accept: 'application/json, text/event-stream',
+        },
     },
-  },
-  serverInfo: { name: 'example-node-client', version: '0.0.1' },
+    serverInfo: { name: 'example-node-client', version: '0.0.1' },
 })
 
 const client = new Client({ name: 'example-node-client', version: '0.0.1' })
@@ -115,26 +115,26 @@ docker build -t posthog-mcp .
 
 ```json
 {
-  "mcpServers": {
-    "posthog": {
-      "type": "stdio",
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "--env",
-        "POSTHOG_AUTH_HEADER=${POSTHOG_AUTH_HEADER}",
-        "--env",
-        "POSTHOG_REMOTE_MCP_URL=${POSTHOG_REMOTE_MCP_URL:-https://mcp.posthog.com/mcp}",
-        "posthog-mcp"
-      ],
-      "env": {
-        "POSTHOG_AUTH_HEADER": "Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}",
-        "POSTHOG_REMOTE_MCP_URL": "https://mcp.posthog.com/mcp"
-      }
+    "mcpServers": {
+        "posthog": {
+            "type": "stdio",
+            "command": "docker",
+            "args": [
+                "run",
+                "-i",
+                "--rm",
+                "--env",
+                "POSTHOG_AUTH_HEADER=${POSTHOG_AUTH_HEADER}",
+                "--env",
+                "POSTHOG_REMOTE_MCP_URL=${POSTHOG_REMOTE_MCP_URL:-https://mcp.posthog.com/mcp}",
+                "posthog-mcp"
+            ],
+            "env": {
+                "POSTHOG_AUTH_HEADER": "Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}",
+                "POSTHOG_REMOTE_MCP_URL": "https://mcp.posthog.com/mcp"
+            }
+        }
     }
-  }
 }
 ```
 
@@ -248,5 +248,14 @@ Alternatively, you can use the following configuration in the MCP Inspector:
 
 Use transport type `STDIO`.
 
-- **Command**: `npx`
-- **Arguments**: `-y mcp-remote@latest http://localhost:8787/mcp --header "Authorization: Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}"`
+**Command:**
+
+```bash
+npx
+```
+
+**Arguments:**
+
+```bash
+-y mcp-remote@latest http://localhost:8787/mcp --header "Authorization: Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}"
+```
