@@ -425,9 +425,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_create_event_definition_with_description(self):
         """Test creating an event definition with enterprise fields"""
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
-        )
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
 
         response = self.client.post(
             "/api/projects/@current/event_definitions/",
@@ -460,9 +458,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_create_event_definition_with_verified(self):
         """Test creating a verified event definition"""
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
-        )
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
 
         response = self.client.post(
             "/api/projects/@current/event_definitions/",
@@ -487,9 +483,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_create_event_definition_with_hidden(self):
         """Test creating a hidden event definition"""
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
-        )
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
 
         response = self.client.post(
             "/api/projects/@current/event_definitions/",
@@ -511,9 +505,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_create_event_definition_cannot_be_both_hidden_and_verified(self):
         """Test that an event cannot be both hidden and verified"""
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
-        )
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
 
         response = self.client.post(
             "/api/projects/@current/event_definitions/",

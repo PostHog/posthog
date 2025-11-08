@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from uuid import uuid4
 
 from freezegun.api import freeze_time
@@ -298,7 +298,8 @@ class TestEventDefinitionAPI(APIBaseTest):
         ).first()
         assert activity_log is not None
         assert activity_log.detail is not None
-        assert activity_log.detail["name"] == "my_custom_event"
+        detail = cast(dict[str, Any], activity_log.detail)
+        assert detail["name"] == "my_custom_event"
 
     def test_create_event_definition_duplicate_name(self):
         """Test that creating an event with a duplicate name fails"""

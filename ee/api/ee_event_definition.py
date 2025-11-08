@@ -96,6 +96,10 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
         if not request:
             raise serializers.ValidationError("Request context is required")
 
+        # Type narrowing for mypy
+        assert view is not None
+        assert request is not None
+
         # Handle enterprise-specific fields
         if "updated_by" not in validated_data and request.user:
             validated_data["updated_by"] = request.user

@@ -132,6 +132,9 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         if not view:
             raise serializers.ValidationError("View context is required")
 
+        # Type narrowing for mypy
+        assert view is not None
+
         validated_data["team_id"] = view.team_id
         validated_data["project_id"] = view.project_id
         # Set timestamps to None - will be populated when first real event is ingested
