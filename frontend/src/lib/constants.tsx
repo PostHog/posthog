@@ -162,7 +162,6 @@ export const FEATURE_FLAGS = {
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
     PERSON_BATCH_EXPORTS: 'person-batch-exports', // owner: @tomasfarias
-    SESSIONS_BATCH_EXPORTS: 'sessions-batch-exports', // owner: @tomasfarias
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     ARTIFICIAL_HOG: 'artificial-hog', // owner: #team-posthog-ai
     SIDEBAR_ANALYTICS_PRIORITIZATION: 'sidebar-analytics-prioritization', // owner: @lricoy #team-web-analytics
@@ -200,6 +199,7 @@ export const FEATURE_FLAGS = {
     QUERY_CACHE_USE_S3: 'query-cache-use-s3', // owner: @aspicer #team-product-analytics
     DASHBOARD_THREADS: 'dashboard-threads', // owner: @aspicer #team-product-analytics
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
+    LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD: 'llm-analytics-customizable-dashboard', // owner: #team-llm-analytics
     BATCH_EXPORTS_DATABRICKS: 'databricks-batch-exports', // owner: @rossgray #team-batch-exports
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
     WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success
