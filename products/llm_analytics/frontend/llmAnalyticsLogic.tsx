@@ -1214,19 +1214,19 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                                             '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '<UUID>'
                                         ),
                                         -- Remove Unix timestamps (13+ digit numbers)
-                                        '\\b[0-9]{13,}\\b', '<TIMESTAMP>'
+                                        '[0-9]{13,}', '<TIMESTAMP>'
                                     ),
                                     -- Remove ISO timestamps like "2025-11-08T14:14:59.655Z"
-                                    '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3,6}Z?', '<TIMESTAMP>'
+                                    '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}', '<TIMESTAMP>'
                                 ),
-                                -- Remove response IDs like "responseId":"_E4Paf3yKeWXgLUPwLGRuQ4"
-                                '"responseId":"[^"]+"', '"responseId":"<RESPONSE_ID>"'
+                                -- Remove response IDs
+                                'responseId[^,}]+', 'responseId:<RESPONSE_ID>'
                             ),
                             -- Remove large numeric IDs (9+ digits like project IDs)
-                            '\\b\\d{9,}\\b', '<ID>'
+                            '[0-9]{9,}', '<ID>'
                         ) as normalized_error
                     FROM events
-                    WHERE event IN ('$ai_generation', '$ai_span')
+                    WHERE event IN ('$ai_generation', '$ai_span', '$ai_trace', '$ai_embedding')
                         AND (notEmpty(JSONExtractString(properties, '$ai_error')) OR JSONExtractString(properties, '$ai_is_error') = 'true')
                         AND {filters}
                 )
