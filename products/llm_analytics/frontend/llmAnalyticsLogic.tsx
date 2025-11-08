@@ -1222,8 +1222,11 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                                 -- Remove response IDs
                                 'responseId[^,}]+', 'responseId:<RESPONSE_ID>'
                             ),
-                            -- Remove large numeric IDs (9+ digits like project IDs)
-                            '[0-9]{9,}', '<ID>'
+                            -- Remove project paths like projects/123/locations/us-west2/publishers/...
+                            'projects/[0-9]+/locations/[^/]+/publishers/[^/]+/models/[^ ,"\\}]+', 'projects/<ID>/locations/<REGION>/publishers/<PUBLISHER>/models/<MODEL>'
+                        ),
+                        -- Remove large numeric IDs (9+ digits like project IDs)
+                        '[0-9]{9,}', '<ID>'
                         ) as normalized_error
                     FROM events
                     WHERE event IN ('$ai_generation', '$ai_span', '$ai_trace', '$ai_embedding')
