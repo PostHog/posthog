@@ -31,7 +31,11 @@ When NOT to use this tool:
 """.strip()
 
 SWITCH_MODE_TOOL_PROMPT = """
-Switched to mode {{{new_mode}}}.
+Switched to the {{{new_mode}}} mode.
+""".strip()
+
+SWITCH_MODE_FAILURE_PROMPT = """
+Failed to switch to the {{{new_mode}}} mode.
 """.strip()
 
 
@@ -95,7 +99,9 @@ class SwitchModeTool(MaxTool):
     context_prompt_template: str = "N/A"  # TODO:
 
     async def _arun_impl(self, new_mode: str) -> tuple[str, str]:
-        return format_prompt_string(SWITCH_MODE_TOOL_PROMPT, new_mode=new_mode), new_mode
+        if self._state.agent_mode == new_mode:
+            return format_prompt_string(SWITCH_MODE_TOOL_PROMPT, new_mode=new_mode), new_mode
+        return format_prompt_string(SWITCH_MODE_FAILURE_PROMPT, new_mode=new_mode), new_mode
 
     @classmethod
     async def create_tool_class(

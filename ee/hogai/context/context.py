@@ -392,22 +392,25 @@ class AssistantContextManager(AssistantContextMixin):
             mode_prompt := self._get_mode_prompt(state.agent_mode)
         ):
             prompts.append(mode_prompt)
-        if contextual_tools := self._get_contextual_tools_prompt():
+        if contextual_tools := await self._get_contextual_tools_prompt():
             prompts.append(contextual_tools)
         if ui_context := await self._format_ui_context(self.get_ui_context(state)):
             prompts.append(ui_context)
         return self._deduplicate_context_messages(state, prompts)
 
-    def _get_contextual_tools_prompt(self) -> str | None:
+    async def _get_contextual_tools_prompt(self) -> str | None:
         from ee.hogai.registry import get_contextual_tool_class
 
-        contextual_tools_prompt = [
-            f"<{tool_name}>\n"
-            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_context_prompt_injection(tool_context)}\n"  # type: ignore
-            f"</{tool_name}>"
-            for tool_name, tool_context in self.get_contextual_tools().items()
-            if get_contextual_tool_class(tool_name) is not None
-        ]
+        contextual_tools_prompt: list[str] = []
+        for tool_name, tool_context in self.get_contextual_tools().items():
+            tool_class = get_contextual_tool_class(tool_name)
+            if tool_class is None:
+                continue
+            tool = await tool_class.create_tool_class(team=self._team, user=self._user, context_manager=self)
+            contextual_tools_prompt.append(
+                f"<{tool_name}>\n" f"{tool.format_context_prompt_injection(tool_context)}\n" f"</{tool_name}>"
+            )
+
         if contextual_tools_prompt:
             tools = "\n".join(contextual_tools_prompt)
             return CONTEXTUAL_TOOLS_REMINDER_PROMPT.format(tools=tools)
