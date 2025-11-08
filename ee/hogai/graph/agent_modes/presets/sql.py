@@ -2,9 +2,10 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
-from ee.hogai.graph.agent_modes.factory import AgentModeDefinition
-from ee.hogai.graph.agent_modes.nodes import AgentToolkit
 from ee.hogai.tools import ExecuteSQLTool
+
+from ..factory import AgentModeDefinition
+from ..nodes import AgentToolkit
 
 if TYPE_CHECKING:
     from ee.hogai.tool import MaxTool
