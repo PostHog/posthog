@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { Link, combineUrl } from 'kea-router'
+import { combineUrl } from 'kea-router'
 
+import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
