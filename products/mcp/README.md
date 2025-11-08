@@ -42,60 +42,60 @@ npx @posthog/wizard@latest mcp add
 
 If you want to call MCP from Node (outside an IDE), use the Model Context Protocol SDK’s **Streamable HTTP** transport.
 
-- **Auth:** Use a **personal** PostHog API key and pass it as a Bearer token in `Authorization`.  
-- **Accept header:** Clients **must** include `Accept: application/json, text/event-stream`.  
+- **Auth:** Use a **personal** PostHog API key and pass it as a Bearer token in `Authorization`.
+- **Accept header:** Clients **must** include `Accept: application/json, text/event-stream`.
 - **Lifecycle:** MCP requires `initialize` then a client `notifications/initialized`; the SDK performs this during `connect()`.
 
 ```js
 // tools-list.mjs
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js';
-import { URL } from 'node:url';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js'
+import { URL } from 'node:url'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
-const AUTH = process.env.POSTHOG_AUTH_HEADER; // "Bearer phx_…"
-const MCP_URL = process.env.MCP_URL || 'https://mcp.posthog.com/mcp';
+const AUTH = process.env.POSTHOG_AUTH_HEADER // "Bearer phx_…"
+const MCP_URL = process.env.MCP_URL || 'https://mcp.posthog.com/mcp'
 
 if (!AUTH?.startsWith('Bearer ')) {
-  console.error('Set POSTHOG_AUTH_HEADER="Bearer phx_..."');
-  process.exit(1);
+    console.error('Set POSTHOG_AUTH_HEADER="Bearer phx_..."')
+    process.exit(1)
 }
 
 const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), {
-  requestInit: {
-    headers: {
-      Authorization: AUTH,
-      // Required for Streamable HTTP (JSON + SSE)
-      Accept: 'application/json, text/event-stream',
+    requestInit: {
+        headers: {
+            Authorization: AUTH,
+            // Required for Streamable HTTP (JSON + SSE)
+            Accept: 'application/json, text/event-stream',
+        },
     },
-  },
-  serverInfo: { name: 'example-node-client', version: '0.0.1' },
-});
+    serverInfo: { name: 'example-node-client', version: '0.0.1' },
+})
 
-const client = new Client({ name: 'example-node-client', version: '0.0.1' });
+const client = new Client({ name: 'example-node-client', version: '0.0.1' })
 
 // Handles initialize + notifications/initialized
-await client.connect(transport);
+await client.connect(transport)
 
-const toolsResp = await client.request({ method: 'tools/list' }, ListToolsResultSchema); // { tools: [...] }
-const tools = toolsResp?.tools ?? [];
-console.log('Tools:', tools.length);
+const toolsResp = await client.request({ method: 'tools/list' }, ListToolsResultSchema) // { tools: [...] }
+const tools = toolsResp?.tools ?? []
+console.log('Tools:', tools.length)
 
 // (Optional) Save the full JSON-RPC envelope to a file (run from repo root)
-const envelope = { jsonrpc: '2.0', id: 'list-1', result: toolsResp };
-mkdirSync('reports', { recursive: true });
-writeFileSync(join('reports', 'tools-list-http.json'), JSON.stringify(envelope, null, 2));
-console.log('Saved: reports/tools-list-http.json');
+const envelope = { jsonrpc: '2.0', id: 'list-1', result: toolsResp }
+mkdirSync('reports', { recursive: true })
+writeFileSync(join('reports', 'tools-list-http.json'), JSON.stringify(envelope, null, 2))
+console.log('Saved: reports/tools-list-http.json')
 
-await client.close();
+await client.close()
 ```
 
 **Why these headers & steps?**
 
-* Streamable HTTP requires the `Accept` header to include **both** JSON and SSE.
-* After `initialize`, the client must send `notifications/initialized`; the SDK does this for you in `connect()`.
+- Streamable HTTP requires the `Accept` header to include **both** JSON and SSE.
+- After `initialize`, the client must send `notifications/initialized`; the SDK does this for you in `connect()`.
 
 See also the main PostHog MCP docs for available tools and setup flows: [https://posthog.com/docs/model-context-protocol](https://posthog.com/docs/model-context-protocol)
 
