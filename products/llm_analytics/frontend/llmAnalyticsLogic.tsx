@@ -1190,28 +1190,40 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         replaceRegexpAll(
                             replaceRegexpAll(
                                 replaceRegexpAll(
-                                    -- Extract message using if/then chain
-                                    if(
-                                        notEmpty(JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'message')),
-                                        JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'message'),
-                                        if(
-                                            notEmpty(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'message')),
-                                            JSONExtractString(JSONExtractString(properties, '$ai_error'), 'message'),
-                                            if(
-                                                notEmpty(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error')),
-                                                JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'),
-                                                JSONExtractString(properties, '$ai_error')
-                                            )
-                                        )
+                                    replaceRegexpAll(
+                                        replaceRegexpAll(
+                                            replaceRegexpAll(
+                                                -- Extract message using if/then chain
+                                                if(
+                                                    notEmpty(JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'message')),
+                                                    JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'message'),
+                                                    if(
+                                                        notEmpty(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'message')),
+                                                        JSONExtractString(JSONExtractString(properties, '$ai_error'), 'message'),
+                                                        if(
+                                                            notEmpty(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error')),
+                                                            JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'),
+                                                            JSONExtractString(properties, '$ai_error')
+                                                        )
+                                                    )
+                                                ),
+                                                -- Remove request IDs like "req_4eaf36431a034e73bad025076aedc2cc"
+                                                'req_[a-zA-Z0-9]+', '<REQ_ID>'
+                                            ),
+                                            -- Remove UUIDs (8-4-4-4-12 format)
+                                            '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '<UUID>'
+                                        ),
+                                        -- Remove Unix timestamps (13+ digit numbers)
+                                        '\\b[0-9]{13,}\\b', '<TIMESTAMP>'
                                     ),
-                                    -- Remove request IDs like "req_4eaf36431a034e73bad025076aedc2cc"
-                                    'req_[a-zA-Z0-9]+', '<REQ_ID>'
+                                    -- Remove ISO timestamps like "2025-11-08T14:14:59.655Z"
+                                    '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3,6}Z?', '<TIMESTAMP>'
                                 ),
-                                -- Remove UUIDs (8-4-4-4-12 format)
-                                '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '<UUID>'
+                                -- Remove response IDs like "responseId":"_E4Paf3yKeWXgLUPwLGRuQ4"
+                                '"responseId":"[^"]+"', '"responseId":"<RESPONSE_ID>"'
                             ),
-                            -- Remove timestamps (13+ digit numbers, typically millisecond timestamps)
-                            '\\b[0-9]{13,}\\b', '<TIMESTAMP>'
+                            -- Remove large numeric IDs (9+ digits like project IDs)
+                            '\\b\\d{9,}\\b', '<ID>'
                         ) as normalized_error
                     FROM events
                     WHERE event IN ('$ai_generation', '$ai_span')
