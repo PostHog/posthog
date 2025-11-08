@@ -1,3 +1,5 @@
+import json
+
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
@@ -9,6 +11,7 @@ from rest_framework.test import APIClient
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
+from posthog.storage import object_storage
 
 from products.tasks.backend.models import Task, TaskRun
 
@@ -313,13 +316,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertIsNotNone(run.log_storage_path)
         self.assertTrue(run.has_s3_logs)
 
-        # Read from S3 and verify content
-        import json
-
-        from posthog.storage import object_storage
-
         log_content = object_storage.read(run.log_storage_path)
         self.assertIsNotNone(log_content)
+        assert log_content is not None  # Type narrowing for mypy
 
         # Parse newline-delimited JSON
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
@@ -359,13 +358,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertIsNotNone(run.log_storage_path)
         self.assertTrue(run.has_s3_logs)
 
-        # Read from S3 and verify all entries
-        import json
-
-        from posthog.storage import object_storage
-
         log_content = object_storage.read(run.log_storage_path)
         self.assertIsNotNone(log_content)
+        assert log_content is not None  # Type narrowing for mypy
 
         # Parse newline-delimited JSON
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]

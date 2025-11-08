@@ -365,6 +365,7 @@ class TestTaskRun(TestCase):
         self.assertTrue(run.has_s3_logs)
         log_content = object_storage.read(run.log_storage_path)
         self.assertIsNotNone(log_content)
+        assert log_content is not None  # Type narrowing for mypy
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
         self.assertEqual(len(log_entries), 1)
@@ -390,6 +391,7 @@ class TestTaskRun(TestCase):
 
         log_content = object_storage.read(run.log_storage_path)
         self.assertIsNotNone(log_content)
+        assert log_content is not None  # Type narrowing for mypy
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
         self.assertEqual(len(log_entries), 3)
@@ -418,6 +420,7 @@ class TestTaskRun(TestCase):
 
         log_content = object_storage.read(run.log_storage_path)
         self.assertIsNotNone(log_content)
+        assert log_content is not None  # Type narrowing for mypy
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
         self.assertEqual(len(log_entries), 3)
@@ -440,16 +443,17 @@ class TestTaskRun(TestCase):
         # Verify S3 object has TTL tags
         from botocore.exceptions import ClientError
 
-        from posthog.storage.object_storage import object_storage_client
+        from posthog.storage.object_storage import ObjectStorage, object_storage_client
 
         try:
             client = object_storage_client()
-            response = client.aws_client.get_object_tagging(
-                Bucket=settings.OBJECT_STORAGE_BUCKET, Key=run.log_storage_path
-            )
-            tags = {tag["Key"]: tag["Value"] for tag in response.get("TagSet", [])}
-            self.assertEqual(tags.get("ttl_days"), "30")
-            self.assertEqual(tags.get("team_id"), str(self.team.id))
+            if isinstance(client, ObjectStorage):
+                response = client.aws_client.get_object_tagging(
+                    Bucket=settings.OBJECT_STORAGE_BUCKET, Key=run.log_storage_path
+                )
+                tags = {tag["Key"]: tag["Value"] for tag in response.get("TagSet", [])}
+                self.assertEqual(tags.get("ttl_days"), "30")
+                self.assertEqual(tags.get("team_id"), str(self.team.id))
         except (ClientError, AttributeError):
             # Tagging might not be available in test environment
             pass
