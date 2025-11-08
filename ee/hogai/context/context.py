@@ -9,6 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
 
 from posthog.schema import (
+    AgentMode,
     ContextMessage,
     FunnelsQuery,
     HogQLQuery,
@@ -36,10 +37,12 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
-from ee.hogai.utils.helpers import find_start_message, insert_messages_before_start
+from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
+from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AnyAssistantSupportedQuery, AssistantMessageUnion, BaseStateWithMessages
 
 from .prompts import (
+    CONTEXT_MODE_PROMPT,
     CONTEXTUAL_TOOLS_REMINDER_PROMPT,
     ROOT_DASHBOARD_CONTEXT_PROMPT,
     ROOT_DASHBOARDS_CONTEXT_PROMPT,
@@ -385,6 +388,10 @@ class AssistantContextManager(AssistantContextMixin):
 
     async def _get_context_prompts(self, state: BaseStateWithMessages) -> list[str]:
         prompts: list[str] = []
+        if find_start_message_idx(state.messages, state.start_id) == 0 and (
+            mode_prompt := self._get_mode_prompt(state.agent_mode)
+        ):
+            prompts.append(mode_prompt)
         if contextual_tools := self._get_contextual_tools_prompt():
             prompts.append(contextual_tools)
         if ui_context := await self._format_ui_context(self.get_ui_context(state)):
@@ -417,3 +424,6 @@ class AssistantContextManager(AssistantContextMixin):
         context_messages = [ContextMessage(content=prompt, id=str(uuid4())) for prompt in context_prompts]
         # Insert context messages right before the start message
         return insert_messages_before_start(state.messages, context_messages, start_id=state.start_id)
+
+    def _get_mode_prompt(self, mode: AgentMode | None) -> str:
+        return format_prompt_string(CONTEXT_MODE_PROMPT, mode=mode.value if mode else AgentMode.PRODUCT_ANALYTICS.value)

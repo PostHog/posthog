@@ -12,14 +12,8 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AssistantMessage
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.tools.search import (
-    DOC_ITEM_TEMPLATE,
-    DOCS_SEARCH_RESULTS_TEMPLATE,
-    EMPTY_DATABASE_ERROR_MESSAGE,
-    InkeepDocsSearchTool,
-    InsightSearchTool,
-    SearchTool,
-)
+from ee.hogai.tools import InkeepDocsSearchTool, InsightSearchTool, SearchTool
+from ee.hogai.tools.search import DOC_ITEM_TEMPLATE, DOCS_SEARCH_RESULTS_TEMPLATE, EMPTY_DATABASE_ERROR_MESSAGE
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import NodePath

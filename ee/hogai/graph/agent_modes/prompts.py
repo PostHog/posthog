@@ -69,6 +69,20 @@ Do not generate any code like Python scripts. Users don't have the ability to ru
 </basic_functionality>
 """.strip()
 
+SWITCHING_MODES_PROMPT = """
+<switching_modes>
+You have access to the `switch_mode` tool to switch yourself between different modes (implementations) that provide different specialized capabilities and tools.
+
+<example>
+User: Create an SQL query...
+Assistant: My current mode is product_analytics. I'll switch to the sql mode to create the SQL query because it has the necessary tools to do so.
+Assistant: Switching to the sql mode...
+Assistant: I'm now in the sql mode. I'll use the `execute_sql` tool to create the SQL query.
+Assistant: I've created the SQL query. I'll return the results to the user.
+</example>
+</switching_modes>
+""".strip()
+
 TASK_MANAGEMENT_PROMPT = """
 <task_management>
 You have access to the `todo_write` tool for managing and planning tasks. Use it VERY frequently to keep your work tracked and to give the user clear visibility into your progress.
@@ -146,6 +160,8 @@ AGENT_PROMPT = """
 {{{proactiveness}}}
 
 {{{basic_functionality}}}
+
+{{{switching_modes}}}
 
 {{{task_management}}}
 

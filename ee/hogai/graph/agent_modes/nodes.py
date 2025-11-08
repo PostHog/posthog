@@ -17,17 +17,25 @@ from langgraph.errors import NodeInterrupt
 from langgraph.types import Send
 from posthoganalytics import capture_exception
 
-from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMessage, FailureMessage, HumanMessage
+from posthog.schema import (
+    AgentMode,
+    AssistantMessage,
+    AssistantToolCallMessage,
+    ContextMessage,
+    FailureMessage,
+    HumanMessage,
+)
 
 from posthog.models import Team, User
 
 from ee.hogai.context import AssistantContextManager
+from ee.hogai.graph.agent_modes.mode_manager import validate_mode
 from ee.hogai.graph.base import BaseExecutableAssistantNode
 from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSummarizer
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import ToolMessagesArtifact
-from ee.hogai.tools import ReadDataTool, ReadTaxonomyTool, SearchTool, TodoWriteTool
+from ee.hogai.tools import ReadDataTool, ReadTaxonomyTool, SearchTool, SwitchModeTool, TodoWriteTool
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.prompt import format_prompt_string
@@ -55,6 +63,7 @@ from .prompts import (
     ROOT_GROUPS_PROMPT,
     ROOT_HARD_LIMIT_REACHED_PROMPT,
     ROOT_TOOL_DOES_NOT_EXIST,
+    SWITCHING_MODES_PROMPT,
     TASK_MANAGEMENT_PROMPT,
     TONE_AND_STYLE_PROMPT,
     TOOL_USAGE_POLICY_PROMPT,
@@ -75,6 +84,7 @@ DEFAULT_TOOLS: list[type["MaxTool"]] = [
     ReadDataTool,
     SearchTool,
     TodoWriteTool,
+    SwitchModeTool,
 ]
 
 logger = structlog.get_logger(__name__)
@@ -98,7 +108,7 @@ class AgentToolkit:
         return []
 
     async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list["MaxTool"]:
-        from ee.hogai.registry import get_contextual_tool_class
+        from ee.hogai.tool import get_contextual_tool_class
 
         tool_classes: list[type[MaxTool]] = [*self.default_tools, *self.custom_tools]
 
@@ -239,6 +249,7 @@ class AgentNode(BaseAgentNode):
             root_tool_calls_count=tool_call_count,
             root_conversation_start_id=window_id,
             start_id=start_id,
+            agent_mode=self._get_updated_agent_mode(assistant_message, state.agent_mode),
         )
 
     def router(self, state: AssistantState):
@@ -260,6 +271,7 @@ class AgentNode(BaseAgentNode):
         - `{{{writing_style}}}`
         - `{{{proactiveness}}}`
         - `{{{basic_functionality}}}`
+        - `{{{switching_modes}}}`
         - `{{{task_management}}}`
         - `{{{doing_tasks}}}`
         - `{{{tool_usage_policy}}}`
@@ -288,6 +300,7 @@ class AgentNode(BaseAgentNode):
             writing_style=WRITING_STYLE_PROMPT,
             proactiveness=PROACTIVENESS_PROMPT,
             basic_functionality=BASIC_FUNCTIONALITY_PROMPT,
+            switching_modes=SWITCHING_MODES_PROMPT,
             task_management=TASK_MANAGEMENT_PROMPT,
             doing_tasks=DOING_TASKS_PROMPT,
             tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,
@@ -406,6 +419,14 @@ class AgentNode(BaseAgentNode):
     def _process_output_message(self, message: LangchainAIMessage) -> AssistantMessage:
         """Process the output message."""
         return normalize_ai_message(message)
+
+    def _get_updated_agent_mode(
+        self, generated_message: AssistantMessage, current_mode: AgentMode | None
+    ) -> AgentMode | None:
+        for tool_call in generated_message.tool_calls or []:
+            if tool_call.name == "switch_mode" and (new_mode := validate_mode(tool_call.args.get("mode"))):
+                return new_mode
+        return current_mode
 
 
 class AgentToolsNode(BaseAgentNode):
