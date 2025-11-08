@@ -166,11 +166,11 @@ export function PlayerController(): JSX.Element {
         >
             <Seekbar />
             <div className="w-full px-2 py-1 relative flex items-center justify-between" ref={ref}>
-                <Timestamp size={size} />
                 <div className="flex gap-0.5 items-center justify-center">
                     <SeekSkip direction="backward" />
                     <PlayPauseButton />
                     <SeekSkip direction="forward" />
+                    <Timestamp size={size} />
                 </div>
                 <div className="flex justify-end items-center">
                     {!isCinemaMode && ModesWithInteractions.includes(playerMode) && (
