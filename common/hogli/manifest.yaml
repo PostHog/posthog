@@ -342,6 +342,11 @@ migrations:
         description: Sync feature flags from configuration
         services:
             - postgresql
+    migrations:sync-user-settings:
+        cmd: python manage.py sync_user_settings
+        description: Sync your user settings from PostHog cloud to local dev environment. Requires API key.
+        services:
+            - postgresql
 tests:
     test:python:
         cmd: pytest
