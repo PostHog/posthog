@@ -24,14 +24,14 @@ use crate::{
 #[serde(untagged)]
 enum RecordingPayload {
     Array(Vec<RawRecording>),
-    One(RawRecording),
+    One(Box<RawRecording>),
 }
 
 impl RecordingPayload {
     fn into_vec(self) -> Vec<RawRecording> {
         match self {
             RecordingPayload::Array(events) => events,
-            RecordingPayload::One(event) => vec![event],
+            RecordingPayload::One(event) => vec![*event],
         }
     }
 }
@@ -50,7 +50,7 @@ impl RecordingPayload {
 pub async fn handle_recording_payload(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
-    mut query_params: &mut EventQuery,
+    query_params: &mut EventQuery,
     headers: &HeaderMap,
     method: &Method,
     path: &MatchedPath,
@@ -63,7 +63,7 @@ pub async fn handle_recording_payload(
 
     // Extract payload bytes and metadata using shared helper
     let (data, compression, lib_version) =
-        extract_payload_bytes(&mut query_params, headers, method, body)?;
+        extract_payload_bytes(query_params, headers, method, body)?;
 
     Span::current().record("compression", format!("{compression}"));
     Span::current().record("lib_version", &lib_version);

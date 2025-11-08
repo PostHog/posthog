@@ -162,7 +162,7 @@ mod tests {
         assert_eq!(metadata.user_agent, "test-agent");
         assert_eq!(metadata.content_type, "application/json");
         assert_eq!(metadata.request_id, "req-123");
-        assert_eq!(metadata.is_mirror_deploy, false);
+        assert!(!metadata.is_mirror_deploy);
     }
 
     #[test]
@@ -175,7 +175,7 @@ mod tests {
         assert_eq!(metadata.content_type, "unknown");
         assert_eq!(metadata.content_encoding, "unknown");
         assert_eq!(metadata.request_id, "unknown");
-        assert_eq!(metadata.is_mirror_deploy, true);
+        assert!(metadata.is_mirror_deploy);
     }
 
     #[test]

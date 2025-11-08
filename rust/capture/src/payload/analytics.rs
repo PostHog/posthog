@@ -43,7 +43,7 @@ use crate::{
 pub async fn handle_event_payload(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
-    mut query_params: &mut EventQuery,
+    query_params: &mut EventQuery,
     headers: &HeaderMap,
     method: &Method,
     path: &MatchedPath,
@@ -61,13 +61,13 @@ pub async fn handle_event_payload(
     //     - lib_version = SDK version that submitted the request
 
     // capture arguments and add to logger, processing context
-    let metadata = extract_and_record_metadata(&headers, path.as_str(), state.is_mirror_deploy);
+    let metadata = extract_and_record_metadata(headers, path.as_str(), state.is_mirror_deploy);
 
     debug!("entering handle_event_payload");
 
     // Extract payload bytes and metadata using shared helper
     let (data, compression, lib_version) =
-        extract_payload_bytes(&mut query_params, &headers, &method, body)?;
+        extract_payload_bytes(query_params, headers, method, body)?;
 
     Span::current().record("compression", format!("{compression}"));
     Span::current().record("lib_version", &lib_version);

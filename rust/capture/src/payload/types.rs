@@ -188,15 +188,15 @@ mod tests {
     fn test_event_query_beacon_deserialization() {
         let json = r#"{"beacon":1}"#;
         let query: EventQuery = serde_json::from_str(json).unwrap();
-        assert_eq!(query.beacon, true);
+        assert!(query.beacon);
 
         let json = r#"{"beacon":0}"#;
         let query: EventQuery = serde_json::from_str(json).unwrap();
-        assert_eq!(query.beacon, false);
+        assert!(!query.beacon);
 
         let json = r#"{}"#;
         let query: EventQuery = serde_json::from_str(json).unwrap();
-        assert_eq!(query.beacon, false);
+        assert!(!query.beacon);
     }
 
     #[test]
