@@ -12,8 +12,8 @@
 .scene-tab-active-indicator::before,
 .scene-tab-active-indicator::after {
     position: absolute;
-    content: '';
     bottom: 0.2px;
+    content: '';
     width: 12px;
     height: 12px;
     background-color: var(--color-bg-surface-tertiary);
