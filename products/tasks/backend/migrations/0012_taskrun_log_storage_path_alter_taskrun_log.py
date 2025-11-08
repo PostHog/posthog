@@ -12,9 +12,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="taskrun",
             name="log_storage_path",
-            field=models.CharField(
-                blank=True, help_text="S3 path to log file (if stored in S3)", max_length=500, null=True
-            ),
+            field=models.CharField(blank=True, help_text="S3 path to log file", max_length=500, null=True),
         ),
         migrations.AlterField(
             model_name="taskrun",
