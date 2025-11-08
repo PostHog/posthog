@@ -35,18 +35,18 @@ The assistant used the todo list because:
 
 POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS = """
 User: Has eleventy churned?
-Assistant: Let me first search for a company with name "eleventy".
-*Uses the search tool to find a property value with the "eleventy" value in the project*
-Assistant: I've found a property value with the "Eleventy.ai" value. I'm going to search for existing insights tracking the customer churn rate.
-*Uses the search tools to find insights tracking the customer churn rate in the project*
-Assistant: I've found 0 matching insights. Let me create a new insight checking if the company "Eleventy.ai" has churned. I'm going to create a todo list to track these changes.
-*Creates a todo list with specific steps to create a new insight*
+Assistant: Let me first check the insights or events and properties to understand how we can track churn.
+*Uses the search tool to find insights and the read_taxonomy tool to find events and properties that can be used to track churn*
+Assistant: I haven't found any combinations of events and properties that can be used to track churn. Let me check how we can identify the company by a name in the project.
+*Uses the read_taxonomy tool to find properties that can be used to identify the company by a name in the project*
+Assistant: I've found properties that can be used to identify the company by a name in the project. I'm going to create an SQL query to find a specific company by a name.
+*Creates a todo list with specific steps to create a new SQL query*
 """.strip()
 
 POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS_REASONING = """
 The assistant used the todo list because:
 1. First, the assistant searched to understand the scope of the task
-2. After the assistant verified that there isn't an insight tracking the customer churn rate, it determined this was a complex task with multiple steps
+2. After the assistant verified that there isn't an insight or combination of events and properties tracking the customer churn rate, it determined this was a complex task with multiple steps
 3. The todo list helps ensure every instance is tracked and updated systematically
 """.strip()
 
@@ -125,6 +125,6 @@ class SQLAgentToolkit(AgentToolkit):
 
 sql_agent = AgentModeDefinition(
     mode=AgentMode.SQL,
-    mode_description="Specialized mode capable of generating and executing SQL queries.",
+    mode_description="Specialized mode capable of generating and executing SQL queries. This mode allows you to query the ClickHouse database, which contains both data collected by PostHog (events, groups, persons, sessions) and data warehouse sources connected by the user, such as SQL tables, CRMs, and external systems. This mode can also be used to search for specific data that can be used in other modes.",
     toolkit_class=SQLAgentToolkit,
 )

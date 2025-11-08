@@ -39,7 +39,6 @@ class ExecuteSQLToolArgs(BaseModel):
 
 class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
     name: str = "execute_sql"
-    thinking_message: str = "Coming up with an SQL query"
     args_schema: type[BaseModel] = ExecuteSQLToolArgs
     context_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
     show_tool_call_message: bool = False
