@@ -1170,7 +1170,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 source: {
                     kind: NodeKind.HogQLQuery,
                     query: `
-                -- Error normalization pipeline: extract -> normalize IDs -> normalize UUIDs -> normalize timestamps -> normalize paths -> normalize response IDs -> normalize tool call IDs -> normalize token counts
+                -- Error normalization pipeline: extract -> normalize IDs -> normalize UUIDs -> normalize timestamps -> normalize paths -> normalize response IDs -> normalize tool call IDs -> normalize token counts -> normalize all remaining numbers
                 -- This multi-step CTE approach makes it easy to understand and maintain each normalization step
 
                 WITH extracted_errors AS (
@@ -1280,8 +1280,21 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         timestamp,
                         ai_trace_id,
                         ai_session_id,
-                        replaceRegexpAll(error_text, '"tokenCount":[0-9]+', '"tokenCount":<TOKEN_COUNT>') as normalized_error
+                        replaceRegexpAll(error_text, '"tokenCount":[0-9]+', '"tokenCount":<TOKEN_COUNT>') as error_text
                     FROM tool_call_ids_normalized
+                ),
+                all_numbers_normalized AS (
+                    -- Step 9: Normalize all remaining numbers as final fallback
+                    -- Catches any dynamic numbers not covered by specific patterns above (ports, sizes, counts, etc.)
+                    -- Applied last so specific normalizations take precedence
+                    -- Example: "port 8080" -> "port <N>", "size 1024" -> "size <N>"
+                    SELECT
+                        distinct_id,
+                        timestamp,
+                        ai_trace_id,
+                        ai_session_id,
+                        replaceRegexpAll(error_text, '[0-9]+', '<N>') as normalized_error
+                    FROM token_counts_normalized
                 )
                 -- Final aggregation: group by normalized error and calculate metrics
                 SELECT
@@ -1293,7 +1306,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     uniq(toDate(timestamp)) as days_seen,
                     min(timestamp) as first_seen,
                     max(timestamp) as last_seen
-                FROM token_counts_normalized
+                FROM all_numbers_normalized
                 GROUP BY normalized_error
                 ORDER BY ${errorsSort.column} ${errorsSort.direction}
                 LIMIT 50

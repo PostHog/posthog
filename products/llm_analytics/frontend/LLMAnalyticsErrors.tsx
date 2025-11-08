@@ -62,6 +62,7 @@ export function LLMAnalyticsErrors(): JSX.Element {
                                 .replace(/<RESPONSE_ID>/g, '')
                                 .replace(/<TOOL_CALL_ID>/g, '')
                                 .replace(/<TOKEN_COUNT>/g, '')
+                                .replace(/<N>/g, '')
                                 .replace(/\s+/g, ' ') // Collapse multiple spaces
                                 .trim()
                                 .slice(0, 100) // Take first 100 chars of the stable part
