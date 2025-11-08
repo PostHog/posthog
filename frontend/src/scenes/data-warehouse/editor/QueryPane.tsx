@@ -74,7 +74,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                     </div>
                     <div className="absolute bottom-6 right-4">
                         <MaxTool
-                            identifier="generate_hogql_query"
+                            identifier="execute_sql"
                             context={{
                                 current_query: props.queryInput,
                             }}
