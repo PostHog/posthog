@@ -33,6 +33,7 @@ class MathGroupTypeIndex(float, Enum):
 class AgentMode(StrEnum):
     PRODUCT_ANALYTICS = "product_analytics"
     SQL = "sql"
+    SESSION_REPLAY = "session_replay"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -263,7 +264,6 @@ class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
 
 class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
-    GENERATE_HOGQL_QUERY = "generate_hogql_query"
     FIX_HOGQL_QUERY = "fix_hogql_query"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
     CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
@@ -289,6 +289,7 @@ class AssistantTool(StrEnum):
     CREATE_EXPERIMENT = "create_experiment"
     EXECUTE_SQL = "execute_sql"
     SWITCH_MODE = "switch_mode"
+    SUMMARIZE_SESSIONS = "summarize_sessions"
 
 
 class AssistantToolCall(BaseModel):

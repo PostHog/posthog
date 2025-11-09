@@ -344,7 +344,7 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql"],
+            "enum": ["product_analytics", "sql", "session_replay"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -1829,7 +1829,6 @@
         "AssistantTool": {
             "enum": [
                 "search_session_recordings",
-                "generate_hogql_query",
                 "fix_hogql_query",
                 "analyze_user_interviews",
                 "create_and_query_insight",
@@ -1854,7 +1853,8 @@
                 "create_feature_flag",
                 "create_experiment",
                 "execute_sql",
-                "switch_mode"
+                "switch_mode",
+                "summarize_sessions"
             ],
             "type": "string"
         },

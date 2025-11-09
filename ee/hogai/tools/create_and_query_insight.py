@@ -1,8 +1,11 @@
-from typing import Literal
+from typing import Literal, Self
 
+from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantTool, AssistantToolCallMessage, VisualizationMessage
+
+from posthog.models import Team, User
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.insights_graph.graph import InsightsGraph
@@ -10,7 +13,7 @@ from ee.hogai.graph.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types.base import AssistantNodeName, AssistantState
+from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, NodePath
 
 INSIGHT_TOOL_PROMPT = """
 Use this tool to generate an insight from a structured plan. It will return a visualization that the user will be able to analyze and textual representation for your analysis.
@@ -517,9 +520,25 @@ class CreateAndQueryInsightToolArgs(BaseModel):
 class CreateAndQueryInsightTool(MaxTool):
     name: Literal["create_and_query_insight"] = "create_and_query_insight"
     args_schema: type[BaseModel] = CreateAndQueryInsightToolArgs
-    description: str = INSIGHT_TOOL_PROMPT
     context_prompt_template: str = INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE
-    thinking_message: str = "Coming up with an insight"
+
+    @classmethod
+    async def create_tool_class(
+        cls,
+        *,
+        team: Team,
+        user: User,
+        node_path: tuple[NodePath, ...] | None = None,
+        state: AssistantState | None = None,
+        config: RunnableConfig | None = None,
+        context_manager: AssistantContextManager | None = None,
+    ) -> Self:
+        context_manager = context_manager or AssistantContextManager(team, user, config)
+        prompt = format_prompt_string(
+            INSIGHT_TOOL_PROMPT,
+            groups=await context_manager.get_group_names(),
+        )
+        return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
     async def _arun_impl(
         self, query_description: str, insight_type: InsightType

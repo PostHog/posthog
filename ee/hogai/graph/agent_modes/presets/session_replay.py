@@ -4,26 +4,23 @@ import posthoganalytics
 
 from posthog.schema import AgentMode
 
-from ee.hogai.tools import CreateAndQueryInsightTool, CreateDashboardTool
+from ee.hogai.tools.replay.summarize_sessions import SummarizeSessionsTool
 
-from ..factory import AgentModeDefinition
+from ..factory import AgentDefinition
 from ..nodes import AgentToolkit
 
 if TYPE_CHECKING:
     from ee.hogai.tool import MaxTool
 
 
-class ProductAnalyticsAgentToolkit(AgentToolkit):
+class SessionReplayAgentToolkit(AgentToolkit):
     @property
     def custom_tools(self) -> list[type["MaxTool"]]:
         tools: list[type[MaxTool]] = []
 
-        # The contextual insights tool overrides the static tool. Only inject if it's injected.
-        if not CreateAndQueryInsightTool.is_editing_mode(self._context_manager):
-            tools.append(CreateAndQueryInsightTool)
-
-        # Add other lower-priority tools
-        tools.append(CreateDashboardTool)
+        # Add session summarization tool if enabled
+        if self._has_session_summarization_feature_flag():
+            tools.append(SummarizeSessionsTool)
 
         return tools
 
@@ -40,8 +37,8 @@ class ProductAnalyticsAgentToolkit(AgentToolkit):
         )
 
 
-product_analytics_agent = AgentModeDefinition(
-    mode=AgentMode.PRODUCT_ANALYTICS,
-    mode_description="General-purpose mode for product analytics tasks.",
-    toolkit_class=ProductAnalyticsAgentToolkit,
+session_replay_agent = AgentDefinition(
+    mode=AgentMode.SESSION_REPLAY,
+    mode_description="Specialized mode for analyzing session recordings and user behavior. This mode allows you to get summaries of session recordings and insights about them in natural language.",
+    toolkit_class=SessionReplayAgentToolkit,
 )
