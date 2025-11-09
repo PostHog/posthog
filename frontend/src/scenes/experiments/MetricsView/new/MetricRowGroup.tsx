@@ -546,20 +546,15 @@ export function MetricRowGroup({
                                 className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
                                     !isLastMetric ? 'border-b' : ''
                                 } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
-                                style={{
-                                    height: `${CELL_HEIGHT}px`,
-                                    maxHeight: `${CELL_HEIGHT}px`,
-                                }}
                             >
-                                <MetricHeader
-                                    displayOrder={displayOrder}
-                                    metric={metric}
-                                    metricType={metricType}
-                                    isPrimaryMetric={!isSecondary}
-                                    experiment={experiment}
-                                    onDuplicateMetricClick={() => onDuplicateMetric?.()}
-                                    onBreakdownChange={onBreakdownChange}
-                                />
+                                {formatBreakdownLabel(
+                                    breakdownResult.breakdown_value,
+                                    metric.breakdownFilter,
+                                    [],
+                                    undefined,
+                                    0,
+                                    undefined
+                                )}
                             </td>
 
                             {/* Combined columns for loading/error state */}
