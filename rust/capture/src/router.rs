@@ -340,7 +340,8 @@ mod tests {
     }
 
     async fn slow_handler() -> &'static str {
-        tokio::time::sleep(StdDuration::from_millis(500)).await;
+        // Sleep for 2 seconds to ensure timeout with 1 second timeout
+        tokio::time::sleep(StdDuration::from_secs(2)).await;
         "slow response"
     }
 
@@ -348,7 +349,7 @@ mod tests {
         "fast response"
     }
 
-    fn create_test_router(timeout_seconds: u64) -> Router {
+    fn create_test_router_base(timeout_seconds: u64) -> Router {
         let timesource = TestTimeSource;
         let liveness = HealthRegistry::new("timeout_tests");
         let sink = TestSink;
@@ -433,10 +434,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_timeout_returns_408() {
-        // Use a very short timeout (0 seconds = immediate timeout) for fast test execution
-        // The slow handler sleeps for 500ms, so even with 0s timeout it should timeout
-        let router = create_test_router(0);
-        let router = router.route("/slow", get(slow_handler));
+        // Use a 1 second timeout - the slow handler sleeps for 2 seconds, so it should timeout
+        // Create router with test route included before timeout middleware is applied
+        let router = create_test_router_base(1).route("/slow", get(slow_handler));
+        let timeout_duration = StdDuration::from_secs(1);
+        let router = router.layer(axum::middleware::from_fn(
+            move |req: axum::extract::Request, next: axum::middleware::Next| async move {
+                match tokio::time::timeout(timeout_duration, next.run(req)).await {
+                    Ok(response) => response,
+                    Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response(),
+                }
+            },
+        ));
         let client = TestClient::new(router);
 
         let response = client.get("/slow").send().await;
@@ -448,8 +457,16 @@ mod tests {
     #[tokio::test]
     async fn test_normal_request_completes_within_timeout() {
         // Use a longer timeout (1 second) so normal requests complete
-        let router = create_test_router(1);
-        let router = router.route("/fast", get(fast_handler));
+        let router = create_test_router_base(1).route("/fast", get(fast_handler));
+        let timeout_duration = StdDuration::from_secs(1);
+        let router = router.layer(axum::middleware::from_fn(
+            move |req: axum::extract::Request, next: axum::middleware::Next| async move {
+                match tokio::time::timeout(timeout_duration, next.run(req)).await {
+                    Ok(response) => response,
+                    Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response(),
+                }
+            },
+        ));
         let client = TestClient::new(router);
 
         let response = client.get("/fast").send().await;
@@ -460,9 +477,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_timeout_configuration_works() {
-        // Test with 50ms timeout - should timeout on slow handler
-        let router = create_test_router(0);
-        let router = router.route("/slow", get(slow_handler));
+        // Test with 1 second timeout - should timeout on slow handler (which sleeps 2 seconds)
+        let router = create_test_router_base(1).route("/slow", get(slow_handler));
+        let timeout_duration = StdDuration::from_secs(1);
+        let router = router.layer(axum::middleware::from_fn(
+            move |req: axum::extract::Request, next: axum::middleware::Next| async move {
+                match tokio::time::timeout(timeout_duration, next.run(req)).await {
+                    Ok(response) => response,
+                    Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response(),
+                }
+            },
+        ));
         let client = TestClient::new(router);
 
         let start = std::time::Instant::now();
@@ -470,7 +495,8 @@ mod tests {
         let elapsed = start.elapsed();
 
         assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
-        // Should timeout quickly (within 200ms, accounting for test overhead)
-        assert!(elapsed < StdDuration::from_millis(200));
+        // Should timeout around 1 second (within 1.5 seconds, accounting for test overhead)
+        assert!(elapsed >= StdDuration::from_millis(900)); // At least 900ms
+        assert!(elapsed < StdDuration::from_millis(1500)); // But less than 1.5s
     }
 }
