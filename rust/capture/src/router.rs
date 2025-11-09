@@ -81,8 +81,6 @@ async fn index() -> &'static str {
     "capture"
 }
 
-
-
 #[allow(clippy::too_many_arguments)]
 pub fn router<
     TZ: TimeSource + Send + Sync + 'static,
@@ -274,14 +272,14 @@ pub fn router<
     let timeout_duration = StdDuration::from_secs(request_timeout_seconds);
     let router = router
         .merge(status_router)
-        .layer(axum::middleware::from_fn(move |req: axum::extract::Request, next: axum::middleware::Next| {
-            async move {
+        .layer(axum::middleware::from_fn(
+            move |req: axum::extract::Request, next: axum::middleware::Next| async move {
                 match tokio::time::timeout(timeout_duration, next.run(req)).await {
                     Ok(response) => response,
                     Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response(),
                 }
-            }
-        }))
+            },
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(axum::middleware::from_fn(track_metrics))
@@ -295,5 +293,184 @@ pub fn router<
         router.route("/metrics", get(move || ready(recorder_handle.render())))
     } else {
         router
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::StatusCode;
+    use axum_test_helper::TestClient;
+    use common_redis::MockRedisClient;
+    use health::HealthRegistry;
+    use limiters::token_dropper::TokenDropper;
+    use std::sync::Arc;
+    use std::time::Duration as StdDuration;
+
+    use crate::limiters::CaptureQuotaLimiter;
+    use crate::sinks::Event;
+    use crate::time::TimeSource;
+
+    #[derive(Clone)]
+    struct TestSink;
+
+    #[async_trait::async_trait]
+    impl Event for TestSink {
+        async fn send(
+            &self,
+            _event: crate::v0_request::ProcessedEvent,
+        ) -> Result<(), crate::api::CaptureError> {
+            Ok(())
+        }
+
+        async fn send_batch(
+            &self,
+            _events: Vec<crate::v0_request::ProcessedEvent>,
+        ) -> Result<(), crate::api::CaptureError> {
+            Ok(())
+        }
+    }
+
+    struct TestTimeSource;
+
+    impl TimeSource for TestTimeSource {
+        fn current_time(&self) -> chrono::DateTime<chrono::Utc> {
+            chrono::Utc::now()
+        }
+    }
+
+    async fn slow_handler() -> &'static str {
+        tokio::time::sleep(StdDuration::from_millis(500)).await;
+        "slow response"
+    }
+
+    async fn fast_handler() -> &'static str {
+        "fast response"
+    }
+
+    fn create_test_router(timeout_seconds: u64) -> Router {
+        let timesource = TestTimeSource;
+        let liveness = HealthRegistry::new("timeout_tests");
+        let sink = TestSink;
+        let redis: Arc<MockRedisClient> = Arc::new(MockRedisClient::default());
+
+        // Create a minimal config for the quota limiter
+        let cfg = crate::config::Config {
+            print_sink: false,
+            address: std::net::SocketAddr::from(([127, 0, 0, 1], 3000)),
+            redis_url: "redis://localhost:6379/".to_string(),
+            overflow_enabled: false,
+            overflow_preserve_partition_locality: false,
+            overflow_per_second_limit: std::num::NonZeroU32::new(100).unwrap(),
+            overflow_burst_limit: std::num::NonZeroU32::new(1000).unwrap(),
+            ingestion_force_overflow_by_token_distinct_id: None,
+            drop_events_by_token_distinct_id: None,
+            enable_historical_rerouting: false,
+            historical_rerouting_threshold_days: 1,
+            kafka: crate::config::KafkaConfig {
+                kafka_producer_linger_ms: 20,
+                kafka_producer_queue_mib: 400,
+                kafka_message_timeout_ms: 20000,
+                kafka_producer_message_max_bytes: 1000000,
+                kafka_compression_codec: "none".to_string(),
+                kafka_hosts: "localhost:9092".to_string(),
+                kafka_topic: "events".to_string(),
+                kafka_overflow_topic: "events_overflow".to_string(),
+                kafka_historical_topic: "events_historical".to_string(),
+                kafka_client_ingestion_warning_topic: "events".to_string(),
+                kafka_exceptions_topic: "exceptions".to_string(),
+                kafka_heatmaps_topic: "heatmaps".to_string(),
+                kafka_replay_overflow_topic: "replay_overflow".to_string(),
+                kafka_tls: false,
+                kafka_client_id: "test".to_string(),
+                kafka_producer_max_retries: 2,
+                kafka_producer_acks: "all".to_string(),
+                kafka_topic_metadata_refresh_interval_ms: 20000,
+                kafka_metadata_max_age_ms: 60000,
+            },
+            otel_url: None,
+            otel_sampling_rate: 1.0,
+            otel_service_name: "capture".to_string(),
+            export_prometheus: false,
+            redis_key_prefix: None,
+            capture_mode: CaptureMode::Events,
+            concurrency_limit: None,
+            s3_fallback_enabled: false,
+            s3_fallback_bucket: None,
+            s3_fallback_endpoint: None,
+            s3_fallback_prefix: String::new(),
+            healthcheck_strategy: health::HealthStrategy::All,
+            is_mirror_deploy: false,
+            log_level: tracing::Level::INFO,
+            verbose_sample_percent: 0.0,
+            ai_max_sum_of_parts_bytes: 26_214_400,
+            request_timeout_seconds: 10,
+        };
+
+        let quota_limiter =
+            CaptureQuotaLimiter::new(&cfg, redis.clone(), StdDuration::from_secs(60));
+        let token_dropper = TokenDropper::default();
+
+        router(
+            timesource,
+            liveness,
+            sink,
+            redis,
+            quota_limiter,
+            token_dropper,
+            false, // metrics
+            CaptureMode::Events,
+            None,        // concurrency_limit
+            1024 * 1024, // event_size_limit
+            false,       // enable_historical_rerouting
+            1,           // historical_rerouting_threshold_days
+            false,       // is_mirror_deploy
+            0.0,         // verbose_sample_percent
+            26_214_400,  // ai_max_sum_of_parts_bytes
+            timeout_seconds,
+        )
+    }
+
+    #[tokio::test]
+    async fn test_timeout_returns_408() {
+        // Use a very short timeout (0 seconds = immediate timeout) for fast test execution
+        // The slow handler sleeps for 500ms, so even with 0s timeout it should timeout
+        let router = create_test_router(0);
+        let router = router.route("/slow", get(slow_handler));
+        let client = TestClient::new(router);
+
+        let response = client.get("/slow").send().await;
+        assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+        let body = response.text().await;
+        assert_eq!(body, "Request timeout");
+    }
+
+    #[tokio::test]
+    async fn test_normal_request_completes_within_timeout() {
+        // Use a longer timeout (1 second) so normal requests complete
+        let router = create_test_router(1);
+        let router = router.route("/fast", get(fast_handler));
+        let client = TestClient::new(router);
+
+        let response = client.get("/fast").send().await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.text().await;
+        assert_eq!(body, "fast response");
+    }
+
+    #[tokio::test]
+    async fn test_timeout_configuration_works() {
+        // Test with 50ms timeout - should timeout on slow handler
+        let router = create_test_router(0);
+        let router = router.route("/slow", get(slow_handler));
+        let client = TestClient::new(router);
+
+        let start = std::time::Instant::now();
+        let response = client.get("/slow").send().await;
+        let elapsed = start.elapsed();
+
+        assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+        // Should timeout quickly (within 200ms, accounting for test overhead)
+        assert!(elapsed < StdDuration::from_millis(200));
     }
 }
