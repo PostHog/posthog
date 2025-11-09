@@ -352,7 +352,6 @@ class ExperimentQueryBuilder:
 
         assert isinstance(query, ast.SelectQuery)
 
-        include_exposure_condition = self.metric.funnel_order_type == StepOrderValue.UNORDERED
         # Inject breakdown columns into the query AST
         self._inject_funnel_breakdown_columns(query)
 
