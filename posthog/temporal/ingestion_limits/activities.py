@@ -1,9 +1,11 @@
 """Temporal activities for ingestion limits monitoring."""
 
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.conf import settings
+from django.core import validators
+from django.core.exceptions import ValidationError
 
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
@@ -19,12 +21,45 @@ from posthog.temporal.ingestion_limits.reporting import (
     send_to_slack,
 )
 from posthog.temporal.ingestion_limits.types import (
+    Classification,
     HighVolumeDistinctId,
     IngestionLimitsReport,
     IngestionLimitsWorkflowInput,
     ReportDestination,
     ReportIngestionLimitsInput,
 )
+
+
+def is_valid_email(value: str) -> bool:
+    """Check if a string is a valid email address using Django's built-in validator."""
+    try:
+        validators.validate_email(value)
+        return True
+    except ValidationError:
+        return False
+
+
+def is_valid_uuid(value: str) -> bool:
+    """Check if a string is a valid UUID using Python's built-in UUID class."""
+    try:
+        UUID(value)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def classify_distinct_id(distinct_id: str) -> Classification:
+    """Classify a distinct_id as UUID, EMAIL, or AMBIGUOUS."""
+    is_email = is_valid_email(distinct_id)
+    is_uuid = is_valid_uuid(distinct_id)
+
+    if is_uuid:
+        return Classification.UUID
+    elif is_email:
+        return Classification.EMAIL
+    else:
+        return Classification.AMBIGUOUS
+
 
 LOGGER = get_logger(__name__)
 
@@ -43,11 +78,13 @@ async def query_ingestion_limits_activity(inputs: IngestionLimitsWorkflowInput) 
     async with Heartbeater():
         bind_contextvars(
             time_window_minutes=inputs.time_window_minutes,
-            event_threshold=inputs.event_threshold,
+            known_distinct_id_threshold=inputs.known_distinct_id_threshold,
+            ambiguous_distinct_id_threshold=inputs.ambiguous_distinct_id_threshold,
         )
         logger = LOGGER.bind()
         logger.info(
-            "Querying ingestion limits from ClickHouse: window={inputs.time_window_minutes} minutes, threshold={inputs.event_threshold}"
+            "Querying ingestion limits from ClickHouse: window={inputs.time_window_minutes} minutes, "
+            "known threshold={inputs.known_distinct_id_threshold}, ambiguous threshold={inputs.ambiguous_distinct_id_threshold}"
         )
 
         query = get_high_volume_distinct_ids_query(inputs.time_window_minutes)
@@ -60,12 +97,24 @@ async def query_ingestion_limits_activity(inputs: IngestionLimitsWorkflowInput) 
                 query_id = str(uuid4())
                 async for row in client.stream_query_as_jsonl(query, query_id=query_id):
                     offending_event_count = int(row.get("offending_event_count", 0))
-                    if offending_event_count >= inputs.event_threshold:
+                    distinct_id = row["distinct_id"]
+
+                    # Classify distinct_id and determine which threshold to use
+                    classification = classify_distinct_id(distinct_id)
+                    is_known_format = classification in (Classification.UUID, Classification.EMAIL)
+                    threshold = (
+                        inputs.known_distinct_id_threshold
+                        if is_known_format
+                        else inputs.ambiguous_distinct_id_threshold
+                    )
+
+                    if offending_event_count >= threshold:
                         high_volume_distinct_ids.append(
                             HighVolumeDistinctId(
                                 team_id=int(row.get("team_id", 0)),
-                                distinct_id=row["distinct_id"],
+                                distinct_id=distinct_id,
                                 offending_event_count=offending_event_count,
+                                classification=classification,
                             )
                         )
                     total_candidates += 1
@@ -86,7 +135,8 @@ async def query_ingestion_limits_activity(inputs: IngestionLimitsWorkflowInput) 
             high_volume_distinct_ids=high_volume_distinct_ids,
             total_candidates=total_candidates,
             timestamp=datetime.now(UTC),
-            event_threshold=inputs.event_threshold,
+            known_distinct_id_threshold=inputs.known_distinct_id_threshold,
+            ambiguous_distinct_id_threshold=inputs.ambiguous_distinct_id_threshold,
             time_window_minutes=inputs.time_window_minutes,
         )
 
@@ -110,13 +160,9 @@ async def report_ingestion_limits_activity(inputs: ReportIngestionLimitsInput) -
         logger.info("Reporting ingestion limits")
 
         # we can report to slack whether the report contains any teams of interest or not
-        should_send_slack = (
-            inputs.workflow_inputs.report_destination
-            in (
-                ReportDestination.SLACK,
-                ReportDestination.BOTH,
-            )
-            and inputs.workflow_inputs.slack_token is not None
+        should_send_slack = inputs.workflow_inputs.report_destination in (
+            ReportDestination.SLACK,
+            ReportDestination.BOTH,
         )
 
         # ingestion warnings should only go out if we have a problem to report

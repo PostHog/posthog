@@ -24,7 +24,7 @@ class IngestionLimitsWorkflow(PostHogWorkflow):
         parsed_input = (
             IngestionLimitsWorkflowInput.model_validate_json(inputs[0])
             if inputs
-            else IngestionLimitsWorkflowInput(event_threshold=1000)
+            else IngestionLimitsWorkflowInput(known_distinct_id_threshold=20000, ambiguous_distinct_id_threshold=10000)
         )
         return parsed_input
 

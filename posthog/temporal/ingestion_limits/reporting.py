@@ -39,7 +39,7 @@ def format_slack_message(report: IngestionLimitsReport) -> dict:
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": f"Time window: {report.time_window_minutes} minutes | Threshold: {report.event_threshold} dup distinct IDs per team",
+                        "text": f"Time window: {report.time_window_minutes} minutes | Known threshold: {report.known_distinct_id_threshold} | Ambiguous threshold: {report.ambiguous_distinct_id_threshold}",
                     }
                 ],
             },
@@ -108,7 +108,8 @@ def format_kafka_messages(report: IngestionLimitsReport) -> list[dict]:
             "distinct_id": item.distinct_id,
             "event_count": item.offending_event_count,
             "time_window_minutes": report.time_window_minutes,
-            "events_per_window_threshold": report.event_threshold,
+            "known_distinct_id_threshold": report.known_distinct_id_threshold,
+            "ambiguous_distinct_id_threshold": report.ambiguous_distinct_id_threshold,
             "suggestion": (
                 "Please replace this distinct ID in all event submissions with a session-scoped UUID "
                 "(pre-identify) or stable user ID like an email address (post-identify.) "

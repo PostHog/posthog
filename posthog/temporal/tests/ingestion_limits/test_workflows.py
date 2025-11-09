@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.ingestion_limits.activities import (
     query_ingestion_limits_activity,
@@ -18,15 +18,8 @@ from posthog.temporal.ingestion_limits.workflows import IngestionLimitsWorkflow
 pytestmark = [pytest.mark.asyncio]
 
 
-@pytest.fixture
-async def workflow_environment():
-    """Create a workflow test environment."""
-    async with WorkflowEnvironment(client=AsyncMock()) as env:
-        yield env
-
-
 @patch("posthog.temporal.ingestion_limits.activities.get_client")
-async def test_ingestion_limits_workflow(mock_get_client, workflow_environment):
+async def test_ingestion_limits_workflow(mock_get_client):
     """Test ingestion limits workflow executes activities in order."""
     # Mock ClickHouse client
     mock_client = AsyncMock()
@@ -51,24 +44,28 @@ async def test_ingestion_limits_workflow(mock_get_client, workflow_environment):
         patch("posthog.temporal.ingestion_limits.activities.send_to_kafka") as mock_kafka,
     ):
         inputs = IngestionLimitsWorkflowInput(
-            event_threshold=1000,
+            known_distinct_id_threshold=1000,
+            ambiguous_distinct_id_threshold=1000,
             time_window_minutes=60,
             report_destination=ReportDestination.BOTH,
             slack_channel="#test-channel",
             kafka_topic="test_topic",
         )
 
-        async with workflow_environment.worker(
-            UnsandboxedWorkflowRunner(),
-            workflows=[IngestionLimitsWorkflow],
-            activities=[query_ingestion_limits_activity, report_ingestion_limits_activity],
-        ):
-            await workflow_environment.client.execute_workflow(
-                IngestionLimitsWorkflow.run,
-                inputs,
-                id=f"test-workflow-{datetime.now(UTC).timestamp()}",
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
                 task_queue="test-task-queue",
-            )
+                workflows=[IngestionLimitsWorkflow],
+                activities=[query_ingestion_limits_activity, report_ingestion_limits_activity],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                await env.client.execute_workflow(
+                    IngestionLimitsWorkflow.run,
+                    inputs,
+                    id=f"test-workflow-{datetime.now(UTC).timestamp()}",
+                    task_queue="test-task-queue",
+                )
 
         # Verify query activity was called
         assert mock_get_client.called
