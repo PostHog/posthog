@@ -139,6 +139,17 @@ const smoothingWeights = [
     0.07,
 ]
 
+const trackingStateMap: Record<SessionPlayerState, PlayerTimeTracking['state']> = {
+    [SessionPlayerState.PLAY]: 'playing',
+    [SessionPlayerState.PAUSE]: 'paused',
+    [SessionPlayerState.BUFFER]: 'buffering',
+    [SessionPlayerState.ERROR]: 'errored',
+    [SessionPlayerState.READY]: 'paused',
+    [SessionPlayerState.SKIP]: 'playing',
+    [SessionPlayerState.SKIP_TO_MATCHING_EVENT]: 'playing',
+    [SessionPlayerState.SCRUB]: 'playing',
+}
+
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
     !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
 
@@ -208,8 +219,17 @@ const updatePlayerTimeTracking = (
 
     if (newState === 'playing' && current.firstPlayStartTime === undefined && current.firstPlayTime === undefined) {
         newFirstPlayStartTime = now
-    } else if (newState !== 'playing') {
+    } else if (['paused', 'ended', 'errored'].includes(newState)) {
         newFirstPlayStartTime = undefined
+    } else if (
+        newState === 'buffering' &&
+        current.firstPlayTime === undefined &&
+        current.firstPlayStartTime !== undefined
+    ) {
+        // If we go back to buffering before completing the 1-second threshold, reset tracking
+        if (now - current.firstPlayStartTime < 1000) {
+            newFirstPlayStartTime = undefined
+        }
     }
 
     if (
@@ -230,18 +250,6 @@ const updatePlayerTimeTracking = (
         firstPlayTime: newFirstPlayTime,
         firstPlayStartTime: newFirstPlayStartTime,
     }
-}
-
-const updatePlayerTimeTrackingIfChanged = (
-    current: PlayerTimeTracking,
-    newState: PlayerTimeTracking['state'],
-    openTime?: number
-): PlayerTimeTracking => {
-    if (current.state === newState) {
-        return current
-    }
-
-    return updatePlayerTimeTracking(current, newState, openTime)
 }
 
 function wrapFetchAndReport({
@@ -465,6 +473,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         schedulePlayerTimeTracking: true,
         setQuickEmojiIsOpen: (quickEmojiIsOpen: boolean) => ({ quickEmojiIsOpen }),
         updatePlayerTimeTracking: true,
+        setPlayerTimeTrackingState: (tracking: PlayerTimeTracking) => ({ tracking }),
         exportRecordingToVideoFile: true,
         markViewed: (delay?: number) => ({ delay }),
         setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
@@ -474,7 +483,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setMuted: (muted: boolean) => ({ muted }),
         setSkipToFirstMatchingEvent: (skipToFirstMatchingEvent: boolean) => ({ skipToFirstMatchingEvent }),
     }),
-    reducers(({ props, cache }) => ({
+    reducers(() => ({
         skipToFirstMatchingEvent: [
             false,
             {
@@ -616,65 +625,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 firstPlayStartTime: undefined,
             } as PlayerTimeTracking,
             {
-                updatePlayerTimeTracking: (state: PlayerTimeTracking) => {
-                    // called on a timer to avoid inactive watching from not capturing a clear time
-                    return ['playing', 'buffering'].includes(state.state)
-                        ? updatePlayerTimeTracking(state, state.state, cache.openTime)
-                        : state
-                },
-                startBuffer: (state: PlayerTimeTracking) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
-                        return state
-                    }
-                    return updatePlayerTimeTrackingIfChanged(state, 'buffering', cache.openTime)
-                },
-                endBuffer: (state: PlayerTimeTracking) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
-                        return state
-                    }
-
-                    // endBuffer is often called later than start playing, we only need to act on it, if we were just buffering
-                    if (state.state !== 'buffering') {
-                        return state
-                    }
-
-                    // don't change the state
-                    return updatePlayerTimeTracking(state, state.state, cache.openTime)
-                },
-                setPlay: (state: PlayerTimeTracking) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
-                        return state
-                    }
-
-                    return updatePlayerTimeTrackingIfChanged(state, 'playing', cache.openTime)
-                },
-                setPause: (state: PlayerTimeTracking) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
-                        return state
-                    }
-
-                    return updatePlayerTimeTrackingIfChanged(state, 'paused', cache.openTime)
-                },
-                setEndReached: (state: PlayerTimeTracking, { reached }: { reached: boolean }) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
-                        return state
-                    }
-
-                    if (!reached) {
-                        return state
-                    }
-
-                    return updatePlayerTimeTrackingIfChanged(state, 'ended', cache.openTime)
-                },
-                setPlayerError: (state: PlayerTimeTracking) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
-                        return state
-                    }
-
-                    return updatePlayerTimeTrackingIfChanged(state, 'errored', cache.openTime)
-                },
-                seekToTime: (state: PlayerTimeTracking) => {
-                    return state
+                setPlayerTimeTrackingState: (state, { tracking }) => {
+                    return objectsEqual(state, tracking) ? state : tracking
                 },
             },
         ],
@@ -1421,15 +1373,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.seekToTimestamp(nextTimestamp, true)
             }
 
-            if (values.playingTimeTracking.firstPlayTime === undefined && cache.openTime !== undefined) {
-                cache.disposables.dispose('firstPlayTimeout')
-                cache.disposables.add(() => {
-                    const timerId = setTimeout(() => {
-                        actions.updatePlayerTimeTracking()
-                    }, 1000)
-                    return () => clearTimeout(timerId)
-                }, 'firstPlayTimeout')
-            }
+            cache.disposables.dispose('playerTimeTracking')
+            actions.schedulePlayerTimeTracking()
         },
         markViewed: async ({ delay }, breakpoint) => {
             breakpoint()
@@ -1459,7 +1404,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.pauseIframePlayback()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
-            cache.disposables.dispose('firstPlayTimeout')
         },
         setEndReached: ({ reached }) => {
             if (reached) {
@@ -1822,15 +1766,30 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 await document.exitFullscreen()
             }
         },
+        updatePlayerTimeTracking: () => {
+            if (props.mode === SessionRecordingPlayerMode.Preview) {
+                return
+            }
+
+            // Map actual player state to tracking state
+            // we might be buffering data, while a user is watching already loaded data
+            // so we need to track the state of the player, not the state of this logic
+            const actualPlayerState = values.currentPlayerState
+            const desiredState = trackingStateMap[actualPlayerState]
+            const newState = updatePlayerTimeTracking(values.playingTimeTracking, desiredState, cache.openTime)
+            actions.setPlayerTimeTrackingState(newState)
+        },
         schedulePlayerTimeTracking: () => {
-            const currentState = values.playingTimeTracking.state
-            const interval = currentState === 'playing' ? 5000 : 30000
+            const hasCompletedFirstPlay = values.playingTimeTracking.firstPlayTime !== undefined
 
             cache.disposables.add(() => {
-                const timerId = setTimeout(() => {
-                    actions.updatePlayerTimeTracking()
-                    actions.schedulePlayerTimeTracking()
-                }, interval)
+                const timerId = setTimeout(
+                    () => {
+                        actions.updatePlayerTimeTracking()
+                        actions.schedulePlayerTimeTracking()
+                    },
+                    hasCompletedFirstPlay ? 500 : 1000
+                )
                 return () => clearTimeout(timerId)
             }, 'playerTimeTracking')
         },
@@ -1879,6 +1838,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (value === SessionPlayerState.PLAY && !values.wasMarkedViewed) {
                 actions.markViewed(0)
             }
+            // Update tracking state whenever player state changes
+            actions.updatePlayerTimeTracking()
         },
     })),
 
@@ -1911,6 +1872,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             error_count_during_recording_playback: values.errorCount,
             engagement_score: values.clickCount,
         }
+
         posthog.capture(
             playTimeMs === 0 ? 'recording viewed with no playtime summary' : 'recording viewed summary',
             summaryAnalytics
@@ -1936,9 +1898,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         }
 
         cache.openTime = performance.now()
-        // we rely on actions hitting a reducer to update the timer
-        // let's ping it once in a while so that if the user
-        // is autoplaying and doesn't interact we get a more recent value
+        // Update tracking state immediately to capture initial state
+        actions.updatePlayerTimeTracking()
+        // Schedule periodic updates
         actions.schedulePlayerTimeTracking()
     }),
 ])
