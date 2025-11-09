@@ -169,6 +169,7 @@ fn setup_ai_test_router() -> Router {
         false,
         0.0_f32,
         26_214_400, // 25MB default for AI endpoint
+        10, // request_timeout_seconds
     )
 }
 

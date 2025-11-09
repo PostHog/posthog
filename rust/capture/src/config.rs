@@ -107,6 +107,9 @@ pub struct Config {
     // AI endpoint size limits
     #[envconfig(default = "26214400")] // 25MB in bytes
     pub ai_max_sum_of_parts_bytes: usize,
+
+    #[envconfig(default = "10")]
+    pub request_timeout_seconds: u64,
 }
 
 #[derive(Envconfig, Clone)]

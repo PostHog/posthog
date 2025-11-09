@@ -81,15 +81,6 @@ async fn index() -> &'static str {
     "capture"
 }
 
-async fn timeout_middleware(
-    req: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> axum::response::Response {
-    match tokio::time::timeout(StdDuration::from_secs(10), next.run(req)).await {
-        Ok(response) => response,
-        Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response(),
-    }
-}
 
 
 #[allow(clippy::too_many_arguments)]
@@ -113,6 +104,7 @@ pub fn router<
     is_mirror_deploy: bool,
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
+    request_timeout_seconds: u64,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -279,9 +271,17 @@ pub fn router<
         router = router.layer(ConcurrencyLimitLayer::new(limit));
     }
 
+    let timeout_duration = StdDuration::from_secs(request_timeout_seconds);
     let router = router
         .merge(status_router)
-        .layer(axum::middleware::from_fn(timeout_middleware))
+        .layer(axum::middleware::from_fn(move |req: axum::extract::Request, next: axum::middleware::Next| {
+            async move {
+                match tokio::time::timeout(timeout_duration, next.run(req)).await {
+                    Ok(response) => response,
+                    Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response(),
+                }
+            }
+        }))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(axum::middleware::from_fn(track_metrics))
