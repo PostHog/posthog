@@ -53,19 +53,14 @@ export function LLMAnalyticsErrors(): JSX.Element {
                             const displayValue =
                                 errorString.length > 80 ? errorString.slice(0, 77) + '...' : errorString
 
-                            // Extract a stable part of the error for filtering by removing our normalization placeholders
-                            // This gives us a pattern that should match the original errors
-                            const searchPattern = errorString
-                                .replace(/<ID>/g, '')
-                                .replace(/<TIMESTAMP>/g, '')
-                                .replace(/<PATH>/g, '')
-                                .replace(/<RESPONSE_ID>/g, '')
-                                .replace(/<TOOL_CALL_ID>/g, '')
-                                .replace(/<TOKEN_COUNT>/g, '')
-                                .replace(/<N>/g, '')
-                                .replace(/\s+/g, ' ') // Collapse multiple spaces
-                                .trim()
-                                .slice(0, 100) // Take first 100 chars of the stable part
+                            // Extract tokens from the normalized error for filtering
+                            // Split only on placeholders to get the stable text parts between them
+                            // This creates AND filters requiring all stable parts to be present
+                            const tokens = errorString
+                                .split(/<ID>|<TIMESTAMP>|<PATH>|<RESPONSE_ID>|<TOOL_CALL_ID>|<TOKEN_COUNT>|<N>/)
+                                .map((token) => token.trim())
+                                .filter((token) => token.length >= 3) // Only keep meaningful tokens
+                                .slice(0, 10) // Take first 10 tokens to avoid too many filters
 
                             return (
                                 <div className="flex items-center gap-1">
@@ -73,14 +68,12 @@ export function LLMAnalyticsErrors(): JSX.Element {
                                         <Link
                                             to={
                                                 combineUrl(urls.llmAnalyticsTraces(), {
-                                                    filters: [
-                                                        {
-                                                            type: PropertyFilterType.Event,
-                                                            key: '$ai_error',
-                                                            operator: 'icontains' as any,
-                                                            value: searchPattern,
-                                                        },
-                                                    ],
+                                                    filters: tokens.map((token) => ({
+                                                        type: PropertyFilterType.Event,
+                                                        key: '$ai_error',
+                                                        operator: 'icontains' as any,
+                                                        value: token,
+                                                    })),
                                                 }).url
                                             }
                                             className="font-mono text-sm"
