@@ -2,14 +2,18 @@ use std::future::ready;
 use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
-use axum::http::Method;
+use axum::http::{Method, StatusCode};
 use axum::{
+    error_handling::HandleErrorLayer,
     routing::{get, post},
     Router,
 };
 use chrono::{DateTime, Duration, Utc};
 use health::HealthRegistry;
+use std::time::Duration as StdDuration;
 use tower::limit::ConcurrencyLimitLayer;
+use tower::timeout::TimeoutLayer;
+use tower::ServiceBuilder;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
@@ -77,6 +81,14 @@ impl HistoricalConfig {
 
 async fn index() -> &'static str {
     "capture"
+}
+
+async fn handle_timeout_error(err: axum::BoxError) -> (StatusCode, &'static str) {
+    if err.is::<tower::timeout::error::Elapsed>() {
+        (StatusCode::REQUEST_TIMEOUT, "Request timeout")
+    } else {
+        (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -268,6 +280,12 @@ pub fn router<
 
     let router = router
         .merge(status_router)
+        .layer(
+            ServiceBuilder::new()
+                .layer(HandleErrorLayer::new(handle_timeout_error))
+                .layer(TimeoutLayer::new(StdDuration::from_secs(10)))
+                .into_inner(),
+        )
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(axum::middleware::from_fn(track_metrics))
