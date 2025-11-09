@@ -75,11 +75,6 @@ function createInitialExceptionsPayload(personId: string): DataTableNode {
 export const personsLogic = kea<personsLogicType>([
     props({} as PersonsLogicProps),
     key((props) => {
-        if (props.syncWithUrl) {
-            let urlId = router.values.location.pathname.split('/').pop()
-            return `url_${urlId}`
-        }
-
         if (props.urlId) {
             return `url_${props.urlId}`
         }
@@ -90,6 +85,11 @@ export const personsLogic = kea<personsLogicType>([
 
         if (props.cohort) {
             return `cohort_${props.cohort}`
+        }
+
+        if (props.syncWithUrl) {
+            let urlId = router.values.location.pathname.split('/').pop()
+            return `url_${urlId}`
         }
 
         return 'scene'
