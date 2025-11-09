@@ -64,7 +64,36 @@ class Command(BaseCommand):
                 "TIMESTAMP",
                 "1699452899655",
             ),
+            (
+                "Project path",
+                "projects/[0-9]+/locations/[^/]+/publishers/[^/]+/models/[a-zA-Z0-9._-]+",
+                "projects/<ID>/locations/<REGION>/publishers/<PUBLISHER>/models/<MODEL>",
+                "projects/986903089694/locations/us-west2/publishers/deepseek/models/deepseek-v3.1-maas",
+            ),
         ]
+
+        # Test HogQL functions for WITH approach
+        self.stdout.write("\n\n" + "=" * 70)
+        self.stdout.write(self.style.SUCCESS("\nTesting HogQL Functions for WITH pattern:\n"))
+
+        function_tests = [
+            ("nullIf", "SELECT nullIf('test', '') as result"),
+            ("coalesce", "SELECT coalesce(null, 'fallback') as result"),
+            ("trim BOTH", "SELECT trim(BOTH ' ' FROM '  test  ') as result"),
+            ("lowerUTF8", "SELECT lowerUTF8('TEST') as result"),
+            ("WITH clause", "WITH x AS (SELECT 'test' as val) SELECT val FROM x"),
+        ]
+
+        for name, query in function_tests:
+            self.stdout.write(f"\n{name}")
+            try:
+                result = execute_hogql_query(query=query, team=team)
+                if result.results and len(result.results) > 0:
+                    self.stdout.write(self.style.SUCCESS(f"  ✓ Works: {result.results[0][0]}"))
+                else:
+                    self.stdout.write(self.style.WARNING(f"  ⚠ No results"))
+            except Exception as e:
+                self.stdout.write(self.style.ERROR(f"  ✗ Not supported: {str(e)[:100]}"))
 
         for name, pattern, replacement, test_input in test_cases:
             self.stdout.write(f"\n{name}")

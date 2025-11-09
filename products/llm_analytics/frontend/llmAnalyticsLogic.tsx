@@ -35,6 +35,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import errorsQueryTemplate from '../backend/queries/errors.sql?raw'
 import type { llmAnalyticsLogicType } from './llmAnalyticsLogicType'
 
 export const LLM_ANALYTICS_DATA_COLLECTION_NODE_ID = 'llm-analytics-data'
@@ -1165,186 +1166,56 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 propertyFilters,
                 errorsSort,
                 groupsTaxonomicTypes
-            ): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-                -- Error normalization pipeline: extract -> normalize IDs -> normalize UUIDs -> normalize timestamps -> normalize paths -> normalize response IDs -> normalize tool call IDs -> normalize token counts -> normalize all remaining numbers
-                -- This multi-step CTE approach makes it easy to understand and maintain each normalization step
+            ): DataTableNode => {
+                // Build filter string for the query template
+                const filters = 'true' // Base filter, actual filtering is done via query filters
 
-                WITH extracted_errors AS (
-                    -- Step 1: Extract error messages from various JSON structures in $ai_error
-                    -- Different SDKs/libraries format errors differently, so we try multiple paths
-                    SELECT
-                        distinct_id,
-                        timestamp,
-                        JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
-                        JSONExtractRaw(properties, '$ai_session_id') as ai_session_id,
-                        CASE
-                            -- Try: { error: { message: "..." } } (nested error object with message)
-                            WHEN notEmpty(JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'message'))
-                                THEN JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'message')
-                            -- Try: { message: "..." } (direct message property)
-                            WHEN notEmpty(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'message'))
-                                THEN JSONExtractString(JSONExtractString(properties, '$ai_error'), 'message')
-                            -- Try: { error: "..." } (error as string property)
-                            WHEN notEmpty(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'))
-                                THEN JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error')
-                            -- Fallback: use the raw string value
-                            ELSE JSONExtractString(properties, '$ai_error')
-                        END as raw_error
-                    FROM events
-                    WHERE event IN ('$ai_generation', '$ai_span', '$ai_trace', '$ai_embedding')
-                        AND (notEmpty(JSONExtractString(properties, '$ai_error')) OR JSONExtractString(properties, '$ai_is_error') = 'true')
-                        AND {filters}
-                ),
-                ids_normalized AS (
-                    -- Step 2: Normalize large numeric IDs (9+ digits)
-                    -- Replaces timestamps, project IDs, and other long numbers with <ID>
-                    -- Example: "Error 1234567890" -> "Error <ID>"
-                    SELECT
-                        distinct_id,
-                        timestamp,
-                        ai_trace_id,
-                        ai_session_id,
-                        replaceRegexpAll(raw_error, '[0-9]{9,}', '<ID>') as error_text
-                    FROM extracted_errors
-                ),
-                uuids_normalized AS (
-                    -- Step 3: Normalize UUIDs and request IDs
-                    -- Replaces request IDs (req_xxx) and standard UUIDs with <ID>
-                    -- Example: "req_abc123" -> "<ID>", "550e8400-e29b-41d4-a716-446655440000" -> "<ID>"
-                    SELECT
-                        distinct_id,
-                        timestamp,
-                        ai_trace_id,
-                        ai_session_id,
-                        replaceRegexpAll(error_text, '(req_[a-zA-Z0-9]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', '<ID>') as error_text
-                    FROM ids_normalized
-                ),
-                timestamps_normalized AS (
-                    -- Step 4: Normalize ISO timestamps
-                    -- Replaces ISO 8601 timestamps with <TIMESTAMP> to group errors that differ only by time
-                    -- Example: "2025-11-08T14:25:51.767Z" -> "<TIMESTAMP>"
-                    SELECT
-                        distinct_id,
-                        timestamp,
-                        ai_trace_id,
-                        ai_session_id,
-                        replaceRegexpAll(error_text, '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.[0-9]+Z?', '<TIMESTAMP>') as error_text
-                    FROM uuids_normalized
-                ),
-                paths_normalized AS (
-                    -- Step 5: Normalize cloud resource paths
-                    -- Replaces Google Cloud project paths with a generic placeholder
-                    -- Example: "projects/123/locations/us-west2/publishers/google/models/gemini-pro" -> "projects/<PATH>"
-                    SELECT
-                        distinct_id,
-                        timestamp,
-                        ai_trace_id,
-                        ai_session_id,
-                        replaceRegexpAll(error_text, 'projects/[0-9a-z-]+(/[a-z]+/[0-9a-z-]+)+', 'projects/<PATH>') as error_text
-                    FROM timestamps_normalized
-                ),
-                response_ids_normalized AS (
-                    -- Step 6: Normalize responseId fields in error payloads
-                    -- Many LLM providers include unique response IDs in error messages
-                    -- Example: "responseId":"abc123xyz" -> "responseId":"<RESPONSE_ID>" or responseId:abc123xyz -> responseId:<RESPONSE_ID>
-                    SELECT
-                        distinct_id,
-                        timestamp,
-                        ai_trace_id,
-                        ai_session_id,
-                        replaceRegexpAll(error_text, '"responseId":"[a-zA-Z0-9_-]+"', '"responseId":"<RESPONSE_ID>"') as error_text
-                    FROM paths_normalized
-                ),
-                tool_call_ids_normalized AS (
-                    -- Step 7: Normalize tool_call_id values
-                    -- Tool calling frameworks include unique tool call IDs in error messages
-                    -- Example: "tool_call_id='toolu_01LCbNr67BxhgUH6gndPCELW'" -> "tool_call_id='<TOOL_CALL_ID>'"
-                    SELECT
-                        distinct_id,
-                        timestamp,
-                        ai_trace_id,
-                        ai_session_id,
-                        replaceRegexpAll(error_text, 'tool_call_id=[''"][a-zA-Z0-9_-]+[''"]', 'tool_call_id=''<TOOL_CALL_ID>''') as error_text
-                    FROM response_ids_normalized
-                ),
-                token_counts_normalized AS (
-                    -- Step 8: Normalize token count values
-                    -- Token counts are metadata, not part of error identity
-                    -- Example: "tokenCount":7125 -> "tokenCount":<TOKEN_COUNT>
-                    SELECT
-                        distinct_id,
-                        timestamp,
-                        ai_trace_id,
-                        ai_session_id,
-                        replaceRegexpAll(error_text, '"tokenCount":[0-9]+', '"tokenCount":<TOKEN_COUNT>') as error_text
-                    FROM tool_call_ids_normalized
-                ),
-                all_numbers_normalized AS (
-                    -- Step 9: Normalize all remaining numbers as final fallback
-                    -- Catches any dynamic numbers not covered by specific patterns above (ports, sizes, counts, etc.)
-                    -- Applied last so specific normalizations take precedence
-                    -- Example: "port 8080" -> "port <N>", "size 1024" -> "size <N>"
-                    SELECT
-                        distinct_id,
-                        timestamp,
-                        ai_trace_id,
-                        ai_session_id,
-                        replaceRegexpAll(error_text, '[0-9]+', '<N>') as normalized_error
-                    FROM token_counts_normalized
-                )
-                -- Final aggregation: group by normalized error and calculate metrics
-                SELECT
-                    normalized_error as error,
-                    countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
-                    count() as generations,
-                    countDistinctIf(ai_session_id, notEmpty(ai_session_id)) as sessions,
-                    uniq(distinct_id) as users,
-                    uniq(toDate(timestamp)) as days_seen,
-                    min(timestamp) as first_seen,
-                    max(timestamp) as last_seen
-                FROM all_numbers_normalized
-                GROUP BY normalized_error
-                ORDER BY ${errorsSort.column} ${errorsSort.direction}
-                LIMIT 50
-                    `,
-                    filters: {
-                        dateRange: {
-                            date_from: dateFilter.dateFrom || null,
-                            date_to: dateFilter.dateTo || null,
+                // Use the shared query template
+                const query = errorsQueryTemplate
+                    .replace('{filters}', filters)
+                    .replace('{orderBy}', errorsSort.column)
+                    .replace('{orderDirection}', errorsSort.direction)
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query,
+                        filters: {
+                            dateRange: {
+                                date_from: dateFilter.dateFrom || null,
+                                date_to: dateFilter.dateTo || null,
+                            },
+                            filterTestAccounts: shouldFilterTestAccounts,
+                            properties: propertyFilters,
                         },
-                        filterTestAccounts: shouldFilterTestAccounts,
-                        properties: propertyFilters,
                     },
-                },
-                columns: [
-                    'error',
-                    'traces',
-                    'generations',
-                    'sessions',
-                    'users',
-                    'days_seen',
-                    'first_seen',
-                    'last_seen',
-                ],
-                showDateRange: true,
-                showReload: true,
-                showSearch: true,
-                showPropertyFilter: [
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    ...groupsTaxonomicTypes,
-                    TaxonomicFilterGroupType.Cohorts,
-                    TaxonomicFilterGroupType.HogQLExpression,
-                ],
-                showTestAccountFilters: true,
-                showExport: true,
-                showColumnConfigurator: true,
-                allowSorting: true,
-            }),
+                    columns: [
+                        'error',
+                        'traces',
+                        'generations',
+                        'sessions',
+                        'users',
+                        'days_seen',
+                        'first_seen',
+                        'last_seen',
+                    ],
+                    showDateRange: true,
+                    showReload: true,
+                    showSearch: true,
+                    showPropertyFilter: [
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        ...groupsTaxonomicTypes,
+                        TaxonomicFilterGroupType.Cohorts,
+                        TaxonomicFilterGroupType.HogQLExpression,
+                    ],
+                    showTestAccountFilters: true,
+                    showExport: true,
+                    showColumnConfigurator: true,
+                    allowSorting: true,
+                }
+            },
         ],
         sessionsQuery: [
             (s) => [
@@ -1355,11 +1226,11 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 groupsModel.selectors.groupsTaxonomicTypes,
             ],
             (
-                dateFilter,
-                shouldFilterTestAccounts,
-                propertyFilters,
-                sessionsSort,
-                groupsTaxonomicTypes
+                dateFilter: { dateFrom: string | null; dateTo: string | null },
+                shouldFilterTestAccounts: boolean,
+                propertyFilters: AnyPropertyFilter[],
+                sessionsSort: { column: string; direction: 'ASC' | 'DESC' },
+                groupsTaxonomicTypes: TaxonomicFilterGroupType[]
             ): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
@@ -1424,7 +1295,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         ],
         isRefreshing: [
             (s) => [s.refreshStatus],
-            (refreshStatus) => Object.values(refreshStatus).some((status) => status.loading),
+            (refreshStatus: Record<string, { loading?: boolean; timer?: Date }>) =>
+                Object.values(refreshStatus).some((status) => status.loading),
         ],
         breadcrumbs: [
             () => [],
