@@ -64,7 +64,7 @@ export function InsightVizDisplay({
     editMode?: boolean
     insightProps: InsightLogicProps<QuerySchema>
 }): JSX.Element | null {
-    const { canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
+    const { canEditInsight } = useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
@@ -73,6 +73,7 @@ export function InsightVizDisplay({
     const {
         isFunnels,
         isPaths,
+        isPathsV2,
         hasDetailedResultsTable,
         showLegend,
         hasFormula,
@@ -180,7 +181,9 @@ export function InsightVizDisplay({
                     />
                 )
             case InsightType.PATHS:
-                return isUsingPathsV2 ? <PathsV2 /> : <Paths />
+                return <Paths />
+            case InsightType.PATHS_V2:
+                return <PathsV2 />
             default:
                 return null
         }
@@ -262,7 +265,7 @@ export function InsightVizDisplay({
                 {disableHeader ? null : <InsightDisplayConfig />}
                 {showingResults && (
                     <>
-                        {!embedded && (isFunnels || isPaths || showComputationMetadata) && (
+                        {!embedded && (isFunnels || isPaths || isPathsV2 || showComputationMetadata) && (
                             <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
                                 <div className="flex items-center gap-2">
                                     {showComputationMetadata && (
@@ -274,7 +277,7 @@ export function InsightVizDisplay({
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                    {isPaths && isUsingPathsV1 && <PathCanvasLabel />}
+                                    {isPaths && <PathCanvasLabel />}
                                     {isFunnels && <FunnelCanvasLabel />}
                                 </div>
                             </div>

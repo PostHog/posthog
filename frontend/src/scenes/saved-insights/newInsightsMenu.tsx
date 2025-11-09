@@ -14,7 +14,9 @@ export function OverlayForNewInsightMenu({ dataAttr }: { dataAttr: string }): JS
 
     const menuEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
         ([insightType]) =>
-            insightType !== InsightType.JSON && (featureFlags[FEATURE_FLAGS.HOG] || insightType !== InsightType.HOG)
+            insightType !== InsightType.JSON &&
+            (featureFlags[FEATURE_FLAGS.HOG] || insightType !== InsightType.HOG) &&
+            (featureFlags[FEATURE_FLAGS.PATHS_V2] || insightType !== InsightType.PATHS_V2)
     )
 
     return (

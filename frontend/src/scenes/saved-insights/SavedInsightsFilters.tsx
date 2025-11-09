@@ -1,17 +1,21 @@
+import { useValues } from 'kea'
+
 import { IconCalendar, IconFlag } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
-import { SavedInsightsTabs } from '~/types'
+import { InsightType, SavedInsightsTabs } from '~/types'
 
 export function SavedInsightsFilters({
     filters,
@@ -20,7 +24,17 @@ export function SavedInsightsFilters({
     filters: SavedInsightFilters
     setFilters: (filters: Partial<SavedInsightFilters>) => void
 }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { tab, createdBy, insightType, dateFrom, dateTo, search, hideFeatureFlagInsights } = filters
+
+    const showPathsV2 = !!featureFlags[FEATURE_FLAGS.PATHS_V2]
+
+    const insightTypeOptions = INSIGHT_TYPE_OPTIONS.filter((option) => {
+        if (option.value === InsightType.PATHS_V2 && !showPathsV2) {
+            return false
+        }
+        return true
+    })
 
     return (
         <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
@@ -35,7 +49,7 @@ export function SavedInsightsFilters({
                     <span>Type:</span>
                     <LemonSelect
                         size="small"
-                        options={INSIGHT_TYPE_OPTIONS}
+                        options={insightTypeOptions}
                         value={insightType}
                         onChange={(v?: string): void => setFilters({ insightType: v })}
                         dropdownMatchSelectWidth={false}

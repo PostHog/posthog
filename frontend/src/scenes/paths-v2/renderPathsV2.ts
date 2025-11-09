@@ -2,11 +2,12 @@ import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
+import { POSTHOG_DROPOFF, POSTHOG_OTHER } from './constants'
+import { PathNodeData, PathTargetLink } from './pathUtils'
 import { D3Selector } from 'lib/hooks/useD3'
 
-import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 
-import { PathNodeData, PathTargetLink, isSelectedPathStartOrEnd } from './pathUtils'
+import { PathNodeData, PathTargetLink, } from './pathUtils'
 import { Paths } from './types'
 
 /*
@@ -55,7 +56,7 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
     return d3
         .select(canvasRef.current)
         .append('svg')
-        .classed('Paths__canvas', true)
+        .classed('PathsV2__canvas', true)
         .style('background', 'var(--item-background)')
         .style('width', `${width}px`)
         .style('height', `${height}px`)
@@ -97,13 +98,17 @@ const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayo
         ])
 }
 
-const appendNodes = (
-    svg: any,
-    nodes: PathNodeData[],
-    pathsFilter: PathsFilter,
-    funnelPathsFilter: FunnelPathsFilter,
-    openPersonsModal: (props: { path_dropoff_key?: string; path_end_key?: string; path_start_key?: string }) => void
-): void => {
+const getNodeColor = (node: PathNodeData, isHovering = false): string => {
+    if (node.name.includes(POSTHOG_OTHER)) {
+        return isHovering ? 'var(--paths-node--other-hover)' : 'var(--paths-node--other)'
+    } else if (node.name.includes(POSTHOG_DROPOFF)) {
+        return isHovering ? 'var(--paths-node--dropoff-hover)' : 'var(--paths-node--dropoff)'
+    }
+
+    return isHovering ? 'var(--paths-node--hover)' : 'var(--paths-node)'
+}
+
+const appendNodes = (svg: any, nodes: PathNodeData[]): void => {
     svg.append('g')
         .selectAll('rect')
         .data(nodes)
@@ -113,23 +118,14 @@ const appendNodes = (
         .attr('rx', NODE_BORDER_RADIUS)
         .attr('height', (node: PathNodeData) => Math.max(node.y1 - node.y0, NODE_MIN_HEIGHT))
         .attr('width', (node: PathNodeData) => node.x1 - node.x0 + 2 * NODE_BORDER_RADIUS)
-        .attr('fill', (node: PathNodeData) => {
-            if (isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)) {
-                return 'var(--paths-node-start-or-end)'
-            }
-            return 'var(--paths-node)'
-        })
+        .attr('fill', (node: PathNodeData) => getNodeColor(node))
         .attr('id', (node: PathNodeData) => `node-${node.index}`)
-        .on('click', (_event: MouseEvent, node: PathNodeData) => {
-            openPersonsModal({ path_end_key: node.name })
-        })
         .style('cursor', 'pointer')
         .on('mouseover', (_event: MouseEvent, node: PathNodeData) => {
             svg.selectAll('path').attr('opacity', LINK_OPACITY_DEEMPHASIZED)
 
             // apply effect to hovered node
-            const isStartOrEndNode = isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)
-            const nodeColor = isStartOrEndNode ? 'var(--paths-node-start-or-end-hover)' : 'var(--paths-node-hover)'
+            const nodeColor = getNodeColor(node, true)
             svg.select(`#node-${node.index}`).attr('fill', nodeColor)
 
             // recursively apply effect to incoming links
@@ -138,7 +134,7 @@ const appendNodes = (
                 const _node = sourceNodes.pop()
                 _node?.targetLinks.forEach((link: PathTargetLink) => {
                     svg.select(`#link-${link.index}`).attr('opacity', LINK_OPACITY_EMPHASIZED)
-                    sourceNodes.push(link.source) // add source node to recursion
+                    sourceNodes.push(link.source_step) // add source node to recursion
                 })
             }
 
@@ -148,14 +144,13 @@ const appendNodes = (
                 const node = targetNodes.pop()
                 node?.sourceLinks.forEach((link: PathTargetLink) => {
                     svg.select(`#link-${link.index}`).attr('opacity', LINK_OPACITY_EMPHASIZED)
-                    targetNodes.push(link.target) // add target node to recursion
+                    targetNodes.push(link.target_step) // add target node to recursion
                 })
             }
         })
         .on('mouseleave', (_event: MouseEvent, node: PathNodeData) => {
             // reset hovered node
-            const isStartOrEndNode = isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)
-            const nodeColor = isStartOrEndNode ? 'var(--paths-node-start-or-end)' : 'var(--paths-node)'
+            const nodeColor = getNodeColor(node, false)
             svg.select(`#node-${node.index}`).attr('fill', nodeColor)
 
             // reset all links
@@ -183,15 +178,12 @@ const appendLinks = (svg: any, links: PathNodeData[]): void => {
         })
 }
 
-export function renderPaths(
+export function renderPathsV2(
     canvasRef: RefObject<HTMLDivElement>,
     _canvasWidth: number | undefined,
     _canvasHeight: number | undefined,
     paths: Paths,
-    pathsFilter: PathsFilter,
-    funnelPathsFilter: FunnelPathsFilter,
-    setNodes: Dispatch<SetStateAction<PathNodeData[]>>,
-    openPersonsModal: (props: { path_dropoff_key?: string; path_end_key?: string; path_start_key?: string }) => void
+    setNodes: Dispatch<SetStateAction<PathNodeData[]>>
 ): void {
     const canvasWidth = _canvasWidth || FALLBACK_CANVAS_WIDTH
     const canvasHeight = _canvasHeight || FALLBACK_CANVAS_HEIGHT
@@ -217,7 +209,7 @@ export function renderPaths(
     const { nodes, links } = sankey(clonedPaths)
 
     appendLinks(svg, links)
-    appendNodes(svg, nodes, pathsFilter, funnelPathsFilter, openPersonsModal)
+    appendNodes(svg, nodes)
 
     // :TRICKY: this needs to come last, as d3 mutates data in place and otherwise
     // we won't have node positions.
