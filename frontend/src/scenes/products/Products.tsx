@@ -22,7 +22,7 @@ export const scene: SceneExport = {
 }
 
 export function getProductIcon(color: string, iconKey?: string | null, className?: string): JSX.Element {
-    const Icon = Icons[iconKey || 'IconLogomark']
+    const Icon = Icons[iconKey || ('IconLogomark' as keyof typeof Icons)]
     return <Icon className={className} color={color} />
 }
 
@@ -46,7 +46,15 @@ export function SelectableProductCard({
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[productKey]
     const vertical = orientation === 'vertical'
     return (
-        <Tooltip title={product.description} placement="top">
+        <Tooltip
+            title={
+                <>
+                    {product.description}
+                    <br />
+                    {onboardingCompleted && "You've already set up this app. Click to return to its page."}
+                </>
+            }
+        >
             <LemonCard
                 data-attr={`${productKey}-onboarding-card`}
                 className={clsx(
@@ -59,25 +67,22 @@ export function SelectableProductCard({
                 focused={selected}
             >
                 {onboardingCompleted && (
-                    <Tooltip
-                        title="You've already set up this product. Click to return to this product's page."
-                        placement="right"
+                    <div
+                        className="relative"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            router.actions.push(getProductUri(productKey as ProductKey))
+                        }}
+                        data-attr={`return-to-${productKey}`}
                     >
-                        <div
-                            className="relative"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                router.actions.push(getProductUri(productKey as ProductKey))
-                            }}
-                            data-attr={`return-to-${productKey}`}
-                        >
-                            <IconCheckCircle className="absolute top-0 right-0" color="green" />
-                        </div>
-                    </Tooltip>
+                        <IconCheckCircle className="absolute top-0 right-0" color="green" />
+                    </div>
                 )}
-                <div className="grid grid-rows-[repeat(2,_48px)] justify-items-center select-none">
-                    <div className="self-center">{getProductIcon(product.iconColor, product.icon, 'text-2xl')}</div>
-                    <div className="font-bold text-center self-start text-md">{product.name}</div>
+                <div className="flex flex-col gap-2 p-4 select-none">
+                    <div className="flex justify-center">
+                        {getProductIcon(product.iconColor, product.icon, 'text-2xl')}
+                    </div>
+                    <div className="font-bold text-center text-md">{product.name}</div>
                 </div>
             </LemonCard>
         </Tooltip>
@@ -97,7 +102,7 @@ export function Products(): JSX.Element {
             <>
                 <div className="flex flex-col justify-center flex-grow items-center">
                     <div className="mb-2">
-                        <h2 className="text-center text-4xl">Which products would you like to use?</h2>
+                        <h2 className="text-center text-4xl">Which apps, would you like to use?</h2>
                         <p className="text-center">
                             Don't worry &ndash; you can pick more than one! Please select all that apply.
                         </p>
