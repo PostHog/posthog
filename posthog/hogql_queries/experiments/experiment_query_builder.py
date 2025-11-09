@@ -572,7 +572,7 @@ class ExperimentQueryBuilder:
                         if len(join_conditions) == 1:
                             condition_expr = join_conditions[0]
                         else:
-                            combined = join_conditions[0]
+                            combined: ast.Expr = join_conditions[0]
                             for condition in join_conditions[1:]:
                                 combined = ast.And(exprs=[combined, condition])
                             condition_expr = combined
