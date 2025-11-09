@@ -45,3 +45,14 @@ export function getConstrainedWeekRange(
         end: weekEnd,
     }
 }
+
+export function getLocalizedDateFormat(): string {
+    try {
+        const locale = navigator.language || 'en-US'
+        const usLocales = ['en-US', 'en-CA', 'en-AU', 'en-NZ']
+        const isUSFormat = usLocales.some(usLocale => locale.startsWith(usLocale.split('-')[0]))
+        return isUSFormat ? 'MMM D' : 'D MMM'
+    } catch (error) {
+        return 'MMM D'
+    }
+}
