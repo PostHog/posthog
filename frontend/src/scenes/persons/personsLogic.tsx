@@ -88,7 +88,7 @@ export const personsLogic = kea<personsLogicType>([
         }
 
         if (props.syncWithUrl) {
-            const urlId = router.values.location.pathname.split('/').pop() || 'scene'
+            const urlId = router.values.location.pathname.split('/').pop() || 'unknown'
             return `url_${urlId}`
         }
 
