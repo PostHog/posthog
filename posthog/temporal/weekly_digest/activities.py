@@ -341,16 +341,11 @@ async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput)
             async for team in query_teams_for_digest()[batch_start:batch_end]:
                 try:
                     async for user in await database_sync_to_async(team.all_users_with_access)():
-                        if team.id == 2:
-                            logger.info(f"Processing PH user {user.id}")
-
                         if should_send_notification(user, NotificationSetting.WEEKLY_PROJECT_DIGEST.value, team.id):
                             key: str = f"{input.digest.key}-user-notify-{user.id}"
                             await r.sadd(key, team.id)
                             await r.expire(key, input.common.redis_ttl)
-                        else:
-                            if team.id == 2:
-                                logger.info(f"PH user {user.id} has disabled notifications")
+
                         user_count += 1
                     team_count += 1
                 except Exception as e:
