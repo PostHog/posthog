@@ -43,6 +43,7 @@ def sessions_v3_backfill(context: AssetExecutionContext) -> None:
     context.log.info(
         f"Running backfill for {partition_range_str} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
     )
+    context.log.info(backfill_sql)
 
     cluster = get_cluster()
 
@@ -71,6 +72,7 @@ def sessions_v3_backfill_replay(context: AssetExecutionContext) -> None:
     context.log.info(
         f"Running backfill for {partition_range_str} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
     )
+    context.log.info(backfill_sql)
 
     cluster = get_cluster()
 

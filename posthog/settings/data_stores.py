@@ -57,7 +57,6 @@ def postgres_config(host: str) -> dict:
     }
 
 
-DATABASE_URL: str
 if TEST or DEBUG:
     PG_HOST: str = os.getenv("PGHOST", "localhost")
     PG_USER: str = os.getenv("PGUSER", "posthog")
@@ -68,12 +67,12 @@ if TEST or DEBUG:
         # AI evals get their own database, as they fully reuse the DB between runs and only reset once per day, for perf
         "posthog_ai_eval" if IN_EVAL_TESTING else "posthog",
     )
-    DATABASE_URL = os.getenv(
+    DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
         f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}",
     )
 else:
-    DATABASE_URL = os.getenv("DATABASE_URL", "")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 
 if DATABASE_URL:
     DATABASES: dict[str, dict] = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=0)}
@@ -108,7 +107,6 @@ else:
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
 
-
 DATABASE_ROUTERS: list[str] = []
 
 # Configure the database which will be used as a read replica.
@@ -119,14 +117,10 @@ if read_host:
     DATABASES["replica"] = postgres_config(read_host)
     DATABASE_ROUTERS.append("posthog.dbrouter.ReplicaRouter")
 
-IS_CONNECTED_TO_PROD_PG_IN_DEBUG = DEBUG and (
-    "-prod-" in DATABASES["default"]["HOST"] or "-prod-" in os.getenv("POSTHOG_POSTGRES_READ_HOST", "")
-)
-
 # Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
 # For local development, default to the persons database in the main container if no URL is provided
 persons_db_writer_url = os.getenv("PERSONS_DB_WRITER_URL")
-if DEBUG and not persons_db_writer_url and not TEST and not IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
+if not persons_db_writer_url and DEBUG and not TEST:
     # Default to local persons database in main container in development mode (but not test mode)
     # This matches the docker-compose.dev.yml configuration
     # A default is needed for generate_demo_data to properly populate the correct databases
@@ -240,8 +234,6 @@ try:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_QUERY_SETTINGS", "{}"))
 except Exception:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
-
-IS_CONNECTED_TO_PROD_CH_IN_DEBUG = DEBUG and ".prod." in CLICKHOUSE_HOST
 
 # Set of teams querying the data before we switched to new limits
 API_QUERIES_LEGACY_TEAM_LIST: Optional[set[int]] = None

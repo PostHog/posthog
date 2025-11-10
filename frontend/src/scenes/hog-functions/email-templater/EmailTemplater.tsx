@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useRef, useState } from 'react'
+import { useState } from 'react'
 import EmailEditor from 'react-email-editor'
 
 import { IconExternal, IconEye } from '@posthog/icons'
