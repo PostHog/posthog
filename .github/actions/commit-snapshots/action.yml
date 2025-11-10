@@ -109,6 +109,8 @@ runs:
           id: commit
           if: steps.verify.outputs.branch-advanced == 'false'
           shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.github-token }}
           run: |
               CHANGES_JSON=$(.github/scripts/count-snapshot-changes.sh ${{ inputs.snapshot-path }})
               echo "changes=$CHANGES_JSON" >> $GITHUB_OUTPUT
@@ -116,6 +118,12 @@ runs:
 
               TOTAL=$(echo "$CHANGES_JSON" | jq -r '.total')
               if [ "$TOTAL" -gt 0 ]; then
+                # Disable auto-merge BEFORE committing
+                # This ensures auto-merge is disabled even if workflow gets cancelled after push
+                gh pr merge --disable-auto ${{ inputs.pr-number }} || echo "Auto-merge was not enabled"
+                echo "Auto-merge disabled - snapshot changes require human review"
+
+                # Now commit and push
                 git add ${{ inputs.snapshot-path }} -A
                 git commit -m "${{ inputs.commit-message }}"
                 # Push directly - SHA verification already ensured we're up to date
@@ -128,15 +136,6 @@ runs:
                 echo "No snapshot changes to commit"
                 echo "committed=false" >> $GITHUB_OUTPUT
               fi
-
-        - name: Disable auto-merge
-          if: steps.commit.outputs.committed == 'true'
-          shell: bash
-          env:
-              GH_TOKEN: ${{ inputs.github-token }}
-          run: |
-              gh pr merge --disable-auto ${{ inputs.pr-number }} || echo "Auto-merge was not enabled"
-              echo "Snapshot changes require human review"
 
         - name: Post snapshot comment
           if: steps.commit.outputs.committed == 'true'
