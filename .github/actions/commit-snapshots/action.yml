@@ -21,7 +21,10 @@ inputs:
         description: 'Repository name (owner/repo)'
         required: true
     commit-sha:
-        description: 'Commit SHA'
+        description: 'Commit SHA that was tested'
+        required: true
+    branch-name:
+        description: 'Branch name'
         required: true
     github-token:
         description: 'GitHub token for authentication'
@@ -66,8 +69,41 @@ runs:
               git config user.name "github-actions[bot]"
               git config user.email "github-actions[bot]@users.noreply.github.com"
 
+        - name: Verify branch hasn't advanced
+          id: verify
+          shell: bash
+          run: |
+              # Check if the remote branch HEAD still matches the commit we tested
+              TESTED_SHA="${{ inputs.commit-sha }}"
+              CURRENT_SHA=$(git ls-remote origin "refs/heads/${{ inputs.branch-name }}" | cut -f1)
+
+              if [ "$TESTED_SHA" != "$CURRENT_SHA" ]; then
+                echo "branch-advanced=true" >> $GITHUB_OUTPUT
+                echo "current-sha=$CURRENT_SHA" >> $GITHUB_OUTPUT
+                echo "⚠️  Branch has advanced during workflow execution"
+                echo "   Tested:  $TESTED_SHA"
+                echo "   Current: $CURRENT_SHA"
+                echo "   Skipping snapshot commit - new workflow run will handle it"
+              else
+                echo "branch-advanced=false" >> $GITHUB_OUTPUT
+                echo "✓ Branch HEAD matches tested commit - proceeding with snapshot commit"
+              fi
+
+        - name: Post skip comment
+          if: steps.verify.outputs.branch-advanced == 'true'
+          shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.github-token }}
+          run: |
+              TESTED_SHA="${{ inputs.commit-sha }}"
+              CURRENT_SHA="${{ steps.verify.outputs.current-sha }}"
+              gh pr comment ${{ inputs.pr-number }} --body "⏭️ Skipped snapshot commit because branch advanced to \`${CURRENT_SHA:0:7}\` while workflow was testing \`${TESTED_SHA:0:7}\`.
+
+              The new commit will trigger its own snapshot update workflow."
+
         - name: Count and commit changes
           id: commit
+          if: steps.verify.outputs.branch-advanced == 'false'
           shell: bash
           run: |
               CHANGES_JSON=$(.github/scripts/count-snapshot-changes.sh ${{ inputs.snapshot-path }})

@@ -120,7 +120,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.ref }}
+                  ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   fetch-depth: 50 # Need enough history for flap detection to find last human commit
@@ -483,7 +483,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.ref }}
+                  ref: ${{ github.event.pull_request.head.sha }}
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
 
             - name: Download screenshot patches
@@ -527,4 +527,5 @@ jobs:
                   pr-number: ${{ github.event.pull_request.number }}
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
+                  branch-name: ${{ github.event.pull_request.head.ref }}
                   github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
