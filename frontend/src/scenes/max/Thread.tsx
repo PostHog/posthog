@@ -83,7 +83,6 @@ import {
     castAssistantQuery,
     isAssistantMessage,
     isAssistantToolCallMessage,
-    isCreateSupportTicketMessage,
     isDeepResearchReportCompletion,
     isFailureMessage,
     isHumanMessage,
@@ -167,6 +166,12 @@ export interface EnhancedToolCall extends AssistantToolCall {
     status: ExecutionStatus
     isLastPlanningMessage?: boolean
     updates?: string[]
+}
+
+// Support ticket specific tool call
+export interface SupportTicketToolCall extends Omit<EnhancedToolCall, 'args'> {
+    name: 'create_support_ticket'
+    args: DraftSupportTicketToolOutput
 }
 
 interface MessageProps {
@@ -281,6 +286,23 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                             if (message.status !== 'completed') {
                                 return null
                             }
+
+                            // Check for support ticket tool calls
+                            const supportTicketToolCall = message.tool_calls?.find(
+                                (tc) =>
+                                    tc.name === 'create_support_ticket' &&
+                                    (tc as EnhancedToolCall).status === 'completed'
+                            ) as SupportTicketToolCall | undefined
+
+                            if (supportTicketToolCall) {
+                                return (
+                                    <SupportTicketAnswer
+                                        key={`${key}-support`}
+                                        draftTicketData={supportTicketToolCall.args}
+                                    />
+                                )
+                            }
+
                             if (message.content.length === 0) {
                                 return null
                             }
@@ -446,11 +468,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
               return null
           })()
-          : null
-
-    if (isCreateSupportTicketMessage(message)) {
-        return <SupportTicketAnswer draftTicketData={message.ui_payload?.create_support_ticket} />
-    }
+        : null
 
     return (
         <MessageTemplate

@@ -64,13 +64,6 @@ export function isNotebookUpdateMessage(
     return message?.type === AssistantMessageType.Notebook
 }
 
-
-export function isCreateSupportTicketMessage(
-    message: RootAssistantMessage | undefined | null
-): message is AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>> {
-    return isAssistantToolCallMessage(message) && message.ui_payload?.create_support_ticket
-} // const isCreateSupportTicketMessage = isAssistantToolCallMessage(message) && message.ui_payload?.create_support_ticket
-
 export function castAssistantQuery(
     query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | null
 ): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {

@@ -122,7 +122,6 @@ class CreateSupportTicketToolArgs(BaseModel):
 class CreateSupportTicketTool(MaxTool):
     name: str = "create_support_ticket"
     description: str = SUPPORT_ESCALATION_PROMPT
-    thinking_message: str = "Drafting a message to PostHog support"
     args_schema: type[BaseModel] = CreateSupportTicketToolArgs
 
     async def _arun_impl(

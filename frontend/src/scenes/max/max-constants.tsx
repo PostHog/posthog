@@ -1,4 +1,4 @@
-import { IconAtSign, IconBook, IconCompass, IconCreditCard, IconMemory, IconSearch } from '@posthog/icons'
+import { IconAtSign, IconBook, IconCompass, IconCreditCard, IconMemory, IconSearch, IconSupport } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Scene } from 'scenes/sceneTypes'
@@ -375,7 +375,8 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
     create_support_ticket: {
         name: 'Create support ticket',
         description: 'Create support ticket to get help from our team',
-        product: null,
+        product: undefined,
+        icon: <IconSupport />,
         hidden: true, // we don't want users to create tickets of their own accord just yet
     },
 }
