@@ -149,15 +149,16 @@ EVENTS_TABLE_SESSION_ON_EVENTS_COLUMNS = f"""
     , soe_entry_fbclid Nullable(String)
 
     -- for channel type calculation, it's enough to know if these were present
-    , soe_entry_has_gclid Boolean
-    , soe_entry_has_fbclid Boolean
+    , soe_entry_has_gclid Boolean DEFAULT False
+    , soe_entry_has_fbclid Boolean DEFAULT False
 
     -- for lower-tier ad ids, just put them in a map, and set of the ones present
-    , soe_entry_ad_ids_map Map(String, String)
-    , soe_entry_ad_ids_set Array(String)
+    , soe_entry_ad_ids_map Map(String, String) DEFAULT map()
+    , soe_entry_ad_ids_set Array(String) DEFAULT array()
 
     -- bounce rate
-    , soe_page_screen_autocapture_uniq_up_to Array(UUID)
+    , soe_page_screen_uniq_up_to Array(UUID) DEFAULT array()
+    , soe_has_autocapture Boolean DEFAULT False
 """
 
 

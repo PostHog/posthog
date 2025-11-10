@@ -107,8 +107,8 @@ CREATE TABLE IF NOT EXISTS {table_name}
     entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
 
     -- bounce rate
-    page_screen_autocapture_uniq_up_to AggregateFunction(groupUniqArray(2), Nullable(UUID)),
-
+    page_screen_uniq_up_to AggregateFunction(groupUniqArray(2), Nullable(UUID)),
+    has_autocapture SimpleAggregateFunction(max, Boolean)
 ) ENGINE = {engine}
 """
 
@@ -193,7 +193,8 @@ SELECT
     initializeAggregation('argMinState', ad_ids_set, pageview_prio_timestamp_min) as entry_ad_ids_set,
 
     -- perf
-    initializeAggregation('groupUniqArrayState(2)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to
+    initializeAggregation('groupUniqArrayState(2)', if(event='$pageview' OR event='$screen', uuid, NULL)) as page_screen_uniq_up_to,
+    (event = '$autocapture') as has_autocapture
 FROM {database}.sharded_events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 AND {where}
@@ -328,7 +329,8 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     entry_ad_ids_set Array(String),
 
     -- bounce rate
-    page_screen_autocapture_uniq_up_to Array(UUID)
+    page_screen_uniq_up_to Array(UUID),
+    has_autocapture Boolean
 )
 ENGINE = {engine}
 ORDER BY (team_id, session_id_v7)
@@ -371,7 +373,8 @@ INSERT INTO {settings.CLICKHOUSE_DATABASE}.{table_name} (
     entry_ad_ids_map_values,
     entry_ad_ids_set,
 
-    page_screen_autocapture_uniq_up_to,
+    page_screen_uniq_up_to,
+    has_autocapture,
 )
 SELECT
     team_id,
@@ -405,7 +408,8 @@ SELECT
     mapValues(argMinMerge(entry_ad_ids_map)) as entry_ad_ids_map_values,
     argMinMerge(entry_ad_ids_set) as entry_ad_ids_set,
 
-    groupUniqArrayMerge(2)(page_screen_autocapture_uniq_up_to) as page_screen_autocapture_uniq_up_to
+    groupUniqArrayMerge(2)(page_screen_uniq_up_to) as page_screen_uniq_up_to,
+    max(s.has_autocapture) as has_autocapture
 FROM {settings.CLICKHOUSE_DATABASE}.{SHARDED_RAW_SESSIONS_OVERRIDES_TABLE_V3()} as s
 WHERE s.max_inserted_at < %(timestamp)s
 AND {where_clause}
@@ -455,7 +459,8 @@ CREATE DICTIONARY IF NOT EXISTS {settings.CLICKHOUSE_DATABASE}.{dict_name} (
     entry_ad_ids_set Array(String),
 
     -- bounce rate
-    page_screen_autocapture_uniq_up_to Array(UUID)
+    page_screen_uniq_up_to Array(UUID),
+    has_autocapture Boolean
 )
 PRIMARY KEY team_id, session_id_v7
 SOURCE(CLICKHOUSE(DB {settings.CLICKHOUSE_DATABASE} TABLE %(table)s USER %(user)s PASSWORD %(password)s))
@@ -606,15 +611,17 @@ UPDATE
     ),
 
     -- Bounce rate - merge arrays, keeping max 2 unique elements
-    soe_page_screen_autocapture_uniq_up_to = arrayResize(
+    soe_page_screen_uniq_up_to = arrayResize(
         arrayDistinct(
             arrayConcat(
-                ifNull(soe_page_screen_autocapture_uniq_up_to, []),
-                dictGet(%(dict_name)s, 'page_screen_autocapture_uniq_up_to', (team_id, `$session_id_uuid`))
+                ifNull(soe_page_screen_uniq_up_to, []),
+                dictGet(%(dict_name)s, 'page_screen_uniq_up_to', (team_id, `$session_id_uuid`))
             )
         ),
         2
-    )
+    ),
+
+    soe_has_autocapture = soe_has_autocapture OR dictGet(%(dict_name)s, 'has_autocapture', (team_id, `$session_id_uuid`))
    WHERE dictHas(%(dict_name)s, (team_id, `$session_id_uuid`)) AND {where}
 """
 
@@ -660,7 +667,7 @@ SELECT
     argMinMerge(entry_ad_ids_set) as entry_ad_ids_set,
 
     -- bounce rate
-    groupUniqArrayMerge(2)(page_screen_autocapture_uniq_up_to) as page_screen_autocapture_uniq_up_to
+    groupUniqArrayMerge(2)(page_screen_uniq_up_to) as page_screen_uniq_up_to
 FROM {settings.CLICKHOUSE_DATABASE}.{DISTRIBUTED_RAW_SESSIONS_OVERRIDES_TABLE_V3()}
 GROUP BY session_id_v7, session_timestamp, team_id
 """
@@ -752,7 +759,7 @@ LEFT JOIN (
         argMinMerge(entry_ad_ids_set) as entry_ad_ids_set,
 
         -- bounce rate
-        groupUniqArrayMerge(2)(page_screen_autocapture_uniq_up_to) as page_screen_autocapture_uniq_up_to
+        groupUniqArrayMerge(2)(page_screen_uniq_up_to) as page_screen_uniq_up_to
     FROM {settings.CLICKHOUSE_DATABASE}.{DISTRIBUTED_RAW_SESSIONS_OVERRIDES_TABLE_V3()}
     GROUP BY session_id_v7, session_timestamp, team_id
     ) as s
