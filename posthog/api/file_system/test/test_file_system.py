@@ -9,8 +9,14 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.models import Dashboard, Experiment, FeatureFlag, Insight, Project, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.cohort import Cohort
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from posthog.models.link import Link
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
+from products.early_access_features.backend.models import EarlyAccessFeature
 from products.notebooks.backend.models import Notebook
 
 from ee.models.rbac.access_control import AccessControl
@@ -1515,3 +1521,237 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
         folder = folder_t2_qs.first()
         assert folder is not None
         assert folder.depth == 1
+
+    def test_delete_and_restore_activity_logs_for_supported_file_types(self):
+        cases = [
+            {
+                "file_type": "insight",
+                "scope": "Insight",
+                "factory": self._prepare_insight_case,
+                "supports_restore": True,
+            },
+            {
+                "file_type": "notebook",
+                "scope": "Notebook",
+                "factory": self._prepare_notebook_case,
+                "supports_restore": True,
+            },
+            {
+                "file_type": "session_recording_playlist",
+                "scope": "SessionRecordingPlaylist",
+                "factory": self._prepare_session_recording_playlist_case,
+                "supports_restore": True,
+            },
+            {
+                "file_type": "cohort",
+                "scope": "Cohort",
+                "factory": self._prepare_cohort_case,
+                "supports_restore": True,
+            },
+            {
+                "file_type": f"hog_function/{HogFunctionType.DESTINATION}",
+                "scope": "HogFunction",
+                "factory": self._prepare_hog_function_case,
+                "supports_restore": True,
+                "extra_restore_fields": ["enabled"],
+            },
+            {
+                "file_type": "link",
+                "scope": "Link",
+                "factory": self._prepare_link_case,
+                "supports_restore": False,
+            },
+            {
+                "file_type": "early_access_feature",
+                "scope": "EarlyAccessFeature",
+                "factory": self._prepare_early_access_feature_case,
+                "supports_restore": False,
+            },
+        ]
+
+        for case in cases:
+            with self.subTest(file_type=case["file_type"]):
+                ActivityLog.objects.all().delete()
+                FileSystem.objects.filter(team=self.team).delete()
+
+                data = case["factory"]()
+                fs_entry = data["fs_entry"]
+
+                delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{fs_entry.pk}/")
+                self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
+
+                delete_log = (
+                    ActivityLog.objects.filter(scope=case["scope"], item_id=data["item_id"], activity="deleted")
+                    .order_by("-created_at")
+                    .first()
+                )
+                self.assertIsNotNone(delete_log, f"Expected delete log for {case['scope']}")
+
+                if case["supports_restore"]:
+                    undo_payload = {
+                        "items": [
+                            {
+                                "type": case["file_type"],
+                                "ref": data["ref"],
+                                "path": data["path"],
+                            }
+                        ]
+                    }
+
+                    undo_response = self.client.post(
+                        f"/api/projects/{self.team.id}/file_system/undo_delete/",
+                        undo_payload,
+                        format="json",
+                    )
+                    self.assertEqual(undo_response.status_code, status.HTTP_200_OK, undo_response.json())
+
+                    restore_log = (
+                        ActivityLog.objects.filter(scope=case["scope"], item_id=data["item_id"], activity="updated")
+                        .order_by("-created_at")
+                        .first()
+                    )
+                    self.assertIsNotNone(restore_log, f"Expected restore log for {case['scope']}")
+
+                    detail = restore_log.detail or {}
+                    changes = detail.get("changes", [])
+                    self.assertTrue(
+                        any(change.get("field") == "deleted" and change.get("after") is False for change in changes),
+                        f"Expected deleted change for {case['scope']} restore",
+                    )
+
+                    for field in case.get("extra_restore_fields", []):
+                        self.assertTrue(
+                            any(change.get("field") == field for change in changes),
+                            f"Expected {field} change for {case['scope']} restore",
+                        )
+
+    def _ensure_file_system_entry(self, *, file_type: str, ref: str, fallback_name: str) -> FileSystem:
+        fs_entry = (
+            FileSystem.objects.filter(team=self.team, type=file_type, ref=ref, shortcut=False)
+            .order_by("created_at")
+            .first()
+        )
+        if fs_entry is not None:
+            return fs_entry
+
+        path = f"Manual/{file_type}/{fallback_name}"
+        depth = len([segment for segment in path.split("/") if segment])
+        return FileSystem.objects.create(
+            team=self.team,
+            path=path,
+            depth=depth,
+            type=file_type,
+            ref=ref,
+            created_by=self.user,
+        )
+
+    def _prepare_insight_case(self):
+        insight = Insight.objects.create(
+            team=self.team,
+            saved=True,
+            name="File system insight",
+            created_by=self.user,
+        )
+        fs_entry = self._ensure_file_system_entry(
+            file_type="insight", ref=insight.short_id, fallback_name=insight.short_id
+        )
+        return {
+            "fs_entry": fs_entry,
+            "item_id": str(insight.id),
+            "ref": insight.short_id,
+            "path": fs_entry.path,
+        }
+
+    def _prepare_notebook_case(self):
+        notebook = Notebook.objects.create(team=self.team, title="Notebook", created_by=self.user)
+        fs_entry = self._ensure_file_system_entry(
+            file_type="notebook", ref=notebook.short_id, fallback_name=notebook.short_id
+        )
+        return {
+            "fs_entry": fs_entry,
+            "item_id": notebook.short_id,
+            "ref": notebook.short_id,
+            "path": fs_entry.path,
+        }
+
+    def _prepare_session_recording_playlist_case(self):
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="Playlist",
+            created_by=self.user,
+        )
+        fs_entry = self._ensure_file_system_entry(
+            file_type="session_recording_playlist",
+            ref=playlist.short_id,
+            fallback_name=playlist.short_id,
+        )
+        return {
+            "fs_entry": fs_entry,
+            "item_id": str(playlist.id),
+            "ref": playlist.short_id,
+            "path": fs_entry.path,
+        }
+
+    def _prepare_cohort_case(self):
+        cohort = Cohort.objects.create(team=self.team, name="Cohort", groups=[], is_static=True)
+        fs_entry = self._ensure_file_system_entry(file_type="cohort", ref=str(cohort.id), fallback_name=str(cohort.id))
+        return {
+            "fs_entry": fs_entry,
+            "item_id": str(cohort.id),
+            "ref": str(cohort.id),
+            "path": fs_entry.path,
+        }
+
+    def _prepare_hog_function_case(self):
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="Destination",
+            created_by=self.user,
+            type=HogFunctionType.DESTINATION,
+            enabled=True,
+            hog="return 1",
+        )
+        file_type = f"hog_function/{hog_function.type}"
+        fs_entry = self._ensure_file_system_entry(
+            file_type=file_type, ref=str(hog_function.id), fallback_name=str(hog_function.id)
+        )
+        return {
+            "fs_entry": fs_entry,
+            "item_id": str(hog_function.id),
+            "ref": str(hog_function.id),
+            "path": fs_entry.path,
+        }
+
+    def _prepare_link_case(self):
+        link = Link.objects.create(
+            team=self.team,
+            redirect_url="https://example.com",
+            short_link_domain="hog.gg",
+            short_code="abc123",
+            created_by=self.user,
+        )
+        fs_entry = self._ensure_file_system_entry(file_type="link", ref=str(link.id), fallback_name=str(link.id))
+        return {
+            "fs_entry": fs_entry,
+            "item_id": str(link.id),
+            "ref": str(link.id),
+            "path": fs_entry.path,
+        }
+
+    def _prepare_early_access_feature_case(self):
+        feature = EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Early feature",
+            stage=EarlyAccessFeature.Stage.BETA,
+        )
+        fs_entry = self._ensure_file_system_entry(
+            file_type="early_access_feature",
+            ref=str(feature.id),
+            fallback_name=str(feature.id),
+        )
+        return {
+            "fs_entry": fs_entry,
+            "item_id": str(feature.id),
+            "ref": str(feature.id),
+            "path": fs_entry.path,
+        }

@@ -18,7 +18,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.models.action.action import Action
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
@@ -35,13 +35,16 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.session_recordings.session_recording_playlist_api import log_playlist_activity
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.notebooks.backend.api.notebook import log_notebook_activity
 from products.notebooks.backend.models import Notebook
 
 HOG_FUNCTION_TYPES = ["broadcast", "campaign", "destination", "site_app", "source", "transformation"]
 
 
+# Used to gather delete operations
 @dataclass(frozen=True)
 class DeleteHandler:
     delete: Callable[["FileSystemViewSet", FileSystem], None]
@@ -50,6 +53,55 @@ class DeleteHandler:
     restore: Optional[Callable[["FileSystemViewSet", dict[str, Any]], Any]] = None
 
 
+def _log_file_system_activity(
+    viewset: "FileSystemViewSet",
+    *,
+    scope: str,
+    activity: Literal["deleted", "updated"],
+    item_id: str | int,
+    name: Optional[str] = None,
+    short_id: Optional[str] = None,
+    changes: Optional[list[Change]] = None,
+) -> None:
+    organization = getattr(viewset, "organization", None)
+    if not organization:
+        return
+
+    log_activity(
+        organization_id=organization.id,
+        team_id=viewset.team_id,
+        user=cast(User, viewset.request.user),
+        was_impersonated=is_impersonated_session(viewset.request),
+        item_id=str(item_id),
+        scope=scope,
+        activity=activity,
+        detail=Detail(name=name, short_id=short_id, changes=changes),
+    )
+
+
+def _log_restore_activity(
+    viewset: "FileSystemViewSet",
+    *,
+    scope: str,
+    item_id: str | int,
+    name: Optional[str] = None,
+    short_id: Optional[str] = None,
+    extra_changes: Optional[list[Change]] = None,
+) -> None:
+    changes = extra_changes or []
+    changes.append(Change(type=scope, action="changed", field="deleted", before=True, after=False))
+    _log_file_system_activity(
+        viewset,
+        scope=scope,
+        activity="updated",
+        item_id=item_id,
+        name=name,
+        short_id=short_id,
+        changes=changes,
+    )
+
+
+# Set deleted=True on instance
 def _soft_delete(instance: Any, *, field: str = "deleted", extra_updates: Optional[dict[str, Any]] = None) -> None:
     update_fields: list[str] = []
     if extra_updates:
@@ -67,6 +119,7 @@ def _soft_delete(instance: Any, *, field: str = "deleted", extra_updates: Option
         instance.save()
 
 
+# Set deleted=False on instance and restore the file system row
 def _restore_soft_delete(
     instance: Any,
     *,
@@ -76,7 +129,7 @@ def _restore_soft_delete(
 ) -> Any:
     if restore_path is not None and hasattr(instance, "_create_in_folder"):
         segments = split_path(restore_path)
-        folder_path = "/".join(segments[:-1]) if len(segments) > 1 else ""
+        folder_path = join_path(segments[:-1]) if len(segments) > 1 else ""
         instance._create_in_folder = folder_path or None
     update_fields: list[str] = []
     if getattr(instance, field) is not False:
@@ -150,65 +203,182 @@ def _restore_experiment(viewset: "FileSystemViewSet", payload: dict[str, Any]) -
 
 def _delete_insight(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     insight = Insight.objects_including_soft_deleted.get(team=entry.team, short_id=entry.ref)
+    insight_name = insight.name or insight.derived_name or "Untitled insight"
+    insight_id = insight.id
+    insight_short_id = insight.short_id
     _soft_delete(insight)
+    _log_file_system_activity(
+        viewset,
+        scope="Insight",
+        activity="deleted",
+        item_id=insight_id,
+        name=insight_name,
+        short_id=insight_short_id,
+    )
 
 
 def _restore_insight(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Insight:
     insight = Insight.objects_including_soft_deleted.get(team=viewset.team, short_id=payload["ref"])
-    return cast(Insight, _restore_soft_delete(insight, restore_path=payload.get("path")))
+    restored_insight = cast(Insight, _restore_soft_delete(insight, restore_path=payload.get("path")))
+    _log_restore_activity(
+        viewset,
+        scope="Insight",
+        item_id=restored_insight.id,
+        name=restored_insight.name or restored_insight.derived_name or "Untitled insight",
+        short_id=restored_insight.short_id,
+    )
+    return restored_insight
 
 
 def _delete_link(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     link = Link.objects.get(team=entry.team, id=_require_entry_ref(entry))
+    link_name = link.short_code or link.redirect_url or str(link.id)
+    link_id = link.id
     link.delete()
+    _log_file_system_activity(
+        viewset,
+        scope="Link",
+        activity="deleted",
+        item_id=link_id,
+        name=link_name,
+    )
 
 
 def _delete_notebook(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     notebook = Notebook.objects.get(team=entry.team, short_id=_require_entry_ref(entry))
     _soft_delete(notebook)
+    organization = getattr(viewset, "organization", None)
+    if organization:
+        log_notebook_activity(
+            activity="deleted",
+            notebook=notebook,
+            organization_id=organization.id,
+            team_id=viewset.team_id,
+            user=cast(User, viewset.request.user),
+            was_impersonated=is_impersonated_session(viewset.request),
+        )
 
 
 def _restore_notebook(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Notebook:
     notebook = Notebook.objects.get(team=viewset.team, short_id=payload["ref"])
-    return cast(Notebook, _restore_soft_delete(notebook, restore_path=payload.get("path")))
+    restored_notebook = cast(Notebook, _restore_soft_delete(notebook, restore_path=payload.get("path")))
+    organization = getattr(viewset, "organization", None)
+    if organization:
+        log_notebook_activity(
+            activity="updated",
+            notebook=restored_notebook,
+            organization_id=organization.id,
+            team_id=viewset.team_id,
+            user=cast(User, viewset.request.user),
+            was_impersonated=is_impersonated_session(viewset.request),
+            changes=[Change(type="Notebook", action="changed", field="deleted", before=True, after=False)],
+        )
+    return restored_notebook
 
 
 def _delete_session_recording_playlist(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     playlist = SessionRecordingPlaylist.objects.get(team=entry.team, short_id=_require_entry_ref(entry))
     _soft_delete(playlist)
+    organization = getattr(viewset, "organization", None)
+    if organization:
+        log_playlist_activity(
+            activity="deleted",
+            playlist=playlist,
+            playlist_id=playlist.id,
+            playlist_short_id=playlist.short_id,
+            organization_id=organization.id,
+            team_id=viewset.team_id,
+            user=cast(User, viewset.request.user),
+            was_impersonated=is_impersonated_session(viewset.request),
+        )
 
 
 def _restore_session_recording_playlist(
     viewset: "FileSystemViewSet", payload: dict[str, Any]
 ) -> SessionRecordingPlaylist:
     playlist = SessionRecordingPlaylist.objects.get(team=viewset.team, short_id=payload["ref"])
-    return cast(
+    restored_playlist = cast(
         SessionRecordingPlaylist,
         _restore_soft_delete(playlist, restore_path=payload.get("path")),
     )
+    organization = getattr(viewset, "organization", None)
+    if organization:
+        log_playlist_activity(
+            activity="updated",
+            playlist=restored_playlist,
+            playlist_id=restored_playlist.id,
+            playlist_short_id=restored_playlist.short_id,
+            organization_id=organization.id,
+            team_id=viewset.team_id,
+            user=cast(User, viewset.request.user),
+            was_impersonated=is_impersonated_session(viewset.request),
+            changes=[
+                Change(
+                    type="SessionRecordingPlaylist",
+                    action="changed",
+                    field="deleted",
+                    before=True,
+                    after=False,
+                )
+            ],
+        )
+    return restored_playlist
 
 
 def _delete_cohort(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     cohort = Cohort.objects.get(team=entry.team, id=_require_entry_ref(entry))
+    cohort_name = cohort.name or "Untitled cohort"
+    cohort_id = cohort.id
     _soft_delete(cohort)
+    _log_file_system_activity(
+        viewset,
+        scope="Cohort",
+        activity="deleted",
+        item_id=cohort_id,
+        name=cohort_name,
+    )
 
 
 def _restore_cohort(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Cohort:
     cohort = Cohort.objects.get(team=viewset.team, id=payload["ref"])
-    return cast(Cohort, _restore_soft_delete(cohort, restore_path=payload.get("path")))
+    restored_cohort = cast(Cohort, _restore_soft_delete(cohort, restore_path=payload.get("path")))
+    _log_restore_activity(
+        viewset,
+        scope="Cohort",
+        item_id=restored_cohort.id,
+        name=restored_cohort.name or "Untitled cohort",
+    )
+    return restored_cohort
 
 
 def _delete_hog_function(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     hog_function = HogFunction.objects.get(team=entry.team, id=_require_entry_ref(entry))
+    hog_function_name = hog_function.name or "Untitled"
+    hog_function_id = hog_function.id
     _soft_delete(hog_function, extra_updates={"enabled": False})
+    _log_file_system_activity(
+        viewset,
+        scope="HogFunction",
+        activity="deleted",
+        item_id=hog_function_id,
+        name=hog_function_name,
+    )
 
 
 def _restore_hog_function(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> HogFunction:
     hog_function = HogFunction.objects.get(team=viewset.team, id=payload["ref"])
-    return cast(
+    restored_hog_function = cast(
         HogFunction,
         _restore_soft_delete(hog_function, extra_updates={"enabled": True}, restore_path=payload.get("path")),
     )
+    _log_restore_activity(
+        viewset,
+        scope="HogFunction",
+        item_id=restored_hog_function.id,
+        name=restored_hog_function.name or "Untitled",
+        extra_changes=[Change(type="HogFunction", action="changed", field="enabled", before=False, after=True)],
+    )
+    return restored_hog_function
 
 
 def _delete_survey(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
@@ -245,7 +415,16 @@ def _delete_early_access_feature(viewset: "FileSystemViewSet", entry: FileSystem
             "super_groups": None,
         }
         feature.feature_flag.save(update_fields=["filters"])
+    feature_name = feature.name or "Untitled feature"
+    feature_id = feature.id
     feature.delete()
+    _log_file_system_activity(
+        viewset,
+        scope="EarlyAccessFeature",
+        activity="deleted",
+        item_id=feature_id,
+        name=feature_name,
+    )
 
 
 DELETE_HANDLER_MAP: dict[str, DeleteHandler] = {
