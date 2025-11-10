@@ -205,6 +205,7 @@ services:
             # Mode 2: Dual-write warming phase for developers
             FLAGS_REDIS_URL: 'redis://redis:6379/1'
             FLAGS_REDIS_ENABLED: 'false' # Warming but not reading yet
+            REDIS_COMPRESSION_ENABLED: 'true'
 
     livestream:
         extends:
