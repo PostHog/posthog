@@ -56,6 +56,7 @@ def log_notebook_activity(
     changes: Optional[list[Change]] = None,
 ) -> None:
     short_id = str(notebook.short_id)
+    notebook_name = notebook.title or "Untitled notebook"
 
     log_activity(
         organization_id=organization_id,
@@ -65,7 +66,7 @@ def log_notebook_activity(
         item_id=notebook.short_id,
         scope="Notebook",
         activity=activity,
-        detail=Detail(changes=changes, short_id=short_id, name=notebook.title),
+        detail=Detail(changes=changes, short_id=short_id, name=notebook_name),
     )
 
 

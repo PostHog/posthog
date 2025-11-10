@@ -184,6 +184,16 @@ export function defaultDescriber(
         }
     }
 
+    if (logItem.activity == 'restored') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> restored <b>{resource}</b>
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'updated') {
         return {
             description: (

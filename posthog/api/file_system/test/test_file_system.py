@@ -1531,9 +1531,21 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
                 "supports_restore": True,
             },
             {
+                "file_type": "dashboard",
+                "scope": "Dashboard",
+                "factory": self._prepare_dashboard_case,
+                "supports_restore": True,
+            },
+            {
                 "file_type": "notebook",
                 "scope": "Notebook",
                 "factory": self._prepare_notebook_case,
+                "supports_restore": True,
+            },
+            {
+                "file_type": "experiment",
+                "scope": "Experiment",
+                "factory": self._prepare_experiment_case,
                 "supports_restore": True,
             },
             {
@@ -1606,7 +1618,11 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
                     self.assertEqual(undo_response.status_code, status.HTTP_200_OK, undo_response.json())
 
                     restore_log = (
-                        ActivityLog.objects.filter(scope=case["scope"], item_id=data["item_id"], activity="updated")
+                        ActivityLog.objects.filter(
+                            scope=case["scope"],
+                            item_id=data["item_id"],
+                            activity=case.get("restore_activity", "restored"),
+                        )
                         .order_by("-created_at")
                         .first()
                     )
@@ -1662,6 +1678,18 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
             "path": fs_entry.path,
         }
 
+    def _prepare_dashboard_case(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+        fs_entry = self._ensure_file_system_entry(
+            file_type="dashboard", ref=str(dashboard.id), fallback_name=str(dashboard.id)
+        )
+        return {
+            "fs_entry": fs_entry,
+            "item_id": str(dashboard.id),
+            "ref": str(dashboard.id),
+            "path": fs_entry.path,
+        }
+
     def _prepare_notebook_case(self):
         notebook = Notebook.objects.create(team=self.team, title="Notebook", created_by=self.user)
         fs_entry = self._ensure_file_system_entry(
@@ -1671,6 +1699,24 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
             "fs_entry": fs_entry,
             "item_id": notebook.short_id,
             "ref": notebook.short_id,
+            "path": fs_entry.path,
+        }
+
+    def _prepare_experiment_case(self):
+        feature_flag = FeatureFlag.objects.create(team=self.team, key="exp-flag", created_by=self.user)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Experiment",
+            feature_flag=feature_flag,
+            created_by=self.user,
+        )
+        fs_entry = self._ensure_file_system_entry(
+            file_type="experiment", ref=str(experiment.id), fallback_name=str(experiment.id)
+        )
+        return {
+            "fs_entry": fs_entry,
+            "item_id": str(experiment.id),
+            "ref": str(experiment.id),
             "path": fs_entry.path,
         }
 

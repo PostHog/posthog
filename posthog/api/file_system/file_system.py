@@ -57,7 +57,7 @@ def _log_file_system_activity(
     viewset: "FileSystemViewSet",
     *,
     scope: str,
-    activity: Literal["deleted", "updated"],
+    activity: Literal["deleted", "updated", "restored"],
     item_id: str | int,
     name: Optional[str] = None,
     short_id: Optional[str] = None,
@@ -88,12 +88,12 @@ def _log_restore_activity(
     short_id: Optional[str] = None,
     extra_changes: Optional[list[Change]] = None,
 ) -> None:
-    changes = extra_changes or []
+    changes = list(extra_changes or [])
     changes.append(Change(type=scope, action="changed", field="deleted", before=True, after=False))
     _log_file_system_activity(
         viewset,
         scope=scope,
-        activity="updated",
+        activity="restored",
         item_id=item_id,
         name=name,
         short_id=short_id,
@@ -208,10 +208,17 @@ def _delete_dashboard(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
 
 def _restore_dashboard(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Dashboard:
     dashboard = Dashboard.objects_including_soft_deleted.get(team=viewset.team, id=payload["ref"])
-    return cast(
+    restored_dashboard = cast(
         Dashboard,
         _restore_soft_delete(dashboard, restore_path=payload.get("path"), user=_get_request_user(viewset)),
     )
+    _log_restore_activity(
+        viewset,
+        scope="Dashboard",
+        item_id=restored_dashboard.id,
+        name=restored_dashboard.name or "Untitled dashboard",
+    )
+    return restored_dashboard
 
 
 def _delete_feature_flag(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
@@ -239,10 +246,17 @@ def _delete_experiment(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
 
 def _restore_experiment(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Experiment:
     experiment = Experiment.objects.get(team=viewset.team, id=payload["ref"])
-    return cast(
+    restored_experiment = cast(
         Experiment,
         _restore_soft_delete(experiment, restore_path=payload.get("path"), user=_get_request_user(viewset)),
     )
+    _log_restore_activity(
+        viewset,
+        scope="Experiment",
+        item_id=restored_experiment.id,
+        name=restored_experiment.name or "Untitled experiment",
+    )
+    return restored_experiment
 
 
 def _delete_insight(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
@@ -323,7 +337,7 @@ def _restore_notebook(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> 
     organization = getattr(viewset, "organization", None)
     if organization:
         log_notebook_activity(
-            activity="updated",
+            activity="restored",
             notebook=restored_notebook,
             organization_id=organization.id,
             team_id=viewset.team_id,
@@ -366,7 +380,7 @@ def _restore_session_recording_playlist(
     organization = getattr(viewset, "organization", None)
     if organization:
         log_playlist_activity(
-            activity="updated",
+            activity="restored",
             playlist=restored_playlist,
             playlist_id=restored_playlist.id,
             playlist_short_id=restored_playlist.short_id,
