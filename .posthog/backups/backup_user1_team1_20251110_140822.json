@@ -1,0 +1,24 @@
+{
+    "metadata": {
+        "backed_up_at": "2025-11-10T14:08:22.054928",
+        "user_id": 1,
+        "user_email": "test@posthog.com",
+        "team_id": 1,
+        "team_name": "Hedgebox",
+        "settings_included": ["user_preferences", "home_settings", "shortcuts"]
+    },
+    "user_preferences": {
+        "theme_mode": "system",
+        "partial_notification_settings": null,
+        "hedgehog_config": null,
+        "events_column_config": {
+            "active": "DEFAULT"
+        },
+        "has_seen_product_intro_for": null,
+        "toolbar_mode": "toolbar",
+        "anonymize_data": false,
+        "email_opt_in": false
+    },
+    "home_settings": {},
+    "shortcuts": []
+}

@@ -150,9 +150,9 @@ def doctor_disk(
                 "These logs can grow to 32GB+ after repeated 'flox' operations.",
             ],
             estimate=_estimate_flox_logs,
-            cleanup=_cleanup_items,
+            cleanup=_cleanup_flox_logs,
             confirmation_prompt="Clean up Flox logs older than 7 days?",
-            dry_run_message="Would delete Flox log files older than 7 days.",
+            dry_run_message="Would run: find .flox/log -name '*.log' -mtime +7 -delete",
         ),
         CleanupCategory(
             id="docker",
@@ -335,7 +335,7 @@ def _run_category(
 
 
 def _estimate_flox_logs(repo_root: Path) -> CleanupEstimate:
-    """Collect Flox log files older than 7 days under .flox/log."""
+    """Check Flox log directory - cleanup happens via find command."""
 
     flox_log_dir = repo_root / ".flox" / "log"
     if not flox_log_dir.exists():
@@ -345,31 +345,16 @@ def _estimate_flox_logs(repo_root: Path) -> CleanupEstimate:
             items=[],
         )
 
-    cutoff = time.time() - (7 * 24 * 60 * 60)
-    items: list[CleanupItem] = []
-    total = 0.0
-    for log_file in flox_log_dir.glob("*.log"):
-        if not log_file.is_file():
-            continue
-        try:
-            stat = log_file.stat()
-        except (FileNotFoundError, PermissionError, OSError):
-            continue
-        # Only include files older than 7 days
-        if stat.st_mtime >= cutoff:
-            continue
-        items.append(CleanupItem(log_file, stat.st_size, is_dir=False))
-        total += stat.st_size
+    # Just check if directory exists and has logs - don't calculate sizes
+    # Cleanup is done via find command for simplicity
+    log_count = len(list(flox_log_dir.glob("*.log")))
 
-    details: list[str] = []
-    relative_dir = flox_log_dir.relative_to(repo_root)
-    if items:
-        details.append(f"   Located {len(items)} log file(s) older than 7 days in {relative_dir}.")
-        details.extend(_describe_items(items, repo_root, "   Sample log files:"))
-    else:
-        details.append(f"   No Flox log files older than 7 days in {relative_dir}.")
+    details = [
+        "   Runs: find .flox/log -name '*.log' -mtime +7 -delete",
+        f"   Found {log_count} log file(s) in directory.",
+    ]
 
-    return CleanupEstimate(total_size=total, items=items, details=details)
+    return CleanupEstimate(total_size=0.0, items=[], details=details)
 
 
 def _estimate_python_caches(repo_root: Path) -> CleanupEstimate:
@@ -496,6 +481,21 @@ def _cleanup_items(estimate: CleanupEstimate, _: Path) -> CleanupStats:
 
     freed = _delete_items(estimate.items)
     return CleanupStats(freed=freed, deleted_anything=freed > 0)
+
+
+def _cleanup_flox_logs(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
+    """Execute find command to clean up old Flox logs."""
+
+    flox_log_dir = repo_root / ".flox" / "log"
+    result = subprocess.run(
+        ["find", str(flox_log_dir), "-name", "*.log", "-type", "f", "-mtime", "+7", "-delete"],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        return CleanupStats(deleted_anything=True)
+
+    return CleanupStats(deleted_anything=False)
 
 
 def _cleanup_docker(_: CleanupEstimate, __: Path) -> CleanupStats:

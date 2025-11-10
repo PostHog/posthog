@@ -31,5 +31,13 @@ For simple shell commands or bin script delegation, use manifest.yaml instead.
 
 from __future__ import annotations
 
+# Add your Click commands below this line
+# Example command (remove or keep as reference):
+# @cli.command(name="example:hello", help="Example Click command")
+# @click.argument('name')
+# @click.option('--greeting', default='Hello', help='Greeting to use')
+# def example_hello(name: str, greeting: str) -> None:
+#     """Say hello to someone."""
+#     click.echo(f"{greeting}, {name}!")
 # Import commands from other modules to register them
 from hogli import doctor  # noqa: F401
