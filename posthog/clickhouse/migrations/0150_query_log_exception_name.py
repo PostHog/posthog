@@ -6,6 +6,7 @@ operations = [
     run_sql_with_exceptions(
         ADD_EXCEPTION_NAME_SQL,
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        sharded=False,
         is_alter_on_replicated_table=True,
     ),
 ]
