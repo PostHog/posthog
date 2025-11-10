@@ -391,6 +391,9 @@ jobs:
                     echo "No snapshot changes"
                     echo "has-changes=false" >> $GITHUB_OUTPUT
                   else
+                    echo "Snapshot changes detected:"
+                    git status --short frontend/__snapshots__/
+
                     # Stage untracked files so git diff can include them in the patch
                     git add -N frontend/__snapshots__/
                     # Create binary-safe patch file
