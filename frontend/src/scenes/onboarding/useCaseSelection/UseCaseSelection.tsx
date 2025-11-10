@@ -21,7 +21,7 @@ export function UseCaseSelection(): JSX.Element {
     const { hasIngestedEvent } = useValues(teamLogic)
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-primary">
+        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--scene-layout-header-height)-var(--scene-padding))] p-4 bg-primary">
             <div className="max-w-2xl w-full">
                 <h1 className="text-4xl font-bold text-center mb-2">What do you want to do with PostHog?</h1>
                 <p className="text-center text-muted mb-8">Select your primary goal to get started:</p>
