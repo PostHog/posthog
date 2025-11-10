@@ -27,7 +27,7 @@ class AgentExample(BaseModel):
 
 
 @dataclass
-class AgentDefinition:
+class AgentModeDefinition:
     mode: AgentMode
     """The name of the agent's mode."""
     mode_description: str

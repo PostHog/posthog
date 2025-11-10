@@ -4,7 +4,7 @@ import posthoganalytics
 
 from posthog.schema import AgentMode
 
-from ee.hogai.graph.agent_modes.factory import AgentDefinition
+from ee.hogai.graph.agent_modes.factory import AgentModeDefinition
 from ee.hogai.graph.agent_modes.nodes import AgentToolkit
 from ee.hogai.tools import CreateAndQueryInsightTool, CreateDashboardTool, SessionSummarizationTool
 
@@ -43,7 +43,7 @@ class ProductAnalyticsAgentToolkit(AgentToolkit):
         )
 
 
-product_analytics_agent = AgentDefinition(
+product_analytics_agent = AgentModeDefinition(
     mode=AgentMode.PRODUCT_ANALYTICS,
     mode_description="General-purpose mode for product analytics tasks.",
     toolkit_class=ProductAnalyticsAgentToolkit,
