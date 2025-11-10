@@ -349,15 +349,21 @@ export class PostgresPersonRepository
             const sanitizedPropertiesLastOperation = sanitizeJsonbValue(propertiesLastOperation)
 
             // Record JSON field sizes (using string length as approximation)
-            personJsonFieldSizeHistogram
-                .labels({ operation: 'createPerson', field: 'properties' })
-                .observe(sanitizedProperties.length)
-            personJsonFieldSizeHistogram
-                .labels({ operation: 'createPerson', field: 'properties_last_updated_at' })
-                .observe(sanitizedPropertiesLastUpdatedAt.length)
-            personJsonFieldSizeHistogram
-                .labels({ operation: 'createPerson', field: 'properties_last_operation' })
-                .observe(sanitizedPropertiesLastOperation.length)
+            if (typeof sanitizedProperties === 'string') {
+                personJsonFieldSizeHistogram
+                    .labels({ operation: 'createPerson', field: 'properties' })
+                    .observe(sanitizedProperties.length)
+            }
+            if (typeof sanitizedPropertiesLastUpdatedAt === 'string') {
+                personJsonFieldSizeHistogram
+                    .labels({ operation: 'createPerson', field: 'properties_last_updated_at' })
+                    .observe(sanitizedPropertiesLastUpdatedAt.length)
+            }
+            if (typeof sanitizedPropertiesLastOperation === 'string') {
+                personJsonFieldSizeHistogram
+                    .labels({ operation: 'createPerson', field: 'properties_last_operation' })
+                    .observe(sanitizedPropertiesLastOperation.length)
+            }
 
             const baseParams = [
                 createdAt.toISO(),
