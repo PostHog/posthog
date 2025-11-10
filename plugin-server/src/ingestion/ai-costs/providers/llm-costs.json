@@ -350,13 +350,6 @@
                 "prompt_token": 0.000003,
                 "completion_token": 0.000015,
                 "image": 0.0048
-            },
-            "google-vertex": {
-                "prompt_token": 0.000003,
-                "completion_token": 0.000015,
-                "cache_read_token": 3e-7,
-                "cache_write_token": 0.00000375,
-                "image": 0.0048
             }
         }
     },
@@ -2957,6 +2950,10 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012
             },
+            "gmicloud-fp8": {
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000012
+            },
             "minimax": {
                 "prompt_token": 2.55e-7,
                 "completion_token": 0.00000102
@@ -2975,10 +2972,6 @@
         "model": "minimax/minimax-m2:free",
         "cost": {
             "default": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "gmicloud-fp8": {
                 "prompt_token": 0,
                 "completion_token": 0
             },
@@ -3633,9 +3626,9 @@
                 "cache_read_token": 1.5e-7
             },
             "moonshotai-turbo": {
-                "prompt_token": 0.0000024,
-                "completion_token": 0.00001,
-                "cache_read_token": 6e-7
+                "prompt_token": 0.00000115,
+                "completion_token": 0.000008,
+                "cache_read_token": 1.5e-7
             },
             "novita-fp8": {
                 "prompt_token": 6e-7,
@@ -3671,8 +3664,9 @@
                 "completion_token": 0.0000025
             },
             "moonshotai-turbo": {
-                "prompt_token": 0.0000024,
-                "completion_token": 0.00001
+                "prompt_token": 0.00000115,
+                "completion_token": 0.000008,
+                "cache_read_token": 1.5e-7
             }
         }
     },
