@@ -46,7 +46,8 @@ from products.data_warehouse.backend.models import (
     ExternalDataSource,
 )
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.data_warehouse.backend.models.util import validate_source_prefix
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -362,6 +363,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
+        # Validate prefix characters
+        is_valid, error_message = validate_source_prefix(prefix)
+        if not is_valid:
+            raise ValidationError(error_message)
+
         if self.prefix_required(source_type):
             if not prefix:
                 return Response(
@@ -480,7 +486,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if new_source_model.revenue_analytics_config_safe.enabled:
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=self.team,
-                kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+                kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
 
@@ -676,14 +682,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if config.enabled:
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=self.team,
-                kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+                kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
         else:
             try:
                 managed_viewset = DataWarehouseManagedViewSet.objects.get(
                     team=self.team,
-                    kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+                    kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
                 )
                 managed_viewset.delete_with_views()
 

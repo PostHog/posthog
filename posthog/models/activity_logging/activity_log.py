@@ -4,10 +4,12 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, U
 from uuid import UUID
 
 from django.conf import settings
+from django.contrib.auth.models import AnonymousUser
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import models, transaction
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
@@ -71,7 +73,9 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
 ]
-ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported", "revoked"]
+ChangeAction = Literal[
+    "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out"
+]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -262,6 +266,16 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     ],
 }
 
+# Activity visibility restrictions - controls which users can see certain activity logs
+# Used to hide sensitive activities (e.g., impersonated logins) from non-staff users
+activity_visibility_restrictions: dict[ActivityScope, dict[str, Any]] = {
+    "User": {
+        "activities": ["logged_in", "logged_out"],
+        "exclude_when": {"was_impersonated": True},
+        "allow_staff": True,
+    },
+}
+
 field_exclusions: dict[ActivityScope, list[str]] = {
     "Cohort": [
         "version",
@@ -370,6 +384,9 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "latest_error",
         "sync_frequency_interval",
         "deleted_name",
+    ],
+    "Endpoint": [
+        "saved_query",
     ],
     "Organization": [
         "teams",
@@ -839,6 +856,36 @@ def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: in
     )
 
 
+def apply_activity_visibility_restrictions(queryset: QuerySet, user: Union["User", AnonymousUser, None]) -> QuerySet:
+    """
+    Apply visibility restrictions to activity log queryset based on user permissions.
+    """
+    exclusion_queries = []
+    for scope, restrictions in activity_visibility_restrictions.items():
+        if restrictions.get("allow_staff"):
+            if user and not isinstance(user, AnonymousUser) and hasattr(user, "is_staff") and user.is_staff:
+                continue
+
+        activities = restrictions.get("activities", [])
+        exclude_conditions = restrictions.get("exclude_when", {})
+
+        # Build the query: scope AND activity IN [...] AND exclude_conditions
+        query = Q(scope=scope) & Q(activity__in=activities)
+        for field, value in exclude_conditions.items():
+            query &= Q(**{field: value})
+
+        exclusion_queries.append(query)
+
+    # Apply all exclusions with OR logic
+    if exclusion_queries:
+        combined_exclusion = exclusion_queries[0]
+        for q in exclusion_queries[1:]:
+            combined_exclusion |= q
+        queryset = queryset.exclude(combined_exclusion)
+
+    return queryset
+
+
 def load_activity(
     scope: ActivityScope,
     team_id: int,
@@ -879,23 +926,32 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
         # TODO: Move this into the producer to support dataclasses
         user_data = UserBasicSerializer(instance.user).data if instance.user else None
 
-        if created and instance.team_id is not None:
-            produce_internal_event(
-                team_id=instance.team_id,
-                event=InternalEventEvent(
-                    event="$activity_log_entry_created",
-                    distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
-                    properties=serialized_data,
-                ),
-                person=(
-                    InternalEventPerson(
-                        id=user_data["id"],
-                        properties=user_data,
-                    )
-                    if user_data
-                    else None
-                ),
-            )
+        if created:
+            if instance.team_id is not None:
+                produce_internal_event(
+                    team_id=instance.team_id,
+                    event=InternalEventEvent(
+                        event="$activity_log_entry_created",
+                        distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
+                        properties=serialized_data,
+                    ),
+                    person=(
+                        InternalEventPerson(
+                            id=user_data["id"],
+                            properties=user_data,
+                        )
+                        if user_data
+                        else None
+                    ),
+                )
+            elif instance.organization_id is not None:
+                from posthog.tasks.activity_log import broadcast_activity_log_to_organization
+
+                broadcast_activity_log_to_organization.delay(
+                    organization_id=instance.organization_id,
+                    serialized_data=serialized_data,
+                    user_data=user_data,
+                )
     except Exception as e:
         # We don't want to hard fail here.
         logger.exception("Failed to produce internal event", data=serialized_data, error=e)

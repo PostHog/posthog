@@ -227,7 +227,7 @@ const LeftHandColumn = (): JSX.Element => {
                 </>
             ) : (
                 <div className="flex flex-col pr-0.5">
-                    <SceneBreadcrumbBackButton iconOnly />
+                    <SceneBreadcrumbBackButton />
                     {comment}
                     {copyLink}
                     <LemonDivider />

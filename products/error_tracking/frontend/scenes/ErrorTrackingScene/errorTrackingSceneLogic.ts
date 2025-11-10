@@ -2,12 +2,13 @@ import equal from 'fast-deep-equal'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { Params } from 'scenes/sceneTypes'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb, UniversalFiltersGroup } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
@@ -109,8 +110,19 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         ],
     }),
 
-    subscriptions(({ actions }) => ({
-        query: () => actions.setSelectedIssueIds([]),
+    subscriptions(({ actions, values }) => ({
+        query: () => {
+            actions.setSelectedIssueIds([])
+
+            const filterGroup = values.filterGroup.values[0] as UniversalFiltersGroup
+            posthog.capture('error_tracking_query_executed', {
+                filter_count: filterGroup.values.length,
+                has_search_query: !!values.searchQuery,
+                filter_test_accounts: values.filterTestAccounts,
+                sort_by: values.orderBy,
+                sort_direction: values.orderDirection,
+            })
+        },
     })),
 
     actionToUrl(({ values }) => {

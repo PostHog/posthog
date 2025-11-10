@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
@@ -17,7 +18,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
@@ -46,6 +46,10 @@ export function ErrorTrackingScene(): JSX.Element {
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')
+
+    useEffect(() => {
+        posthog.capture('error_tracking_issues_list_viewed', { active_tab: activeTab })
+    }, [])
 
     return (
         <SceneContent>
@@ -150,7 +154,6 @@ const Header = (): JSX.Element => {
                     </>
                 }
             />
-            <SceneDivider />
         </>
     )
 }
