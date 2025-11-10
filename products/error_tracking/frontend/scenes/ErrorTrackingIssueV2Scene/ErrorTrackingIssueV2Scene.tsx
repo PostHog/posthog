@@ -84,7 +84,7 @@ const RightHandColumn = (): JSX.Element => {
     )
 
     return (
-        <div className="flex flex-1 flex-col gap-y-1 pl-4 overflow-y-auto min-w-[375px]">
+        <div className="flex flex-1 gap-y-1 pl-4 overflow-y-auto min-w-[375px]">
             {isPostHogSDKIssue && (
                 <LemonBanner
                     type="error"
