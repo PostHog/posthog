@@ -6,6 +6,7 @@ import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { SceneShortcut } from 'lib/components/SceneShortcuts/SceneShortcut'
+import { sceneShortcutLogic } from 'lib/components/SceneShortcuts/sceneShortcutLogic'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
@@ -30,6 +31,7 @@ function SceneTitlePanelButton(): JSX.Element | null {
     const { scenePanelOpen, scenePanelIsPresent, scenePanelIsRelative, forceScenePanelClosedWhenRelative } =
         useValues(sceneLayoutLogic)
     const { setScenePanelOpen, setForceScenePanelClosedWhenRelative } = useActions(sceneLayoutLogic)
+    const { shortcuts } = useValues(sceneShortcutLogic)
 
     if (!scenePanelIsPresent) {
         return null
@@ -37,8 +39,7 @@ function SceneTitlePanelButton(): JSX.Element | null {
 
     return (
         <SceneShortcut
-            keys={['command', 'option', 'i']}
-            description="Toggle Info & actions panel"
+            {...shortcuts.app.toggleInfoActionsPanel}
             onAction={() => {
                 scenePanelIsRelative
                     ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
@@ -55,13 +56,6 @@ function SceneTitlePanelButton(): JSX.Element | null {
                         : setScenePanelOpen(!scenePanelOpen)
                 }
                 icon={!scenePanelOpen ? <IconEllipsis className="text-primary" /> : <IconX className="text-primary" />}
-                tooltip={
-                    !scenePanelOpen
-                        ? 'Open Info & actions panel'
-                        : scenePanelIsRelative
-                          ? 'Force close Info & actions panel'
-                          : 'Close Info & actions panel'
-                }
                 data-attr="info-actions-panel"
                 aria-label={
                     !scenePanelOpen

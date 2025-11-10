@@ -88,7 +88,11 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                     aria-label="Search "
                                     aria-describedby="search-tooltip"
                                 >
-                                    <KeyboardShortcut command k className="bg-transparent shadow-none" />
+                                    <KeyboardShortcut
+                                        command
+                                        k
+                                        className="bg-transparent shadow-none border-primary text-tertiary text-xxs"
+                                    />
                                 </ButtonPrimitive>
                             </SceneShortcut>
                         </div>

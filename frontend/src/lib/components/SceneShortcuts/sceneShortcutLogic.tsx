@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { openCHQueriesDebugModal } from 'lib/components/CommandPalette/DebugCHQueries'
 import type { SceneShortcut } from 'lib/components/SceneShortcuts/SceneShortcut'
 import { SceneShortcutProps } from 'lib/components/SceneShortcuts/SceneShortcut'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -52,6 +53,12 @@ export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
                 setOptionKeyHeld: (_, { held }) => held,
             },
         ],
+        commandKeyHeld: [
+            false,
+            {
+                setCommandKeyHeld: (_, { held }) => held,
+            },
+        ],
         actionPaletteOpen: [
             false,
             {
@@ -66,6 +73,13 @@ export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
             (actionPaletteOpen: boolean): SceneShortcuts => {
                 return {
                     app: {
+                        toggleShortcutMenu: {
+                            keys: ['command', 'k'],
+                            description: actionPaletteOpen ? 'Close shortcut menu' : 'Open shortcut menu',
+                            onAction: () => {
+                                sceneShortcutLogic.actions.setActionPaletteOpen(!actionPaletteOpen)
+                            },
+                        },
                         newTab: {
                             keys: ['command', 'option', 't'],
                             description: 'New tab',
@@ -78,17 +92,31 @@ export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
                             onAction: () => sceneShortcutLogic.actions.triggerCloseCurrentTab(),
                             order: -1,
                         },
-                        toggleShortcutMenu: {
-                            keys: ['command', 'k'],
-                            description: 'Toggle shortcut menu',
+                        debugClickhouseQueries: {
+                            keys: ['command', 'option', 'tab'],
+                            description: 'Debug ClickHouse queries',
                             onAction: () => {
-                                sceneShortcutLogic.actions.setActionPaletteOpen(!actionPaletteOpen)
+                                openCHQueriesDebugModal()
                             },
+                            type: 'action',
+                        },
+                        toggleInfoActionsPanel: {
+                            keys: ['command', 'option', 'i'],
+                            description: 'Toggle Info & actions panel',
                             type: 'toggle',
-                            active: actionPaletteOpen,
                         },
                     },
                     [Scene.Dashboard]: {
+                        addTextTile: {
+                            keys: ['command', 'option', 'a'],
+                            description: 'Add text tile to dashboard',
+                            sceneKey: Scene.Dashboard,
+                        },
+                        addInsightToDashboard: {
+                            keys: ['command', 'option', 'n'],
+                            description: 'Add insight to dashboard',
+                            sceneKey: Scene.Dashboard,
+                        },
                         toggleEditMode: {
                             keys: ['command', 'option', 'e'],
                             description: 'Toggle dashboard edit mode',
@@ -186,6 +214,7 @@ export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
                 }
                 if (event.ctrlKey || event.metaKey) {
                     pressedKeys.push('command')
+                    actions.setCommandKeyHeld(true)
                 }
                 if (event.altKey) {
                     pressedKeys.push('option')

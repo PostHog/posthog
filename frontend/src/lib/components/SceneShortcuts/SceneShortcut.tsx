@@ -153,6 +153,7 @@ export function SceneShortcut({
                     ) : undefined
                 }
                 visible={(optionKeyHeld || showTooltip) && enabled}
+                closeDelayMs={0}
             >
                 {React.cloneElement(children as React.ReactElement, {
                     ref: elementRef,

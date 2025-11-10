@@ -7,7 +7,9 @@ import { createPortal } from 'react-dom'
 import { IconListCheck, IconX } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
+import { SceneShortcut } from 'lib/components/SceneShortcuts/SceneShortcut'
 import { SceneShortcutsMenu } from 'lib/components/SceneShortcuts/SceneShortcutsMenu'
+import { sceneShortcutLogic } from 'lib/components/SceneShortcuts/sceneShortcutLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
@@ -74,7 +76,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
     const { forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
     const { isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
-
+    const { shortcuts } = useValues(sceneShortcutLogic)
     // Set layout config
     useEffect(() => {
         if (sceneConfig) {
@@ -130,31 +132,26 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                             </div>
 
                             {scenePanelOpen && (
-                                <ButtonPrimitive
-                                    iconOnly
-                                    onClick={() =>
-                                        scenePanelIsRelative
-                                            ? setForceScenePanelClosedWhenRelative(true)
-                                            : setScenePanelOpen(false)
-                                    }
-                                    tooltip={
-                                        !scenePanelOpen
-                                            ? 'Open Info & actions panel'
-                                            : scenePanelIsRelative
-                                              ? 'Force close Info & actions panel'
-                                              : 'Close Info & actions panel'
-                                    }
-                                    aria-label={
-                                        !scenePanelOpen
-                                            ? 'Open Info & actions panel'
-                                            : scenePanelIsRelative
-                                              ? 'Force close Info & actions panel'
-                                              : 'Close Info & actions panel'
-                                    }
-                                    data-attr="info-actions-panel"
-                                >
-                                    <IconX className="size-4" />
-                                </ButtonPrimitive>
+                                <SceneShortcut {...shortcuts.app.toggleInfoActionsPanel} active={scenePanelOpen}>
+                                    <ButtonPrimitive
+                                        iconOnly
+                                        onClick={() =>
+                                            scenePanelIsRelative
+                                                ? setForceScenePanelClosedWhenRelative(true)
+                                                : setScenePanelOpen(false)
+                                        }
+                                        aria-label={
+                                            !scenePanelOpen
+                                                ? 'Open Info & actions panel'
+                                                : scenePanelIsRelative
+                                                  ? 'Force close Info & actions panel'
+                                                  : 'Close Info & actions panel'
+                                        }
+                                        data-attr="info-actions-panel"
+                                    >
+                                        <IconX className="size-4" />
+                                    </ButtonPrimitive>
+                                </SceneShortcut>
                             )}
                         </div>
                         <ScrollableShadows

@@ -19,15 +19,19 @@ import {
 import { Link } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
+import { openCHQueriesDebugModal } from 'lib/components/CommandPalette/DebugCHQueries'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
+import { SceneShortcut } from 'lib/components/SceneShortcuts/SceneShortcut'
+import { sceneShortcutLogic } from 'lib/components/SceneShortcuts/sceneShortcutLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -81,6 +85,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { shortcuts } = useValues(sceneShortcutLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -425,6 +431,26 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     </span>
                                     {!isLayoutNavCollapsed && 'Quick start'}
                                 </ButtonPrimitive>
+                            )}
+                            {(user?.is_staff ||
+                                user?.is_impersonated ||
+                                preflight?.is_debug ||
+                                preflight?.instance_preferences?.debug_queries) && (
+                                <SceneShortcut {...shortcuts.app.debugClickhouseQueries}>
+                                    <ButtonPrimitive
+                                        menuItem={!isLayoutNavCollapsed}
+                                        onClick={() => {
+                                            openCHQueriesDebugModal()
+                                        }}
+                                        iconOnly={isLayoutNavCollapsed}
+                                        tooltip={isLayoutNavCollapsed ? 'Debug CH queries' : undefined}
+                                        tooltipPlacement="right"
+                                        data-attr="menu-item-debug-ch-queries"
+                                    >
+                                        <IconDatabase />
+                                        {!isLayoutNavCollapsed && 'Debug CH queries'}
+                                    </ButtonPrimitive>
+                                </SceneShortcut>
                             )}
                             <Link
                                 buttonProps={{

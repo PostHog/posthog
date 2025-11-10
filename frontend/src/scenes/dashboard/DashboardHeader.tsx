@@ -507,9 +507,7 @@ export function DashboardHeader(): JSX.Element | null {
                                             userAccessLevel={dashboard.user_access_level}
                                         >
                                             <SceneShortcut
-                                                keys={['option', 'a']}
-                                                description="Add text card to dashboard"
-                                                sceneKey={Scene.Dashboard}
+                                                {...shortcuts[Scene.Dashboard]!.addTextTile}
                                                 enabled={canEditDashboard && !isTextTileModalOpen}
                                                 onAction={() => push(urls.dashboardTextTile(dashboard.id, 'new'))}
                                             >
@@ -547,9 +545,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                 userAccessLevel={dashboard.user_access_level}
                                             >
                                                 <SceneShortcut
-                                                    keys={['option', 'n']}
-                                                    description="Add insight to dashboard"
-                                                    sceneKey={Scene.Dashboard}
+                                                    {...shortcuts[Scene.Dashboard]!.addInsightToDashboard}
                                                     enabled={
                                                         canEditDashboard &&
                                                         !addInsightToDashboardModalVisible &&
