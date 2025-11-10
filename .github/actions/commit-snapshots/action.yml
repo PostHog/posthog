@@ -99,7 +99,11 @@ runs:
               CURRENT_SHA="${{ steps.verify.outputs.current-sha }}"
               gh pr comment ${{ inputs.pr-number }} --body "⏭️ Skipped snapshot commit because branch advanced to \`${CURRENT_SHA:0:7}\` while workflow was testing \`${TESTED_SHA:0:7}\`.
 
-              The new commit will trigger its own snapshot update workflow."
+              The new commit will trigger its own snapshot update workflow.
+
+              **If you expected this workflow to succeed:** This can happen due to concurrent commits. To get a fresh workflow run, either:
+              - Merge master into your branch, or
+              - Push an empty commit: \`git commit --allow-empty -m 'trigger CI' && git push\`"
 
         - name: Count and commit changes
           id: commit
