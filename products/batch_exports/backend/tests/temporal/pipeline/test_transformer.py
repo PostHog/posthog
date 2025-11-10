@@ -20,6 +20,7 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
     JSONLStreamTransformer,
     PipelineTransformer,
     SchemaTransformer,
+    _ensure_curly_brackets_array,
     dump_dict,
 )
 from products.batch_exports.backend.temporal.utils import JsonType
@@ -313,3 +314,22 @@ async def test_schema_transformer(
     assert len(transformed_record_batches) == 1
     assert transformed_record_batches[0][record_batch[0]._name].type == target_type  # type: ignore[attr-defined]
     assert transformed_record_batches[0].to_pylist() == expected_pylist
+
+
+@pytest.mark.parametrize(
+    "input_list,expected_output",
+    [
+        ([1, 2, 3], "{1,2,3}"),
+        (["a", "b", "c"], "{a,b,c}"),
+        ([], "{}"),
+        # Nested arrays
+        ([[1, 2], [3, 4]], "{{1,2},{3,4}}"),
+        ([["a", "b"], ["c", "d"]], "{{a,b},{c,d}}"),
+        # String contains `{}`
+        (["has {braces}"], '{"has {braces}"}'),
+    ],
+)
+def test_ensure_curly_brackets_array(input_list, expected_output):
+    """Test ensure_curly_brackets_array converts Python lists to PostgreSQL array format."""
+    result = _ensure_curly_brackets_array(input_list)
+    assert result == expected_output
