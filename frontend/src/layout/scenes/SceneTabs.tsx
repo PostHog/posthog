@@ -36,7 +36,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
-    const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
+    const { isLayoutNavbarVisibleForMobile, isLayoutPanelPinned, isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
@@ -52,6 +52,8 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
         unpinnedColumns = `repeat(${unpinnedCount}, minmax(40px, 250px))`
     }
     const gridTemplateColumns = [pinnedColumns, unpinnedColumns].filter(Boolean).join(' ') || '250px'
+
+    const showRoundedCorner = isLayoutPanelPinned && !isLayoutPanelVisible
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -96,6 +98,21 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 </ButtonPrimitive>
             )}
 
+            {/* Line between tabs and main content */}
+            <div
+                className={cn(
+                    'border-b border-primary h-px w-full absolute bottom-[-1px] left-[10px] right-0',
+                    !showRoundedCorner && 'left-0'
+                )}
+            />
+
+            {/* Rounded corner on the left edge of the tabs to curve the line above into the navbar right border */}
+            {showRoundedCorner && (
+                <>
+                    <div className="absolute bottom-[-11px] left-[-1px] w-[11px] h-[11px] z-10 rounded-tl-lg border-l border-t border-primary" />
+                </>
+            )}
+
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext
                     items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
@@ -103,7 +120,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 >
                     <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
                         <div
-                            className="scene-tab-row grid min-w-0 pl-[5px] lg:pl-5 gap-1 items-center h-[36px]"
+                            className={cn('scene-tab-row grid min-w-0 pl-[5px] lg:pl-5 gap-1 items-center h-[36px]')}
                             style={{ gridTemplateColumns }}
                         >
                             {tabs.map((tab, index) => {
