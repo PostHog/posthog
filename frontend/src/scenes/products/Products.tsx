@@ -5,7 +5,7 @@ import { useState } from 'react'
 
 import * as Icons from '@posthog/icons'
 import { IconArrowRight, IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonLabel, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
@@ -52,10 +52,27 @@ export function SelectableProductCard({
     className?: string
     selected?: boolean
 }): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+
+    const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[productKey]
     const vertical = orientation === 'vertical'
     const description = product.description || ''
 
-    return (
+    const shouldShowTooltip = (!showDescription && product.description) || onboardingCompleted
+
+    const tooltipContent = (
+        <>
+            {!showDescription && product.description && (
+                <>
+                    {product.description}
+                    <br />
+                </>
+            )}
+            {onboardingCompleted && <em>You've already set up this app. Click to return to its page.</em>}
+        </>
+    )
+
+    const card = (
         <LemonCard
             data-attr={`${productKey}-onboarding-card`}
             className={clsx(
@@ -66,13 +83,15 @@ export function SelectableProductCard({
             key={productKey}
             onClick={onClick}
             focused={selected}
-            hoverEffect
+            hoverEffect={!vertical}
         >
             {vertical ? (
-                // Vertical layout (original)
-                <div className="grid grid-rows-[repeat(2,_48px)] justify-items-center select-none">
-                    <div className="self-center">{getProductIcon(product.iconColor, product.icon, 'text-2xl')}</div>
-                    <div className="font-bold text-center self-start text-md">{product.name}</div>
+                // Vertical layout
+                <div className="flex flex-col gap-2 p-4 select-none">
+                    <div className="flex justify-center">
+                        {getProductIcon(product.iconColor, product.icon, 'text-2xl')}
+                    </div>
+                    <div className="font-bold text-center text-md">{product.name}</div>
                 </div>
             ) : (
                 // Horizontal layout with description
@@ -88,6 +107,8 @@ export function SelectableProductCard({
             )}
         </LemonCard>
     )
+
+    return shouldShowTooltip ? <Tooltip title={tooltipContent}>{card}</Tooltip> : card
 }
 
 export function Products(): JSX.Element {
@@ -120,7 +141,7 @@ export function Products(): JSX.Element {
 
                 <div className="flex flex-col justify-center flex-grow items-center">
                     <div className="mb-8">
-                        <h2 className="text-center text-4xl">Which products would you like to use?</h2>
+                        <h2 className="text-center text-4xl">Which apps would you like to use?</h2>
                         <p className="text-center text-muted">
                             {isUseCaseOnboardingEnabled
                                 ? `We've pre-selected some products based on your goal. Feel free to change or add more.`
@@ -169,12 +190,11 @@ export function Products(): JSX.Element {
                                         >
                                             {showAllProducts ? (
                                                 <>
-                                                    <IconChevronDown className="rotate-180 text-xs" /> Hide other
-                                                    products
+                                                    <IconChevronDown className="rotate-180 text-xs" /> Hide other apps
                                                 </>
                                             ) : (
                                                 <>
-                                                    Show all products ({otherProducts.length} more){' '}
+                                                    Show all apps ({otherProducts.length} more){' '}
                                                     <IconChevronDown className="text-xs" />
                                                 </>
                                             )}
