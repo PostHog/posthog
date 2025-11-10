@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconCopy } from '@posthog/icons'
 
@@ -18,7 +18,8 @@ import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 
 export function LLMAnalyticsErrors(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setErrorsSort } = useActions(llmAnalyticsLogic)
-    const { errorsQuery, errorsSort, dateFilter } = useValues(llmAnalyticsLogic)
+    const { errorsQuery, errorsSort } = useValues(llmAnalyticsLogic)
+    const { searchParams } = useValues(router)
 
     const { renderSortableColumnTitle } = useSortableColumns(errorsSort, setErrorsSort)
 
@@ -71,6 +72,7 @@ export function LLMAnalyticsErrors(): JSX.Element {
                                         <Link
                                             to={
                                                 combineUrl(urls.llmAnalyticsTraces(), {
+                                                    ...searchParams,
                                                     filters: [
                                                         // First filter: only show traces with errors
                                                         {
@@ -87,8 +89,6 @@ export function LLMAnalyticsErrors(): JSX.Element {
                                                             value: token,
                                                         })),
                                                     ],
-                                                    date_from: dateFilter.dateFrom,
-                                                    date_to: dateFilter.dateTo,
                                                 }).url
                                             }
                                             className="font-mono text-sm"
