@@ -147,7 +147,7 @@ export function Products(): JSX.Element {
                 <div className="flex flex-col justify-center flex-grow items-center">
                     <div className="mb-8">
                         <h2 className="text-center text-4xl">Which products would you like to use?</h2>
-                        <p className="text-center text-muted">
+                        <p className="text-center">
                             {isUseCaseOnboardingEnabled
                                 ? `We've pre-selected some products based on your goal. Feel free to change or add more.`
                                 : "Don't worry – you can pick more than one! Please select all that apply."}
