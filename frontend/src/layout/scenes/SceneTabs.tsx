@@ -36,7 +36,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
-    const { isLayoutNavbarVisibleForMobile, isLayoutPanelPinned, isLayoutPanelVisible } = useValues(panelLayoutLogic)
+    const { isLayoutNavbarVisibleForMobile, isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
@@ -53,7 +53,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     }
     const gridTemplateColumns = [pinnedColumns, unpinnedColumns].filter(Boolean).join(' ') || '250px'
 
-    const showRoundedCorner = isLayoutPanelPinned && !isLayoutPanelVisible
+    const showRoundedCorner = !isLayoutPanelVisible
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -101,15 +101,15 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
             {/* Line between tabs and main content */}
             <div
                 className={cn(
-                    'border-b border-primary h-px w-full absolute bottom-[-1px] left-[10px] right-0',
-                    !showRoundedCorner && 'left-0'
+                    'border-b border-primary h-px w-full absolute bottom-[-1px] left-0 lg:left-[10px] right-0',
+                    !showRoundedCorner && 'left-0 lg:left-0'
                 )}
             />
 
             {/* Rounded corner on the left edge of the tabs to curve the line above into the navbar right border */}
             {showRoundedCorner && (
                 <>
-                    <div className="absolute bottom-[-11px] left-[-1px] w-[11px] h-[11px] z-10 rounded-tl-lg border-l border-t border-primary" />
+                    <div className="hidden lg:block absolute bottom-[-11px] left-[-1px] w-[11px] h-[11px] z-10 rounded-tl-lg border-l border-t border-primary" />
                 </>
             )}
 
