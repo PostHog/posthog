@@ -58,6 +58,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         closeWithConfirmation: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
         saveAsTemplate: (name: string, description: string) => ({ name, description }),
+        setInitialState: (initialState: EmailTemplate | null) => ({ initialState }),
+        setEditorModified: (modified: boolean) => ({ modified }),
     }),
     reducers({
         emailEditorRef: [
@@ -79,6 +81,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 setIsModalOpen: (_, { isModalOpen }) => isModalOpen,
             },
         ],
+        initialState: [
+            null as EmailTemplate | null,
+            {
+                setInitialState: (_, { initialState }) => initialState,
+                // Don't clear on modal close - keep the truly initial state
+            },
+        ],
         isSaveTemplateModalOpen: [
             false,
             {
@@ -89,6 +98,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             null as MessageTemplate | null,
             {
                 applyTemplate: (_, { template }) => template,
+                setIsModalOpen: (state, { isModalOpen }) => {
+                    // Clear applied template when closing modal
+                    return isModalOpen ? state : null
+                },
             },
         ],
         templatingEngine: [
@@ -97,6 +110,18 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 setTemplatingEngine: (_, { templating }) => {
                     return templating
                 },
+            },
+        ],
+        editorModified: [
+            false,
+            {
+                setEditorModified: (_, { modified }) => modified,
+                setIsModalOpen: (state, { isModalOpen }) => {
+                    // Reset when modal closes
+                    return isModalOpen ? state : false
+                },
+                applyTemplate: () => false, // Reset when applying template
+                submitEmailTemplate: () => false, // Reset after saving
             },
         ],
     }),
@@ -192,8 +217,34 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
     listeners(({ props, values, actions }) => ({
         onEmailEditorReady: () => {
-            if (props.value?.design) {
-                values.emailEditorRef?.editor?.loadDesign(props.value.design)
+            const design = values.initialState?.design || props.defaultValue?.design || props.value?.design
+            if (design) {
+                values.emailEditorRef?.editor?.loadDesign(design)
+            }
+
+            // Register change listener on the editor
+            if (values.emailEditorRef?.editor) {
+                const editor = values.emailEditorRef.editor
+
+                // Listen for design updates to track modifications
+                ;(editor as any).addEventListener?.('design:updated', () => {
+                    // Only mark as modified if modal is open and editor is ready
+                    if (values.isModalOpen && values.isEmailEditorReady) {
+                        actions.setEditorModified(true)
+                    }
+                })
+            }
+        },
+
+        resetEmailTemplate: () => {
+            // When resetting the form, also reload the editor design
+            if (values.emailEditorRef?.editor && values.isEmailEditorReady) {
+                const design = values.initialState?.design || props.defaultValue?.design || props.value?.design
+                if (design) {
+                    values.emailEditorRef.editor.loadDesign(design)
+                } else {
+                    values.emailEditorRef.editor.loadBlank()
+                }
             }
         },
 
@@ -216,30 +267,60 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
 
         setEmailTemplateValues: ({ values }) => {
-            props.onChange({
-                ...props.value,
-                ...values,
-            } as EmailTemplate)
+            // Don't propagate changes to parent when modal is open
+            // Changes should only be saved when user clicks Save
+            if (!values.isModalOpen) {
+                props.onChange({
+                    ...props.value,
+                    ...values,
+                } as EmailTemplate)
+            }
         },
 
         applyTemplate: ({ template }) => {
             const emailTemplateContent = template.content.email
-            actions.setEmailTemplateValues(emailTemplateContent)
 
-            // Load the design into the editor if it's ready and has a design
-            if (values.isEmailEditorReady && emailTemplateContent.design) {
-                values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
+            // When modal is open, don't update HTML field (it will be generated on save)
+            // Only update the other fields and load the design into the editor
+            if (values.isModalOpen) {
+                const { html, design, text, ...otherFields } = emailTemplateContent
+                actions.setEmailTemplateValues(otherFields)
+
+                // Load the design into the editor if it's ready and has a design
+                if (values.isEmailEditorReady && design) {
+                    values.emailEditorRef?.editor?.loadDesign(design)
+                }
+            } else {
+                // If modal is closed, update all fields
+                actions.setEmailTemplateValues(emailTemplateContent)
+
+                // Load the design into the editor if it's ready and has a design
+                if (values.isEmailEditorReady && emailTemplateContent.design) {
+                    values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
+                }
             }
         },
 
         closeWithConfirmation: () => {
-            if (values.emailTemplateChanged) {
+            // Check both form changes and editor modifications
+            if (values.emailTemplateChanged || values.editorModified) {
                 LemonDialog.open({
                     title: 'Discard changes',
                     description: 'Are you sure you want to discard your changes?',
                     primaryButton: {
                         onClick: () => {
-                            actions.resetEmailTemplate(props.value ?? undefined)
+                            // Reset to initial state that was captured when component mounted
+                            actions.resetEmailTemplate(values.initialState ?? props.defaultValue ?? undefined)
+                            // Also reload the editor with the original design
+                            if (values.emailEditorRef?.editor) {
+                                const originalDesign =
+                                    values.initialState?.design || props.defaultValue?.design || props.value?.design
+                                if (originalDesign) {
+                                    values.emailEditorRef.editor.loadDesign(originalDesign)
+                                } else {
+                                    values.emailEditorRef.editor.loadBlank()
+                                }
+                            }
                             actions.setIsModalOpen(false)
                         },
                         children: 'Discard',
@@ -295,14 +376,18 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     })),
 
     propsChanged(({ actions, props }, oldProps) => {
-        if (props.value && !objectsEqual(props.value, oldProps.value)) {
-            actions.resetEmailTemplate(props.value)
+        if (props.defaultValue && !objectsEqual(props.defaultValue, oldProps.defaultValue)) {
+            actions.resetEmailTemplate(props.defaultValue)
         }
     }),
 
     afterMount(({ actions, props }) => {
-        if (props.value) {
-            actions.resetEmailTemplate(props.value)
+        // Capture the truly initial state on mount
+        const initialState = props.defaultValue || props.value || null
+        actions.setInitialState(initialState)
+
+        if (initialState) {
+            actions.resetEmailTemplate(initialState)
         }
 
         actions.loadTemplates()

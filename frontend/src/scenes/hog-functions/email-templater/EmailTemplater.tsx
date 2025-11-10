@@ -513,7 +513,7 @@ function SaveTemplateModal({
 }
 
 function EmailTemplaterModal(): JSX.Element {
-    const { isModalOpen, isEmailEditorReady, emailTemplateChanged, isSaveTemplateModalOpen } =
+    const { isModalOpen, isEmailEditorReady, emailTemplateChanged, isSaveTemplateModalOpen, editorModified } =
         useValues(emailTemplaterLogic)
     const { closeWithConfirmation, submitEmailTemplate, saveAsTemplate, setIsSaveTemplateModalOpen } =
         useActions(emailTemplaterLogic)
@@ -524,7 +524,7 @@ function EmailTemplaterModal(): JSX.Element {
                 isOpen={isModalOpen}
                 width="90vw"
                 onClose={() => closeWithConfirmation()}
-                hasUnsavedInput={emailTemplateChanged}
+                hasUnsavedInput={emailTemplateChanged || editorModified}
             >
                 <div className="h-[80vh] flex">
                     <div className="flex flex-col flex-1">
