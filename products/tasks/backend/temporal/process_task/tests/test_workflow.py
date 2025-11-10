@@ -29,8 +29,6 @@ from products.tasks.backend.temporal.process_task.activities.create_snapshot imp
 from products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox import execute_task_in_sandbox
 from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_setup import get_sandbox_for_setup
 from products.tasks.backend.temporal.process_task.activities.get_task_details import get_task_details
-from products.tasks.backend.temporal.process_task.activities.inject_github_token import inject_github_token
-from products.tasks.backend.temporal.process_task.activities.inject_personal_api_key import inject_personal_api_key
 from products.tasks.backend.temporal.process_task.activities.setup_repository import setup_repository
 from products.tasks.backend.temporal.process_task.activities.tests.constants import POSTHOG_JS_SNAPSHOT
 from products.tasks.backend.temporal.process_task.activities.track_workflow_event import track_workflow_event
@@ -79,8 +77,6 @@ class TestProcessTaskWorkflow:
                         setup_repository,
                         create_snapshot,
                         create_sandbox_from_snapshot,
-                        inject_github_token,
-                        inject_personal_api_key,
                         execute_task_in_sandbox,
                         cleanup_sandbox,
                         cleanup_personal_api_key,

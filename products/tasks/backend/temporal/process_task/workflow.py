@@ -24,14 +24,8 @@ from .activities.create_sandbox_from_snapshot import (
 )
 from .activities.create_snapshot import CreateSnapshotInput, create_snapshot
 from .activities.execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
-from .activities.get_sandbox_for_setup import GetSandboxForSetupInput, get_sandbox_for_setup
+from .activities.get_sandbox_for_setup import GetSandboxForSetupInput, GetSandboxForSetupOutput, get_sandbox_for_setup
 from .activities.get_task_details import TaskDetails, get_task_details
-from .activities.inject_github_token import InjectGitHubTokenInput, inject_github_token
-from .activities.inject_personal_api_key import (
-    InjectPersonalAPIKeyInput,
-    InjectPersonalAPIKeyOutput,
-    inject_personal_api_key,
-)
 from .activities.setup_repository import SetupRepositoryInput, setup_repository
 from .activities.track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 
@@ -155,7 +149,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
         return await self._setup_snapshot_with_repository()
 
-    async def _get_sandbox_for_setup(self) -> str:
+    async def _get_sandbox_for_setup(self) -> GetSandboxForSetupOutput:
         get_sandbox_input = GetSandboxForSetupInput(
             github_integration_id=self.task_details.github_integration_id,
             team_id=self.task_details.team_id,
@@ -225,13 +219,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _setup_snapshot_with_repository(self) -> str:
         setup_sandbox_id = None
+        setup_personal_api_key_id = None
 
         try:
-            setup_sandbox_id = await self._get_sandbox_for_setup()
+            setup_output = await self._get_sandbox_for_setup()
+            setup_sandbox_id = setup_output.sandbox_id
+            setup_personal_api_key_id = setup_output.personal_api_key_id
 
             await self._clone_repository_in_sandbox(setup_sandbox_id)
-
-            await self._inject_personal_api_key(setup_sandbox_id)
 
             await self._setup_repository_in_sandbox(setup_sandbox_id)
 
@@ -240,6 +235,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return snapshot_id
 
         finally:
+            if setup_personal_api_key_id:
+                await self._cleanup_personal_api_key(setup_personal_api_key_id)
             if setup_sandbox_id:
                 await self._cleanup_sandbox(setup_sandbox_id)
 
@@ -253,33 +250,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             create_sandbox_from_snapshot,
             create_sandbox_input,
             start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-    async def _inject_github_token(self, sandbox_id: str) -> None:
-        inject_token_input = InjectGitHubTokenInput(
-            sandbox_id=sandbox_id,
-            github_integration_id=self.task_details.github_integration_id,
-            task_id=self.task_details.task_id,
-            distinct_id=self.task_details.distinct_id,
-        )
-        await workflow.execute_activity(
-            inject_github_token,
-            inject_token_input,
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-    async def _inject_personal_api_key(self, sandbox_id: str) -> InjectPersonalAPIKeyOutput:
-        inject_key_input = InjectPersonalAPIKeyInput(
-            sandbox_id=sandbox_id,
-            task_id=self.task_details.task_id,
-            distinct_id=self.task_details.distinct_id,
-        )
-        return await workflow.execute_activity(
-            inject_personal_api_key,
-            inject_key_input,
-            start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 

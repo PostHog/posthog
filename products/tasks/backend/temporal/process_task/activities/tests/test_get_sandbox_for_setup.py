@@ -36,49 +36,67 @@ class TestGetSandboxForSetupActivity:
         sandbox.destroy()
 
     @pytest.mark.django_db
-    def test_get_sandbox_for_setup_with_existing_snapshot(self, activity_environment, github_integration, team):
+    def test_get_sandbox_for_setup_with_existing_snapshot(
+        self, activity_environment, github_integration, team, test_task
+    ):
         snapshots = get_or_create_test_snapshots(github_integration)
         snapshot = snapshots["single"]
-
-        task_id = "test-task-123"
         sandbox_id = None
 
         try:
             input_data = GetSandboxForSetupInput(
                 github_integration_id=snapshot.integration_id,
                 team_id=team.id,
-                task_id=task_id,
+                task_id=test_task.id,
                 distinct_id="test-user-id",
             )
-            sandbox_id = async_to_sync(activity_environment.run)(get_sandbox_for_setup, input_data)
+            output = async_to_sync(activity_environment.run)(get_sandbox_for_setup, input_data)
 
-            assert isinstance(sandbox_id, str)
-            assert len(sandbox_id) > 0
+            assert isinstance(output.sandbox_id, str)
+            assert len(output.sandbox_id) > 0
+            assert isinstance(output.personal_api_key_id, str)
 
+            sandbox_id = output.sandbox_id
             sandbox = Sandbox.get_by_id(sandbox_id)
             assert sandbox.id == sandbox_id
+
+            github_token_check = sandbox.execute("bash -c 'echo $GITHUB_TOKEN'")
+            assert github_token_check.exit_code == 0
+            assert len(github_token_check.stdout.strip()) > 0, "GITHUB_TOKEN should be set"
+
+            api_key_check = sandbox.execute("bash -c 'echo $POSTHOG_PERSONAL_API_KEY'")
+            assert api_key_check.exit_code == 0
+            assert len(api_key_check.stdout.strip()) > 0, "POSTHOG_PERSONAL_API_KEY should be set"
+            assert api_key_check.stdout.strip().startswith("phx_"), "API key should have correct format"
+
+            api_url_check = sandbox.execute("bash -c 'echo $POSTHOG_API_URL'")
+            assert api_url_check.exit_code == 0
+            assert len(api_url_check.stdout.strip()) > 0, "POSTHOG_API_URL should be set"
 
         finally:
             if sandbox_id:
                 self._cleanup_sandbox(sandbox_id)
 
     @pytest.mark.django_db
-    def test_get_sandbox_for_setup_without_existing_snapshot(self, activity_environment, github_integration, team):
-        task_id = "test-task-456"
+    def test_get_sandbox_for_setup_without_existing_snapshot(
+        self, activity_environment, github_integration, team, test_task
+    ):
         sandbox_id = None
 
         try:
             input_data = GetSandboxForSetupInput(
                 github_integration_id=github_integration.id,
                 team_id=team.id,
-                task_id=task_id,
+                task_id=test_task.id,
                 distinct_id="test-user-id",
             )
-            sandbox_id = async_to_sync(activity_environment.run)(get_sandbox_for_setup, input_data)
+            output = async_to_sync(activity_environment.run)(get_sandbox_for_setup, input_data)
 
-            assert isinstance(sandbox_id, str)
-            assert len(sandbox_id) > 0
+            assert isinstance(output.sandbox_id, str)
+            assert len(output.sandbox_id) > 0
+            assert isinstance(output.personal_api_key_id, str)
 
+            sandbox_id = output.sandbox_id
             sandbox = Sandbox.get_by_id(sandbox_id)
             assert sandbox.id == sandbox_id
 
@@ -89,25 +107,28 @@ class TestGetSandboxForSetupActivity:
                 self._cleanup_sandbox(sandbox_id)
 
     @pytest.mark.django_db
-    def test_get_sandbox_for_setup_ignores_incomplete_snapshots(self, activity_environment, github_integration, team):
+    def test_get_sandbox_for_setup_ignores_incomplete_snapshots(
+        self, activity_environment, github_integration, team, test_task
+    ):
         in_progress_snapshot = self._create_snapshot(github_integration, status=SandboxSnapshot.Status.IN_PROGRESS)
         error_snapshot = self._create_snapshot(github_integration, status=SandboxSnapshot.Status.ERROR)
 
-        task_id = "test-task-789"
         sandbox_id = None
 
         try:
             input_data = GetSandboxForSetupInput(
                 github_integration_id=github_integration.id,
                 team_id=team.id,
-                task_id=task_id,
+                task_id=test_task.id,
                 distinct_id="test-user-id",
             )
-            sandbox_id = async_to_sync(activity_environment.run)(get_sandbox_for_setup, input_data)
+            output = async_to_sync(activity_environment.run)(get_sandbox_for_setup, input_data)
 
-            assert isinstance(sandbox_id, str)
-            assert len(sandbox_id) > 0
+            assert isinstance(output.sandbox_id, str)
+            assert len(output.sandbox_id) > 0
+            assert isinstance(output.personal_api_key_id, str)
 
+            sandbox_id = output.sandbox_id
             sandbox = Sandbox.get_by_id(sandbox_id)
             assert sandbox.id == sandbox_id
 
@@ -118,22 +139,25 @@ class TestGetSandboxForSetupActivity:
                 self._cleanup_sandbox(sandbox_id)
 
     @pytest.mark.django_db
-    def test_get_sandbox_for_setup_sandbox_name_generation(self, activity_environment, github_integration, team):
-        task_id = "special-task-id-with-uuid-abc123"
+    def test_get_sandbox_for_setup_sandbox_name_generation(
+        self, activity_environment, github_integration, team, test_task
+    ):
         sandbox_id = None
 
         try:
             input_data = GetSandboxForSetupInput(
                 github_integration_id=github_integration.id,
                 team_id=team.id,
-                task_id=task_id,
+                task_id=test_task.id,
                 distinct_id="test-user-id",
             )
-            sandbox_id = async_to_sync(activity_environment.run)(get_sandbox_for_setup, input_data)
+            output = async_to_sync(activity_environment.run)(get_sandbox_for_setup, input_data)
 
-            assert isinstance(sandbox_id, str)
-            assert len(sandbox_id) > 0
+            assert isinstance(output.sandbox_id, str)
+            assert len(output.sandbox_id) > 0
+            assert isinstance(output.personal_api_key_id, str)
 
+            sandbox_id = output.sandbox_id
             sandbox = Sandbox.get_by_id(sandbox_id)
 
             assert sandbox.id == sandbox_id
