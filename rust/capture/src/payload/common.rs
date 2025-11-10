@@ -12,9 +12,8 @@ use crate::{
     api::CaptureError,
     payload::{Compression, EventFormData, EventQuery},
     utils::{
-        decode_base64, decode_form, extract_compression, extract_lib_version,
-        is_likely_base64, is_likely_urlencoded_form, Base64Option, FORM_MIME_TYPE,
-        MAX_PAYLOAD_SNIPPET_SIZE,
+        decode_base64, decode_form, extract_compression, extract_lib_version, is_likely_base64,
+        is_likely_urlencoded_form, Base64Option, FORM_MIME_TYPE, MAX_PAYLOAD_SNIPPET_SIZE,
     },
 };
 

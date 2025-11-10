@@ -6,8 +6,10 @@ use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
 use tracing::{error, instrument, warn, Span};
 
-use crate::{api::CaptureError, payload::{decompress_payload, Compression}};
-
+use crate::{
+    api::CaptureError,
+    payload::{decompress_payload, Compression},
+};
 
 #[derive(Deserialize)]
 #[serde(untagged)]

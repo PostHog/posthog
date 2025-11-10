@@ -39,14 +39,7 @@ impl RecordingPayload {
 /// handle_recording_payload processes recording (session replay) payloads
 /// This is optimized to avoid the double serialization that would occur
 /// if we went through RawRequest -> Vec<RawEvent> -> process
-#[instrument(
-    skip_all,
-    fields(
-        batch_size,
-        params_lib_version,
-        params_compression
-    )
-)]
+#[instrument(skip_all, fields(batch_size, params_lib_version, params_compression))]
 pub async fn handle_recording_payload(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
@@ -90,8 +83,11 @@ pub async fn handle_recording_payload(
         .ok_or(CaptureError::NoTokenError)?;
     Span::current().record("token", &token);
 
-    counter!("capture_events_received_total", &[("legacy", "false"), ("endpoint", "recordings")])
-        .increment(events.len() as u64);
+    counter!(
+        "capture_events_received_total",
+        &[("legacy", "false"), ("endpoint", "recordings")]
+    )
+    .increment(events.len() as u64);
 
     let now = state.timesource.current_time();
     let sent_at = query_params.sent_at();

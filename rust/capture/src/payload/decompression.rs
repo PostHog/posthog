@@ -13,7 +13,9 @@ use tracing::{debug, error, instrument, warn, Span};
 use crate::{
     api::CaptureError,
     prometheus::report_dropped_events,
-    utils::{decode_base64, decompress_lz64, is_likely_base64, Base64Option, MAX_PAYLOAD_SNIPPET_SIZE},
+    utils::{
+        decode_base64, decompress_lz64, is_likely_base64, Base64Option, MAX_PAYLOAD_SNIPPET_SIZE,
+    },
     v0_request::path_is_legacy_endpoint,
 };
 
@@ -46,13 +48,19 @@ pub fn decompress_payload(
     Span::current().record("compression", compression.to_string());
     Span::current().record("path", path);
 
-    debug!(payload_len = bytes.len(), "decompress_payload: decoding payload");
+    debug!(
+        payload_len = bytes.len(),
+        "decompress_payload: decoding payload"
+    );
     metrics::histogram!("capture_raw_payload_size").record(bytes.len() as f64);
 
     let mut payload = if compression == Compression::Gzip || bytes.starts_with(&GZIP_MAGIC_NUMBERS)
     {
         let len = bytes.len();
-        debug!(payload_len = len, "decompress_payload: matched GZIP compression");
+        debug!(
+            payload_len = len,
+            "decompress_payload: matched GZIP compression"
+        );
 
         let mut zipstream = GzDecoder::new(bytes.reader());
         let mut chunk = [0; 8192];
@@ -63,7 +71,10 @@ pub fn decompress_payload(
             let got = match zipstream.read(&mut chunk) {
                 Ok(got) => got,
                 Err(e) => {
-                    error!("decompress_payload: failed to read GZIP chunk from stream: {}", e);
+                    error!(
+                        "decompress_payload: failed to read GZIP chunk from stream: {}",
+                        e
+                    );
                     return Err(CaptureError::RequestDecodingError(String::from(
                         "invalid GZIP data",
                     )));
@@ -172,26 +183,24 @@ pub fn decompress_payload(
         if is_likely_base64(payload.as_bytes(), Base64Option::Strict) {
             debug!("decompress_payload: payload still base64 after decoding step");
             payload = match decode_base64(payload.as_bytes(), "decompress_payload_after_decoding") {
-                Ok(out) => {
-                    match String::from_utf8(out) {
-                        Ok(unwrapped_payload) => {
-                            let unwrapped_size = unwrapped_payload.len();
-                            if unwrapped_size > limit {
-                                error!(unwrapped_size,
+                Ok(out) => match String::from_utf8(out) {
+                    Ok(unwrapped_payload) => {
+                        let unwrapped_size = unwrapped_payload.len();
+                        if unwrapped_size > limit {
+                            error!(unwrapped_size,
                                     "decompress_payload: request size limit exceeded after post-decode base64 unwrap");
-                                report_dropped_events("event_too_big", 1);
-                                return Err(CaptureError::EventTooBig(format!(
+                            report_dropped_events("event_too_big", 1);
+                            return Err(CaptureError::EventTooBig(format!(
                                     "decompress_payload: payload size limit {limit} exceeded after post-decode base64 unwrap: {unwrapped_size}",
                                 )));
-                            }
-                            unwrapped_payload
                         }
-                        Err(e) => {
-                            error!("decompress_payload: failed UTF8 conversion after post-decode base64: {}", e);
-                            payload
-                        }
+                        unwrapped_payload
                     }
-                }
+                    Err(e) => {
+                        error!("decompress_payload: failed UTF8 conversion after post-decode base64: {}", e);
+                        payload
+                    }
+                },
                 Err(e) => {
                     error!(
                         path = path,

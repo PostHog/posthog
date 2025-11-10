@@ -176,9 +176,7 @@ pub async fn process_replay_events<'a>(
     // Extract metadata from first event by taking ownership (no clones!)
     // We split off the first event to extract metadata, then iterate over the rest
     let mut events_iter = events.into_iter();
-    let mut first_event = events_iter
-        .next()
-        .ok_or(CaptureError::EmptyBatch)?;
+    let mut first_event = events_iter.next().ok_or(CaptureError::EmptyBatch)?;
 
     let uuid = first_event.uuid.unwrap_or_else(uuid_v7);
     let distinct_id = first_event
@@ -285,7 +283,7 @@ pub async fn process_replay_events<'a>(
 
     let event = CapturedEvent {
         uuid,
-        distinct_id,  // No clone - we own it from extract_distinct_id()
+        distinct_id, // No clone - we own it from extract_distinct_id()
         ip: context.client_ip.clone(),
         data: serialized_data,
         now: context

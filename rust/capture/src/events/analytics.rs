@@ -14,8 +14,7 @@ use tracing::{error, instrument, Span};
 use crate::{
     api::CaptureError,
     prometheus::report_dropped_events,
-    router,
-    sinks,
+    router, sinks,
     utils::uuid_v7,
     v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext},
 };
