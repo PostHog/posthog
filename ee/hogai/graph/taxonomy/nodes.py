@@ -21,7 +21,6 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import format_events_yaml
-from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..base import BaseAssistantNode
 from ..mixins import StateClassMixin, TaxonomyUpdateDispatcherNodeMixin
@@ -33,7 +32,7 @@ from .prompts import (
     TAXONOMY_TOOL_USAGE_PROMPT,
 )
 from .toolkit import TaxonomyAgentToolkit
-from .types import EntityType, TaxonomyAgentState, TaxonomyNodeName
+from .types import EntityType, TaxonomyAgentState
 
 TaxonomyStateType = TypeVar("TaxonomyStateType", bound=TaxonomyAgentState)
 TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAgentState)
@@ -53,10 +52,6 @@ class TaxonomyAgentNode(
         super().__init__(team, user)
         self._toolkit = toolkit_class(team=team, user=user)
         self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentNode)
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return TaxonomyNodeName.LOOP_NODE
 
     @cached_property
     def _team_group_types(self) -> list[str]:
@@ -168,10 +163,6 @@ class TaxonomyAgentToolsNode(
         super().__init__(team, user)
         self._toolkit = toolkit_class(team=team, user=user)
         self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentToolsNode)
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return TaxonomyNodeName.TOOLS_NODE
 
     async def arun(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         intermediate_steps = state.intermediate_steps or []

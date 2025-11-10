@@ -30,6 +30,11 @@ class MathGroupTypeIndex(float, Enum):
     NUMBER_4 = 4
 
 
+class AgentMode(StrEnum):
+    PRODUCT_ANALYTICS = "product_analytics"
+    NOOP = "noop"
+
+
 class AggregationAxisFormat(StrEnum):
     NUMERIC = "numeric"
     DURATION = "duration"

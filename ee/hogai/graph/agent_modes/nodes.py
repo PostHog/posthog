@@ -1,10 +1,9 @@
 import asyncio
 from collections.abc import Awaitable, Mapping, Sequence
-from typing import TYPE_CHECKING, Literal, TypeVar, Union
+from typing import TYPE_CHECKING, Literal, TypeVar
 from uuid import uuid4
 
 import structlog
-import posthoganalytics
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -17,67 +16,137 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeInterrupt
 from langgraph.types import Send
 from posthoganalytics import capture_exception
-from pydantic import BaseModel
 
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMessage, FailureMessage, HumanMessage
 
 from posthog.models import Team, User
 
-from ee.hogai.graph.base import AssistantNode
+from ee.hogai.context import AssistantContextManager
+from ee.hogai.graph.base import BaseAssistantExecutable
 from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSummarizer
-from ee.hogai.graph.root.compaction_manager import AnthropicConversationCompactionManager
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import ToolMessagesArtifact
+from ee.hogai.tools import ReadDataTool, ReadTaxonomyTool, SearchTool, TodoWriteTool
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types.base import (
+from ee.hogai.utils.types import (
     AssistantMessageUnion,
     AssistantNodeName,
     AssistantState,
-    NodePath,
     PartialAssistantState,
     ReplaceMessages,
 )
-from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.utils.types.base import NodePath
 
+from .compaction_manager import AnthropicConversationCompactionManager
 from .prompts import (
+    AGENT_PROMPT,
+    BASIC_FUNCTIONALITY_PROMPT,
+    CORE_MEMORY_INSTRUCTIONS_PROMPT,
+    DOING_TASKS_PROMPT,
+    PROACTIVENESS_PROMPT,
+    ROLE_PROMPT,
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
     ROOT_CONVERSATION_SUMMARY_PROMPT,
     ROOT_GROUPS_PROMPT,
     ROOT_HARD_LIMIT_REACHED_PROMPT,
-    ROOT_SYSTEM_PROMPT,
     ROOT_TOOL_DOES_NOT_EXIST,
-)
-from .tools import (
-    CreateAndQueryInsightTool,
-    CreateDashboardTool,
-    ReadDataTool,
-    ReadTaxonomyTool,
-    SearchTool,
-    SessionSummarizationTool,
-    TodoWriteTool,
+    TASK_MANAGEMENT_PROMPT,
+    TONE_AND_STYLE_PROMPT,
+    TOOL_USAGE_POLICY_PROMPT,
+    WRITING_STYLE_PROMPT,
 )
 
 if TYPE_CHECKING:
     from ee.hogai.tool import MaxTool
 
-SLASH_COMMAND_INIT = "/init"
-SLASH_COMMAND_REMEMBER = "/remember"
-
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage | ContextMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
-RootTool = Union[type[BaseModel], "MaxTool"]
+logger = structlog.get_logger(__name__)
+
+DEFAULT_TOOLS: list[type["MaxTool"]] = [
+    ReadTaxonomyTool,
+    ReadDataTool,
+    SearchTool,
+    TodoWriteTool,
+]
 
 logger = structlog.get_logger(__name__)
 
 
-class RootNode(AssistantNode):
+class AgentToolkit:
+    def __init__(self, *, team: Team, user: User, context_manager: AssistantContextManager):
+        self._team = team
+        self._user = user
+        self._context_manager = context_manager
+
+    @property
+    def default_tools(self) -> list[type["MaxTool"]]:
+        return DEFAULT_TOOLS.copy()
+
+    @property
+    def custom_tools(self) -> list[type["MaxTool"]]:
+        """
+        Custom tools are tools that are not part of the default toolkit.
+        """
+        return []
+
+    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list["MaxTool"]:
+        from ee.hogai.registry import get_contextual_tool_class
+
+        tool_classes: list[type[MaxTool]] = [*self.default_tools, *self.custom_tools]
+
+        # Processed tools
+        available_tools: list[MaxTool] = []
+
+        # Initialize the static toolkit
+        dynamic_tools = (
+            tool_class.create_tool_class(
+                team=self._team,
+                user=self._user,
+                state=state,
+                config=config,
+                context_manager=self._context_manager,
+            )
+            for tool_class in tool_classes
+        )
+        available_tools.extend(await asyncio.gather(*dynamic_tools))
+
+        # Inject contextual tools
+        tool_names = self._context_manager.get_contextual_tools().keys()
+        awaited_contextual_tools: list[Awaitable[MaxTool]] = []
+        for tool_name in tool_names:
+            ContextualMaxToolClass = get_contextual_tool_class(tool_name)
+            if ContextualMaxToolClass is None:
+                continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
+            awaited_contextual_tools.append(
+                ContextualMaxToolClass.create_tool_class(
+                    team=self._team,
+                    user=self._user,
+                    state=state,
+                    config=config,
+                    context_manager=self._context_manager,
+                )
+            )
+
+        available_tools.extend(await asyncio.gather(*awaited_contextual_tools))
+
+        return available_tools
+
+
+class BaseAgentExecutable(BaseAssistantExecutable[AssistantState, PartialAssistantState]):
+    def __init__(self, *, team: Team, user: User, toolkit_class: type[AgentToolkit], node_path: tuple[NodePath, ...]):
+        super().__init__(team, user, node_path)
+        self._toolkit_class = toolkit_class
+
+
+class AgentExecutable(BaseAgentExecutable):
     MAX_TOOL_CALLS = 24
     """
     Determines the maximum number of tool calls allowed in a single generation.
@@ -87,15 +156,17 @@ class RootNode(AssistantNode):
     Determines the thinking configuration for the model.
     """
 
-    def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...] | None = None):
-        super().__init__(team, user, node_path)
+    def __init__(self, *, team: Team, user: User, toolkit_class: type[AgentToolkit], node_path: tuple[NodePath, ...]):
+        super().__init__(team=team, user=user, toolkit_class=toolkit_class, node_path=node_path)
         self._window_manager = AnthropicConversationCompactionManager()
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        toolkit = self._toolkit_class(team=self._team, user=self._user, context_manager=self.context_manager)
+
         # Add context messages on start of the conversation.
         tools, billing_context_prompt, core_memory, groups = await asyncio.gather(
-            self._get_tools(state, config),
-            self._get_billing_prompt(config),
+            toolkit.get_tools(state, config),
+            self._get_billing_prompt(),
             self._aget_core_memory_text(),
             self.context_manager.get_group_names(),
         )
@@ -140,20 +211,20 @@ class RootNode(AssistantNode):
 
         system_prompts = ChatPromptTemplate.from_messages(
             [
-                ("system", ROOT_SYSTEM_PROMPT),
+                ("system", self._get_system_prompt(state, config)),
             ],
             template_format="mustache",
         ).format_messages(
             groups_prompt=f" {format_prompt_string(ROOT_GROUPS_PROMPT, groups=', '.join(groups))}" if groups else "",
             billing_context=billing_context_prompt,
-            core_memory_prompt=format_prompt_string(CORE_MEMORY_PROMPT, core_memory=core_memory),
+            core_memory=format_prompt_string(CORE_MEMORY_PROMPT, core_memory=core_memory),
         )
 
         # Mark the longest default prefix as cacheable
         add_cache_control(system_prompts[-1])
 
         message = await model.ainvoke(system_prompts + langchain_messages, config)
-        assistant_message = normalize_ai_message(message)
+        assistant_message = self._process_output_message(message)
 
         new_messages: list[AssistantMessageUnion] = [assistant_message]
         # Replace the messages with the new message window
@@ -179,23 +250,51 @@ class RootNode(AssistantNode):
             for tool_call in last_message.tool_calls
         ]
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.ROOT
+    def get_system_prompt_template(self, state: AssistantState, config: RunnableConfig) -> str:
+        """
+        Get the system prompt template for the agent.
 
-    def _has_session_summarization_feature_flag(self) -> bool:
+        A prompt template can include the following variables:
+        - `{{{role}}}`
+        - `{{{tone_and_style}}}`
+        - `{{{writing_style}}}`
+        - `{{{proactiveness}}}`
+        - `{{{basic_functionality}}}`
+        - `{{{task_management}}}`
+        - `{{{doing_tasks}}}`
+        - `{{{tool_usage_policy}}}`
+        - `{{{core_memory_instructions}}}`
+
+        The variables from above can have the following nested variables that will be injected:
+        - `{{{groups}}}` – a prompt containing the description of the groups.
+        - `{{{billing_context}}}` – a prompt containing the billing context: permissions and billing information.
+        - `{{{core_memory}}}` – memory contents.
         """
-        Check if the user has the session summarization feature flag enabled.
+        return AGENT_PROMPT
+
+    def _get_system_prompt(self, state: AssistantState, config: RunnableConfig) -> str:
         """
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
+        Get the system prompt template for the agent.
+
+        The defined prompt might contain the following variables:
+        - `groups` – a prompt containing the description of the groups.
+        - `billing_context` – a prompt containing the billing context: permissions and billing information.
+        - `core_memory_prompt` – memory contents.
+        """
+        return format_prompt_string(
+            self.get_system_prompt_template(state, config),
+            role=ROLE_PROMPT,
+            tone_and_style=TONE_AND_STYLE_PROMPT,
+            writing_style=WRITING_STYLE_PROMPT,
+            proactiveness=PROACTIVENESS_PROMPT,
+            basic_functionality=BASIC_FUNCTIONALITY_PROMPT,
+            task_management=TASK_MANAGEMENT_PROMPT,
+            doing_tasks=DOING_TASKS_PROMPT,
+            tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,
+            core_memory_instructions=CORE_MEMORY_INSTRUCTIONS_PROMPT,
         )
 
-    async def _get_billing_prompt(self, config: RunnableConfig) -> str:
+    async def _get_billing_prompt(self) -> str:
         """Get billing information including whether to include the billing tool and the prompt.
         Returns:
             str: prompt
@@ -213,7 +312,7 @@ class RootNode(AssistantNode):
         )
         return prompt
 
-    def _get_model(self, state: AssistantState, tools: list[RootTool]):
+    def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
         base_model = MaxChatAnthropic(
             model="claude-sonnet-4-5",
             streaming=True,
@@ -232,67 +331,6 @@ class RootNode(AssistantNode):
             return base_model
 
         return base_model.bind_tools(tools, parallel_tool_calls=True)
-
-    async def _get_tools(self, state: AssistantState, config: RunnableConfig) -> list[RootTool]:
-        from ee.hogai.tool import get_contextual_tool_class
-
-        # Static toolkit
-        default_tools: list[type[MaxTool]] = [
-            ReadTaxonomyTool,
-            ReadDataTool,
-            SearchTool,
-            TodoWriteTool,
-        ]
-
-        # The contextual insights tool overrides the static tool. Only inject if it's injected.
-        if not CreateAndQueryInsightTool.is_editing_mode(self.context_manager):
-            default_tools.append(CreateAndQueryInsightTool)
-
-        # Add session summarization tool if enabled
-        if self._has_session_summarization_feature_flag():
-            default_tools.append(SessionSummarizationTool)
-
-        # Add other lower-priority tools
-        default_tools.extend(
-            [
-                CreateDashboardTool,
-            ]
-        )
-
-        # Processed tools
-        available_tools: list[RootTool] = []
-
-        # Initialize the static toolkit
-        # We set tool_call_id to an empty string here because we don't know the tool call id yet
-        # This is just to bound the tools to the model
-        dynamic_tools = (
-            tool_class.create_tool_class(
-                team=self._team, user=self._user, state=state, config=config, context_manager=self.context_manager
-            )
-            for tool_class in default_tools
-        )
-        available_tools.extend(await asyncio.gather(*dynamic_tools))
-
-        # Inject contextual tools
-        tool_names = self.context_manager.get_contextual_tools().keys()
-        awaited_contextual_tools: list[Awaitable[RootTool]] = []
-        for tool_name in tool_names:
-            ContextualMaxToolClass = get_contextual_tool_class(tool_name)
-            if ContextualMaxToolClass is None:
-                continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
-            awaited_contextual_tools.append(
-                ContextualMaxToolClass.create_tool_class(
-                    team=self._team,
-                    user=self._user,
-                    state=state,
-                    config=config,
-                    context_manager=self.context_manager,
-                )
-            )
-
-        available_tools.extend(await asyncio.gather(*awaited_contextual_tools))
-
-        return available_tools
 
     def _construct_messages(
         self,
@@ -365,13 +403,13 @@ class RootNode(AssistantNode):
     def _is_hard_limit_reached(self, tool_calls_count: int | None) -> bool:
         return tool_calls_count is not None and tool_calls_count >= self.MAX_TOOL_CALLS
 
+    def _process_output_message(self, message: LangchainAIMessage) -> AssistantMessage:
+        """Process the output message."""
+        return normalize_ai_message(message)
 
-class RootNodeTools(AssistantNode):
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.ROOT_TOOLS
 
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+class AgentToolsExecutable(BaseAgentExecutable):
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
 
         reset_state = PartialAssistantState(root_tool_call_id=None)
@@ -386,9 +424,12 @@ class RootNodeTools(AssistantNode):
         if not tool_call:
             return reset_state
 
-        from ee.hogai.tool import get_contextual_tool_class
-
-        ToolClass = get_contextual_tool_class(tool_call.name)
+        # Find the tool class in a toolkit.
+        toolkit = self._toolkit_class(team=self._team, user=self._user, context_manager=self.context_manager)
+        available_tools = await toolkit.get_tools(state, config)
+        ToolClass = next(
+            (tool_class for tool_class in available_tools if tool_class.get_name() == tool_call.name), None
+        )
 
         # If the tool doesn't exist, return the message to the agent
         if not ToolClass:

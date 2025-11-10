@@ -28,20 +28,23 @@ from posthog.schema import (
     MaxBillingContextTrial,
 )
 
+from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 
 from products.replay.backend.max_tools import SearchSessionRecordingsTool
 
-from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
-from ee.hogai.graph.root.prompts import (
+from ee.hogai.context import AssistantContextManager
+from ee.hogai.tools.read_taxonomy import ReadEvents
+from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName, NodePath
+
+from ..nodes import AgentExecutable, AgentToolkit, AgentToolsExecutable
+from ..prompts import (
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
 )
-from ee.hogai.tool import ToolMessagesArtifact
-from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AssistantMessageUnion
 
 
 @contextmanager
@@ -50,19 +53,65 @@ def mock_contextual_tool(mock_tool):
     mock_tool_class = MagicMock()
     mock_tool_class.create_tool_class = AsyncMock(return_value=mock_tool)
 
-    with patch("ee.hogai.tool.get_contextual_tool_class", return_value=mock_tool_class):
+    with patch("ee.hogai.registry.get_contextual_tool_class", return_value=mock_tool_class):
         yield
 
 
-class TestRootNode(ClickhouseTestMixin, BaseTest):
+def _create_agent_node(
+    team: Team,
+    user: User,
+    *,
+    toolkit_class: type[AgentToolkit] | None = None,
+    node_path: tuple[NodePath, ...] | None = None,
+):
+    if toolkit_class is None:
+        toolkit_class = AgentToolkit
+    if node_path is None:
+        node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
+    return AgentExecutable(team=team, user=user, toolkit_class=toolkit_class, node_path=node_path)
+
+
+def _create_agent_tools_node(
+    team: Team,
+    user: User,
+    *,
+    toolkit_class: type[AgentToolkit] | None = None,
+    node_path: tuple[NodePath, ...] | None = None,
+):
+    if toolkit_class is None:
+        toolkit_class = AgentToolkit
+    if node_path is None:
+        node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
+    return AgentToolsExecutable(team=team, user=user, toolkit_class=toolkit_class, node_path=node_path)
+
+
+class TestAgentToolkit(BaseTest):
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
+    @patch("ee.hogai.registry.get_contextual_tool_class")
+    async def test_get_tools_ignores_unknown_contextual_tools(self, mock_get_tool_class, mock_model):
+        """Test that unknown contextual tools (None from get_contextual_tool_class) are ignored"""
+        mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
+        mock_get_tool_class.return_value = None  # Simulates unknown tool
+
+        state = AssistantState(messages=[HumanMessage(content="Test")])
+        config = RunnableConfig(configurable={"contextual_tools": {"unknown_tool": {"some": "config"}}})
+        context_manager = AssistantContextManager(self.team, self.user, config)
+        node = AgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
+
+        # Should not raise an error, just skip the unknown tool
+        tools = await node.get_tools(state, config)
+        self.assertIsNotNone(tools)
+
+
+class TestAgentNode(ClickhouseTestMixin, BaseTest):
     async def test_node_handles_plain_chat_response(self):
         with patch(
-            "ee.hogai.graph.root.nodes.RootNode._get_model",
+            "ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model",
             return_value=FakeChatOpenAI(
                 responses=[LangchainAIMessage(content="Why did the chicken cross the road? To get to the other side!")]
             ),
         ):
-            node = RootNode(self.team, self.user)
+            node = _create_agent_node(self.team, self.user)
             state_1 = AssistantState(messages=[HumanMessage(content="Tell me a joke")])
             next_state = await node.arun(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
@@ -72,43 +121,34 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, "Why did the chicken cross the road? To get to the other side!")
 
-    @parameterized.expand(
-        [
-            ["trends", "Hang tight while I check this."],
-            ["funnel", "Hang tight while I check this."],
-            ["retention", "Hang tight while I check this."],
-            ["trends", ""],
-            ["funnel", ""],
-            ["retention", ""],
-        ]
-    )
-    async def test_node_handles_insight_tool_call(self, insight_type, content):
+    async def test_node_can_produce_not_existing_tool(self):
+        """Test that the node can produce a not existing tool call message. AgentToolsExecutable will handle the hallucination."""
         with patch(
-            "ee.hogai.graph.root.nodes.RootNode._get_model",
+            "ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model",
             return_value=FakeChatOpenAI(
                 responses=[
                     LangchainAIMessage(
-                        content=content,
+                        content="Content",
                         tool_calls=[
                             {
                                 "id": "xyz",
-                                "name": "create_and_query_insight",
-                                "args": {"query_description": "Foobar", "query_kind": insight_type},
+                                "name": "does_not_exist",
+                                "args": {"query_description": "Foobar"},
                             }
                         ],
                     )
                 ],
             ),
         ):
-            node = RootNode(self.team, self.user)
-            state_1 = AssistantState(messages=[HumanMessage(content=f"generate {insight_type}")])
+            node = _create_agent_node(self.team, self.user)
+            state_1 = AssistantState(messages=[HumanMessage(content="generate")])
             next_state = await node.arun(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
             self.assertEqual(len(next_state.messages), 1)
             self.assertIsInstance(next_state.messages[0], AssistantMessage)
             assistant_message = next_state.messages[0]
             assert isinstance(assistant_message, AssistantMessage)
-            self.assertEqual(assistant_message.content, content)
+            self.assertEqual(assistant_message.content, "Content")
             self.assertIsNotNone(assistant_message.id)
             self.assertIsNotNone(assistant_message.tool_calls)
             assert assistant_message.tool_calls is not None
@@ -117,14 +157,14 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 assistant_message.tool_calls[0],
                 AssistantToolCall(
                     id="xyz",
-                    name="create_and_query_insight",
-                    args={"query_description": "Foobar", "query_kind": insight_type},
+                    name="does_not_exist",
+                    args={"query_description": "Foobar"},
                 ),
             )
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
     async def test_node_reconstructs_conversation(self, mock_model):
-        node = RootNode(self.team, self.user)
+        node = _create_agent_node(self.team, self.user)
         state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
         result = node._construct_messages(
             state_1.messages, state_1.root_conversation_start_id, state_1.root_tool_calls_count
@@ -160,9 +200,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatAnthropic(responses=[]))
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatAnthropic(responses=[]))
     async def test_node_reconstructs_conversation_with_tool_calls(self, mock_model):
-        node = RootNode(self.team, self.user)
+        node = _create_agent_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="Hello"),
@@ -204,9 +244,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
     async def test_node_filters_tool_calls_without_responses(self, mock_model):
-        node = RootNode(self.team, self.user)
+        node = _create_agent_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="Hello"),
@@ -273,10 +313,10 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         mock_with_tokens.ainvoke = ainvoke_mock
 
         with patch(
-            "ee.hogai.graph.root.nodes.MaxChatAnthropic",
+            "ee.hogai.graph.agent_modes.nodes.MaxChatAnthropic",
             return_value=mock_with_tokens,
         ):
-            node = RootNode(self.team, self.user)
+            node = _create_agent_node(self.team, self.user)
 
             # Create a state that has hit the hard limit (4 tool calls)
             state = AssistantState(messages=[HumanMessage(content="Hello")], root_tool_calls_count=node.MAX_TOOL_CALLS)
@@ -299,67 +339,10 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             )
             self.assertIn("iterations", messages[-1].content)
 
-    async def test_node_gets_contextual_tool(self):
-        with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
-            mock_model = MagicMock()
-            mock_model.get_num_tokens_from_messages.return_value = 100
-            mock_model.bind_tools.return_value = mock_model
-            mock_chat_openai.return_value = mock_model
-
-            node = RootNode(self.team, self.user)
-            # Set the config on the node so context_manager can access it
-            config = RunnableConfig(
-                configurable={"contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}}
-            )
-            node._config = config
-            # Clear any cached context manager to force recreation with new config
-            node._context_manager = None
-
-            # Mock get_contextual_tool_class to return a real tool-like class
-            with (
-                patch.object(node, "_has_session_summarization_feature_flag", return_value=False),
-            ):
-                # Create a mock tool instance
-                mock_tool_instance = MagicMock()
-                mock_tool_instance.name = "search_session_recordings"
-
-                # Create a mock tool class with async create_tool_class
-                mock_tool_class = MagicMock()
-                mock_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
-
-                # We need to patch at the point where it's imported
-                with patch("ee.hogai.tool.get_contextual_tool_class") as mock_get_tool:
-                    mock_get_tool.return_value = mock_tool_class
-
-                    # Verify that context_manager has the right tools
-                    context_tools = node.context_manager.get_contextual_tools()
-                    self.assertEqual(
-                        context_tools, {"search_session_recordings": {"current_filters": {"duration": ">"}}}
-                    )
-
-                    tools = await node._get_tools(
-                        AssistantState(messages=[HumanMessage(content="show me long recordings")]), config
-                    )
-
-                    node._get_model(
-                        AssistantState(messages=[HumanMessage(content="show me long recordings")]),
-                        tools,
-                    )
-
-                    # Verify get_contextual_tool_class was called
-                    mock_get_tool.assert_called_once_with("search_session_recordings")
-
-                    # Verify bind_tools was called
-                    mock_model.bind_tools.assert_called_once()
-                    tools = mock_model.bind_tools.call_args[0][0]
-
-                    # Verify that our mock tool instance is in the list
-                    self.assertIn(mock_tool_instance, tools)
-
     async def test_node_does_not_get_contextual_tool_if_not_configured(self):
         with (
             patch(
-                "ee.hogai.graph.root.nodes.RootNode._get_model",
+                "ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model",
                 return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Simple response")]),
             ),
             patch("ee.hogai.utils.tests.FakeChatOpenAI.bind_tools", return_value=MagicMock()) as mock_bind_tools,
@@ -368,7 +351,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 return_value=("Success", {}),
             ),
         ):
-            node = RootNode(self.team, self.user)
+            node = _create_agent_node(self.team, self.user)
             state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
 
             next_state = await node.arun(state, {})
@@ -384,12 +367,12 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     async def test_node_injects_contextual_tool_prompts(self):
         with patch(
-            "ee.hogai.graph.root.nodes.RootNode._get_model",
+            "ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model",
             return_value=FakeChatAnthropic(
                 responses=[LangchainAIMessage(content=[{"text": "I'll help with recordings", "type": "text"}])]
             ),
         ) as mock_get_model:
-            node = RootNode(self.team, self.user)
+            node = _create_agent_node(self.team, self.user)
             state = AssistantState(
                 messages=[HumanMessage(content="show me long recordings", id="test-id")], start_id="test-id"
             )
@@ -428,14 +411,14 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         with (
             patch("os.environ", {"ANTHROPIC_API_KEY": "foo"}),
             patch("langchain_anthropic.chat_models.ChatAnthropic._agenerate") as mock_generate,
-            # patch("ee.hogai.graph.root.nodes.RootNode._find_new_window_id", return_value=None),
+            # patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._find_new_window_id", return_value=None),
         ):
             mock_generate.return_value = ChatResult(
                 generations=[ChatGeneration(message=AIMessage(content="Test response"))],
                 llm_output={},
             )
 
-            node = RootNode(self.team, self.user)
+            node = _create_agent_node(self.team, self.user)
             # Set config before calling arun
             config = RunnableConfig(configurable={})
             node._config = config
@@ -479,7 +462,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         membership.level = membership_level
         await membership.asave()
 
-        node = RootNode(self.team, self.user)
+        node = _create_agent_node(self.team, self.user)
 
         # Configure billing context if needed
         if add_context:
@@ -494,10 +477,12 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         else:
             node._config = RunnableConfig(configurable={})
 
-        self.assertEqual(await node._get_billing_prompt(node._config), expected_prompt)
+        self.assertEqual(await node._get_billing_prompt(), expected_prompt)
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
-    @patch("ee.hogai.graph.root.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation")
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch(
+        "ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation"
+    )
     @patch("ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize")
     async def test_conversation_summarization_flow(self, mock_summarize, mock_should_compact, mock_model):
         """Test that conversation is summarized when it gets too long"""
@@ -507,7 +492,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response after summary")])
         mock_model.return_value = mock_model_instance
 
-        node = RootNode(self.team, self.user)
+        node = _create_agent_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="First message", id="1"),
@@ -528,8 +513,10 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(context_messages), 1)
         self.assertIn("This is a summary of the conversation so far.", context_messages[0].content)
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
-    @patch("ee.hogai.graph.root.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation")
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch(
+        "ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation"
+    )
     @patch("ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize")
     async def test_conversation_summarization_on_first_turn(self, mock_summarize, mock_should_compact, mock_model):
         """Test that on first turn, the last message is excluded from summarization"""
@@ -539,7 +526,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
         mock_model.return_value = mock_model_instance
 
-        node = RootNode(self.team, self.user)
+        node = _create_agent_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="First message", id="1"),
@@ -555,53 +542,17 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         summarized_messages = mock_summarize.call_args[0][0]
         self.assertEqual(len(summarized_messages), 2)
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
-    @patch("posthoganalytics.feature_enabled")
-    async def test_get_tools_session_summarization_feature_flag(self, mock_feature_enabled, mock_model):
-        """Test that session_summarization tool is only included when feature flag is enabled"""
-        mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
-
-        node = RootNode(self.team, self.user)
-        state = AssistantState(messages=[HumanMessage(content="Test")])
-
-        # Test with feature flag enabled
-        mock_feature_enabled.return_value = True
-        tools_with_flag = await node._get_tools(state, {})
-        tool_names_with_flag = [tool.name if hasattr(tool, "name") else tool.__name__ for tool in tools_with_flag]
-        self.assertIn("session_summarization", tool_names_with_flag)
-
-        # Test with feature flag disabled
-        mock_feature_enabled.return_value = False
-        tools_without_flag = await node._get_tools(state, {})
-        tool_names_without_flag = [tool.name if hasattr(tool, "name") else tool.__name__ for tool in tools_without_flag]
-        self.assertNotIn("session_summarization", tool_names_without_flag)
-
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
-    @patch("ee.hogai.tool.get_contextual_tool_class")
-    async def test_get_tools_ignores_unknown_contextual_tools(self, mock_get_tool_class, mock_model):
-        """Test that unknown contextual tools (None from get_contextual_tool_class) are ignored"""
-        mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
-        mock_get_tool_class.return_value = None  # Simulates unknown tool
-
-        node = RootNode(self.team, self.user)
-        state = AssistantState(messages=[HumanMessage(content="Test")])
-        config = RunnableConfig(configurable={"contextual_tools": {"unknown_tool": {"some": "config"}}})
-
-        # Should not raise an error, just skip the unknown tool
-        tools = await node._get_tools(state, config)
-        self.assertIsNotNone(tools)
-
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
     async def test_construct_messages_empty_list(self, mock_model):
         """Test _construct_messages with empty message list"""
-        node = RootNode(self.team, self.user)
+        node = _create_agent_node(self.team, self.user)
         result = node._construct_messages([], None, None)
         self.assertEqual(result, [])
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
     async def test_construct_messages_cache_control_only_on_last_eligible_message(self, mock_model):
         """Test that cache_control is only added to the last eligible message"""
-        node = RootNode(self.team, self.user)
+        node = _create_agent_node(self.team, self.user)
         messages: list[AssistantMessageUnion] = [
             HumanMessage(content="First", id="1"),
             AssistantMessage(content="Response", id="2"),
@@ -619,10 +570,10 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(cache_control_count, 1, "Only one message should have cache_control")
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
     async def test_construct_messages_with_hard_limit_reached(self, mock_model):
         """Test that hard limit prompt is added when tool calls reach MAX_TOOL_CALLS"""
-        node = RootNode(self.team, self.user)
+        node = _create_agent_node(self.team, self.user)
         messages = [HumanMessage(content="Test", id="1")]
         result = node._construct_messages(messages, None, node.MAX_TOOL_CALLS)
 
@@ -641,14 +592,14 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     )
     def test_is_hard_limit_reached_boundary_conditions(self, tool_calls_count, expected):
         """Test _is_hard_limit_reached with boundary values"""
-        node = RootNode(self.team, self.user)
+        node = _create_agent_node(self.team, self.user)
         result = node._is_hard_limit_reached(tool_calls_count)
         self.assertEqual(result, expected)
 
     async def test_node_increments_tool_count_on_tool_call(self):
         """Test that RootNode increments tool count when assistant makes a tool call"""
         with patch(
-            "ee.hogai.graph.root.nodes.RootNode._get_model",
+            "ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model",
             return_value=FakeChatOpenAI(
                 responses=[
                     LangchainAIMessage(
@@ -664,7 +615,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 ]
             ),
         ):
-            node = RootNode(self.team, self.user)
+            node = _create_agent_node(self.team, self.user)
 
             # Test starting from no tool calls
             state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
@@ -682,10 +633,10 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     async def test_node_resets_tool_count_on_plain_response(self):
         """Test that RootNode resets tool count when assistant responds without tool calls"""
         with patch(
-            "ee.hogai.graph.root.nodes.RootNode._get_model",
+            "ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model",
             return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Here's your answer")]),
         ):
-            node = RootNode(self.team, self.user)
+            node = _create_agent_node(self.team, self.user)
 
             state = AssistantState(
                 messages=[HumanMessage(content="Hello")],
@@ -698,7 +649,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         """Test that router returns END when message has no tool calls"""
         from ee.hogai.utils.types import AssistantNodeName
 
-        node = RootNode(self.team, self.user)
+        node = _create_agent_node(self.team, self.user)
 
         state = AssistantState(
             messages=[
@@ -715,7 +666,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
         from ee.hogai.utils.types import AssistantNodeName
 
-        node = RootNode(self.team, self.user)
+        node = _create_agent_node(self.team, self.user)
 
         state = AssistantState(
             messages=[
@@ -747,7 +698,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
         from ee.hogai.utils.types import AssistantNodeName
 
-        node = RootNode(self.team, self.user)
+        node = _create_agent_node(self.team, self.user)
 
         state = AssistantState(
             messages=[
@@ -787,9 +738,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(send.arg.root_tool_call_id, f"tool-{i+1}")
 
 
-class TestRootNodeTools(BaseTest):
+class TestAgentToolsNode(BaseTest):
     def test_node_tools_router(self):
-        node = RootNodeTools(self.team, self.user)
+        node = _create_agent_tools_node(self.team, self.user)
 
         # Test case 1: Last message is AssistantToolCallMessage - should return "root"
         state_1 = AssistantState(
@@ -814,17 +765,17 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(node.router(state_4), "root")
 
     async def test_run_no_assistant_message(self):
-        node = RootNodeTools(self.team, self.user)
+        node = _create_agent_tools_node(self.team, self.user)
         state = AssistantState(messages=[HumanMessage(content="Hello")])
         result = await node.arun(state, {})
         self.assertEqual(result, PartialAssistantState(root_tool_call_id=None))
 
-    @patch("ee.hogai.graph.root.tools.create_and_query_insight.CreateAndQueryInsightTool._arun_impl")
-    async def test_run_valid_tool_call(self, create_and_query_insight_mock):
-        test_message = AssistantToolCallMessage(content="Tool result", tool_call_id="xyz", id="msg-1")
-        create_and_query_insight_mock.return_value = ("", ToolMessagesArtifact(messages=[test_message]))
+    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    async def test_run_valid_tool_call(self, read_taxonomy_mock):
+        """Test that built-in tools can be called"""
+        read_taxonomy_mock.return_value = ("Content", None)
 
-        node = RootNodeTools(self.team, self.user)
+        node = _create_agent_tools_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -833,24 +784,51 @@ class TestRootNodeTools(BaseTest):
                     tool_calls=[
                         AssistantToolCall(
                             id="xyz",
-                            name="create_and_query_insight",
-                            args={"query_description": "test query"},
+                            name="read_taxonomy",
+                            args={"query": {"kind": "events"}},
                         )
                     ],
                 )
             ],
             root_tool_call_id="xyz",
         )
-        result = await node.arun(state, {})
+        result = await node(state, {})
         self.assertIsInstance(result, PartialAssistantState)
         assert result is not None
         self.assertEqual(len(result.messages), 1)
         assert isinstance(result.messages[0], AssistantToolCallMessage)
         self.assertEqual(result.messages[0].tool_call_id, "xyz")
-        create_and_query_insight_mock.assert_called_once_with(query_description="test query")
+        read_taxonomy_mock.assert_called_once_with(query=ReadEvents())
+
+    async def test_invalid_tool_call_returns_error(self):
+        """Test that invalid tool calls return an error message"""
+        node = _create_agent_tools_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Hello",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(
+                            id="xyz",
+                            name="does_not_exist",
+                            args={"query_description": "Foobar"},
+                        )
+                    ],
+                )
+            ],
+            root_tool_call_id="xyz",
+        )
+        result = await node(state, {})
+        self.assertIsInstance(result, PartialAssistantState)
+        assert result is not None
+        self.assertEqual(len(result.messages), 1)
+        assert isinstance(result.messages[0], AssistantToolCallMessage)
+        self.assertEqual(result.messages[0].tool_call_id, "xyz")
+        self.assertIn("This tool does not exist", result.messages[0].content)
 
     async def test_run_valid_contextual_tool_call(self):
-        node = RootNodeTools(self.team, self.user)
+        node = _create_agent_tools_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -895,7 +873,7 @@ class TestRootNodeTools(BaseTest):
 
     async def test_navigate_tool_call_raises_node_interrupt(self):
         """Test that navigate tool calls raise NodeInterrupt to pause graph execution"""
-        node = RootNodeTools(self.team, self.user)
+        node = _create_agent_tools_node(self.team, self.user)
 
         state = AssistantState(
             messages=[
@@ -913,24 +891,23 @@ class TestRootNodeTools(BaseTest):
             content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
         )
 
-        with mock_contextual_tool(mock_navigate_tool):
-            # The navigate tool call should raise NodeInterrupt
-            with self.assertRaises(NodeInterrupt) as cm:
-                await node.arun(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
+        # The navigate tool call should raise NodeInterrupt
+        with self.assertRaises(NodeInterrupt) as cm:
+            await node(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
 
-            # Verify the NodeInterrupt contains the expected message
-            # NodeInterrupt wraps the message in an Interrupt object
-            interrupt_data = cm.exception.args[0]
-            if isinstance(interrupt_data, list):
-                interrupt_data = interrupt_data[0].value
-            self.assertIsInstance(interrupt_data, AssistantToolCallMessage)
-            self.assertEqual(interrupt_data.content, "XXX")
-            self.assertEqual(interrupt_data.tool_call_id, "nav-123")
-            self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
+        # Verify the NodeInterrupt contains the expected message
+        # NodeInterrupt wraps the message in an Interrupt object
+        interrupt_data = cm.exception.args[0]
+        if isinstance(interrupt_data, list):
+            interrupt_data = interrupt_data[0].value
+        self.assertIsInstance(interrupt_data, AssistantToolCallMessage)
+        self.assertIn("Navigated to **insights**.", interrupt_data.content)
+        self.assertEqual(interrupt_data.tool_call_id, "nav-123")
+        self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
 
     async def test_arun_tool_returns_wrong_type_returns_error_message(self):
         """Test that tool returning wrong type returns an error message"""
-        node = RootNodeTools(self.team, self.user)
+        node = _create_agent_tools_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -953,11 +930,11 @@ class TestRootNodeTools(BaseTest):
             self.assertEqual(len(result.messages), 1)
             assert isinstance(result.messages[0], AssistantToolCallMessage)
             self.assertEqual(result.messages[0].tool_call_id, "tool-123")
-            self.assertIn("internal error", result.messages[0].content)
+            self.assertIn("This tool does not exist.", result.messages[0].content)
 
     async def test_arun_unknown_tool_returns_error_message(self):
         """Test that unknown tool name returns an error message"""
-        node = RootNodeTools(self.team, self.user)
+        node = _create_agent_tools_node(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -969,7 +946,7 @@ class TestRootNodeTools(BaseTest):
             root_tool_call_id="tool-123",
         )
 
-        with patch("ee.hogai.tool.get_contextual_tool_class", return_value=None):
+        with patch("ee.hogai.registry.get_contextual_tool_class", return_value=None):
             result = await node.arun(state, {})
 
             self.assertIsInstance(result, PartialAssistantState)

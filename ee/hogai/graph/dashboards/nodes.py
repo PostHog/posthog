@@ -29,9 +29,8 @@ from ee.hogai.graph.parallel_task_execution.mixins import (
 from ee.hogai.graph.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url, cast_assistant_query
-from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import BaseStateWithTasks, InsightArtifact, InsightQuery, TaskResult
-from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     DASHBOARD_CREATION_ERROR_MESSAGE,
@@ -65,10 +64,6 @@ class DashboardCreationExecutorNode(
     Task executor node specifically for insight search operations.
     """
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.DASHBOARD_CREATION_EXECUTOR
-
     async def _aget_input_tuples(self, tool_calls: list[AssistantToolCall]) -> list[TaskExecutionInputTuple]:
         input_tuples: list[TaskExecutionInputTuple] = []
         for task in tool_calls:
@@ -82,10 +77,6 @@ class DashboardCreationExecutorNode(
 
 
 class DashboardCreationNode(AssistantNode):
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.DASHBOARD_CREATION
-
     def _get_found_insight_count(self, queries_metadata: dict[str, QueryMetadata]) -> int:
         return sum(len(query.found_insight_ids) for query in queries_metadata.values())
 
