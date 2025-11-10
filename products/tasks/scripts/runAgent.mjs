@@ -29,7 +29,7 @@ export async function runAgent(
         POSTHOG_AUTH_HEADER: `Bearer ${posthogApiKey}`,
         ANTHROPIC_API_KEY: posthogApiKey,
         ANTHROPIC_AUTH_TOKEN: posthogApiKey,
-        ANTHROPIC_BASE_URL: `${posthogApiUrl}/api/projects/${posthogProjectId}/llm_gateway`,
+        ANTHROPIC_BASE_URL: `${posthogApiUrl}/api/projects/${parseInt(posthogProjectId, 10)}/llm_gateway`,
     }
 
     const agent = new Agent({

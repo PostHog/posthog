@@ -67,7 +67,7 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
             if not os.path.exists(dockerfile_path):
                 raise FileNotFoundError(f"Dockerfile not found at {dockerfile_path}")
 
-            return modal.Image.from_dockerfile(dockerfile_path)
+            return modal.Image.from_dockerfile(dockerfile_path, force_build=True)
         else:
             return modal.Image.from_registry("ghcr.io/posthog/posthog-sandbox-base:master")
 
