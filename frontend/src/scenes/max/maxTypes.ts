@@ -4,8 +4,6 @@ import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedI
 
 import { RevenueAnalyticsQuery } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
-import { AgentMode } from '../../queries/schema'
-
 export enum MaxContextType {
     DASHBOARD = 'dashboard',
     INSIGHT = 'insight',
@@ -131,8 +129,4 @@ export const createMaxContextHelpers = {
         type: MaxContextType.ACTION,
         data: action,
     }),
-}
-
-export function isAgentMode(mode: unknown): mode is AgentMode {
-    return typeof mode === 'string' && Object.values(AgentMode).includes(mode as AgentMode)
 }
