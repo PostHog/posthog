@@ -26,6 +26,8 @@ pub struct EmbeddingRecord {
     pub document_id: String,
     pub timestamp: String, // This is clickhouse format
     pub embedding: Vec<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
