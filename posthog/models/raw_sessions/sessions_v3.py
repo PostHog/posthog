@@ -502,7 +502,7 @@ INSERT INTO {database}.{writable_table}
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
             where=where,
             # use sharded_events for the source table, this means that the backfill MUST run on every shard
-            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events",
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.events",
         ),
     )
 
@@ -517,7 +517,7 @@ INSERT INTO {database}.{writable_table}
         select_sql=RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(
             where=where,
             # use sharded_events for the source table, this means that the backfill MUST run on every shard
-            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_session_replay_events",
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.session_replay_events",
         ),
     )
 
