@@ -1,11 +1,10 @@
-import { actions, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import type { syntheticMonitoringLogicType } from './syntheticMonitoringLogicType'
 import { SyntheticMonitor } from './types'
@@ -13,7 +12,6 @@ import { SyntheticMonitor } from './types'
 export const syntheticMonitoringLogic = kea<syntheticMonitoringLogicType>([
     path(['products', 'synthetic_monitoring', 'frontend', 'syntheticMonitoringLogic']),
     connect({
-        values: [userLogic, ['user']],
         actions: [sceneLogic, ['newTab']],
     }),
     actions({
@@ -59,4 +57,7 @@ export const syntheticMonitoringLogic = kea<syntheticMonitoringLogicType>([
             actions.newTab(urls.workflowNew() + `?monitorId=${id}`)
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadMonitors()
+    }),
 ])

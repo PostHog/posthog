@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
@@ -33,7 +33,6 @@ const READABLE_SYNTHETIC_MONITORING_REGIONS: Record<SyntheticMonitoringRegion, s
 
 export function SyntheticMonitor(): JSX.Element {
     const { monitor, isMonitorFormSubmitting } = useValues(syntheticMonitorLogic)
-    const { submitMonitorForm } = useActions(syntheticMonitorLogic)
 
     const isNew = !monitor?.id
 
@@ -63,7 +62,6 @@ export function SyntheticMonitor(): JSX.Element {
                                 size="small"
                                 htmlType="submit"
                                 loading={isMonitorFormSubmitting}
-                                onClick={submitMonitorForm}
                             >
                                 {isNew ? 'Create monitor' : 'Save'}
                             </LemonButton>

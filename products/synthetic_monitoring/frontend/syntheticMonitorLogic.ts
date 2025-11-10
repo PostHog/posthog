@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -8,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import type { syntheticMonitorLogicType } from './syntheticMonitorLogicType'
+import { syntheticMonitoringLogic } from './syntheticMonitoringLogic'
 import { SyntheticMonitoringRegion } from './types'
 import { SyntheticMonitor } from './types'
 
@@ -19,6 +20,9 @@ export const syntheticMonitorLogic = kea<syntheticMonitorLogicType>([
     path(['products', 'synthetic_monitoring', 'frontend', 'syntheticMonitorLogic']),
     props({} as SyntheticMonitorLogicProps),
     key((props) => props.id || 'new'),
+    connect({
+        actions: [syntheticMonitoringLogic, ['loadMonitors']],
+    }),
     actions({
         setMonitor: (monitor: SyntheticMonitor | null) => ({ monitor }),
     }),
@@ -63,12 +67,12 @@ export const syntheticMonitorLogic = kea<syntheticMonitorLogicType>([
                         const updated = await api.syntheticMonitoring.update(props.id, monitor)
                         lemonToast.success('Monitor updated successfully')
                         actions.setMonitor(updated)
-                        router.actions.push(urls.syntheticMonitoring())
                     } else {
                         await api.syntheticMonitoring.create(monitor)
                         lemonToast.success('Monitor created successfully')
                     }
 
+                    actions.loadMonitors()
                     router.actions.push(urls.syntheticMonitoring())
                 } catch (error: any) {
                     lemonToast.error(error.detail || 'Failed to save monitor')
