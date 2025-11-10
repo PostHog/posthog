@@ -1125,13 +1125,11 @@ export const sceneLogic = kea<sceneLogicType>([
                                     values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === true
 
                                 if (useUseCaseSelection) {
-                                    console.warn('No onboarding completed, redirecting to /onboarding/use-case')
                                     router.actions.replace(
                                         urls.useCaseSelection(),
                                         nextUrl ? { next: nextUrl } : undefined
                                     )
                                 } else {
-                                    console.warn('No onboarding completed, redirecting to /products')
                                     router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
                                 }
                                 return
