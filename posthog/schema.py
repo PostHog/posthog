@@ -1129,6 +1129,7 @@ class FirstEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    distinct_id: str
     properties: str
     timestamp: str
     uuid: str
@@ -1138,6 +1139,7 @@ class LastEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    distinct_id: str
     properties: str
     timestamp: str
     uuid: str
