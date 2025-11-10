@@ -6,7 +6,7 @@ from datetime import datetime
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import TransactionTestCase
 
@@ -39,7 +39,7 @@ class TestTeamMetadataCache(BaseTest):
         """Test loading metadata with a Team object."""
         metadata = _load_team_metadata(self.team)
 
-        self.assertIsInstance(metadata, dict)
+        assert isinstance(metadata, dict)
         self.assertEqual(metadata["id"], self.team.id)
         self.assertEqual(metadata["api_token"], self.team.api_token)
         self.assertEqual(metadata["name"], self.team.name)
@@ -57,7 +57,7 @@ class TestTeamMetadataCache(BaseTest):
         """Test loading metadata with an API token string."""
         metadata = _load_team_metadata(self.team.api_token)
 
-        self.assertIsInstance(metadata, dict)
+        assert isinstance(metadata, dict)
         self.assertEqual(metadata["id"], self.team.id)
         self.assertEqual(metadata["api_token"], self.team.api_token)
 
@@ -65,7 +65,7 @@ class TestTeamMetadataCache(BaseTest):
         """Test loading metadata with a team ID."""
         metadata = _load_team_metadata(self.team.id)
 
-        self.assertIsInstance(metadata, dict)
+        assert isinstance(metadata, dict)
         self.assertEqual(metadata["id"], self.team.id)
         self.assertEqual(metadata["api_token"], self.team.api_token)
 
@@ -83,7 +83,7 @@ class TestTeamMetadataCache(BaseTest):
         with self.assertNumQueries(2):  # One for team_from_key, one for select_related
             metadata = get_team_metadata(self.team)
 
-        self.assertIsNotNone(metadata)
+        assert metadata is not None
         self.assertEqual(metadata["id"], self.team.id)
         self.assertEqual(metadata["api_token"], self.team.api_token)
 
@@ -102,7 +102,7 @@ class TestTeamMetadataCache(BaseTest):
         with self.assertNumQueries(0):
             metadata = get_team_metadata(self.team)
 
-        self.assertIsNotNone(metadata)
+        assert metadata is not None
         self.assertEqual(metadata["id"], self.team.id)
 
     def test_update_team_metadata_cache(self):
@@ -113,7 +113,7 @@ class TestTeamMetadataCache(BaseTest):
 
         # Verify cache was updated
         metadata = get_team_metadata(self.team)
-        self.assertIsNotNone(metadata)
+        assert metadata is not None
         self.assertEqual(metadata["id"], self.team.id)
 
     def test_clear_team_metadata_cache(self):
@@ -137,6 +137,7 @@ class TestTeamMetadataCache(BaseTest):
         """Test that cached metadata includes all specified fields."""
         metadata = get_team_metadata(self.team)
 
+        assert metadata is not None
         for field in TEAM_METADATA_FIELDS:
             self.assertIn(field, metadata, f"Field {field} missing from cached metadata")
 
@@ -145,6 +146,7 @@ class TestTeamMetadataCache(BaseTest):
         """Test that cache includes correct timestamp."""
         metadata = get_team_metadata(self.team)
 
+        assert metadata is not None
         self.assertIn("last_updated", metadata)
         # Parse and verify the timestamp
         timestamp = datetime.fromisoformat(metadata["last_updated"])
@@ -162,6 +164,7 @@ class TestTeamMetadataCache(BaseTest):
 
         metadata = get_team_metadata(self.team)
 
+        assert metadata is not None
         # Decimal fields are serialized as floats in JSON
         self.assertEqual(metadata["session_recording_sample_rate"], 0.5)
         self.assertEqual(metadata["session_recording_opt_in"], True)
@@ -175,6 +178,7 @@ class TestTeamMetadataCache(BaseTest):
 
         metadata = get_team_metadata(self.team)
 
+        assert metadata is not None
         self.assertEqual(metadata["session_replay_config"], test_config)
 
 
@@ -300,3 +304,91 @@ class TestTeamMetadataCacheSignals(TransactionTestCase):
         team.delete()
 
         mock_clear.assert_called_once()
+
+
+class TestIntelligentCacheRefresh(BaseTest):
+    """Test intelligent cache refresh functionality."""
+
+    def test_get_teams_needing_refresh_recently_updated(self):
+        """Test that recently updated teams are identified for refresh."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from posthog.storage.team_metadata_cache import get_teams_needing_refresh
+
+        # Update a team's updated_at to be recent
+        self.team.updated_at = timezone.now() - timedelta(minutes=30)
+        self.team.save()
+
+        teams = get_teams_needing_refresh(
+            ttl_threshold_hours=24,
+            recently_updated_hours=1,
+            batch_size=10,
+        )
+
+        self.assertIn(self.team.id, [t.id for t in teams])
+
+    @patch("posthog.storage.team_metadata_cache.get_client")
+    def test_get_teams_needing_refresh_expiring_soon(self, mock_get_client):
+        """Test that teams with expiring caches are identified."""
+        from posthog.storage.team_metadata_cache import get_teams_needing_refresh
+
+        # Mock Redis client to return low TTL
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+        mock_redis.scan_iter.return_value = [
+            f"cache:team_metadata:team_tokens/{self.team.api_token}/full_metadata.json".encode()
+        ]
+        mock_redis.ttl.return_value = 3600  # 1 hour left
+
+        teams = get_teams_needing_refresh(
+            ttl_threshold_hours=24,  # Should catch 1-hour TTL
+            recently_updated_hours=0,  # Ignore recently updated
+            batch_size=10,
+        )
+
+        self.assertIn(self.team.id, [t.id for t in teams])
+
+    def test_refresh_stale_caches(self):
+        """Test the refresh_stale_caches function."""
+        from posthog.storage.team_metadata_cache import refresh_stale_caches
+
+        with patch("posthog.storage.team_metadata_cache.get_teams_needing_refresh") as mock_get_teams:
+            with patch("posthog.storage.team_metadata_cache.update_team_metadata_cache") as mock_update:
+                mock_get_teams.return_value = [self.team]
+                mock_update.return_value = True
+
+                successful, failed = refresh_stale_caches()
+
+                self.assertEqual(successful, 1)
+                self.assertEqual(failed, 0)
+                mock_update.assert_called_once_with(self.team)
+
+    @patch("posthog.storage.team_metadata_cache.get_client")
+    def test_get_cache_stats(self, mock_get_client):
+        """Test cache statistics gathering."""
+        from posthog.storage.team_metadata_cache import get_cache_stats
+
+        # Mock Redis client
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+        mock_redis.scan_iter.return_value = [
+            b"cache:team_metadata:key1",
+            b"cache:team_metadata:key2",
+            b"cache:team_metadata:key3",
+        ]
+        mock_redis.ttl.side_effect = [
+            86400,  # 1 day
+            3600,  # 1 hour
+            -1,  # Expired
+        ]
+
+        with patch("posthog.models.team.team.Team.objects.count", return_value=10):
+            stats = get_cache_stats()
+
+        self.assertEqual(stats["total_cached"], 3)
+        self.assertEqual(stats["total_teams"], 10)
+        self.assertEqual(stats["ttl_distribution"]["expires_24h"], 1)
+        self.assertEqual(stats["ttl_distribution"]["expires_1h"], 1)
+        self.assertEqual(stats["ttl_distribution"]["expired"], 1)
