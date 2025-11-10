@@ -19,6 +19,7 @@ from posthog.schema import (
 
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from posthog.models import FeatureFlag
 from posthog.test.test_journeys import journeys_for
 
 
@@ -206,9 +207,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        def _create_events_for_user(
-            variant: str, user_id: str, completion_day_offset: int | None
-        ) -> list[dict]:
+        def _create_events_for_user(variant: str, user_id: str, completion_day_offset: int | None) -> list[dict]:
             """
             completion_day_offset: days after signup when user returns (None = doesn't return)
             """
@@ -729,8 +728,6 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
                 )
 
             return events
-
-        from posthog.models.feature_flag.feature_flag import FeatureFlag
 
         journeys_for(
             {
