@@ -687,7 +687,7 @@ class Resolver(CloningVisitor):
             cte = self.ctes.get(name, None)
             if cte:
                 if len(node.chain) > 1:
-                    raise QueryError(f"Cannot access fields on CTE {cte.name} yet")
+                    raise QueryError(f"Cannot access fields on CTE {name} yet")
 
                 assert isinstance(cte.type, ast.CTETableType)
 
