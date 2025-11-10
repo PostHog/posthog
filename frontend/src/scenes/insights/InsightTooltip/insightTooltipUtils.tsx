@@ -95,6 +95,7 @@ export function getTooltipTitle(
 }
 
 export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
+    second: 'D MMM YYYY HH:mm:ss',
     minute: 'D MMM YYYY HH:mm:00',
     hour: 'D MMM YYYY HH:00',
     day: 'D MMM YYYY',

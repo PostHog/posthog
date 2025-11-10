@@ -2,8 +2,10 @@ from datetime import datetime
 from time import sleep
 from typing import Any
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import EndpointLastExecutionTimesRequest
@@ -118,11 +120,16 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # Activity log updated with changes
         logs = ActivityLog.objects.filter(
-            team_id=self.team.id, scope="Endpoint", activity="updated", item_id=str(endpoint.id)
+            team_id=self.team.id,
+            scope="Endpoint",
+            activity="updated",
+            item_id=str(endpoint.id),
         )
         self.assertEqual(logs.count(), 1, list(logs.values("activity", "detail")))
         log = logs.latest("created_at")
         assert log.detail is not None
+
+        self.assertEqual("updated", log.activity)
         changes = log.detail.get("changes", [])
         changed_fields = {c.get("field") for c in changes}
         self.assertIn("description", changed_fields)
@@ -716,3 +723,162 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         query_status = response_data["query_status"]
         self.assertIsInstance(query_status["results"], list)
         self.assertEqual(len(query_status["results"]), 0, query_status)
+
+    @parameterized.expand(
+        [
+            ("valid_300s", 300, status.HTTP_201_CREATED, None),
+            ("valid_86400s", 86400, status.HTTP_201_CREATED, None),
+            ("too_small_30s", 30, status.HTTP_400_BAD_REQUEST, "between 300 and 86400"),
+            ("too_small_299s", 299, status.HTTP_400_BAD_REQUEST, "between 300 and 86400"),
+            ("too_large_100000s", 100000, status.HTTP_400_BAD_REQUEST, "between 300 and 86400"),
+            ("too_large_86401s", 86401, status.HTTP_400_BAD_REQUEST, "between 300 and 86400"),
+            ("null_uses_defaults", None, status.HTTP_201_CREATED, None),
+        ]
+    )
+    def test_cache_age_seconds_validation(self, name, cache_age_seconds, expected_status, expected_error_text):
+        """Test validation of cache_age_seconds field with various inputs."""
+        data = {
+            "name": f"cache_test_{name}",
+            "query": self.sample_query,
+            "cache_age_seconds": cache_age_seconds,
+        }
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+        self.assertEqual(response.status_code, expected_status)
+
+        if expected_status == status.HTTP_201_CREATED:
+            self.assertEqual(response.json()["cache_age_seconds"], cache_age_seconds)
+        elif expected_error_text:
+            self.assertIn(expected_error_text, str(response.json()))
+
+    @parameterized.expand(
+        [
+            (
+                "hogql_5min",
+                {"kind": "HogQLQuery", "query": "SELECT 1 as result"},
+                300,  # 5 minute cache age
+                4,  # Time within cache (minutes)
+                6,  # Time past cache (minutes)
+            ),
+            (
+                "trends_10min",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+                    "dateRange": {"date_from": "-7d", "date_to": None},
+                    "interval": "day",
+                },
+                600,  # 10 minute cache age
+                8,  # Time within cache (minutes)
+                12,  # Time past cache (minutes)
+            ),
+        ]
+    )
+    @freeze_time("2025-01-01 12:00:00")
+    def test_custom_cache_age_behavior(self, name, query, cache_age_seconds, time_within_cache, time_past_cache):
+        """Test that custom cache_age_seconds affects cache staleness for different query types."""
+        # Create endpoint with custom cache age
+        endpoint = Endpoint.objects.create(
+            name=f"custom_cache_{name}",
+            team=self.team,
+            query=query,
+            created_by=self.user,
+            is_active=True,
+            cache_age_seconds=cache_age_seconds,
+        )
+
+        # First execution - should calculate fresh
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        # Verify it was cached
+        self.assertIn("cache_key", response_data)
+        self.assertIn("last_refresh", response_data)
+        cache_key = response_data["cache_key"]
+
+        # Second execution immediately - should use cache
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["cache_key"], cache_key)
+        self.assertTrue(response_data.get("is_cached", False))
+
+        # Move time forward (still within cache age)
+        with freeze_time(f"2025-01-01 12:{time_within_cache:02d}:00"):
+            response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+            self.assertTrue(
+                response_data.get("is_cached", False),
+                f"Should still use cache at {time_within_cache} minutes",
+            )
+
+        # Move time forward (past cache age) - should recalculate
+        with freeze_time(f"2025-01-01 12:{time_past_cache:02d}:00"):
+            response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+            # Should have recalculated with fresh data
+            self.assertFalse(
+                response_data.get("is_cached", True),
+                f"Should recalculate after {time_past_cache} minutes",
+            )
+
+    @freeze_time("2025-01-01 12:00:00")
+    def test_default_cache_age_when_not_set(self):
+        """Test that endpoints without cache_age_seconds use default interval-based caching."""
+        # Create endpoint WITHOUT custom cache age - should use default (6 hours for day interval)
+        endpoint = Endpoint.objects.create(
+            name="default_cache_age",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 2 as result"},
+            created_by=self.user,
+            is_active=True,
+            cache_age_seconds=None,  # Use defaults
+        )
+
+        # First execution
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        cache_key = response_data.get("cache_key")
+
+        # Move time forward 5 minutes - should still use cache (default is much longer)
+        with freeze_time("2025-01-01 12:05:00"):
+            response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+            self.assertTrue(response_data.get("is_cached", False), "Should use cache with default timing")
+            self.assertEqual(response_data.get("cache_key"), cache_key)
+
+    def test_update_cache_age_seconds(self):
+        """Test updating cache_age_seconds on an existing endpoint."""
+        endpoint = Endpoint.objects.create(
+            name="update_cache_test",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+            cache_age_seconds=300,
+        )
+
+        # Update to different cache age
+        updated_data: dict[str, int | None] = {"cache_age_seconds": 600}
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["cache_age_seconds"], 600)
+
+        endpoint.refresh_from_db()
+        self.assertEqual(endpoint.cache_age_seconds, 600)
+
+        # Update to None (use defaults)
+        updated_data = {"cache_age_seconds": None}
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["cache_age_seconds"])
+
+        endpoint.refresh_from_db()
+        self.assertIsNone(endpoint.cache_age_seconds)

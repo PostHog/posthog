@@ -21,7 +21,7 @@ from posthog.hogql.ast import Constant, StringType
 from posthog.hogql.base import _T_AST, AST
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, FunctionCallTable, SavedQuery, Table
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
@@ -134,9 +134,9 @@ def prepare_ast_for_printing(
     settings: HogQLGlobalSettings | None = None,
 ) -> _T_AST | None:
     if context.database is None:
-        with context.timings.measure("create_hogql_database"):
+        with context.timings.measure("create_hogql_database"):  # Legacy name to keep backwards compatibility
             # Passing both `team_id` and `team` because `team` is not always available in the context
-            context.database = create_hogql_database(
+            context.database = Database.create_for(
                 context.team_id,
                 modifiers=context.modifiers,
                 team=context.team,
@@ -1037,6 +1037,26 @@ class _Printer(Visitor[str]):
             return f"ifNull({op}, 0)"
         else:
             raise ImpossibleASTError("Impossible")
+
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        expr = self.visit(node.expr)
+        low = self.visit(node.low)
+        high = self.visit(node.high)
+        not_kw = " NOT" if node.negated else ""
+        op = f"{expr}{not_kw} BETWEEN {low} AND {high}"
+
+        if self.dialect == "hogql":
+            return op
+
+        nullable_expr = self._is_nullable(node.expr)
+        nullable_low = self._is_nullable(node.low)
+        nullable_high = self._is_nullable(node.high)
+        not_nullable = not nullable_expr and not nullable_low and not nullable_high
+
+        if not_nullable:
+            return op
+
+        return f"ifNull({op}, 0)"
 
     def visit_constant(self, node: ast.Constant):
         if self.dialect == "hogql":

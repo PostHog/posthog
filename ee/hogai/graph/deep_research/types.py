@@ -5,31 +5,25 @@ from typing import Annotated, Literal, Optional
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
-from posthog.schema import DeepResearchNotebook, PlanningStepStatus, TaskExecutionItem
+from posthog.schema import DeepResearchNotebook
 
-from ee.hogai.utils.types import AssistantMessageUnion, add_and_merge_messages
-from ee.hogai.utils.types.base import BaseStateWithMessages, BaseStateWithTasks, append, replace
+from ee.hogai.utils.types.base import (
+    AssistantMessageUnion,
+    BaseStateWithMessages,
+    BaseStateWithTasks,
+    add_and_merge_messages,
+    append,
+    replace,
+)
 
 NotebookInfo = DeepResearchNotebook
 
 
-class DeepResearchTodo(BaseModel):
-    """
-    A TO-DO item in the research plan.
-    """
-
-    id: int
-    description: str
-    status: PlanningStepStatus
+class TodoItem(BaseModel):
+    content: str = Field(..., min_length=1)
+    status: Literal["pending", "in_progress", "completed"]
+    id: str
     priority: Literal["low", "medium", "high"]
-
-
-class DeepResearchTask(TaskExecutionItem):
-    """
-    A task in the research plan.
-    """
-
-    task_type: Literal["create_insight"]
 
 
 class DeepResearchIntermediateResult(BaseModel):
@@ -42,8 +36,7 @@ class DeepResearchIntermediateResult(BaseModel):
 
 
 class _SharedDeepResearchState(BaseStateWithMessages, BaseStateWithTasks):
-    tasks: Annotated[Optional[list[DeepResearchTask]], replace] = Field(default=None)  # type: ignore[assignment]
-    todos: Annotated[Optional[list[DeepResearchTodo]], replace] = Field(default=None)
+    todos: Annotated[Optional[list[TodoItem]], replace] = Field(default=None)
     """
     The current TO-DO list.
     """
@@ -88,3 +81,4 @@ class DeepResearchNodeName(StrEnum):
     PLANNER_TOOLS = "planner_tools"
     TASK_EXECUTOR = "task_executor"
     REPORT = "report"
+    TITLE_GENERATOR = "title_generator"

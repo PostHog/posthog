@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Literal, Optional
+from urllib.parse import quote
 
 from django.conf import settings
 from django.db.models import OuterRef, Subquery
@@ -14,7 +15,7 @@ from celery import shared_task
 from posthog.batch_exports.models import BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
-from posthog.constants import INVITE_DAYS_VALIDITY, SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES
+from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
@@ -247,7 +248,7 @@ def send_email_mfa_link(user_id: int, token: str) -> None:
     """Send email MFA verification link"""
     user: User = User.objects.get(pk=user_id)
 
-    verification_link = f"{settings.SITE_URL}/login/verify?email={user.email}&token={token}"
+    verification_link = f"{settings.SITE_URL}/login/verify?email={quote(user.email)}&token={token}"
 
     message = EmailMessage(
         use_http=True,
@@ -523,10 +524,7 @@ def login_from_new_device_notification(
     country = geoip_properties.get("$geoip_country_name", "Unknown")
     city = geoip_properties.get("$geoip_city_name", "Unknown")
 
-    if backend_name == "email_password":
-        login_method = "Email/password"
-    else:
-        login_method = SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES.get(backend_name, "SSO")
+    login_method = AUTH_BACKEND_DISPLAY_NAMES.get(backend_name, "Unknown")
 
     is_new_device = check_and_cache_login_device(user_id, country, short_user_agent)
     if not is_new_device:
@@ -580,7 +578,13 @@ def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_c
     return users
 
 
-def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment, assigner: User) -> None:
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_error_tracking_issue_assigned(assignment_id: str, assigner_id: int) -> None:
+    assignment = ErrorTrackingIssueAssignment.objects.select_related("issue__team", "user", "role").get(
+        id=assignment_id
+    )
+    assigner = User.objects.get(pk=assigner_id)
+
     if not is_email_available(with_absolute_urls=True):
         return
 
@@ -621,7 +625,10 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
     message.send()
 
 
-def send_discussions_mentioned(comment: Comment, mentioned_user_ids: list[int], slug: str) -> None:
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], slug: str) -> None:
+    comment = Comment.objects.select_related("created_by", "team").get(id=comment_id)
+
     if not is_email_available(with_absolute_urls=True):
         return
 

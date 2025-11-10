@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
@@ -19,6 +20,7 @@ import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/Sea
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
+import { OutputTab } from '../outputPaneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export const QueryDatabase = (): JSX.Element => {
@@ -102,9 +104,14 @@ export const QueryDatabase = (): JSX.Element => {
                             <div className="flex flex-row gap-1 justify-between">
                                 <span
                                     className={cn(
-                                        ['managed-views', 'views', 'sources', 'drafts', 'unsaved-folder'].includes(
-                                            item.record?.type
-                                        ) && 'font-bold',
+                                        [
+                                            'managed-views',
+                                            'views',
+                                            'sources',
+                                            'drafts',
+                                            'unsaved-folder',
+                                            'endpoints',
+                                        ].includes(item.record?.type) && 'font-bold',
                                         item.record?.type === 'column' && 'font-mono text-xs',
                                         'truncate'
                                     )}
@@ -191,6 +198,7 @@ export const QueryDatabase = (): JSX.Element => {
 
                     // Check if this is a saved query (has last_run_at) vs managed view
                     const isSavedQuery = item.record?.isSavedQuery || false
+                    const isManagedViewsetQuery = item.record?.view.managed_viewset_kind !== null
 
                     return (
                         <DropdownMenuGroup>
@@ -203,7 +211,26 @@ export const QueryDatabase = (): JSX.Element => {
                                             sceneLogic.actions.newTab(urls.sqlEditor(undefined, item.record?.view.id))
                                         }}
                                     >
-                                        <ButtonPrimitive menuItem>Edit view definition</ButtonPrimitive>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            tooltipInteractive
+                                            tooltipPlacement="right"
+                                            disabled={isManagedViewsetQuery}
+                                            tooltip={
+                                                isManagedViewsetQuery ? (
+                                                    <>
+                                                        Managed viewset views cannot be edited directly. You can
+                                                        enable/disable these views in the{' '}
+                                                        <Link to={urls.dataWarehouseManagedViewsets()}>
+                                                            Managed Viewsets
+                                                        </Link>{' '}
+                                                        section.
+                                                    </>
+                                                ) : undefined
+                                            }
+                                        >
+                                            Edit view definition
+                                        </ButtonPrimitive>
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                         asChild
@@ -222,7 +249,26 @@ export const QueryDatabase = (): JSX.Element => {
                                             deleteDataWarehouseSavedQuery(viewId)
                                         }}
                                     >
-                                        <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            tooltipInteractive
+                                            tooltipPlacement="right"
+                                            disabled={isManagedViewsetQuery}
+                                            tooltip={
+                                                isManagedViewsetQuery ? (
+                                                    <>
+                                                        Managed viewset views cannot be individually deleted. You can
+                                                        choose to delete all views in the managed viewset from the{' '}
+                                                        <Link to={urls.dataWarehouseManagedViewsets()}>
+                                                            Managed Viewsets
+                                                        </Link>{' '}
+                                                        page.
+                                                    </>
+                                                ) : undefined
+                                            }
+                                        >
+                                            Delete
+                                        </ButtonPrimitive>
                                     </DropdownMenuItem>
                                 </>
                             )}
@@ -309,7 +355,41 @@ export const QueryDatabase = (): JSX.Element => {
                     )
                 }
 
-                if (item.record?.type === 'sources') {
+                // Show menu for endpoints
+                if (item.record?.type === 'endpoint') {
+                    return (
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    sceneLogic.actions.newTab(urls.endpoint(item.name))
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>View endpoint</ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    sceneLogic.actions.newTab(
+                                        urls.sqlEditor(
+                                            item.record?.endpoint?.query.query,
+                                            undefined,
+                                            undefined,
+                                            undefined,
+                                            OutputTab.Endpoint
+                                        )
+                                    )
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Edit endpoint query</ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
+                }
+
+                if (['sources', 'endpoints'].includes(item.record?.type)) {
                     // used to override default icon behavior
                     return null
                 }
@@ -328,6 +408,25 @@ export const QueryDatabase = (): JSX.Element => {
                                 router.actions.push(urls.dataWarehouseSourceNew())
                             }}
                             data-attr="sql-editor-add-source"
+                        >
+                            <IconPlusSmall className="text-tertiary" />
+                        </ButtonPrimitive>
+                    )
+                }
+
+                if (item.record?.type === 'endpoints') {
+                    return (
+                        <ButtonPrimitive
+                            iconOnly
+                            isSideActionRight
+                            className="z-2"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                sceneLogic.actions.newTab(
+                                    urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.Endpoint)
+                                )
+                            }}
+                            data-attr="sql-editor-add-endpoint"
                         >
                             <IconPlusSmall className="text-tertiary" />
                         </ButtonPrimitive>

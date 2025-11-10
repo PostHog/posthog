@@ -1,10 +1,10 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import React from 'react'
 
-import { IconArchive, IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import {
-    LemonBanner,
     LemonButton,
     LemonInput,
     LemonSwitch,
@@ -29,28 +29,32 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDuration, objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
-import { EventType } from '~/types'
+import { DashboardPlacement, EventType } from '~/types'
 
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
+import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
+import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { EvaluationConfig } from './evaluations/types'
+import { useSortableColumns } from './hooks/useSortableColumns'
 import {
     LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
     getDefaultGenerationsColumns,
@@ -64,12 +68,22 @@ export const scene: SceneExport = {
 }
 
 const Filters = (): JSX.Element => {
-    const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, generationsQuery, propertyFilters, activeTab } =
-        useValues(llmAnalyticsLogic)
+    const {
+        dashboardDateFilter,
+        dateFilter,
+        shouldFilterTestAccounts,
+        generationsQuery,
+        propertyFilters,
+        activeTab,
+        selectedDashboardId,
+    } = useValues(llmAnalyticsLogic)
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const dateFrom = activeTab === 'dashboard' ? dashboardDateFilter.dateFrom : dateFilter.dateFrom
     const dateTo = activeTab === 'dashboard' ? dashboardDateFilter.dateTo : dateFilter.dateTo
+
+    const useCustomizableDashboard = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]
 
     return (
         <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
@@ -82,6 +96,11 @@ const Filters = (): JSX.Element => {
             />
             <div className="flex-1" />
             <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
+            {activeTab === 'dashboard' && useCustomizableDashboard && selectedDashboardId && (
+                <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
+                    Edit dashboard
+                </LemonButton>
+            )}
             <LLMAnalyticsReloadAction />
         </div>
     )
@@ -112,29 +131,57 @@ const Tiles = (): JSX.Element => {
     )
 }
 
-const IngestionStatusCheck = (): JSX.Element | null => {
-    return (
-        <LemonBanner type="warning">
-            <p>
-                <strong>No LLM generation events have been detected!</strong>
-            </p>
-            <p>
-                To use the LLM Analytics product, please{' '}
-                <Link to="https://posthog.com/docs/llm-analytics/installation">
-                    instrument your LLM calls with the PostHog SDK
-                </Link>{' '}
-                (otherwise it'll be a little empty!)
-            </p>
-        </LemonBanner>
-    )
-}
-
 function LLMAnalyticsDashboard(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { selectedDashboardId, availableDashboardsLoading, dashboardDateFilter, propertyFilters } =
+        useValues(llmAnalyticsLogic)
+
+    const useCustomizableDashboard = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]
+    const dashboardLogicInstance = React.useMemo(
+        () =>
+            selectedDashboardId
+                ? dashboardLogic({ id: selectedDashboardId, placement: DashboardPlacement.Builtin })
+                : null,
+        [selectedDashboardId]
+    )
+
+    const fallbackLogicInstance = React.useMemo(
+        () => dashboardLogic({ id: 0, placement: DashboardPlacement.Builtin }),
+        []
+    )
+    const dashboardActions = useActions(dashboardLogicInstance || fallbackLogicInstance)
+    const setExternalFilters =
+        dashboardLogicInstance && dashboardActions?.setExternalFilters ? dashboardActions.setExternalFilters : () => {}
+
+    // Set filters using useLayoutEffect to ensure they're set before Dashboard's afterMount event fires
+    React.useLayoutEffect(() => {
+        if (selectedDashboardId && setExternalFilters) {
+            setExternalFilters({
+                date_from: dashboardDateFilter.dateFrom,
+                date_to: dashboardDateFilter.dateTo,
+                properties: propertyFilters.length > 0 ? propertyFilters : null,
+            })
+        }
+    }, [dashboardDateFilter, propertyFilters, selectedDashboardId, setExternalFilters])
+
     return (
-        <div className="@container/dashboard">
-            <Filters />
-            <Tiles />
-        </div>
+        <LLMAnalyticsSetupPrompt>
+            <div className="@container/dashboard">
+                <Filters />
+
+                {useCustomizableDashboard ? (
+                    availableDashboardsLoading || !selectedDashboardId ? (
+                        <div className="text-center p-8">
+                            <Spinner />
+                        </div>
+                    ) : (
+                        <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
+                    )
+                ) : (
+                    <Tiles />
+                )}
+            </div>
+        </LLMAnalyticsSetupPrompt>
     )
 }
 
@@ -145,14 +192,45 @@ function LLMAnalyticsGenerations(): JSX.Element {
         setPropertyFilters,
         setGenerationsColumns,
         toggleGenerationExpanded,
+        setGenerationsSort,
     } = useActions(llmAnalyticsLogic)
     const {
         generationsQuery,
         propertyFilters: currentPropertyFilters,
         expandedGenerationIds,
         loadedTraces,
+        generationsSort,
     } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const { renderSortableColumnTitle } = useSortableColumns(generationsSort, setGenerationsSort)
+
+    // Helper to safely extract uuid and traceId from a result row based on current column configuration
+    const getRowIds = (result: unknown): { uuid: string; traceId: string } | null => {
+        if (!Array.isArray(result) || !isEventsQuery(generationsQuery.source)) {
+            return null
+        }
+
+        const columns =
+            generationsQuery.source.select ||
+            getDefaultGenerationsColumns(!!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT])
+
+        const uuidIndex = columns.findIndex((col) => col === 'uuid')
+        const traceIdIndex = columns.findIndex((col) => col === 'properties.$ai_trace_id')
+
+        if (uuidIndex < 0 || traceIdIndex < 0) {
+            return null
+        }
+
+        const uuid = result[uuidIndex]
+        const traceId = result[traceIdIndex]
+
+        if (typeof uuid === 'string' && typeof traceId === 'string') {
+            return { uuid, traceId }
+        }
+
+        return null
+    }
 
     return (
         <DataTable
@@ -190,15 +268,18 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 return null
                             }
 
-                            const traceId = Array.isArray(record) && record.length > 1 ? record[1] : undefined
+                            const ids = getRowIds(record)
                             const visualValue = truncateValue(value)
 
-                            return !traceId || typeof traceId !== 'string' ? (
+                            return !ids ? (
                                 <strong>{visualValue}</strong>
                             ) : (
                                 <strong>
                                     <Tooltip title={value}>
-                                        <Link to={`/llm-analytics/traces/${traceId}?event=${value}`}>
+                                        <Link
+                                            to={`/llm-analytics/traces/${ids.traceId}?event=${value}`}
+                                            data-attr="generation-id-link"
+                                        >
                                             {visualValue}
                                         </Link>
                                     </Tooltip>
@@ -206,17 +287,38 @@ function LLMAnalyticsGenerations(): JSX.Element {
                             )
                         },
                     },
+                    "f'{properties.$ai_model}' -- Model": {
+                        renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
+                    },
+                    "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency": {
+                        renderTitle: () => renderSortableColumnTitle('properties.$ai_latency', 'Latency'),
+                    },
+                    "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Cost": {
+                        renderTitle: () => (
+                            <Tooltip title="Cost of this generation">
+                                {renderSortableColumnTitle('properties.$ai_total_cost_usd', 'Cost')}
+                            </Tooltip>
+                        ),
+                    },
+                    timestamp: {
+                        renderTitle: () => renderSortableColumnTitle('timestamp', 'Time'),
+                    },
                 },
                 expandable: {
                     expandedRowRender: function renderExpandedGeneration({ result }: DataTableRow) {
-                        if (!Array.isArray(result)) {
-                            return null
+                        const ids = getRowIds(result)
+
+                        if (!ids) {
+                            return (
+                                <div className="p-4 text-danger">
+                                    Cannot expand: required columns (uuid, properties.$ai_trace_id) are missing. Please
+                                    reset your column configuration.
+                                </div>
+                            )
                         }
 
-                        const uuid = result[0] as string
-                        const traceId = result[1] as string
-                        const trace = loadedTraces[traceId]
-                        const event = trace?.events.find((e) => e.id === uuid)
+                        const trace = loadedTraces[ids.traceId]
+                        const event = trace?.events.find((e) => e.id === ids.uuid)
 
                         if (!trace) {
                             return (
@@ -246,18 +348,21 @@ function LLMAnalyticsGenerations(): JSX.Element {
                             </div>
                         )
                     },
-                    rowExpandable: ({ result }: DataTableRow) =>
-                        !!result && Array.isArray(result) && !!result[0] && !!result[1],
-                    isRowExpanded: ({ result }: DataTableRow) =>
-                        Array.isArray(result) && !!result[0] && expandedGenerationIds.has(result[0] as string),
+                    rowExpandable: ({ result }: DataTableRow) => !!getRowIds(result),
+                    isRowExpanded: ({ result }: DataTableRow) => {
+                        const ids = getRowIds(result)
+                        return !!ids && expandedGenerationIds.has(ids.uuid)
+                    },
                     onRowExpand: ({ result }: DataTableRow) => {
-                        if (Array.isArray(result) && result[0] && result[1]) {
-                            toggleGenerationExpanded(result[0] as string, result[1] as string)
+                        const ids = getRowIds(result)
+                        if (ids) {
+                            toggleGenerationExpanded(ids.uuid, ids.traceId)
                         }
                     },
                     onRowCollapse: ({ result }: DataTableRow) => {
-                        if (Array.isArray(result) && result[0] && result[1]) {
-                            toggleGenerationExpanded(result[0] as string, result[1] as string)
+                        const ids = getRowIds(result)
+                        if (ids) {
+                            toggleGenerationExpanded(ids.uuid, ids.traceId)
                         }
                     },
                     noIndent: true,
@@ -306,8 +411,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         checked={evaluation.enabled}
                         onChange={() => toggleEvaluationEnabled(evaluation.id)}
                         size="small"
-                        disabled={true}
-                        disabledReason="The evaluations backend is still WIP"
+                        data-attr="toggle-evaluation-enabled"
                     />
                     <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
                         {evaluation.enabled ? 'Enabled' : 'Disabled'}
@@ -322,7 +426,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             render: (_, evaluation) => (
                 <div className="max-w-md">
                     <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate">
-                        {evaluation.prompt || '(No prompt)'}
+                        {evaluation.evaluation_config.prompt || '(No prompt)'}
                     </div>
                 </div>
             ),
@@ -408,7 +512,12 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         Configure evaluation prompts and triggers to automatically assess your LLM generations.
                     </p>
                 </div>
-                <LemonButton type="primary" icon={<IconPlus />} to={urls.llmAnalyticsEvaluation('new')}>
+                <LemonButton
+                    type="primary"
+                    icon={<IconPlus />}
+                    to={urls.llmAnalyticsEvaluation('new')}
+                    data-attr="create-evaluation-button"
+                >
                     Create Evaluation
                 </LemonButton>
             </div>
@@ -419,6 +528,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                     type="search"
                     placeholder="Search evaluations..."
                     value={evaluationsFilter}
+                    data-attr="evaluations-search-input"
                     onChange={setEvaluationsFilter}
                     prefix={<IconSearch />}
                     className="max-w-sm"
@@ -440,25 +550,8 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
     )
 }
 
-function LLMAnalyticsNoEvents(): JSX.Element {
-    return (
-        <div className="w-full flex flex-col items-center justify-center">
-            <div className="flex flex-col items-center justify-center max-w-md w-full">
-                <IconArchive className="text-5xl mb-2 text-muted-alt" />
-                <h2 className="text-xl leading-tight">We haven't detected any LLM generations yet</h2>
-                <p className="text-sm text-center text-balance">
-                    To use the LLM Analytics product, please{' '}
-                    <Link to="https://posthog.com/docs/llm-analytics/installation">
-                        instrument your LLM calls with the PostHog SDK
-                    </Link>{' '}
-                </p>
-            </div>
-        </div>
-    )
-}
-
 export function LLMAnalyticsScene(): JSX.Element {
-    const { activeTab, hasSentAiGenerationEvent, hasSentAiGenerationEventLoading } = useValues(llmAnalyticsLogic)
+    const { activeTab } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
 
@@ -468,26 +561,63 @@ export function LLMAnalyticsScene(): JSX.Element {
             label: 'Dashboard',
             content: <LLMAnalyticsDashboard />,
             link: combineUrl(urls.llmAnalyticsDashboard(), searchParams).url,
+            'data-attr': 'dashboard-tab',
         },
         {
             key: 'traces',
             label: 'Traces',
-            content: hasSentAiGenerationEvent ? <LLMAnalyticsTraces /> : <LLMAnalyticsNoEvents />,
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsTraces />
+                </LLMAnalyticsSetupPrompt>
+            ),
             link: combineUrl(urls.llmAnalyticsTraces(), searchParams).url,
+            'data-attr': 'traces-tab',
         },
         {
             key: 'generations',
             label: 'Generations',
-            content: hasSentAiGenerationEvent ? <LLMAnalyticsGenerations /> : <LLMAnalyticsNoEvents />,
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsGenerations />
+                </LLMAnalyticsSetupPrompt>
+            ),
             link: combineUrl(urls.llmAnalyticsGenerations(), searchParams).url,
+            'data-attr': 'generations-tab',
         },
         {
             key: 'users',
             label: 'Users',
-            content: hasSentAiGenerationEvent ? <LLMAnalyticsUsers /> : <LLMAnalyticsNoEvents />,
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsUsers />
+                </LLMAnalyticsSetupPrompt>
+            ),
             link: combineUrl(urls.llmAnalyticsUsers(), searchParams).url,
+            'data-attr': 'users-tab',
         },
     ]
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]) {
+        tabs.push({
+            key: 'sessions',
+            label: (
+                <>
+                    Sessions{' '}
+                    <LemonTag className="ml-1" type="warning">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsSessionsScene />
+                </LLMAnalyticsSetupPrompt>
+            ),
+            link: combineUrl(urls.llmAnalyticsSessions(), searchParams).url,
+            'data-attr': 'sessions-tab',
+        })
+    }
 
     if (featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]) {
         tabs.push({
@@ -502,6 +632,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             ),
             content: <LLMAnalyticsPlaygroundScene />,
             link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
+            'data-attr': 'playground-tab',
         })
     }
 
@@ -542,7 +673,6 @@ export function LLMAnalyticsScene(): JSX.Element {
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
             <SceneContent>
-                {!hasSentAiGenerationEventLoading && !hasSentAiGenerationEvent && <IngestionStatusCheck />}
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.LLMAnalytics].name}
                     description={sceneConfigurations[Scene.LLMAnalytics].description}
@@ -562,7 +692,6 @@ export function LLMAnalyticsScene(): JSX.Element {
                         </>
                     }
                 />
-                <SceneDivider />
 
                 <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
             </SceneContent>

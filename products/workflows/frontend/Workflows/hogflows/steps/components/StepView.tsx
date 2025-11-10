@@ -1,5 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
+
+import { LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 
@@ -9,11 +11,27 @@ import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogFlowAction } from '../../types'
 import { useHogFlowStep } from '../HogFlowSteps'
 import { StepViewMetrics } from './StepViewMetrics'
+import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     const { selectedNode, mode } = useValues(hogFlowEditorLogic)
-    const { actionValidationErrorsById } = useValues(workflowLogic)
+    const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
     const isSelected = selectedNode?.id === action.id
+
+    const stepViewLogicProps: StepViewLogicProps = { action, workflowLogicProps: logicProps }
+    const { isEditingName, isEditingDescription, editNameValue, editDescriptionValue } = useValues(
+        stepViewLogic(stepViewLogicProps)
+    )
+    const {
+        startEditingName,
+        startEditingDescription,
+        setEditNameValue,
+        setEditDescriptionValue,
+        saveName,
+        saveDescription,
+        cancelEditingName,
+        cancelEditingDescription,
+    } = useActions(stepViewLogic(stepViewLogicProps))
 
     const height = mode === 'metrics' ? NODE_HEIGHT + 10 : NODE_HEIGHT
 
@@ -58,12 +76,88 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                 >
                     {icon}
                 </div>
-                <div className="flex flex-col">
+                <div className="flex flex-col flex-1 min-w-0">
                     <div className="flex justify-between items-center gap-1">
-                        <div className="text-[0.45rem] font-sans font-medium">{action.name}</div>
+                        {isEditingName ? (
+                            <div onClick={(e) => e.stopPropagation()} className="flex-1 min-w-0">
+                                <LemonInput
+                                    autoFocus
+                                    value={editNameValue}
+                                    onChange={setEditNameValue}
+                                    onBlur={(e: React.FocusEvent) => {
+                                        e.stopPropagation()
+                                        saveName()
+                                    }}
+                                    onKeyDown={(e: React.KeyboardEvent) => {
+                                        e.stopPropagation()
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault()
+                                            saveName()
+                                            ;(e.target as HTMLInputElement).blur()
+                                        } else if (e.key === 'Escape') {
+                                            e.preventDefault()
+                                            cancelEditingName()
+                                            ;(e.target as HTMLInputElement).blur()
+                                        }
+                                    }}
+                                    className="text-[0.45rem] font-sans font-medium !bg-transparent !border-0 !shadow-none !p-0 !pl-1 !m-0 !min-h-0 !h-[0.55rem] !leading-tight focus-within:!ring-1 focus-within:!ring-primary !rounded"
+                                />
+                            </div>
+                        ) : (
+                            <Tooltip title={action.name}>
+                                <div
+                                    className="text-[0.45rem] font-sans font-medium cursor-text hover:bg-fill-button-tertiary-hover rounded px-0.5 -mx-0.5 transition-colors pl-1 truncate min-w-0 flex-1"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        startEditingName()
+                                    }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                >
+                                    {action.name}
+                                </div>
+                            </Tooltip>
+                        )}
                     </div>
 
-                    <div className="max-w-full text-[0.3rem]/1.5 text-muted text-ellipsis">{action.description}</div>
+                    {isEditingDescription ? (
+                        <div onClick={(e) => e.stopPropagation()} className="min-w-0">
+                            <LemonTextArea
+                                autoFocus
+                                value={editDescriptionValue}
+                                onChange={setEditDescriptionValue}
+                                onBlur={(e: React.FocusEvent) => {
+                                    e.stopPropagation()
+                                    saveDescription()
+                                }}
+                                onKeyDown={(e: React.KeyboardEvent) => {
+                                    e.stopPropagation()
+                                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                                        e.preventDefault()
+                                        saveDescription()
+                                        ;(e.target as HTMLTextAreaElement).blur()
+                                    } else if (e.key === 'Escape') {
+                                        e.preventDefault()
+                                        cancelEditingDescription()
+                                        ;(e.target as HTMLTextAreaElement).blur()
+                                    }
+                                }}
+                                className="text-[0.3rem] text-muted !bg-transparent !border-0 !shadow-none !p-0 !pl-1 !m-0 !min-h-0 !max-h-[0.9rem] !leading-[0.45rem] !resize-none !overflow-hidden focus-within:!ring-1 focus-within:!ring-primary !rounded"
+                            />
+                        </div>
+                    ) : (
+                        <Tooltip title={action.description || ''}>
+                            <div
+                                className="text-[0.3rem]/1.5 text-muted line-clamp-2 cursor-text hover:bg-fill-button-tertiary-hover rounded px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 overflow-hidden"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    startEditingDescription()
+                                }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                            >
+                                {action.description || ''}
+                            </div>
+                        </Tooltip>
+                    )}
                 </div>
             </div>
             {hasValidationError && (

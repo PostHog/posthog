@@ -27,14 +27,33 @@ test.describe('SQL Editor', () => {
     })
 
     test('Save view', async ({ page }) => {
+        // Wait for the query editor to be visible and ready
+        await expect(page.locator('[data-attr=hogql-query-editor]')).toBeVisible()
         await page.locator('[data-attr=hogql-query-editor]').click()
         await page.locator('textarea[aria-roledescription="editor"]').fill('SELECT 1')
 
+        // Wait for save button to be enabled before clicking
+        await expect(page.locator('[data-attr=sql-editor-save-view-button]')).toBeEnabled()
         await page.locator('[data-attr=sql-editor-save-view-button]').click()
-        await page.locator('[data-attr=sql-editor-input-save-view-name]').fill('test_view')
-        await page.getByText('Submit').click()
 
-        await expect(page.getByText('test_view successfully created')).toBeVisible()
+        // Wait for the modal/dialog to appear and be ready
+        const nameInput = page.locator('[data-attr=sql-editor-input-save-view-name]')
+        await expect(nameInput).toBeVisible()
+
+        // Use a unique name to avoid conflicts with retries
+        const uniqueViewName = `test_view_${Date.now()}`
+        await nameInput.fill(uniqueViewName)
+
+        // Wait for the Submit button to be enabled (form validation may need time)
+        const submitButton = page.getByRole('button', { name: 'Submit' })
+        await expect(submitButton).toBeEnabled()
+
+        // Click submit
+        await submitButton.click()
+
+        // Wait for the success message which confirms the API call completed
+        await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
+        await expect(page.getByText(`Editing view "${uniqueViewName}"`)).toBeVisible()
     })
 
     test('Materialize view pane', async ({ page }) => {

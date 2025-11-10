@@ -57,7 +57,7 @@ export enum AssistantMessageType {
 
 export interface BaseAssistantMessage {
     id?: string
-    visible?: boolean
+    parent_tool_call_id?: string
 }
 
 export interface HumanMessage extends BaseAssistantMessage {
@@ -99,6 +99,9 @@ export interface AssistantMessage extends BaseAssistantMessage {
 }
 
 export interface ReasoningMessage extends BaseAssistantMessage {
+    /**
+     * @deprecated The model should not be used
+     */
     type: AssistantMessageType.Reasoning
     content: string
     substeps?: string[]
@@ -166,11 +169,17 @@ export enum PlanningStepStatus {
 }
 
 export interface PlanningStep {
+    /**
+     * @deprecated The class should not be used
+     */
     description: string
     status: PlanningStepStatus
 }
 
 export interface PlanningMessage extends BaseAssistantMessage {
+    /**
+     * @deprecated The class should not be used
+     */
     type: AssistantMessageType.Planning
     steps: PlanningStep[]
 }
@@ -183,6 +192,9 @@ export enum TaskExecutionStatus {
 }
 
 export interface TaskExecutionItem {
+    /**
+     * @deprecated The class should not be used
+     */
     id: string
     description: string
     prompt: string
@@ -193,6 +205,9 @@ export interface TaskExecutionItem {
 }
 
 export interface TaskExecutionMessage extends BaseAssistantMessage {
+    /**
+     * @deprecated The class should not be used
+     */
     type: AssistantMessageType.TaskExecution
     tasks: TaskExecutionItem[]
 }
@@ -219,13 +234,20 @@ export type RootAssistantMessage =
     | NotebookUpdateMessage
     | PlanningMessage
     | TaskExecutionMessage
-    | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
+    | AssistantToolCallMessage
 
 export enum AssistantEventType {
     Status = 'status',
     Message = 'message',
     Conversation = 'conversation',
     Notebook = 'notebook',
+    Update = 'update',
+}
+
+export interface AssistantUpdateEvent {
+    id: string
+    tool_call_id: string
+    content: string
 }
 
 export enum AssistantGenerationStatusType {
@@ -248,7 +270,7 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
     tool_call_id: string
 }
 
-export type AssistantContextualTool =
+export type AssistantTool =
     | 'search_session_recordings'
     | 'generate_hogql_query'
     | 'fix_hogql_query'
@@ -264,8 +286,6 @@ export type AssistantContextualTool =
     | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
-    | 'search_docs'
-    | 'search_insights'
     | 'session_summarization'
     | 'create_dashboard'
     | 'edit_current_dashboard'
@@ -275,6 +295,7 @@ export type AssistantContextualTool =
     | 'todo_write'
     | 'filter_revenue_analytics'
     | 'create_support_ticket'
+    | 'create_feature_flag'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:

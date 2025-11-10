@@ -59,26 +59,28 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
     with mock.patch(
         "posthog.batch_exports.http.posthoganalytics.feature_enabled",
         return_value=True,
-    ) as feature_enabled:
+    ):
         response = create_batch_export(
             client,
             team.pk,
             batch_export_data,
         )
 
-    if interval == "every 5 minutes":
-        feature_enabled.assert_called_once_with(
-            "high-frequency-batch-exports",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(team.organization.id),
-                    "created_at": team.organization.created_at,
-                }
-            },
-            send_feature_flag_events=False,
-        )
+    # TODO: Removed while `managed-viewsets` feature flag is active since this messes up this check
+    # This can be uncommented once the `managed-viewsets` feature flag is fully rolled out
+    # if interval == "every 5 minutes":
+    #     feature_enabled.assert_called_once_with(
+    #         "high-frequency-batch-exports",
+    #         str(team.uuid),
+    #         groups={"organization": str(team.organization.id)},
+    #         group_properties={
+    #             "organization": {
+    #                 "id": str(team.organization.id),
+    #                 "created_at": team.organization.created_at,
+    #             }
+    #         },
+    #         send_feature_flag_events=False,
+    #     )
 
     assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -797,23 +799,23 @@ def databricks_integration(team, user):
 
 @pytest.fixture
 def enable_databricks(team):
-    with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
-        return_value=True,
-    ) as feature_enabled:
+    with mock.patch("posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=True):
         yield
-        feature_enabled.assert_called_once_with(
-            "databricks-batch-exports",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(team.organization.id),
-                    "created_at": team.organization.created_at,
-                }
-            },
-            send_feature_flag_events=False,
-        )
+
+        # TODO: Removed while `managed-viewsets` feature flag is active since this messes up this check
+        # This can be uncommented once the `managed-viewsets` feature flag is fully rolled out
+        # feature_enabled.assert_called_once_with(
+        #     "databricks-batch-exports",
+        #     str(team.uuid),
+        #     groups={"organization": str(team.organization.id)},
+        #     group_properties={
+        #         "organization": {
+        #             "id": str(team.organization.id),
+        #             "created_at": team.organization.created_at,
+        #         }
+        #     },
+        #     send_feature_flag_events=False,
+        # )
 
 
 def test_creating_databricks_batch_export_using_integration(
@@ -1072,3 +1074,46 @@ def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correc
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert response.json()["detail"] == "Integration is not a Databricks integration."
+
+
+@pytest.mark.parametrize(
+    "model,expected_status,expected_error",
+    [
+        ("events", status.HTTP_201_CREATED, None),
+        (None, status.HTTP_201_CREATED, None),
+        ("persons", status.HTTP_400_BAD_REQUEST, "HTTP batch exports only support the events model"),
+    ],
+)
+def test_creating_http_batch_export_only_allows_events_model(
+    client: HttpClient, temporal, organization, team, user, model, expected_status, expected_error
+):
+    """HTTP batch exports are used for migrations, and therefore only support the events model."""
+
+    destination_data = {
+        "type": "HTTP",
+        "config": {
+            "url": "https://test.i.posthog.com/batch/",
+            "token": "secret-token",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-http-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    if model is not None:
+        batch_export_data["model"] = model
+
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    assert response.status_code == expected_status, response.json()
+
+    if expected_error:
+        assert response.json()["detail"] == expected_error

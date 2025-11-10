@@ -13,7 +13,7 @@ from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph import AssistantGraph
+from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.graph.memory.prompts import (
     ENQUIRY_INITIAL_MESSAGE,
     SCRAPING_SUCCESS_KEY_PHRASE,

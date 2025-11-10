@@ -5,7 +5,7 @@ from braintrust import EvalCase
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph import AssistantGraph
+from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
@@ -18,17 +18,7 @@ def call_root(demo_org_team_user):
     graph = (
         AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-        .add_root(
-            path_map={
-                "insights": AssistantNodeName.END,
-                "billing": AssistantNodeName.END,
-                "insights_search": AssistantNodeName.END,
-                "search_documentation": AssistantNodeName.END,
-                "root": AssistantNodeName.ROOT,
-                "end": AssistantNodeName.END,
-            },
-            tools_node=AssistantNodeName.END,
-        )
+        .add_root(router=lambda state: AssistantNodeName.END)
         # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
         .compile(checkpointer=DjangoCheckpointer())
     )

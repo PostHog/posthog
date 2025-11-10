@@ -16,7 +16,6 @@ RetentionSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantRetentionQuery]
 
 
 class RetentionGeneratorNode(SchemaGeneratorNode[AssistantRetentionQuery]):
-    REASONING_MESSAGE = "Creating retention query"
     INSIGHT_NAME = "Retention"
     OUTPUT_MODEL = RetentionSchemaGeneratorOutput
     OUTPUT_SCHEMA = RETENTION_SCHEMA
@@ -26,6 +25,7 @@ class RetentionGeneratorNode(SchemaGeneratorNode[AssistantRetentionQuery]):
         return AssistantNodeName.RETENTION_GENERATOR
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        self.dispatcher.update("Creating retention query")
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", RETENTION_SYSTEM_PROMPT),

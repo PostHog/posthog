@@ -110,9 +110,9 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
                         },
                     })
                     lemonToast.success('Default columns saved for this event')
-                } catch (error) {
+                } catch (error: any) {
                     console.error('Error saving default columns to event definition:', error)
-                    lemonToast.error('Failed to save columns to event definition')
+                    lemonToast.error(error.detail || 'Failed to save columns to event definition')
                 }
             } else {
                 // Team-wide default columns

@@ -1,10 +1,10 @@
-import json
 import time
 import asyncio
 from typing import Any, cast
 from uuid import uuid4
 
 import structlog
+import posthoganalytics
 from langchain_core.agents import AgentAction
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -34,9 +34,11 @@ from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARIES_MIN_SESSIONS,
     MAX_SESSIONS_TO_SUMMARIZE,
-    SESSION_SUMMARIES_STREAMING_MODEL,
+    SESSION_SUMMARIES_SYNC_MODEL,
 )
+from ee.hogai.session_summaries.session.stringify import SingleSessionSummaryStringifier
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
+from ee.hogai.session_summaries.session_group.stringify import SessionGroupSummaryStringifier
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     SummaryNotebookIntermediateState,
@@ -53,7 +55,6 @@ from ee.hogai.utils.types.composed import MaxNodeName
 
 class SessionSummarizationNode(AssistantNode):
     logger = structlog.get_logger(__name__)
-    REASONING_MESSAGE = "Summarizing session recordings"
 
     @property
     def node_name(self) -> MaxNodeName:
@@ -68,7 +69,7 @@ class SessionSummarizationNode(AssistantNode):
         """Push summarization progress as reasoning messages"""
         content = prepare_reasoning_progress_message(progress_message)
         if content:
-            await self._write_reasoning(content=content)
+            self.dispatcher.update(content)
 
     async def _stream_notebook_content(self, content: dict, state: AssistantState, partial: bool = True) -> None:
         """Stream TipTap content directly to a notebook if notebook_id is present in state."""
@@ -85,7 +86,19 @@ class SessionSummarizationNode(AssistantNode):
                 notebook_id=state.notebook_short_id, content=content, id=str(uuid4())
             )
         # Stream the notebook update
-        await self._write_message(notebook_message)
+        self.dispatcher.message(notebook_message)
+
+    def _has_video_validation_feature_flag(self) -> bool | None:
+        """
+        Check if the user has the video validation for session summaries feature flag enabled.
+        """
+        return posthoganalytics.feature_enabled(
+            "max-session-summarization-video-validation",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
@@ -181,7 +194,14 @@ class _SessionSearch:
         from products.replay.backend.max_tools import SearchSessionRecordingsTool  # Avoid circular import
 
         # Create the tool instance with minimal context (no current_filters for fresh generation)
-        tool = SearchSessionRecordingsTool(team=self._node._team, user=self._node._user, state=state, config=config)
+        tool = await SearchSessionRecordingsTool.create_tool_class(
+            team=self._node._team,
+            user=self._node._user,
+            node_path=self._node.node_path,
+            state=state,
+            config=config,
+            context_manager=self._node.context_manager,
+        )
         try:
             # Call the tool's graph directly to use the same implementation as in the tool (avoid duplication)
             result = await tool._invoke_graph(change=filter_query)
@@ -265,9 +285,7 @@ class _SessionSearch:
         recordings_query = convert_filters_to_recordings_query(temp_playlist)
         return recordings_query
 
-    def _get_session_ids_with_filters(
-        self, replay_filters: RecordingsQuery, limit: int = MAX_SESSIONS_TO_SUMMARIZE
-    ) -> list[str] | None:
+    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery, limit: int) -> list[str] | None:
         """Get session ids from DB with filters"""
         from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
@@ -376,8 +394,12 @@ class _SessionSearch:
                 # Use filters when generated successfully
                 replay_filters = self._convert_max_filters_to_recordings_query(filter_generation_result)
             # Query the filters to get session ids
+            query_limit = state.session_summarization_limit
+            if not query_limit or query_limit <= 0 or query_limit > MAX_SESSIONS_TO_SUMMARIZE:
+                # If no limit provided (none or negative) or too large - use the default limit
+                query_limit = MAX_SESSIONS_TO_SUMMARIZE
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
-                replay_filters
+                replay_filters, query_limit
             )
             return session_ids
         except Exception as e:
@@ -400,6 +422,7 @@ class _SessionSummarizer:
         """Summarize sessions individually with progress updates."""
         total = len(session_ids)
         completed = 0
+        video_validation_enabled = self._node._has_video_validation_feature_flag()
 
         async def _summarize(session_id: str) -> dict[str, Any]:
             nonlocal completed
@@ -407,7 +430,8 @@ class _SessionSummarizer:
                 session_id=session_id,
                 user_id=self._node._user.id,
                 team=self._node._team,
-                model_to_use=SESSION_SUMMARIES_STREAMING_MODEL,
+                model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+                video_validation_enabled=video_validation_enabled,
             )
             completed += 1
             # Update the user on the progress
@@ -418,8 +442,14 @@ class _SessionSummarizer:
         tasks = [_summarize(sid) for sid in session_ids]
         summaries = await asyncio.gather(*tasks)
         await self._node._stream_progress(progress_message=f"Generating a summary, almost there")
-        # Dumping to ensure that summaries content is always stringified JSON
-        return json.dumps(summaries)
+        # Stringify, as chat doesn't need full JSON to be context-aware, while providing it could overload the context
+        stringified_summaries = []
+        for summary in summaries:
+            stringifier = SingleSessionSummaryStringifier(summary)
+            stringified_summaries.append(stringifier.stringify_session())
+        # Combine all stringified summaries into a single string
+        summaries_str = "\n\n".join(stringified_summaries)
+        return summaries_str
 
     async def _summarize_sessions_as_group(
         self,
@@ -430,6 +460,8 @@ class _SessionSummarizer:
     ) -> str:
         """Summarize sessions as a group (for larger sets)."""
         min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._node._team)
+        # Check if the summaries should be validated with videos
+        video_validation_enabled = self._node._has_video_validation_feature_flag()
         # Initialize intermediate state with plan
         self._intermediate_state = SummaryNotebookIntermediateState(
             team_name=self._node._team.name, summary_title=summary_title
@@ -445,7 +477,7 @@ class _SessionSummarizer:
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,
             extra_summary_context=None,
-            local_reads_prod=False,
+            video_validation_enabled=video_validation_enabled,
         ):
             # Max "reasoning" text update message
             if update_type == SessionSummaryStreamUpdate.UI_STATUS:
@@ -495,9 +527,10 @@ class _SessionSummarizer:
                 await update_notebook_from_summary_content(
                     notebook=notebook, summary_content=summary_content, session_ids=session_ids
                 )
-                # Return the summary to Max to generate inline summary of the full summary
-                # TODO: Add some minifier logic as something summary (if too many sessions) blows up the root node's context
-                return summary.model_dump_json(exclude_none=True)
+                # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
+                stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
+                summary_str = stringifier.stringify_patterns()
+                return summary_str
             else:
                 raise ValueError(
                     f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."
