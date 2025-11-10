@@ -580,6 +580,7 @@ def _cleanup_git(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
         success = False
 
     # Step 3: Run gc --aggressive (this can take 1-2 minutes)
+    # Git will show its own progress output
     click.echo("   Running git gc --aggressive (may take 1-2 minutes)...")
     result = subprocess.run(["git", "gc", "--prune=now", "--aggressive"], cwd=repo_root, check=False)
     if result.returncode != 0:
