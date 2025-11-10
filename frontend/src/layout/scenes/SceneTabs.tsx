@@ -27,6 +27,7 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
+import { ConfigurePinnedTabsModal } from './ConfigurePinnedTabsModal'
 
 export interface SceneTabsProps {
     className?: string
@@ -35,7 +36,6 @@ export interface SceneTabsProps {
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { tabs } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
-    const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
@@ -43,39 +43,69 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { setActionPaletteOpen } = useActions(sceneShortcutLogic)
     const { shortcuts } = useValues(sceneShortcutLogic)
 
+    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
+
+    const pinnedCount = tabs.filter((tab) => tab.pinned).length
+    const unpinnedCount = tabs.length - pinnedCount
+    const pinnedColumns = pinnedCount > 0 ? `repeat(${pinnedCount}, 40px)` : ''
+    let unpinnedColumns = ''
+    if (unpinnedCount === 1) {
+        unpinnedColumns = '250px'
+    } else if (unpinnedCount === 2) {
+        unpinnedColumns = 'repeat(2, 250px)'
+    } else if (unpinnedCount > 2) {
+        unpinnedColumns = `repeat(${unpinnedCount}, minmax(40px, 250px))`
+    }
+    const gridTemplateColumns = [pinnedColumns, unpinnedColumns].filter(Boolean).join(' ') || '250px'
+
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
-        if (over && active.id !== over.id) {
-            reorderTabs(active.id as string, over.id as string)
+        if (!over || over.id === 'new' || active.id === over.id) {
+            return
         }
+
+        const activeIndex = active.data.current?.index
+        const overIndex = over.data.current?.index
+
+        if (typeof activeIndex !== 'number' || typeof overIndex !== 'number') {
+            return
+        }
+
+        const activeTab = tabs[activeIndex]
+        const overTab = tabs[overIndex]
+        if (!activeTab || !overTab) {
+            return
+        }
+
+        if (!!activeTab.pinned !== !!overTab.pinned) {
+            return
+        }
+
+        reorderTabs(activeTab.id, overTab.id)
     }
 
     return (
         <div
             className={cn(
-                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 border-b border-primary relative',
+                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 relative',
                 className
             )}
         >
-            {/* rounded corner on the left to make scene curve into tab line */}
+            {/* Mobile button to show/hide the layout navbar */}
             {mobileLayout && (
                 <ButtonPrimitive
                     onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
                     iconOnly
-                    className="ml-1"
+                    className="ml-1 z-20 rounded-lg"
                 >
                     {isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
                 </ButtonPrimitive>
             )}
 
-            {/* rounded corner on the left to make scene curve into tab line */}
-            {!isLayoutPanelVisible && (
-                <div className="absolute left-0 -bottom-1 size-2 bg-surface-tertiary">
-                    <div className="relative -bottom-1 size-2 border-l border-t border-primary rounded-tl bg-[var(--scene-layout-background)]" />
-                </div>
-            )}
-
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-                <SortableContext items={[...tabs.map((t) => t.id), 'new']} strategy={horizontalListSortingStrategy}>
+                <SortableContext
+                    items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
+                    strategy={horizontalListSortingStrategy}
+                >
                     <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
                         <div className="pl-[2px] shrink-0">
                             <SceneShortcut {...shortcuts.app.toggleShortcutMenu}>
@@ -97,19 +127,22 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                             </SceneShortcut>
                         </div>
                         <div
-                            className="scene-tab-row grid min-w-0 gap-1 items-center h-[36px]"
-                            style={{
-                                gridTemplateColumns:
-                                    tabs.length === 1
-                                        ? '250px'
-                                        : tabs.length === 2
-                                          ? 'repeat(2, 250px)'
-                                          : `repeat(${tabs.length}, minmax(40px, 250px))`,
-                            }}
+                            className="scene-tab-row grid min-w-0 pl-[5px] lg:pl-5 gap-1 items-center h-[36px]"
+                            style={{ gridTemplateColumns }}
                         >
-                            {tabs.map((tab) => (
-                                <SortableSceneTab key={tab.id} tab={tab} />
-                            ))}
+                            {tabs.map((tab, index) => {
+                                const sortableId = getSortableId(tab, index)
+
+                                return (
+                                    <SortableSceneTab
+                                        key={sortableId}
+                                        tab={tab}
+                                        index={index}
+                                        sortableId={sortableId}
+                                        onConfigurePinnedTabs={() => setIsConfigurePinnedTabsOpen(true)}
+                                    />
+                                )
+                            })}
                         </div>
                         <SceneShortcut {...shortcuts.app.newTab}>
                             <Link
@@ -132,12 +165,35 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                     </div>
                 </SortableContext>
             </DndContext>
+            <ConfigurePinnedTabsModal
+                isOpen={isConfigurePinnedTabsOpen}
+                onClose={() => setIsConfigurePinnedTabsOpen(false)}
+            />
         </div>
     )
 }
 
-function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
-    const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: tab.id })
+const getSortableId = (tab: SceneTab, index: number): string => `${tab.id}-${index}`
+
+interface SortableSceneTabProps {
+    tab: SceneTab
+    index: number
+    sortableId: string
+    containerClassName?: string
+    onConfigurePinnedTabs: () => void
+}
+
+function SortableSceneTab({
+    tab,
+    index,
+    sortableId,
+    containerClassName,
+    onConfigurePinnedTabs,
+}: SortableSceneTabProps): JSX.Element {
+    const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
+        id: sortableId,
+        data: { index },
+    })
     const style: React.CSSProperties = {
         transform: CSS.Translate.toString(transform),
         transition,
@@ -146,8 +202,8 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
 
     return (
         <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-            <SceneTabContextMenu tab={tab}>
-                <SceneTabComponent tab={tab} isDragging={isDragging} />
+            <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
+                <SceneTabComponent tab={tab} isDragging={isDragging} containerClassName={containerClassName} />
             </SceneTabContextMenu>
         </div>
     )
@@ -157,15 +213,17 @@ interface SceneTabProps {
     tab: SceneTab
     className?: string
     isDragging?: boolean
+    containerClassName?: string
 }
 
-function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.Element {
+function SceneTabComponent({ tab, className, isDragging, containerClassName }: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
+    const isPinned = !!tab.pinned
+    const canRemoveTab = !isPinned
     const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
     const { editingTabId, tabs } = useValues(sceneLogic)
     const { shortcuts } = useValues(sceneShortcutLogic)
     const [editValue, setEditValue] = useState('')
-    const canRemoveTab = tabs.length > 1
 
     const isEditing = editingTabId === tab.id
 
@@ -185,7 +243,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
     }, [isEditing])
 
     return (
-        <div className="relative">
+        <div className={cn('relative', containerClassName)}>
             <div
                 className={cn({
                     'scene-tab-active-indicator': tab.active,
@@ -242,7 +300,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                     onAuxClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
-                        if (e.button === 1 && !isDragging) {
+                        if (e.button === 1 && !isDragging && canRemoveTab) {
                             removeTab(tab)
                         }
                     }}
@@ -262,6 +320,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                             ? 'tab-active rounded-bl-none rounded-br-none cursor-default text-primary bg-primary border-primary'
                             : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-primary-hover z-20',
                         'focus:outline-none',
+                        isPinned && 'scene-tab--pinned justify-center pl-1 pr-1 gap-0',
                         className
                     )}
                     tooltip={
@@ -270,6 +329,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                             : tab.title
                     }
                     tooltipPlacement="bottom"
+                    aria-label={isPinned ? tab.customTitle || tab.title : undefined}
                 >
                     {tab.iconType === 'blank' ? (
                         <></>
@@ -278,7 +338,9 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                     ) : (
                         iconForType(tab.iconType as FileSystemIconType)
                     )}
-                    {isEditing ? (
+                    {isPinned ? (
+                        <span className="sr-only">{tab.customTitle || tab.title}</span>
+                    ) : isEditing ? (
                         <input
                             ref={inputRef}
                             className="scene-tab-title grow text-left bg-primary border-none outline-1 text-primary z-30 max-w-full"

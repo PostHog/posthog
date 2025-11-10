@@ -48,7 +48,8 @@ type ButtonBaseProps = {
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
     tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
-    tooltipVisible?: boolean
+    tooltipVisible?: TooltipProps['visible']
+    tooltipInteractive?: TooltipProps['interactive']
     buttonWrapper?: (button: JSX.Element) => JSX.Element
     // Like disabled but doesn't show the disabled state or focus state (still shows tooltip)
     inert?: boolean
@@ -229,17 +230,23 @@ export const buttonPrimitiveVariants = cva({
 
 // Renders the list of disabled reasons if value is true, otherwise returns null
 function renderDisabledReasons(disabledReasons: DisabledReasonsObject): JSX.Element | null {
-    const reasons = Object.entries(disabledReasons).filter(([_, value]) => value)
+    const reasons = Object.entries(disabledReasons)
+        .filter(([_, value]) => value)
+        .map(([reason]) => reason)
 
     if (!reasons.length) {
         return null
+    }
+
+    if (reasons.length === 1) {
+        return <span>{reasons[0]}</span>
     }
 
     return (
         <>
             Disabled reasons:
             <ul className="pl-3 list-disc">
-                {reasons.map(([reason]) => (
+                {reasons.map((reason) => (
                     <li key={reason}>{reason}</li>
                 ))}
             </ul>
@@ -267,6 +274,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         tooltipPlacement,
         tooltipDocLink,
         tooltipVisible,
+        tooltipInteractive,
         autoHeight,
         inert,
         sceneShortcut,
@@ -321,6 +329,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                 closeDelayMs={tooltipCloseDelayMs}
                 docLink={tooltipDocLink}
                 visible={tooltipVisible}
+                interactive={tooltipInteractive}
             >
                 {buttonComponent}
             </Tooltip>

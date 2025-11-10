@@ -407,6 +407,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconWarning,
         inMenu: false,
     },
+    [NodeKind.ErrorTrackingBreakdownsQuery]: {
+        name: 'Error Tracking Breakdowns',
+        description: 'Break down error tracking issues by properties.',
+        icon: IconWarning,
+        inMenu: false,
+    },
     [NodeKind.RecordingsQuery]: {
         name: 'Session Recordings',
         description: 'View available recordings.',

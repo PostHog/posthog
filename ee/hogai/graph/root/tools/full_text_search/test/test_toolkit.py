@@ -3,10 +3,13 @@ from unittest.mock import Mock, patch
 
 from django.conf import settings
 
+from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
-from ee.hogai.graph.root.tools.full_text_search.tool import ENTITY_MAP, EntitySearchToolkit, FTSKind
+from ee.hogai.context import AssistantContextManager
+from ee.hogai.graph.root.tools.full_text_search.tool import ENTITY_MAP, EntitySearchTool, FTSKind
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
+from ee.hogai.utils.types.base import AssistantState
 
 
 class TestEntitySearchToolkit(NonAtomicBaseTest):
@@ -18,7 +21,13 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
         self.team.organization = Mock()
         self.team.organization.id = 789
         self.user = Mock()
-        self.toolkit = EntitySearchToolkit(self.team, self.user)
+        self.toolkit = EntitySearchTool(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[]),
+            config=RunnableConfig(configurable={}),
+            context_manager=AssistantContextManager(self.team, self.user, {}),
+        )
 
     @parameterized.expand(
         [

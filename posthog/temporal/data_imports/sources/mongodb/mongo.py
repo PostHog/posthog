@@ -45,8 +45,7 @@ def get_indexes(connection_string: str, collection_name: str) -> list[str]:
 
             index_cursor = collection.list_indexes()
         return [field for index in index_cursor for field in index["key"].keys()]
-    except Exception as e:
-        capture_exception(e)
+    except Exception:
         return []
 
 
@@ -127,6 +126,9 @@ def mongo_client(connection_string: str, connection_params: dict[str, Any]) -> I
             }
         )
 
+    if connection_params["direct_connection"]:
+        connection_kwargs["directConnection"] = True
+
     if connection_params["tls"]:
         connection_kwargs["tls"] = True
         connection_kwargs["tlsCAFile"] = certifi.where()
@@ -191,6 +193,7 @@ def _parse_connection_string(connection_string: str) -> dict[str, Any]:
 
     # Extract common parameters
     auth_source = query_params.get("authSource", ["admin"])[0]
+    direct_connection = query_params.get("directConnection", ["false"])[0].lower() in ["true", "1"]
     tls = query_params.get("tls", ["false"])[0].lower() in ["true", "1"]
     ssl = query_params.get("ssl", ["false"])[0].lower() in ["true", "1"]
 
@@ -204,6 +207,7 @@ def _parse_connection_string(connection_string: str) -> dict[str, Any]:
         "user": user,
         "password": password,
         "auth_source": auth_source,
+        "direct_connection": direct_connection,
         "tls": use_tls,
         "connection_string": connection_string,
         "is_srv": parsed.scheme == "mongodb+srv",

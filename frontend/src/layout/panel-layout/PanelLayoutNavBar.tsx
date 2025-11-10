@@ -148,9 +148,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'ProjectHomepage',
             label: 'Home',
             icon: <IconHome />,
-            to: urls.projectHomepage(),
+            to: urls.projectRoot(),
             onClick: () => {
-                handleStaticNavbarItemClick(urls.projectHomepage(), true)
+                handleStaticNavbarItemClick(urls.projectRoot(), true)
             },
             tooltip: 'Home',
         },
@@ -541,10 +541,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
                             data-attr="tree-navbar-resizer"
                             className={cn({
-                                'top-[calc(var(--scene-layout-header-height)+4px)]': true,
+                                'top-[calc(var(--scene-layout-header-height)+10px)] opacity-0 hover:opacity-100': true,
                                 'top-0': isLayoutPanelVisible || sceneLayoutConfig?.layout === 'app-raw-no-header',
                             })}
-                            offset={-1}
+                            offset={0}
                         />
                     )}
                 </nav>

@@ -104,6 +104,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
                         type="primary"
                         to={urls.llmAnalyticsDataset('new')}
                         data-testid="create-dataset-button"
+                        data-attr="create-dataset-button"
                         size="small"
                     >
                         New dataset
@@ -115,6 +116,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
                     type="search"
                     placeholder="Search datasets..."
                     value={filters.search}
+                    data-attr="datasets-search-input"
                     onChange={(value) => setFilters({ search: value })}
                     className="max-w-md"
                     data-testid="search-datasets-input"

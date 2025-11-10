@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -13,9 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { LLMTrace, NodeKind, TraceQuery, TracesQuery } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
-import { PropertyFilterType } from '~/types'
 
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { useSortableColumns } from './hooks/useSortableColumns'
@@ -23,116 +19,29 @@ import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { formatLLMCost } from './utils'
 
 export function LLMAnalyticsSessionsScene(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setSessionsSort } = useActions(llmAnalyticsLogic)
-    const { sessionsQuery, dateFilter, sessionsSort } = useValues(llmAnalyticsLogic)
-    const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(new Set())
-    const [expandedTraceIds, setExpandedTraceIds] = useState<Set<string>>(new Set())
-    const [expandedGenerationIds, setExpandedGenerationIds] = useState<Set<string>>(new Set())
-    const [sessionTraces, setSessionTraces] = useState<Record<string, LLMTrace[]>>({})
-    const [loadingTraces, setLoadingTraces] = useState<Set<string>>(new Set())
-    const [loadingFullTraces, setLoadingFullTraces] = useState<Set<string>>(new Set())
-    const [fullTraces, setFullTraces] = useState<Record<string, LLMTrace>>({})
-
-    const handleSessionExpand = async (sessionId: string): Promise<void> => {
-        const newExpanded = new Set(expandedSessionIds)
-        if (newExpanded.has(sessionId)) {
-            newExpanded.delete(sessionId)
-            setExpandedSessionIds(newExpanded)
-        } else {
-            newExpanded.add(sessionId)
-            setExpandedSessionIds(newExpanded)
-
-            // Load traces for this session if not already loaded
-            if (!sessionTraces[sessionId] && !loadingTraces.has(sessionId)) {
-                setLoadingTraces(new Set(loadingTraces).add(sessionId))
-
-                const tracesQuerySource: TracesQuery = {
-                    kind: NodeKind.TracesQuery,
-                    dateRange: {
-                        date_from: dateFilter.dateFrom || undefined,
-                        date_to: dateFilter.dateTo || undefined,
-                    },
-                    properties: [
-                        {
-                            type: PropertyFilterType.Event,
-                            key: '$ai_session_id',
-                            operator: 'exact' as any,
-                            value: sessionId,
-                        },
-                    ],
-                }
-
-                try {
-                    const response = await api.query(tracesQuerySource)
-                    if (response.results) {
-                        setSessionTraces((prev) => ({
-                            ...prev,
-                            [sessionId]: response.results,
-                        }))
-                    }
-                } catch (error) {
-                    console.error('Error loading traces for session:', error)
-                } finally {
-                    const newLoading = new Set(loadingTraces)
-                    newLoading.delete(sessionId)
-                    setLoadingTraces(newLoading)
-                }
-            }
-        }
-    }
-
-    const handleGenerationExpand = (generationId: string): void => {
-        const newExpanded = new Set(expandedGenerationIds)
-        if (newExpanded.has(generationId)) {
-            newExpanded.delete(generationId)
-        } else {
-            newExpanded.add(generationId)
-        }
-        setExpandedGenerationIds(newExpanded)
-    }
+    const {
+        setDates,
+        setShouldFilterTestAccounts,
+        setPropertyFilters,
+        setSessionsSort,
+        toggleSessionExpanded,
+        toggleTraceExpanded,
+        toggleGenerationExpanded,
+    } = useActions(llmAnalyticsLogic)
+    const {
+        sessionsQuery,
+        dateFilter,
+        sessionsSort,
+        expandedSessionIds,
+        expandedTraceIds,
+        expandedGenerationIds,
+        sessionTraces,
+        loadingSessionTraces,
+        loadingFullTraces,
+        fullTraces,
+    } = useValues(llmAnalyticsLogic)
 
     const { renderSortableColumnTitle } = useSortableColumns(sessionsSort, setSessionsSort)
-
-    const handleTraceExpand = async (traceId: string): Promise<void> => {
-        const newExpanded = new Set(expandedTraceIds)
-        if (newExpanded.has(traceId)) {
-            newExpanded.delete(traceId)
-            setExpandedTraceIds(newExpanded)
-        } else {
-            newExpanded.add(traceId)
-            setExpandedTraceIds(newExpanded)
-
-            // Load full trace with events if not already loaded
-            if (!fullTraces[traceId] && !loadingFullTraces.has(traceId)) {
-                setLoadingFullTraces(new Set(loadingFullTraces).add(traceId))
-
-                const traceQuery: TraceQuery = {
-                    kind: NodeKind.TraceQuery,
-                    traceId,
-                    dateRange: {
-                        date_from: dateFilter.dateFrom || undefined,
-                        date_to: dateFilter.dateTo || undefined,
-                    },
-                }
-
-                try {
-                    const response = await api.query(traceQuery)
-                    if (response.results && response.results[0]) {
-                        setFullTraces((prev) => ({
-                            ...prev,
-                            [traceId]: response.results[0],
-                        }))
-                    }
-                } catch (error) {
-                    console.error('Error loading full trace:', error)
-                } finally {
-                    const newLoading = new Set(loadingFullTraces)
-                    newLoading.delete(traceId)
-                    setLoadingFullTraces(newLoading)
-                }
-            }
-        }
-    }
 
     return (
         <DataTable
@@ -265,7 +174,7 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
 
                         const sessionId = result[0] as string
                         const traces = sessionTraces[sessionId]
-                        const isLoading = loadingTraces.has(sessionId)
+                        const isLoading = loadingSessionTraces.has(sessionId)
 
                         if (isLoading) {
                             return (
@@ -289,7 +198,7 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                                             <div key={trace.id} className="border rounded">
                                                 <div
                                                     className="p-3 hover:bg-side-light cursor-pointer flex items-start gap-2"
-                                                    onClick={() => handleTraceExpand(trace.id)}
+                                                    onClick={() => toggleTraceExpanded(trace.id)}
                                                 >
                                                     <div className="flex-shrink-0 mt-0.5">
                                                         {isTraceExpanded ? (
@@ -343,7 +252,9 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                                                                 trace={fullTraces[trace.id]}
                                                                 isLoading={loadingFullTraces.has(trace.id)}
                                                                 expandedEventIds={expandedGenerationIds}
-                                                                onToggleEventExpand={handleGenerationExpand}
+                                                                onToggleEventExpand={(uuid: string) =>
+                                                                    toggleGenerationExpanded(uuid, trace.id)
+                                                                }
                                                             />
                                                         </div>
                                                     </div>
@@ -361,12 +272,12 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                         Array.isArray(result) && !!result[0] && expandedSessionIds.has(result[0] as string),
                     onRowExpand: ({ result }: DataTableRow) => {
                         if (Array.isArray(result) && result[0]) {
-                            handleSessionExpand(result[0] as string)
+                            toggleSessionExpanded(result[0] as string)
                         }
                     },
                     onRowCollapse: ({ result }: DataTableRow) => {
                         if (Array.isArray(result) && result[0]) {
-                            handleSessionExpand(result[0] as string)
+                            toggleSessionExpanded(result[0] as string)
                         }
                     },
                     noIndent: true,

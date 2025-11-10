@@ -111,7 +111,7 @@ def experiment_saved_metrics_timeseries(context: dagster.AssetExecutionContext) 
         query_from_utc = experiment.start_date
         query_to_utc = datetime.now(ZoneInfo("UTC"))
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team, user_facing=False)
         result = query_runner._calculate()
 
         result = remove_step_sessions_from_experiment_result(result)
