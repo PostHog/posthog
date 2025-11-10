@@ -4,7 +4,7 @@ import { uuid } from 'lib/utils'
 
 import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ExperimentMetricMathType, FeatureFlagBasicType } from '~/types'
+import { Experiment, ExperimentMetricMathType, FeatureFlagBasicType } from '~/types'
 
 import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 
@@ -48,9 +48,9 @@ describe('runningTimeCalculatorLogic', () => {
                             },
                         },
                     } as unknown as FeatureFlagBasicType,
-                }
+                } as Partial<Experiment> as Experiment
 
-                logic = runningTimeCalculatorLogic({ experiment })
+                logic = runningTimeCalculatorLogic.build({ experiment })
                 logic.mount()
                 logic.actions.setMetricIndex(0)
             })
@@ -104,9 +104,9 @@ describe('runningTimeCalculatorLogic', () => {
                             },
                         },
                     } as unknown as FeatureFlagBasicType,
-                }
+                } as Partial<Experiment> as Experiment
 
-                logic = runningTimeCalculatorLogic({ experiment })
+                logic = runningTimeCalculatorLogic.build({ experiment })
                 logic.mount()
                 logic.actions.setMetricIndex(0)
             })
@@ -163,9 +163,9 @@ describe('runningTimeCalculatorLogic', () => {
                             },
                         },
                     } as unknown as FeatureFlagBasicType,
-                }
+                } as Partial<Experiment> as Experiment
 
-                logic = runningTimeCalculatorLogic({ experiment })
+                logic = runningTimeCalculatorLogic.build({ experiment })
                 logic.mount()
                 logic.actions.setMetricIndex(0)
             })
@@ -220,9 +220,9 @@ describe('runningTimeCalculatorLogic', () => {
                             },
                         },
                     } as unknown as FeatureFlagBasicType,
-                }
+                } as Partial<Experiment> as Experiment
 
-                logic = runningTimeCalculatorLogic({ experiment })
+                logic = runningTimeCalculatorLogic.build({ experiment })
                 logic.mount()
                 logic.actions.setMetricIndex(0)
             })
@@ -283,9 +283,9 @@ describe('runningTimeCalculatorLogic', () => {
                             },
                         },
                     } as unknown as FeatureFlagBasicType,
-                }
+                } as Partial<Experiment> as Experiment
 
-                logic = runningTimeCalculatorLogic({ experiment })
+                logic = runningTimeCalculatorLogic.build({ experiment })
                 logic.mount()
                 logic.actions.setMetricIndex(0)
             })
@@ -348,9 +348,9 @@ describe('runningTimeCalculatorLogic', () => {
                             },
                         },
                     } as unknown as FeatureFlagBasicType,
-                }
+                } as Partial<Experiment> as Experiment
 
-                logic = runningTimeCalculatorLogic({ experiment })
+                logic = runningTimeCalculatorLogic.build({ experiment })
                 logic.mount()
                 logic.actions.setMetricIndex(0)
             })
