@@ -351,7 +351,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
     latest_runs = BatchExportRunSerializer(many=True, read_only=True)
     interval = serializers.ChoiceField(choices=BATCH_EXPORT_INTERVALS)
     hogql_query = HogQLSelectQueryField(required=False)
-    filters = serializers.JSONField(required=False, allow_null=True)
 
     class Meta:
         model = BatchExport
