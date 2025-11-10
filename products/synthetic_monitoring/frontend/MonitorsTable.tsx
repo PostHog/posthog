@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { Sparkline } from 'lib/components/Sparkline'
+import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
@@ -12,7 +12,39 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { syntheticMonitoringLogic } from './syntheticMonitoringLogic'
-import { SyntheticMonitor } from './types'
+import { SyntheticMonitor, SyntheticMonitoringRegion } from './types'
+
+const REGION_COLORS_GREEN_MAP: Record<SyntheticMonitoringRegion, string> = {
+    'us-east-1': 'color-green-700', // Will be replaced by `var(--color-green-700)`
+    'us-west-2': 'color-green-600',
+    'eu-west-1': 'color-green-500',
+    'eu-central-1': 'color-green-400',
+    'ap-northeast-2': 'color-green-300',
+    'sa-east-1': 'color-green-200',
+}
+
+const REGION_COLORS_RED_MAP: Record<SyntheticMonitoringRegion, string> = {
+    'us-east-1': 'color-red-700',
+    'us-west-2': 'color-red-600',
+    'eu-west-1': 'color-red-500',
+    'eu-central-1': 'color-red-400',
+    'ap-northeast-2': 'color-red-300',
+    'sa-east-1': 'color-red-200',
+}
+
+const dataToSparklineData = (
+    data: Record<SyntheticMonitoringRegion, number[]>,
+    colorMode: 'green' | 'red',
+    defaultColor: string = 'muted'
+): SparklineTimeSeries[] => {
+    const colorsMap = colorMode === 'green' ? REGION_COLORS_GREEN_MAP : REGION_COLORS_RED_MAP
+
+    return Object.entries(data).map(([region, values]) => ({
+        name: region,
+        values,
+        color: colorsMap[region as SyntheticMonitoringRegion] || defaultColor,
+    }))
+}
 
 export function MonitorsTable(): JSX.Element {
     const { monitors, monitorsLoading } = useValues(syntheticMonitoringLogic)
@@ -67,18 +99,30 @@ export function MonitorsTable(): JSX.Element {
             },
         },
         {
-            title: 'Failure Count',
-            dataIndex: 'failure_sparkline',
-            render: (failure_sparkline) => (
-                <Sparkline data={failure_sparkline as number[]} maximumIndicator={false} type="line" className="h-8" />
-            ),
-        },
-        {
             title: 'Response Time',
             dataIndex: 'response_time_sparkline',
             render: (response_time_sparkline) => (
                 <Sparkline
-                    data={response_time_sparkline as number[]}
+                    data={dataToSparklineData(
+                        response_time_sparkline as unknown as Record<SyntheticMonitoringRegion, number[]>,
+                        'green'
+                    )}
+                    maximumIndicator={false}
+                    renderCount={(count) => <span>{count}&nbsp;ms</span>}
+                    type="line"
+                    className="h-8"
+                />
+            ),
+        },
+        {
+            title: 'Failure Count',
+            dataIndex: 'failure_sparkline',
+            render: (failure_sparkline) => (
+                <Sparkline
+                    data={dataToSparklineData(
+                        failure_sparkline as unknown as Record<SyntheticMonitoringRegion, number[]>,
+                        'red'
+                    )}
                     maximumIndicator={false}
                     type="line"
                     className="h-8"

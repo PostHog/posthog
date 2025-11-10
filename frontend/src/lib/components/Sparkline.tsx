@@ -45,6 +45,8 @@ interface SparklineProps {
     withYScale?: (y: AnyScaleOptions) => AnyScaleOptions
     /** Render a label for the tooltip. */
     renderLabel?: (label: string) => string
+    /** Render a count for the tooltip. */
+    renderCount?: (count: number) => React.ReactNode
     className?: string
     onSelectionChange?: (selection: { startIndex: number; endIndex: number }) => void
 }
@@ -62,6 +64,7 @@ export function Sparkline({
     withXScale,
     withYScale,
     renderLabel,
+    renderCount,
     onSelectionChange,
     className,
 }: SparklineProps): JSX.Element {
@@ -338,7 +341,7 @@ export function Sparkline({
                                 count: (dp.dataset.data?.[dp.dataIndex] as number) || 0,
                             }))}
                             renderSeries={(value) => value}
-                            renderCount={(count) => humanFriendlyNumber(count)}
+                            renderCount={(count) => (renderCount ? renderCount(count) : humanFriendlyNumber(count))}
                         />
                     }
                     placement="bottom-start"

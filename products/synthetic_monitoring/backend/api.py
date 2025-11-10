@@ -1,5 +1,4 @@
 import logging
-from collections import defaultdict
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -17,7 +16,7 @@ from posthog.models import Team
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
-from products.synthetic_monitoring.backend.models import SyntheticMonitor
+from products.synthetic_monitoring.backend.models import VALID_REGIONS, SyntheticMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +30,7 @@ def fetch_sparkline_data_bulk(team_id: int, monitor_ids: list[str]) -> dict:
         return {}
 
     team = Team.objects.get(id=team_id)
+    regions = list(VALID_REGIONS)
 
     # Single query for all failure data
     failure_query = parse_select(
@@ -38,15 +38,18 @@ def fetch_sparkline_data_bulk(team_id: int, monitor_ids: list[str]) -> dict:
         SELECT
             outer.monitor_id AS monitor_id,
             outer.hour AS hour,
+            outer.region AS region,
             coalesce(inner.failures, 0) AS failures
         FROM (
             SELECT
                 arrayJoin({monitor_ids}) AS monitor_id,
+                arrayJoin({regions}) AS region,
                 arrayJoin(arrayMap(n -> toStartOfHour(now()) - INTERVAL 24 HOUR + INTERVAL n HOUR, range(24))) AS hour
         ) AS outer
         LEFT JOIN (
             SELECT
                 properties.monitor_id as monitor_id,
+                properties.region as region,
                 toStartOfHour(timestamp) as hour,
                 countIf(`properties`.`$synthetic_success` = false) as failures
             FROM events
@@ -54,13 +57,17 @@ def fetch_sparkline_data_bulk(team_id: int, monitor_ids: list[str]) -> dict:
                 event = '$synthetic_http_check'
                 AND properties.monitor_id IN {monitor_ids}
                 AND timestamp >= toStartOfHour(now()) - INTERVAL 25 HOUR -- 25 hours to ensure we get the minutes before the current minute from the first hour
-            GROUP BY monitor_id, hour
-            ORDER BY monitor_id, hour ASC
+            GROUP BY monitor_id, region, hour
         ) AS inner
-        ON outer.monitor_id = inner.monitor_id AND outer.hour = inner.hour
-        ORDER BY monitor_id, hour ASC
+        ON outer.monitor_id = inner.monitor_id AND outer.hour = inner.hour AND outer.region = inner.region
+        ORDER BY monitor_id, region ASC, hour ASC
+        LIMIT {limit}
         """,
-        placeholders={"monitor_ids": monitor_ids},
+        placeholders={
+            "monitor_ids": monitor_ids,
+            "regions": regions,
+            "limit": len(monitor_ids) * len(regions) * 24 + 100,
+        },
     )
 
     # Single query for all response time data
@@ -69,15 +76,18 @@ def fetch_sparkline_data_bulk(team_id: int, monitor_ids: list[str]) -> dict:
         SELECT
             outer.monitor_id AS monitor_id,
             outer.hour AS hour,
+            outer.region AS region,
             coalesce(inner.avg_time_ms, 0) AS avg_time_ms
         FROM (
             SELECT
                 arrayJoin({monitor_ids}) AS monitor_id,
+                arrayJoin({regions}) AS region,
                 arrayJoin(arrayMap(n -> toStartOfHour(now()) - INTERVAL 24 HOUR + INTERVAL n HOUR, range(24))) AS hour
         ) AS outer
         LEFT JOIN (
             SELECT
                 properties.monitor_id as monitor_id,
+                properties.region as region,
                 toStartOfHour(timestamp) as hour,
                 avg(toInt(`properties`.`$synthetic_response_time_ms`)) as avg_time_ms
             FROM events
@@ -85,13 +95,17 @@ def fetch_sparkline_data_bulk(team_id: int, monitor_ids: list[str]) -> dict:
                 event = '$synthetic_http_check'
                 AND properties.monitor_id IN {monitor_ids}
                 AND timestamp >= toStartOfHour(now()) - INTERVAL 25 HOUR -- 25 hours to ensure we get the minutes before the current minute from the first hour
-            GROUP BY monitor_id, hour
-            ORDER BY monitor_id, hour ASC
+            GROUP BY monitor_id, region, hour
         ) AS inner
-        ON outer.monitor_id = inner.monitor_id AND outer.hour = inner.hour
-        ORDER BY monitor_id, hour ASC
+        ON outer.monitor_id = inner.monitor_id AND outer.hour = inner.hour AND outer.region = inner.region
+        ORDER BY monitor_id, region ASC, hour ASC
+        LIMIT {limit}
         """,
-        placeholders={"monitor_ids": monitor_ids},
+        placeholders={
+            "monitor_ids": monitor_ids,
+            "regions": regions,
+            "limit": len(monitor_ids) * len(regions) * 24 + 100,
+        },
     )
 
     failure_response = execute_hogql_query(
@@ -106,33 +120,34 @@ def fetch_sparkline_data_bulk(team_id: int, monitor_ids: list[str]) -> dict:
         team=team,
     )
 
-    # Build data structure: monitor_id -> hour -> value
-    failure_data = defaultdict(dict)
-    for row in failure_response.results:
-        monitor_id, hour, failures = row
-        failure_data[monitor_id][hour] = int(failures)
+    # Build data structure: monitor_id -> region -> hour -> value
+    failure_data = {monitor_id: {region: {} for region in regions} for monitor_id in monitor_ids}
+    for monitor_id, hour, region, failures in failure_response.results:
+        failure_data[monitor_id][region][hour] = int(failures)
 
-    response_time_data = defaultdict(dict)
-    for row in response_time_response.results:
-        monitor_id, hour, avg_time = row
-        if avg_time is not None:
-            response_time_data[monitor_id][hour] = float(avg_time)
+    response_time_data = {monitor_id: {region: {} for region in regions} for monitor_id in monitor_ids}
+    for monitor_id, hour, region, avg_time in response_time_response.results:
+        response_time_data[monitor_id][region][hour] = int(avg_time)
 
     # Generate full 24-hour arrays for each monitor
     result = {}
-    base_hour = next(iter(failure_data[monitor_ids[0]].keys()))
+    base_hour = min(list(failure_data[monitor_ids[0]][regions[0]].keys()))
 
     for monitor_id in monitor_ids:
-        failures = []
-        response_times = []
-        current = base_hour
+        failures = {region: [] for region in regions}
+        response_times = {region: [] for region in regions}
 
-        for _ in range(24):
-            failures.append(failure_data[monitor_id].get(current, 0))
-            response_times.append(response_time_data[monitor_id].get(current, 0.0))
-            current += timedelta(hours=1)
+        for region in regions:
+            current = base_hour
 
-        result[monitor_id] = {"failures": failures, "response_times": response_times}
+            for _ in range(24):
+                failures[region].append(failure_data[monitor_id][region].get(current, 0))
+                response_times[region].append(response_time_data[monitor_id][region].get(current, 0.0))
+                current += timedelta(hours=1)
+
+        result[monitor_id] = {
+            region: {"failures": failures[region], "response_times": response_times[region]} for region in regions
+        }
 
     return result
 
@@ -287,17 +302,17 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
 
         return instance
 
-    def get_failure_sparkline(self, obj: SyntheticMonitor) -> list[int]:
+    def get_failure_sparkline(self, obj: SyntheticMonitor) -> dict[str, list[int]]:
         """Get hourly failure counts for the last 24 hours"""
         sparkline_data = self.context.get("sparkline_data", {})
         monitor_data = sparkline_data.get(str(obj.id), {})
-        return monitor_data.get("failures", [])
+        return {region: monitor_data.get(region, {}).get("failures", []) for region in obj.regions}
 
-    def get_response_time_sparkline(self, obj: SyntheticMonitor) -> list[float]:
+    def get_response_time_sparkline(self, obj: SyntheticMonitor) -> dict[str, list[int]]:
         """Get hourly average response times for the last 24 hours"""
         sparkline_data = self.context.get("sparkline_data", {})
         monitor_data = sparkline_data.get(str(obj.id), {})
-        return monitor_data.get("response_times", [])
+        return {region: monitor_data.get(region, {}).get("response_times", []) for region in obj.regions}
 
 
 class SyntheticMonitorViewSet(
@@ -331,10 +346,10 @@ class SyntheticMonitorViewSet(
         context = super().get_serializer_context()
         # Fetch sparkline data for list/retrieve operations
         if self.action in ["list", "retrieve"]:
-            queryset = self.filter_queryset(self.get_queryset())
             if self.action == "retrieve" and "pk" in self.kwargs:
                 monitor_ids = [str(self.kwargs["pk"])]
             else:
+                queryset = self.filter_queryset(self.get_queryset())
                 monitor_ids = [str(id) for id in queryset.values_list("id", flat=True)]
             if monitor_ids:
                 context["sparkline_data"] = fetch_sparkline_data_bulk(self.team_id, monitor_ids)
