@@ -154,7 +154,7 @@ export function Products(): JSX.Element {
                         </p>
                     </div>
 
-                    <div className="flex flex-col gap-6 md:gap-12 justify-center items-center w-full">
+                    <div className="flex flex-col-reverse sm:flex-col gap-6 md:gap-12 justify-center items-center w-full">
                         {isUseCaseOnboardingEnabled ? (
                             // NEW LAYOUT: Horizontal cards with recommendations (when use case onboarding is enabled)
                             <div className="max-w-[800px] w-full flex flex-col">
