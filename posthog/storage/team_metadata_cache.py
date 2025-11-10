@@ -157,11 +157,9 @@ def update_team_metadata_cache(team: Team | str | int) -> bool:
     success = team_metadata_hypercache.update_cache(team)
 
     if success:
-        # Log team ID instead of sensitive API token
         team_id = team.id if isinstance(team, Team) else "unknown"
         logger.info(f"Updated metadata cache for team_id={team_id}")
     else:
-        # Log team ID instead of full team object
         team_id = team.id if isinstance(team, Team) else "unknown"
         logger.warning(f"Failed to update metadata cache for team_id={team_id}")
 
@@ -178,7 +176,6 @@ def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = 
     """
     team_metadata_hypercache.clear_cache(team, kinds=kinds)
 
-    # Log team ID instead of sensitive API token
     team_id = team.id if isinstance(team, Team) else "unknown"
     logger.info(f"Cleared metadata cache for team_id={team_id}")
 
@@ -367,6 +364,3 @@ def get_cache_stats() -> dict[str, Any]:
             "error": str(e),
             "namespace": team_metadata_hypercache.namespace,
         }
-
-
-# Note: Django signals are registered in posthog/tasks/team_metadata.py to avoid circular imports
