@@ -65,6 +65,12 @@ export const SidePanelDocs: StoryFn = () => {
 
     return <BaseTemplate panel={SidePanelTab.Docs} />
 }
+SidePanelDocs.parameters = {
+    testOptions: {
+        // Skip iframe wait since the external docs iframe fails to load in CI
+        skipIframeWait: true,
+    },
+}
 
 export const SidePanelSettings: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Settings} />

@@ -48,6 +48,11 @@ declare module '@storybook/types' {
             snapshotTargetSelector?: string
             /** specify an alternative viewport size */
             viewport?: { width: number; height: number }
+            /**
+             * Skip waiting for iframes to load. Useful for stories with external iframes that fail in CI.
+             * @default false
+             */
+            skipIframeWait?: boolean
         }
         msw?: {
             mocks?: Mocks
@@ -232,21 +237,24 @@ async function takeSnapshotWithTheme(
     }
 
     // wait for iframes to load their content
-    const iframeCount = await page.locator('iframe').count()
-    if (iframeCount > 0) {
-        await page
-            .waitForFunction(
-                () => {
-                    const iframes = Array.from(document.querySelectorAll('iframe'))
-                    return iframes.every((iframe) => iframe.getAttribute('data-load-tracked') === 'loaded')
-                },
-                { timeout: 8000 }
-            )
-            .catch(() => {
-                // if timeout, that's okay - some iframes might not fire load events
-            })
-        // give iframe content a moment to render after load event
-        await page.waitForTimeout(1000)
+    const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
+    if (!skipIframeWait) {
+        const iframeCount = await page.locator('iframe').count()
+        if (iframeCount > 0) {
+            await page
+                .waitForFunction(
+                    () => {
+                        const iframes = Array.from(document.querySelectorAll('iframe'))
+                        return iframes.every((iframe) => iframe.getAttribute('data-load-tracked') === 'loaded')
+                    },
+                    { timeout: 8000 }
+                )
+                .catch(() => {
+                    // if timeout, that's okay - some iframes might not fire load events
+                })
+            // give iframe content a moment to render after load event
+            await page.waitForTimeout(1000)
+        }
     }
 
     // reset scroll positions to ensure consistent snapshots
