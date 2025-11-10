@@ -890,6 +890,17 @@ class DataWarehouseManagedViewsetKind(RootModel[Literal["revenue_analytics"]]):
     root: Literal["revenue_analytics"] = "revenue_analytics"
 
 
+class DataWarehouseSyncInterval(StrEnum):
+    FIELD_5MIN = "5min"
+    FIELD_30MIN = "30min"
+    FIELD_1HOUR = "1hour"
+    FIELD_6HOUR = "6hour"
+    FIELD_12HOUR = "12hour"
+    FIELD_24HOUR = "24hour"
+    FIELD_7DAY = "7day"
+    FIELD_30DAY = "30day"
+
+
 class DataWarehouseViewLinkConfiguration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4521,6 +4532,7 @@ class PathsFilter(BaseModel):
     pathReplacements: Optional[bool] = None
     pathStartKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
     pathsHogQLExpression: Optional[str] = None
+    showFullUrls: Optional[bool] = None
     startPoint: Optional[str] = None
     stepLimit: Optional[int] = 5
 
@@ -8869,12 +8881,14 @@ class ErrorTrackingIssue(BaseModel):
     external_issues: Optional[list[ErrorTrackingExternalReference]] = None
     first_event: Optional[FirstEvent] = None
     first_seen: datetime
+    function: Optional[str] = None
     id: str
     last_event: Optional[LastEvent] = None
     last_seen: datetime
     library: Optional[str] = None
     name: Optional[str] = None
     revenue: Optional[float] = None
+    source: Optional[str] = None
     status: Status
 
 
@@ -11428,6 +11442,10 @@ class RetentionFilter(BaseModel):
     )
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
+    selectedInterval: Optional[int] = Field(
+        default=None,
+        description="The selected interval to display across all cohorts (null = show all intervals for each cohort)",
+    )
     showTrendLines: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
     timeWindowMode: Optional[TimeWindowMode] = Field(
@@ -15000,10 +15018,16 @@ class EndpointRequest(BaseModel):
     cache_age_seconds: Optional[float] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
+    is_materialized: Optional[bool] = Field(
+        default=None, description="Whether this endpoint's query results are materialized to S3"
+    )
     name: Optional[str] = None
     query: Optional[
         Union[HogQLQuery, Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]]
     ] = None
+    sync_frequency: Optional[DataWarehouseSyncInterval] = Field(
+        default=None, description="How frequently should the underlying materialized view be updated"
+    )
 
 
 class FunnelCorrelationActorsQuery(BaseModel):

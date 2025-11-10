@@ -550,7 +550,7 @@ ORDER BY actor_value DESC, actor_id DESC /* Also sorting by ID for determinism *
 """
 
 COMMENT_DISTINCT_ID_COLUMN_SQL = (
-    lambda on_cluster=True: f"ALTER TABLE person_distinct_id {ON_CLUSTER_CLAUSE() if on_cluster else ''} COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
+    lambda: "ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
 )
 
 

@@ -1828,6 +1828,7 @@ dependencies = [
 name = "common-cache"
 version = "0.1.0"
 dependencies = [
+ "common-metrics",
  "common-redis",
  "moka",
  "serde",
@@ -2873,6 +2874,7 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-cache",
  "common-compression",
  "common-cookieless",
  "common-database",

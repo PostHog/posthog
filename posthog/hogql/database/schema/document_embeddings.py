@@ -24,6 +24,7 @@ DOCUMENT_EMBEDDINGS_FIELDS: dict[str, FieldOrTable] = {
     "document_id": StringDatabaseField(name="document_id", nullable=False),
     "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
     "inserted_at": DateTimeDatabaseField(name="inserted_at", nullable=False),
+    "content": StringDatabaseField(name="content", nullable=False),
     "embedding": FloatArrayDatabaseField(name="embedding", nullable=False),
 }
 
