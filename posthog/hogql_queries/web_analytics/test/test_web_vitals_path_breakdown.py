@@ -12,6 +12,8 @@ from posthog.schema import (
     EventPropertyFilter,
     PropertyMathType,
     PropertyOperator,
+    SamplingRate,
+    WebAnalyticsSampling,
     WebVitalsMetric,
     WebVitalsPathBreakdownQuery,
     WebVitalsPathBreakdownResult,
@@ -49,6 +51,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         metric: WebVitalsMetric = WebVitalsMetric.INP,
         percentile: PropertyMathType = PropertyMathType.P75,
         properties=None,
+        sampling: WebAnalyticsSampling | None = None,
     ):
         with freeze_time(self.QUERY_TIMESTAMP):
             query = WebVitalsPathBreakdownQuery(
@@ -57,6 +60,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 percentile=percentile,
                 thresholds=thresholds,
                 properties=properties or [],
+                sampling=sampling,
             )
 
             runner = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query)
@@ -280,3 +284,50 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             results,
         )
+
+    def test_sampling_rate_is_applied(self):
+        self._create_events(
+            [
+                (
+                    "distinct_id_1",
+                    [
+                        ("2025-01-10", "/path1", 50),
+                        ("2025-01-10", "/path2", 100),
+                    ],
+                ),
+            ],
+            WebVitalsMetric.INP,
+        )
+
+        response = self._run_web_vitals_path_breakdown_query(
+            "2025-01-08",
+            "2025-01-15",
+            (100, 200),
+            sampling=WebAnalyticsSampling(enabled=True, forceSamplingRate=SamplingRate(numerator=50)),
+        )
+
+        self.assertEqual(response.samplingRate, SamplingRate(numerator=50))
+
+    def test_sampling_rate_auto_when_not_specified(self):
+        self._create_events(
+            [
+                (
+                    "distinct_id_1",
+                    [
+                        ("2025-01-10", "/path1", 50),
+                    ],
+                ),
+            ],
+            WebVitalsMetric.INP,
+        )
+
+        response = self._run_web_vitals_path_breakdown_query(
+            "2025-01-08",
+            "2025-01-15",
+            (100, 200),
+            sampling=WebAnalyticsSampling(enabled=True),
+        )
+
+        # Should use auto-sampling (no forced rate)
+        self.assertIsNotNone(response.samplingRate)
+        self.assertEqual(response.samplingRate.numerator, 1)

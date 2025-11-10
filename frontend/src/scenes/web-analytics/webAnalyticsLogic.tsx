@@ -178,6 +178,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setProductTab: (tab: ProductTab) => ({ tab }),
         setWebVitalsPercentile: (percentile: WebVitalsPercentile) => ({ percentile }),
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
+        setWebVitalsSamplingRate: (samplingRate: number | null) => ({ samplingRate }),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({ tileId, visualization }),
         setTileVisibility: (tileId: TileId, visible: boolean) => ({ tileId, visible }),
         resetTileVisibility: () => true,
@@ -568,6 +569,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 setWebVitalsTab: (_, { tab }) => tab,
             },
         ],
+        webVitalsSamplingRate: [
+            null as number | null,
+            {
+                setWebVitalsSamplingRate: (_, { samplingRate }) => samplingRate,
+            },
+        ],
         tileVisualizations: [
             {} as Record<TileId, TileVisualizationOption>,
             {
@@ -742,6 +749,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.compareFilter,
                 s.webVitalsTab,
                 s.webVitalsPercentile,
+                s.webVitalsSamplingRate,
                 s.tablesOrderBy,
                 s.conversionGoal,
             ],
@@ -752,6 +760,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 compareFilter,
                 webVitalsTab,
                 webVitalsPercentile,
+                webVitalsSamplingRate,
                 tablesOrderBy,
                 conversionGoal
             ) => ({
@@ -761,6 +770,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 compareFilter,
                 webVitalsTab,
                 webVitalsPercentile,
+                webVitalsSamplingRate,
                 tablesOrderBy,
                 conversionGoal,
             }),
@@ -938,6 +948,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     compareFilter,
                     webVitalsPercentile,
                     webVitalsTab,
+                    webVitalsSamplingRate,
                     tablesOrderBy,
                 },
                 featureFlags,
@@ -949,7 +960,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 hiddenTiles
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
-                const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
+                const sampling = webVitalsSamplingRate
+                    ? { enabled: true, forceSamplingRate: { numerator: webVitalsSamplingRate } }
+                    : { enabled: true }
 
                 const uniqueUserSeries: EventsNode = {
                     event: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE] ? '$screen' : '$pageview',
@@ -1224,6 +1237,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 percentile: webVitalsPercentile,
                                 metric: webVitalsTab,
                                 doPathCleaning: isPathCleaningEnabled,
+                                sampling,
                                 thresholds: [
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].good,
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
@@ -2228,6 +2242,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 compareFilter,
                 productTab,
                 webVitalsPercentile,
+                webVitalsSamplingRate,
                 domainFilter,
                 deviceTypeFilter,
                 tileVisualizations,
@@ -2285,6 +2300,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
             if (productTab === ProductTab.WEB_VITALS) {
                 urlParams.set('percentile', webVitalsPercentile)
+                if (webVitalsSamplingRate) {
+                    urlParams.set('sampling_rate', webVitalsSamplingRate.toString())
+                } else {
+                    urlParams.delete('sampling_rate')
+                }
             }
             if (domainFilter) {
                 urlParams.set('domain', domainFilter)
@@ -2324,6 +2344,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setCompareFilter: stateToUrl,
             setProductTab: stateToUrl,
             setWebVitalsPercentile: stateToUrl,
+            setWebVitalsSamplingRate: stateToUrl,
             setIsPathCleaningEnabled: stateToUrl,
             setDomainFilter: stateToUrl,
             setDeviceTypeFilter: stateToUrl,
@@ -2351,6 +2372,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 filter_test_accounts,
                 compare_filter,
                 percentile,
+                sampling_rate,
                 domain,
                 device_type,
                 tile_visualizations,
@@ -2430,6 +2452,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (percentile && percentile !== values.webVitalsPercentile) {
                 actions.setWebVitalsPercentile(percentile as WebVitalsPercentile)
+            }
+            if (sampling_rate !== undefined) {
+                const parsedRate = sampling_rate ? parseInt(sampling_rate) : null
+                if (parsedRate !== values.webVitalsSamplingRate) {
+                    actions.setWebVitalsSamplingRate(parsedRate)
+                }
             }
             if (domain && domain !== values.domainFilter) {
                 actions.setDomainFilter(domain === 'all' ? null : domain)

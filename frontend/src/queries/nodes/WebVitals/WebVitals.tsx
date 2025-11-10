@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { Link } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSlider } from 'lib/lemon-ui/LemonSlider/LemonSlider'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
@@ -41,8 +42,9 @@ export function WebVitals(props: {
 
     useAttachedLogic(logic, props.attachTo)
 
-    const { webVitalsPercentile, webVitalsTab, webVitalsMetricQuery } = useValues(webAnalyticsLogic)
-    const { setWebVitalsTab } = useActions(webAnalyticsLogic)
+    const { webVitalsPercentile, webVitalsTab, webVitalsMetricQuery, webVitalsSamplingRate } =
+        useValues(webAnalyticsLogic)
+    const { setWebVitalsTab, setWebVitalsSamplingRate } = useActions(webAnalyticsLogic)
     const { response, responseLoading } = useValues(logic)
 
     // Manually handle loading state when loading to avoid showing stale data while refreshing
@@ -98,12 +100,32 @@ export function WebVitals(props: {
                         isLoading={responseLoading}
                     />
                 </div>
-                <span className="text-xs text-text-tertiary self-center sm:self-end">
-                    Metrics above are from the last day in the selected time range.{' '}
-                    <Link to="https://posthog.com/docs/web-analytics/web-vitals#web-vitals-dashboard" target="_blank">
-                        Learn more in the Docs.
-                    </Link>
-                </span>
+                <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center justify-between">
+                    <span className="text-xs text-text-tertiary">
+                        Metrics above are from the last day in the selected time range.{' '}
+                        <Link
+                            to="https://posthog.com/docs/web-analytics/web-vitals#web-vitals-dashboard"
+                            target="_blank"
+                        >
+                            Learn more in the Docs.
+                        </Link>
+                    </span>
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-text-tertiary whitespace-nowrap">Sampling:</span>
+                        <div className="flex items-center gap-2 w-48">
+                            <span className="text-xs text-text-tertiary">
+                                {webVitalsSamplingRate ? `${webVitalsSamplingRate}%` : 'Auto'}
+                            </span>
+                            <LemonSlider
+                                min={1}
+                                max={100}
+                                step={1}
+                                value={webVitalsSamplingRate ?? 100}
+                                onChange={(value) => setWebVitalsSamplingRate(value === 100 ? null : value)}
+                            />
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2">

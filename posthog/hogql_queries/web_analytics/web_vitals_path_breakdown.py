@@ -52,6 +52,7 @@ SELECT
     {breakdown_by} AS path,
     {percentile} AS value
 FROM events
+SAMPLE {sample_rate}
 WHERE and(event == '$web_vitals', path IS NOT NULL, {inside_periods_expr}, {event_properties_expr})
 GROUP BY path
 HAVING value >= 0
@@ -62,6 +63,7 @@ HAVING value >= 0
                 "percentile": self._percentile_expr(),
                 "inside_periods_expr": self._periods_expression(),
                 "event_properties_expr": self._event_properties(),
+                "sample_rate": self._sample_ratio,
             },
         )
 
@@ -100,6 +102,7 @@ HAVING value >= 0
                     poor=self._get_results_for_band(response.results, WebVitalsMetricBand.POOR),
                 )
             ],
+            samplingRate=self._sample_rate,
             timings=response.timings,
             hogql=response.hogql,
             modifiers=self.modifiers,
