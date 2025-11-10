@@ -49,6 +49,10 @@ class MaxChatMixin(BaseModel):
     Whether to inject project/org/user context into the system prompt.
     Set to False to disable automatic context injection.
     """
+    custom_metadata: dict[str, Any] | None = None
+    """
+    Custom metadata to be added to the generation metadata.
+    """
 
     def model_post_init(self, __context: Any) -> None:
         if self.max_retries is None:
@@ -104,18 +108,44 @@ class MaxChatMixin(BaseModel):
                     break
         return messages
 
-    def _with_billing_metadata(
+    # def _with_custom_metadata(
+    #     self,
+    #     kwargs: Mapping[str, Any] | None = None,
+    # ) -> dict[str, Any]:
+    #     """Return a shallow copy of kwargs with custom metadata and billable flag injected into metadata."""
+    #     new_kwargs = dict(kwargs or {})
+    #     metadata = new_kwargs.get("metadata", {})
+    #     if not isinstance(metadata, dict):
+    #         metadata = {}
+
+    #     # Create a new metadata dict with custom metadata nested properly
+    #     metadata = dict(metadata)
+
+    #     # Add billable flag to custom_metadata
+    #     custom_meta = dict(self.custom_metadata) if self.custom_metadata else {}
+    #     custom_meta["$ai_billable"] = self.billable
+
+    #     metadata["custom_metadata"] = custom_meta
+
+    #     return {**new_kwargs, "metadata": metadata}
+
+    def _with_custom_metadata(
         self,
         kwargs: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Return a shallow copy of kwargs with posthog_ai_billable injected into metadata."""
+        """Return a shallow copy of kwargs with custom metadata and
+        billable flag injected into metadata."""
         new_kwargs = dict(kwargs or {})
-        metadata = new_kwargs.get("metadata", {})
-        if not isinstance(metadata, dict):
-            raise TypeError("Expected 'metadata' to be a dict if provided")
-        metadata = dict(metadata)
-        metadata["posthog_ai_billable"] = self.billable
-        return {**new_kwargs, "metadata": metadata}
+        metadata = dict(new_kwargs.get("metadata") or {})
+
+        # Build custom_metadata with billable flag
+        custom_meta = dict(self.custom_metadata or {})
+        custom_meta["$ai_billable"] = self.billable
+
+        metadata["custom_metadata"] = custom_meta
+        new_kwargs["metadata"] = metadata
+
+        return new_kwargs
 
 
 class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
@@ -161,7 +191,7 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
             else:
                 messages = self._enrich_messages(messages, project_org_user_variables)
 
-        kwargs = self._with_billing_metadata(kwargs)
+        kwargs = self._with_custom_metadata(kwargs)
 
         return super().generate(messages, *args, **kwargs)
 
@@ -178,7 +208,7 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
             else:
                 messages = self._enrich_messages(messages, project_org_user_variables)
 
-        kwargs = self._with_billing_metadata(kwargs)
+        kwargs = self._with_custom_metadata(kwargs)
 
         return await super().agenerate(messages, *args, **kwargs)
 
@@ -200,7 +230,7 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
             project_org_user_variables = self._get_project_org_user_variables()
             messages = self._enrich_messages(messages, project_org_user_variables)
 
-        kwargs = self._with_billing_metadata(kwargs)
+        kwargs = self._with_custom_metadata(kwargs)
 
         return super().generate(messages, *args, **kwargs)
 
@@ -214,6 +244,6 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
             project_org_user_variables = await self._aget_project_org_user_variables()
             messages = self._enrich_messages(messages, project_org_user_variables)
 
-        kwargs = self._with_billing_metadata(kwargs)
+        kwargs = self._with_custom_metadata(kwargs)
 
         return await super().agenerate(messages, *args, **kwargs)
