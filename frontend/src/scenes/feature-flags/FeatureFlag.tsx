@@ -11,6 +11,7 @@ import {
     IconCollapse,
     IconCopy,
     IconExpand,
+    IconFlask,
     IconGlobe,
     IconInfo,
     IconLaptop,
@@ -410,13 +411,27 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
                         <SceneContent>
                             {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
-                                <LemonBanner type="warning">
-                                    This feature flag is linked to an experiment. Edit settings here only for advanced
-                                    functionality. If unsure, go back to{' '}
-                                    <Link to={urls.experiment(featureFlag.experiment_set[0])}>
-                                        the experiment creation screen.
-                                    </Link>
-                                </LemonBanner>
+                                <div className="mb-4">
+                                    <LemonBanner type="info">
+                                        <div className="flex items-center justify-between w-full">
+                                            <div>
+                                                <strong>This feature flag is linked to an experiment</strong>
+                                                <p className="mb-0 mt-1">
+                                                    Edit settings here only for advanced functionality. For standard
+                                                    experiment configuration, use the experiment view.
+                                                </p>
+                                            </div>
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                icon={<IconFlask />}
+                                                to={urls.experiment(featureFlag.experiment_set[0])}
+                                            >
+                                                View Experiment
+                                            </LemonButton>
+                                        </div>
+                                    </LemonBanner>
+                                </div>
                             )}
                             <div className="max-w-1/2 deprecated-space-y-4">
                                 <LemonField
@@ -471,6 +486,28 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         defaultValue={featureFlag.name || ''}
                                     />
                                 </LemonField>
+                                {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
+                                    <div className="mb-4 p-3 border rounded bg-bg-3000">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <div className="text-xs text-muted uppercase tracking-wide mb-1">
+                                                    Linked Experiment
+                                                </div>
+                                                <div className="text-sm">
+                                                    This feature flag is powering an active experiment
+                                                </div>
+                                            </div>
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                icon={<IconFlask />}
+                                                to={urls.experiment(featureFlag.experiment_set[0])}
+                                            >
+                                                View Experiment
+                                            </LemonButton>
+                                        </div>
+                                    </div>
+                                )}
                                 {hasAvailableFeature(AvailableFeature.TAGGING) && (
                                     <LemonField name="tags" label="Tags">
                                         {({ value: formTags, onChange: onChangeTags }) => (
@@ -655,6 +692,20 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     <>
                         <ScenePanel>
                             <ScenePanelInfoSection>
+                                {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
+                                    <div className="mb-2">
+                                        <div className="text-xs text-muted uppercase tracking-wide mb-1">
+                                            Linked Experiment
+                                        </div>
+                                        <Link
+                                            to={urls.experiment(featureFlag.experiment_set[0])}
+                                            className="flex items-center gap-1 text-link hover:underline"
+                                        >
+                                            <IconFlask className="text-sm" />
+                                            View Experiment
+                                        </Link>
+                                    </div>
+                                )}
                                 {hasAvailableFeature(AvailableFeature.TAGGING) && (
                                     <>
                                         {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
@@ -814,6 +865,20 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     </>
                                 }
                             />
+                            {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
+                                <div className="mb-4">
+                                    <div className="flex items-center gap-2 text-sm">
+                                        <span className="text-muted">Linked experiment:</span>
+                                        <Link
+                                            to={urls.experiment(featureFlag.experiment_set[0])}
+                                            className="flex items-center gap-1 font-semibold"
+                                        >
+                                            <IconFlask className="text-base" />
+                                            View Experiment
+                                        </Link>
+                                    </div>
+                                </div>
+                            )}
                             <LemonTabs
                                 activeKey={activeTab}
                                 onChange={(tab) => tab !== activeTab && setActiveTab(tab)}
