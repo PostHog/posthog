@@ -153,6 +153,7 @@ def doctor_disk(
             cleanup=_cleanup_flox_logs,
             confirmation_prompt="Clean up Flox logs older than 7 days?",
             dry_run_message="Would run: find .flox/log -name '*.log' -mtime +7 -delete",
+            skip_if_empty=False,
         ),
         CleanupCategory(
             id="docker",
