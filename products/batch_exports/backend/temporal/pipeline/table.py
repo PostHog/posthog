@@ -48,7 +48,6 @@ def _make_ensure_array(
     return f
 
 
-TIMESTAMP_S_TO_SECONDS_SINCE_EPOCH = _make_ensure_array(functools.partial(pa.compute.seconds_between, EPOCH_SECONDS))
 # Not offering this one as a default compatible type as it can result in data loss
 # (truncation of the microsecond part). Leaving it up to specific destinations to decide
 # whether to use it.
