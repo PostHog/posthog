@@ -8,10 +8,8 @@ from posthog.models import Team, User
 
 from ee.hogai.utils.types.base import NodePath
 
-from .presets import MODE_REGISTRY
-
 if TYPE_CHECKING:
-    from .nodes import AgentNode, AgentToolsNode
+    from .nodes import AgentExecutable, AgentToolsExecutable
 
 
 class AgentModeValidator(BaseModel):
@@ -26,8 +24,8 @@ def validate_mode(mode: Any) -> AgentMode | None:
 
 
 class AgentModeManager:
-    __node: Optional["AgentNode"] = None
-    __tools_node: Optional["AgentToolsNode"] = None
+    _node: Optional["AgentExecutable"] = None
+    _tools_node: Optional["AgentToolsExecutable"] = None
 
     def __init__(self, *, team: Team, user: User, node_path: tuple[NodePath, ...], mode: AgentMode | None = None):
         self._team = team
@@ -36,28 +34,32 @@ class AgentModeManager:
         self._mode = mode or AgentMode.PRODUCT_ANALYTICS
 
     @property
-    def node(self) -> "AgentNode":
-        if not self.__node:
+    def node(self) -> "AgentExecutable":
+        if not self._node:
+            from ee.hogai.mode_registry import MODE_REGISTRY
+
             agent_definition = MODE_REGISTRY[self._mode]
-            self.__node = agent_definition.node_class(
+            self._node = agent_definition.node_class(
                 team=self._team,
                 user=self._user,
                 node_path=self._node_path,
                 toolkit_class=agent_definition.toolkit_class,
             )
-        return self.__node
+        return self._node
 
     @property
-    def tools_node(self) -> "AgentToolsNode":
-        if not self.__tools_node:
+    def tools_node(self) -> "AgentToolsExecutable":
+        if not self._tools_node:
+            from ee.hogai.mode_registry import MODE_REGISTRY
+
             agent_definition = MODE_REGISTRY[self._mode]
-            self.__tools_node = agent_definition.tools_node_class(
+            self._tools_node = agent_definition.tools_node_class(
                 team=self._team,
                 user=self._user,
                 node_path=self._node_path,
                 toolkit_class=agent_definition.toolkit_class,
             )
-        return self.__tools_node
+        return self._tools_node
 
     @property
     def mode(self) -> AgentMode:
@@ -66,5 +68,5 @@ class AgentModeManager:
     @mode.setter
     def mode(self, value: AgentMode):
         self._mode = value
-        self.__node = None
-        self.__tools_node = None
+        self._node = None
+        self._tools_node = None

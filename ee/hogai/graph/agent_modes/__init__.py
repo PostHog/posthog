@@ -2,11 +2,11 @@ from .compaction_manager import AnthropicConversationCompactionManager, Conversa
 from .const import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
 from .factory import AgentDefinition, AgentExample
 from .mode_manager import AgentModeManager
-from .nodes import AgentNode, AgentToolkit, AgentToolsNode
+from .nodes import AgentExecutable, AgentToolkit, AgentToolsExecutable
 
 __all__ = [
-    "AgentNode",
-    "AgentToolsNode",
+    "AgentExecutable",
+    "AgentToolsExecutable",
     "AgentToolkit",
     "AgentModeManager",
     "AgentDefinition",

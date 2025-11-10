@@ -16,7 +16,7 @@ from ..product_analytics import ProductAnalyticsAgentToolkit, product_analytics_
 
 
 class TestProductAnalyticsAgentToolkit(BaseTest):
-    @patch("ee.hogai.graph.agent_modes.nodes.AgentNode._get_model")
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
     @patch("posthoganalytics.feature_enabled")
     async def test_get_tools_session_summarization_feature_flag(self, mock_feature_enabled, mock_model):
         """Test that session_summarization tool is only included when feature flag is enabled"""
@@ -55,7 +55,7 @@ class TestProductAnalyticsAgentNode(BaseTest):
     )
     async def test_node_handles_insight_tool_call(self, insight_type, content):
         with patch(
-            "ee.hogai.graph.agent_modes.nodes.AgentNode._get_model",
+            "ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model",
             return_value=FakeChatOpenAI(
                 responses=[
                     LangchainAIMessage(

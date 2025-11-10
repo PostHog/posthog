@@ -5,7 +5,7 @@ from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState, PartialAssistantState
 
-from .nodes import AgentRootNode, AgentRootToolsNode
+from .nodes import AgentGraphNode, AgentGraphToolsNode
 
 
 class AgentExecutorGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
@@ -19,7 +19,7 @@ class AgentExecutorGraph(BaseAssistantGraph[AssistantState, PartialAssistantStat
 
     def add_agent_node(self, router: Callable[[AssistantState], AssistantNodeName] | None = None):
         self._has_start_node = True
-        root_node = AgentRootNode(self._team, self._user)
+        root_node = AgentGraphNode(self._team, self._user)
         self.add_node(AssistantNodeName.ROOT, root_node)
         self.add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
         self._graph.add_conditional_edges(
@@ -29,7 +29,7 @@ class AgentExecutorGraph(BaseAssistantGraph[AssistantState, PartialAssistantStat
         return self
 
     def add_agent_tools_node(self, router: Callable[[AssistantState], AssistantNodeName] | None = None):
-        agent_tools_node = AgentRootToolsNode(self._team, self._user)
+        agent_tools_node = AgentGraphToolsNode(self._team, self._user)
         self.add_node(AssistantNodeName.ROOT_TOOLS, agent_tools_node)
         self._graph.add_conditional_edges(
             AssistantNodeName.ROOT_TOOLS,

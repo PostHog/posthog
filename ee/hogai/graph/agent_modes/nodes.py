@@ -30,7 +30,7 @@ from posthog.models import Team, User
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.graph.agent_modes.mode_manager import validate_mode
-from ee.hogai.graph.base import BaseExecutableAssistantNode
+from ee.hogai.graph.base import BaseAssistantExecutable
 from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSummarizer
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
@@ -150,13 +150,13 @@ class AgentToolkit:
         return available_tools
 
 
-class BaseAgentNode(BaseExecutableAssistantNode[AssistantState, PartialAssistantState]):
+class BaseAgentExecutable(BaseAssistantExecutable[AssistantState, PartialAssistantState]):
     def __init__(self, *, team: Team, user: User, toolkit_class: type[AgentToolkit], node_path: tuple[NodePath, ...]):
         super().__init__(team, user, node_path)
         self._toolkit_class = toolkit_class
 
 
-class AgentNode(BaseAgentNode):
+class AgentExecutable(BaseAgentExecutable):
     MAX_TOOL_CALLS = 24
     """
     Determines the maximum number of tool calls allowed in a single generation.
@@ -288,7 +288,7 @@ class AgentNode(BaseAgentNode):
         """
         Get the system prompt template for the agent.
 
-        Injected variables:
+        The defined prompt might contain the following variables:
         - `groups` – a prompt containing the description of the groups.
         - `billing_context` – a prompt containing the billing context: permissions and billing information.
         - `core_memory_prompt` – memory contents.
@@ -429,7 +429,7 @@ class AgentNode(BaseAgentNode):
         return current_mode
 
 
-class AgentToolsNode(BaseAgentNode):
+class AgentToolsExecutable(BaseAgentExecutable):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
 

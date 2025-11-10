@@ -25,7 +25,7 @@ from ee.hogai.utils.types.base import (
 from ee.models import Conversation
 
 
-class BaseExecutableAssistantNode(
+class BaseAssistantExecutable(
     Generic[StateType, PartialStateType], AssistantContextMixin, AssistantDispatcherMixin, ABC
 ):
     """Core assistant node with execution logic only."""
@@ -100,11 +100,11 @@ class BaseExecutableAssistantNode(
             return await self.arun(state, config)
 
 
-class BaseAssistantNode(BaseExecutableAssistantNode[StateType, PartialStateType]):
+class BaseAssistantNode(BaseAssistantExecutable[StateType, PartialStateType]):
     """Assistant node with dispatching and conversation cancellation support."""
 
     _is_context_path_used: bool = False
-    """Whether the constructor set the node path or the context path is used"""
+    """Whether the constructor set the node path or the node path from the context is used"""
 
     def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...] | None = None):
         if node_path is None:
