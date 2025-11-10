@@ -102,7 +102,7 @@ pub fn router<
     is_mirror_deploy: bool,
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
-    request_timeout_seconds: u64,
+    request_timeout_seconds: Option<u64>,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -269,17 +269,22 @@ pub fn router<
         router = router.layer(ConcurrencyLimitLayer::new(limit));
     }
 
-    let timeout_duration = StdDuration::from_secs(request_timeout_seconds);
-    let router = router
-        .merge(status_router)
-        .layer(axum::middleware::from_fn(
+    // add this prior to timeout middleware to ensure healthchecks are sensitive to load
+    router = router.merge(status_router);
+
+    if let Some(request_timeout_seconds) = request_timeout_seconds {
+        let timeout_duration = StdDuration::from_secs(request_timeout_seconds);
+        router = router.layer(axum::middleware::from_fn(
             move |req: axum::extract::Request, next: axum::middleware::Next| async move {
                 match tokio::time::timeout(timeout_duration, next.run(req)).await {
                     Ok(response) => response,
                     Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response(),
                 }
             },
-        ))
+        ));
+    }
+
+    let router = router
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(axum::middleware::from_fn(track_metrics))
@@ -349,7 +354,7 @@ mod tests {
         "fast response"
     }
 
-    fn create_test_router_base(timeout_seconds: u64) -> Router {
+    fn create_test_router_base(timeout_seconds: Option<u64>) -> Router {
         let timesource = TestTimeSource;
         let liveness = HealthRegistry::new("timeout_tests");
         let sink = TestSink;
@@ -405,7 +410,7 @@ mod tests {
             log_level: tracing::Level::INFO,
             verbose_sample_percent: 0.0,
             ai_max_sum_of_parts_bytes: 26_214_400,
-            request_timeout_seconds: 10,
+            request_timeout_seconds: timeout_seconds,
         };
 
         let quota_limiter =
@@ -436,7 +441,7 @@ mod tests {
     async fn test_timeout_returns_408() {
         // Use a 1 second timeout - the slow handler sleeps for 2 seconds, so it should timeout
         // Create router with test route included before timeout middleware is applied
-        let router = create_test_router_base(1).route("/slow", get(slow_handler));
+        let router = create_test_router_base(Some(1)).route("/slow", get(slow_handler));
         let timeout_duration = StdDuration::from_secs(1);
         let router = router.layer(axum::middleware::from_fn(
             move |req: axum::extract::Request, next: axum::middleware::Next| async move {
@@ -457,7 +462,7 @@ mod tests {
     #[tokio::test]
     async fn test_normal_request_completes_within_timeout() {
         // Use a longer timeout (1 second) so normal requests complete
-        let router = create_test_router_base(1).route("/fast", get(fast_handler));
+        let router = create_test_router_base(Some(1)).route("/fast", get(fast_handler));
         let timeout_duration = StdDuration::from_secs(1);
         let router = router.layer(axum::middleware::from_fn(
             move |req: axum::extract::Request, next: axum::middleware::Next| async move {
@@ -478,7 +483,7 @@ mod tests {
     #[tokio::test]
     async fn test_timeout_configuration_works() {
         // Test with 1 second timeout - should timeout on slow handler (which sleeps 2 seconds)
-        let router = create_test_router_base(1).route("/slow", get(slow_handler));
+        let router = create_test_router_base(Some(1)).route("/slow", get(slow_handler));
         let timeout_duration = StdDuration::from_secs(1);
         let router = router.layer(axum::middleware::from_fn(
             move |req: axum::extract::Request, next: axum::middleware::Next| async move {
