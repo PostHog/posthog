@@ -27,10 +27,14 @@ operations = [
     run_sql_with_exceptions(
         ADD_CONTENT_COLUMN_SQL.format(table_name=DOCUMENT_EMBEDDINGS),
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        sharded=False,
+        is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
         ADD_CONTENT_COLUMN_SQL.format(table_name=DOCUMENT_EMBEDDING_WRITABLE),
         node_roles=[NodeRole.INGESTION_SMALL],
+        sharded=False,
+        is_alter_on_replicated_table=False,
     ),
     run_sql_with_exceptions(
         KAFKA_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
