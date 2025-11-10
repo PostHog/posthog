@@ -1,4 +1,4 @@
--- Error normalization pipeline: extract -> normalize IDs -> normalize UUIDs -> normalize timestamps -> normalize paths -> normalize response IDs -> normalize tool call IDs -> normalize token counts -> normalize all remaining numbers
+-- Error normalization pipeline: extract -> normalize IDs -> normalize UUIDs -> normalize timestamps -> normalize paths -> normalize response IDs -> normalize tool call IDs -> normalize hex IDs -> normalize token counts -> normalize all remaining numbers
 -- This multi-step CTE approach makes it easy to understand and maintain each normalization step
 
 WITH extracted_errors AS (
@@ -94,8 +94,19 @@ tool_call_ids_normalized AS (
         replaceRegexpAll(error_text, 'tool_call_id=[''"][a-zA-Z0-9_-]+[''"]', 'tool_call_id=''<TOOL_CALL_ID>''') as error_text
     FROM response_ids_normalized
 ),
+hex_ids_normalized AS (
+    -- Step 8: Normalize hex IDs (MD5, SHA hashes, etc.) - catches patterns like id='e8631f8c4650120cd5848570185bbcd7'
+    SELECT
+        distinct_id,
+        timestamp,
+        event,
+        ai_trace_id,
+        ai_session_id,
+        replaceRegexpAll(error_text, '(?i)id=[''"][a-f0-9]{{32}}[''"]', 'id=''<HEX_ID>''') as error_text
+    FROM tool_call_ids_normalized
+),
 token_counts_normalized AS (
-    -- Step 8: Normalize token count values
+    -- Step 9: Normalize token count values
     SELECT
         distinct_id,
         timestamp,
@@ -103,10 +114,10 @@ token_counts_normalized AS (
         ai_trace_id,
         ai_session_id,
         replaceRegexpAll(error_text, '"tokenCount":[0-9]+', '"tokenCount":<TOKEN_COUNT>') as error_text
-    FROM tool_call_ids_normalized
+    FROM hex_ids_normalized
 ),
 all_numbers_normalized AS (
-    -- Step 9: Normalize all remaining numbers as final fallback
+    -- Step 10: Normalize all remaining numbers as final fallback
     SELECT
         distinct_id,
         timestamp,

@@ -7,7 +7,7 @@ that differ only in dynamic values like IDs, timestamps, token counts, etc.
 import uuid
 from datetime import UTC, datetime
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from parameterized import parameterized
 
@@ -17,7 +17,7 @@ from products.llm_analytics.backend.queries import get_errors_query
 
 
 class TestErrorNormalization(ClickhouseTestMixin, APIBaseTest):
-    """Test the 9-step error normalization pipeline."""
+    """Test the 10-step error normalization pipeline."""
 
     def _create_ai_event_with_error(self, error_message: str, distinct_id: str | None = None):
         """Helper to create an AI event with a specific error message."""
@@ -30,6 +30,7 @@ class TestErrorNormalization(ClickhouseTestMixin, APIBaseTest):
             distinct_id=distinct_id,
             properties={
                 "$ai_error": error_message,
+                "$ai_is_error": "true",
                 "$ai_model": "test-model",
                 "$ai_provider": "test-provider",
             },
@@ -38,20 +39,25 @@ class TestErrorNormalization(ClickhouseTestMixin, APIBaseTest):
 
     def _execute_normalization_query(self) -> list:
         """Execute the error normalization query and return normalized errors."""
+        # Flush events to ClickHouse
+        flush_persons_and_events()
+
         # Load query from shared errors.sql file and customize for testing
         base_query = get_errors_query(
             filters=f"team_id = {self.team.pk}",
-            order_by="occurrences",
+            order_by="generations",
             order_direction="DESC",
         )
 
-        # Modify the query to count occurrences instead of all the metrics
+        # Modify the query to count generations (which our test events are) instead of all metrics
         # Replace the final SELECT with a simpler version for testing
         query = base_query.replace(
             """SELECT
     normalized_error as error,
     countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
-    count() as generations,
+    countIf(event = '$ai_generation') as generations,
+    countIf(event = '$ai_span') as spans,
+    countIf(event = '$ai_embedding') as embeddings,
     countDistinctIf(ai_session_id, notEmpty(ai_session_id)) as sessions,
     uniq(distinct_id) as users,
     uniq(toDate(timestamp)) as days_seen,
@@ -59,11 +65,11 @@ class TestErrorNormalization(ClickhouseTestMixin, APIBaseTest):
     max(timestamp) as last_seen
 FROM all_numbers_normalized
 GROUP BY normalized_error
-ORDER BY occurrences DESC
+ORDER BY {orderBy} {orderDirection}
 LIMIT 50""",
             """SELECT
     normalized_error as error,
-    count() as occurrences
+    countIf(event = '$ai_generation') as occurrences
 FROM all_numbers_normalized
 GROUP BY normalized_error
 ORDER BY occurrences DESC""",
@@ -141,7 +147,16 @@ ORDER BY occurrences DESC""",
                 ],
                 "tool_call_id='<TOOL_CALL_ID>' failed",
             ),
-            # Test Step 8: Token counts
+            # Test Step 8: Hex IDs (MD5, SHA, etc.)
+            (
+                "Hex ID normalization",
+                [
+                    "Error with id='e8631f8c4650120cd5848570185bbcd7' occurred",
+                    "Error with id='a1b2c3d4e5f6a0b1c2d3e4f5abcdef01' occurred",
+                ],
+                "Error with id='<HEX_ID>' occurred",
+            ),
+            # Test Step 9: Token counts
             (
                 "Token count normalization",
                 [
@@ -150,7 +165,7 @@ ORDER BY occurrences DESC""",
                 ],
                 'Limit exceeded: "tokenCount":<TOKEN_COUNT>',
             ),
-            # Test Step 9: All remaining numbers
+            # Test Step 10: All remaining numbers
             (
                 "General number normalization",
                 [
@@ -249,6 +264,7 @@ ORDER BY occurrences DESC""",
             distinct_id="user_1",
             properties={
                 "$ai_error": "",
+                "$ai_is_error": "true",
                 "$ai_model": "test",
             },
         )
@@ -259,6 +275,7 @@ ORDER BY occurrences DESC""",
             distinct_id="user_2",
             properties={
                 "$ai_error": "null",
+                "$ai_is_error": "true",
                 "$ai_model": "test",
             },
         )
