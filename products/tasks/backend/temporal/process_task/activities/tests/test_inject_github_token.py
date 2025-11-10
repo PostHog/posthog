@@ -3,6 +3,8 @@ import os
 import pytest
 from unittest.mock import patch
 
+from asgiref.sync import async_to_sync
+
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.inject_github_token import (
@@ -41,7 +43,7 @@ class TestInjectGitHubTokenActivity:
             ) as mock_get_token:
                 mock_get_token.return_value = test_token
 
-                activity_environment.run(inject_github_token, input_data)
+                async_to_sync(activity_environment.run)(inject_github_token, input_data)
 
                 check_result = sandbox.execute("bash -c 'source ~/.bashrc && echo $GITHUB_TOKEN'")
                 assert check_result.exit_code == 0
@@ -66,4 +68,4 @@ class TestInjectGitHubTokenActivity:
             mock_get_token.return_value = "test_token"
 
             with pytest.raises(SandboxNotFoundError):
-                activity_environment.run(inject_github_token, input_data)
+                async_to_sync(activity_environment.run)(inject_github_token, input_data)

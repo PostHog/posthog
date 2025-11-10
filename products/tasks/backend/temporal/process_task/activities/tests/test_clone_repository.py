@@ -3,6 +3,8 @@ import os
 import pytest
 from unittest.mock import patch
 
+from asgiref.sync import async_to_sync
+
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import RepositoryCloneError, SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.clone_repository import (
@@ -40,7 +42,7 @@ class TestCloneRepositoryActivity:
             ) as mock_get_token:
                 mock_get_token.return_value = ""
 
-                result = activity_environment.run(clone_repository, input_data)
+                result = async_to_sync(activity_environment.run)(clone_repository, input_data)
 
                 assert result is not None
                 assert "posthog-js" in result
@@ -87,7 +89,7 @@ class TestCloneRepositoryActivity:
             ) as mock_get_token:
                 mock_get_token.return_value = ""
 
-                result1 = activity_environment.run(clone_repository, input_data)
+                result1 = async_to_sync(activity_environment.run)(clone_repository, input_data)
                 assert result1 is not None
 
                 sandbox.execute("echo 'test' > /tmp/workspace/repos/posthog/posthog-js/test_file.txt")
@@ -95,7 +97,7 @@ class TestCloneRepositoryActivity:
                 check_file = sandbox.execute("cat /tmp/workspace/repos/posthog/posthog-js/test_file.txt")
                 assert "test" in check_file.stdout
 
-                result2 = activity_environment.run(clone_repository, input_data)
+                result2 = async_to_sync(activity_environment.run)(clone_repository, input_data)
                 assert "Cloning into 'posthog-js'" in result2 or "posthog-js" in result2
 
                 check_file_after = sandbox.execute("ls /tmp/workspace/repos/posthog/posthog-js/test_file.txt 2>&1")
@@ -134,7 +136,7 @@ class TestCloneRepositoryActivity:
                 mock_get_token.return_value = "invalid-token"
 
                 with pytest.raises(RepositoryCloneError) as exc_info:
-                    activity_environment.run(clone_repository, input_data)
+                    async_to_sync(activity_environment.run)(clone_repository, input_data)
 
                 assert "Git clone failed" in str(exc_info.value)
 
@@ -172,7 +174,7 @@ class TestCloneRepositoryActivity:
                         distinct_id="test-user-id",
                     )
 
-                    result = activity_environment.run(clone_repository, input_data)
+                    result = async_to_sync(activity_environment.run)(clone_repository, input_data)
                     repo_name = repo.split("/")[1]
                     assert repo_name in result
 
@@ -208,4 +210,4 @@ class TestCloneRepositoryActivity:
             mock_get_token.return_value = ""
 
             with pytest.raises(SandboxNotFoundError):
-                activity_environment.run(clone_repository, input_data)
+                async_to_sync(activity_environment.run)(clone_repository, input_data)

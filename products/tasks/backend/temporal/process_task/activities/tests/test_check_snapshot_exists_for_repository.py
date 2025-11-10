@@ -2,6 +2,8 @@ import time
 
 import pytest
 
+from asgiref.sync import async_to_sync
+
 from posthog.models.integration import Integration
 
 from products.tasks.backend.models import SandboxSnapshot
@@ -34,7 +36,7 @@ class TestCheckSnapshotExistsForRepositoryActivity:
             input_data = CheckSnapshotExistsForRepositoryInput(
                 github_integration_id=github_integration.id, repository="test-owner/test-repo"
             )
-            result = activity_environment.run(check_snapshot_exists_for_repository, input_data)
+            result = async_to_sync(activity_environment.run)(check_snapshot_exists_for_repository, input_data)
 
             assert isinstance(result, CheckSnapshotExistsForRepositoryOutput)
             assert result.exists is True
@@ -47,7 +49,7 @@ class TestCheckSnapshotExistsForRepositoryActivity:
         input_data = CheckSnapshotExistsForRepositoryInput(
             github_integration_id=github_integration.id, repository="nonexistent/repo"
         )
-        result = activity_environment.run(check_snapshot_exists_for_repository, input_data)
+        result = async_to_sync(activity_environment.run)(check_snapshot_exists_for_repository, input_data)
 
         assert isinstance(result, CheckSnapshotExistsForRepositoryOutput)
         assert result.exists is False
@@ -63,7 +65,7 @@ class TestCheckSnapshotExistsForRepositoryActivity:
             input_data = CheckSnapshotExistsForRepositoryInput(
                 github_integration_id=github_integration.id, repository="test-owner/test-repo"
             )
-            result = activity_environment.run(check_snapshot_exists_for_repository, input_data)
+            result = async_to_sync(activity_environment.run)(check_snapshot_exists_for_repository, input_data)
 
             assert isinstance(result, CheckSnapshotExistsForRepositoryOutput)
             assert result.exists is False
@@ -92,7 +94,7 @@ class TestCheckSnapshotExistsForRepositoryActivity:
             input_data = CheckSnapshotExistsForRepositoryInput(
                 github_integration_id=github_integration.id, repository="test-owner/test-repo"
             )
-            result = activity_environment.run(check_snapshot_exists_for_repository, input_data)
+            result = async_to_sync(activity_environment.run)(check_snapshot_exists_for_repository, input_data)
 
             assert isinstance(result, CheckSnapshotExistsForRepositoryOutput)
             assert result.exists is False
@@ -125,7 +127,7 @@ class TestCheckSnapshotExistsForRepositoryActivity:
             input_data = CheckSnapshotExistsForRepositoryInput(
                 github_integration_id=github_integration.id, repository="test-owner/test-repo"
             )
-            result = activity_environment.run(check_snapshot_exists_for_repository, input_data)
+            result = async_to_sync(activity_environment.run)(check_snapshot_exists_for_repository, input_data)
 
             assert isinstance(result, CheckSnapshotExistsForRepositoryOutput)
             assert result.exists is True
@@ -142,7 +144,7 @@ class TestCheckSnapshotExistsForRepositoryActivity:
             input_data = CheckSnapshotExistsForRepositoryInput(
                 github_integration_id=github_integration.id, repository="testowner/testrepo"
             )
-            result = activity_environment.run(check_snapshot_exists_for_repository, input_data)
+            result = async_to_sync(activity_environment.run)(check_snapshot_exists_for_repository, input_data)
 
             assert isinstance(result, CheckSnapshotExistsForRepositoryOutput)
             assert result.exists is True
@@ -166,7 +168,7 @@ class TestCheckSnapshotExistsForRepositoryActivity:
             input_data = CheckSnapshotExistsForRepositoryInput(
                 github_integration_id=github_integration.id, repository="test-owner/test-repo"
             )
-            result = activity_environment.run(check_snapshot_exists_for_repository, input_data)
+            result = async_to_sync(activity_environment.run)(check_snapshot_exists_for_repository, input_data)
 
             assert isinstance(result, CheckSnapshotExistsForRepositoryOutput)
             assert result.exists is False

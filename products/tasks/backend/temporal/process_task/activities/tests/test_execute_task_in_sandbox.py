@@ -3,6 +3,8 @@ import os
 import pytest
 from unittest.mock import patch
 
+from asgiref.sync import async_to_sync
+
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import SandboxNotFoundError, TaskExecutionFailedError
 from products.tasks.backend.temporal.process_task.activities.clone_repository import (
@@ -43,7 +45,7 @@ class TestExecuteTaskInSandboxActivity:
                 "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
             ) as mock_get_token:
                 mock_get_token.return_value = ""
-                activity_environment.run(clone_repository, clone_input)
+                async_to_sync(activity_environment.run)(clone_repository, clone_input)
 
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
@@ -57,7 +59,7 @@ class TestExecuteTaskInSandboxActivity:
                     distinct_id="test-user-id",
                 )
 
-                activity_environment.run(execute_task_in_sandbox, input_data)
+                async_to_sync(activity_environment.run)(execute_task_in_sandbox, input_data)
 
                 mock_task_cmd.assert_called_once_with("test-task-123", "/tmp/workspace/repos/posthog/posthog-js")
 
@@ -88,7 +90,7 @@ class TestExecuteTaskInSandboxActivity:
                 "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
             ) as mock_get_token:
                 mock_get_token.return_value = ""
-                activity_environment.run(clone_repository, clone_input)
+                async_to_sync(activity_environment.run)(clone_repository, clone_input)
 
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
@@ -103,7 +105,7 @@ class TestExecuteTaskInSandboxActivity:
                 )
 
                 with pytest.raises(TaskExecutionFailedError):
-                    activity_environment.run(execute_task_in_sandbox, input_data)
+                    async_to_sync(activity_environment.run)(execute_task_in_sandbox, input_data)
 
         finally:
             if sandbox:
@@ -133,7 +135,7 @@ class TestExecuteTaskInSandboxActivity:
                 )
 
                 with pytest.raises(TaskExecutionFailedError):
-                    activity_environment.run(execute_task_in_sandbox, input_data)
+                    async_to_sync(activity_environment.run)(execute_task_in_sandbox, input_data)
 
         finally:
             if sandbox:
@@ -149,7 +151,7 @@ class TestExecuteTaskInSandboxActivity:
         )
 
         with pytest.raises(SandboxNotFoundError):
-            activity_environment.run(execute_task_in_sandbox, input_data)
+            async_to_sync(activity_environment.run)(execute_task_in_sandbox, input_data)
 
     @pytest.mark.django_db
     def test_execute_task_with_different_repositories(self, activity_environment, github_integration):
@@ -177,7 +179,7 @@ class TestExecuteTaskInSandboxActivity:
                         task_id=f"test-task-{repo.split('/')[1]}",
                         distinct_id="test-user-id",
                     )
-                    activity_environment.run(clone_repository, clone_input)
+                    async_to_sync(activity_environment.run)(clone_repository, clone_input)
 
                     with patch(
                         "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
@@ -191,7 +193,7 @@ class TestExecuteTaskInSandboxActivity:
                             distinct_id="test-user-id",
                         )
 
-                        activity_environment.run(execute_task_in_sandbox, input_data)
+                        async_to_sync(activity_environment.run)(execute_task_in_sandbox, input_data)
 
                         mock_task_cmd.assert_called_once_with(
                             f"test-task-{repo.split('/')[1]}",

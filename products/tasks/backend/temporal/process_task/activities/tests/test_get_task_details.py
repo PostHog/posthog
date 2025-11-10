@@ -2,6 +2,8 @@ import pytest
 
 from django.core.exceptions import ValidationError
 
+from asgiref.sync import async_to_sync
+
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.process_task.activities.get_task_details import TaskDetails, get_task_details
@@ -25,7 +27,7 @@ class TestGetTaskDetailsActivity:
 
     @pytest.mark.django_db
     def test_get_task_details_success(self, activity_environment, test_task):
-        result = activity_environment.run(get_task_details, str(test_task.id))
+        result = async_to_sync(activity_environment.run)(get_task_details, str(test_task.id))
 
         assert isinstance(result, TaskDetails)
         assert result.task_id == str(test_task.id)
@@ -38,14 +40,14 @@ class TestGetTaskDetailsActivity:
         non_existent_task_id = "550e8400-e29b-41d4-a716-446655440000"
 
         with pytest.raises(TaskNotFoundError):
-            activity_environment.run(get_task_details, non_existent_task_id)
+            async_to_sync(activity_environment.run)(get_task_details, non_existent_task_id)
 
     @pytest.mark.django_db
     def test_get_task_details_invalid_uuid(self, activity_environment):
         invalid_task_id = "not-a-uuid"
 
         with pytest.raises(ValidationError):
-            activity_environment.run(get_task_details, invalid_task_id)
+            async_to_sync(activity_environment.run)(get_task_details, invalid_task_id)
 
     @pytest.mark.django_db
     def test_get_task_details_with_different_repository(self, activity_environment, ateam, auser, github_integration):
@@ -54,7 +56,7 @@ class TestGetTaskDetailsActivity:
         )
 
         try:
-            result = activity_environment.run(get_task_details, str(task.id))
+            result = async_to_sync(activity_environment.run)(get_task_details, str(task.id))
 
             assert result.task_id == str(task.id)
             assert result.team_id == task.team_id
@@ -74,6 +76,6 @@ class TestGetTaskDetailsActivity:
 
         try:
             with pytest.raises(TaskInvalidStateError):
-                activity_environment.run(get_task_details, str(task.id))
+                async_to_sync(activity_environment.run)(get_task_details, str(task.id))
         finally:
             self._cleanup_task(task)

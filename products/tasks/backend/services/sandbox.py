@@ -137,7 +137,7 @@ class Sandbox:
         try:
             sb = modal.Sandbox.from_id(sandbox_id)
 
-            config = SandboxConfig(name=sb.name)
+            config = SandboxConfig(name=f"sandbox-{sandbox_id}")
 
             sandbox = Sandbox(sandbox=sb, status=SandboxStatus.RUNNING, config=config)
 

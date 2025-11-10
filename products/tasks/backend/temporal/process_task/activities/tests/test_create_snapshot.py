@@ -3,6 +3,8 @@ import uuid
 
 import pytest
 
+from asgiref.sync import async_to_sync
+
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
@@ -36,7 +38,7 @@ class TestCreateSnapshotActivity:
                 distinct_id="test-user-id",
             )
 
-            result = activity_environment.run(create_snapshot, input_data)
+            result = async_to_sync(activity_environment.run)(create_snapshot, input_data)
 
             assert result is not None
             uuid.UUID(result)
@@ -90,7 +92,7 @@ class TestCreateSnapshotActivity:
                 distinct_id="test-user-id",
             )
 
-            result = activity_environment.run(create_snapshot, input_data)
+            result = async_to_sync(activity_environment.run)(create_snapshot, input_data)
 
             created_snapshot = SandboxSnapshot.objects.get(id=result)
             created_snapshot_external_id = created_snapshot.external_id
@@ -123,4 +125,4 @@ class TestCreateSnapshotActivity:
         )
 
         with pytest.raises(SandboxNotFoundError):
-            activity_environment.run(create_snapshot, input_data)
+            async_to_sync(activity_environment.run)(create_snapshot, input_data)

@@ -3,6 +3,8 @@ import uuid
 
 import pytest
 
+from asgiref.sync import async_to_sync
+
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.exceptions import SandboxProvisionError, SnapshotNotFoundError
@@ -45,7 +47,7 @@ class TestCreateSandboxFromSnapshotActivity:
             input_data = CreateSandboxFromSnapshotInput(
                 snapshot_id=str(snapshot.id), task_id=task_id, distinct_id="test-user-id"
             )
-            sandbox_id = activity_environment.run(create_sandbox_from_snapshot, input_data)
+            sandbox_id = async_to_sync(activity_environment.run)(create_sandbox_from_snapshot, input_data)
 
             assert isinstance(sandbox_id, str)
             assert len(sandbox_id) > 0
@@ -68,7 +70,7 @@ class TestCreateSandboxFromSnapshotActivity:
         )
 
         with pytest.raises(SnapshotNotFoundError):
-            activity_environment.run(create_sandbox_from_snapshot, input_data)
+            async_to_sync(activity_environment.run)(create_sandbox_from_snapshot, input_data)
 
     @pytest.mark.django_db
     def test_create_sandbox_from_snapshot_with_invalid_external_id(self, activity_environment, github_integration):
@@ -82,7 +84,7 @@ class TestCreateSandboxFromSnapshotActivity:
             )
 
             with pytest.raises(SandboxProvisionError):
-                sandbox_id = activity_environment.run(create_sandbox_from_snapshot, input_data)
+                sandbox_id = async_to_sync(activity_environment.run)(create_sandbox_from_snapshot, input_data)
 
         finally:
             self._cleanup_snapshot(snapshot)

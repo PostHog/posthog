@@ -2,6 +2,8 @@ import os
 
 import pytest
 
+from asgiref.sync import async_to_sync
+
 from posthog.models import PersonalAPIKey
 
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
@@ -35,7 +37,9 @@ class TestInjectPersonalAPIKeyActivity:
                 distinct_id="test-user-id",
             )
 
-            result: InjectPersonalAPIKeyOutput = activity_environment.run(inject_personal_api_key, input_data)
+            result: InjectPersonalAPIKeyOutput = async_to_sync(activity_environment.run)(
+                inject_personal_api_key, input_data
+            )
 
             assert result.personal_api_key_id is not None
 
@@ -78,7 +82,7 @@ class TestInjectPersonalAPIKeyActivity:
             )
 
             with pytest.raises(TaskInvalidStateError):
-                activity_environment.run(inject_personal_api_key, input_data)
+                async_to_sync(activity_environment.run)(inject_personal_api_key, input_data)
 
         finally:
             if sandbox:

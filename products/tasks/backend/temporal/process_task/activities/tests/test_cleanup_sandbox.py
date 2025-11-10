@@ -4,6 +4,8 @@ import threading
 
 import pytest
 
+from asgiref.sync import async_to_sync
+
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 
@@ -28,7 +30,7 @@ class TestCleanupSandboxActivity:
 
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
 
-        activity_environment.run(cleanup_sandbox, input_data)
+        async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
         cleaned_sandbox = Sandbox.get_by_id(sandbox_id)
         assert cleaned_sandbox.status.value == "shutdown"
@@ -37,7 +39,7 @@ class TestCleanupSandboxActivity:
     def test_cleanup_sandbox_not_found_does_not_raise(self, activity_environment):
         input_data = CleanupSandboxInput(sandbox_id="non-existent-sandbox-id")
 
-        activity_environment.run(cleanup_sandbox, input_data)
+        async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
     @pytest.mark.django_db
     def test_cleanup_sandbox_idempotency(self, activity_environment):
@@ -51,12 +53,12 @@ class TestCleanupSandboxActivity:
 
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
 
-        activity_environment.run(cleanup_sandbox, input_data)
+        async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
         cleaned_sandbox = Sandbox.get_by_id(sandbox_id)
         assert cleaned_sandbox.status.value == "shutdown"
 
-        activity_environment.run(cleanup_sandbox, input_data)
+        async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
     @pytest.mark.django_db
     def test_cleanup_sandbox_during_execution(self, activity_environment):
@@ -80,7 +82,7 @@ class TestCleanupSandboxActivity:
         time.sleep(5)
 
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
-        activity_environment.run(cleanup_sandbox, input_data)
+        async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
         long_task.join(timeout=5)
 

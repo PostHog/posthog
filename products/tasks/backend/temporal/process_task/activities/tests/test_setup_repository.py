@@ -3,6 +3,8 @@ import os
 import pytest
 from unittest.mock import patch
 
+from asgiref.sync import async_to_sync
+
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import RepositorySetupError, SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.clone_repository import (
@@ -43,7 +45,7 @@ class TestSetupRepositoryActivity:
                 "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
             ) as mock_get_token:
                 mock_get_token.return_value = ""
-                activity_environment.run(clone_repository, clone_input)
+                async_to_sync(activity_environment.run)(clone_repository, clone_input)
 
             check_before = sandbox.execute(
                 "ls -la /tmp/workspace/repos/posthog/posthog-js/ | grep node_modules || echo 'no node_modules'"
@@ -62,7 +64,7 @@ class TestSetupRepositoryActivity:
                     distinct_id="test-user-id",
                 )
 
-                result = activity_environment.run(setup_repository, setup_input)
+                result = async_to_sync(activity_environment.run)(setup_repository, setup_input)
 
                 assert result is not None
 
@@ -95,7 +97,7 @@ class TestSetupRepositoryActivity:
             )
 
             with pytest.raises(RepositorySetupError):
-                activity_environment.run(setup_repository, setup_input)
+                async_to_sync(activity_environment.run)(setup_repository, setup_input)
         finally:
             if sandbox:
                 sandbox.destroy()
@@ -135,7 +137,7 @@ class TestSetupRepositoryActivity:
                 "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
             ) as mock_get_token:
                 mock_get_token.return_value = ""
-                activity_environment.run(clone_repository, clone_input)
+                async_to_sync(activity_environment.run)(clone_repository, clone_input)
 
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.setup_repository.Sandbox._get_setup_command"
@@ -150,7 +152,7 @@ class TestSetupRepositoryActivity:
                 )
 
                 with pytest.raises(RepositorySetupError) as exc_info:
-                    activity_environment.run(setup_repository, setup_input)
+                    async_to_sync(activity_environment.run)(setup_repository, setup_input)
 
                 assert "uncommitted changes" in str(exc_info.value).lower()
                 assert "uncommitted_file.txt" in exc_info.value.context.get("uncommitted_changes", "")
