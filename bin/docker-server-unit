@@ -11,9 +11,9 @@ chmod -R 777 $PROMETHEUS_MULTIPROC_DIR
 export PROMETHEUS_METRICS_EXPORT_PORT=8001
 export STATSD_PORT=${STATSD_PORT:-8125}
 
-# Dual-mode support: USE_GRANIAN env var switches between Granian (default) and Unit
-if [ "${USE_GRANIAN:-true}" = "true" ]; then
-    echo "🚀 Starting with Granian ASGI server (default)..."
+# Dual-mode support: USE_GRANIAN env var switches between Granian and Unit (default)
+if [ "${USE_GRANIAN:-false}" = "true" ]; then
+    echo "🚀 Starting with Granian ASGI server (opt-in via USE_GRANIAN=true)..."
 
     # Granian configuration
     export GRANIAN_WORKERS=${GRANIAN_WORKERS:-4}
@@ -39,7 +39,7 @@ if [ "${USE_GRANIAN:-true}" = "true" ]; then
         --access-log \
         --respawn-failed-workers
 else
-    echo "🔧 Starting with Nginx Unit server (fallback via USE_GRANIAN=false)..."
+    echo "🔧 Starting with Nginx Unit server (default, stable)..."
 
     export NGINX_UNIT_PYTHON_PROTOCOL=${NGINX_UNIT_PYTHON_PROTOCOL:-wsgi}
     export NGINX_UNIT_APP_PROCESSES=${NGINX_UNIT_APP_PROCESSES:-4}
