@@ -11,6 +11,7 @@ import {
     IconShortcut,
 } from '@posthog/icons'
 
+import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -103,6 +104,7 @@ export function ProjectTree({
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
@@ -623,6 +625,24 @@ export function ProjectTree({
                                         })}
                                     />
                                     {selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select'}
+                                </>
+                            ),
+                        }),
+                },
+                {
+                    ...(root === 'shortcuts://' &&
+                        sortMethod !== 'recent' && {
+                            'data-attr': 'shortcuts-panel-add-button',
+                            onClick: openItemSelectModal,
+                            children: (
+                                <>
+                                    <IconPlusSmall
+                                        className={cn('size-3', {
+                                            'text-tertiary': selectMode === 'default',
+                                            'text-primary': selectMode === 'multi',
+                                        })}
+                                    />
+                                    Add shortcut
                                 </>
                             ),
                         }),

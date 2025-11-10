@@ -6,7 +6,7 @@ import { LemonButton, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
-import { formatResolvedName, formatType } from 'lib/components/Errors/utils'
+import { formatExceptionDisplay, formatResolvedName } from 'lib/components/Errors/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { fixModalLogic } from './fixModalLogic'
@@ -120,7 +120,7 @@ The final output of your efforts should be:
 }
 
 function generateExceptionText(exception: ErrorTrackingException, stackFrameRecords: Record<string, any>): string {
-    let result = `${formatType(exception)}: ${exception.value}`
+    let result = formatExceptionDisplay(exception)
 
     const frames = exception.stacktrace?.frames || []
 

@@ -18,6 +18,7 @@ from posthog.schema import (
     AssistantMessage,
     AssistantToolCallMessage,
     AssistantUpdateEvent,
+    ContextMessage,
     FailureMessage,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
@@ -332,6 +333,24 @@ class TestStreamProcessor(BaseTest):
         assert result is not None
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], failure_message)
+
+    def test_nested_context_message_filtered(self):
+        """Test ContextMessage from nested node/graph is filtered out."""
+        context_message = ContextMessage(content="Context information")
+
+        node_path = (
+            NodePath(name=AssistantGraphName.ASSISTANT),
+            NodePath(name=AssistantNodeName.ROOT, message_id=str(uuid4()), tool_call_id=str(uuid4())),
+            NodePath(name=AssistantGraphName.INSIGHTS),
+            NodePath(name=AssistantNodeName.TRENDS_GENERATOR),
+        )
+
+        event = self._create_dispatcher_event(
+            MessageAction(message=context_message), node_name=AssistantNodeName.TRENDS_GENERATOR, node_path=node_path
+        )
+        result = self.stream_processor.process(event)
+
+        self.assertIsNone(result)
 
     def test_nested_tool_call_message_filtered(self):
         """Test AssistantToolCallMessage from nested node/graph is filtered out."""
