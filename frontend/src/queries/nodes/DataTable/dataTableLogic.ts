@@ -184,13 +184,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         : null
 
                 const rows = results ? (results.map((result: any) => ({ result })) ?? null) : null
-
-                // Apply custom row transformer if provided
-                if (rows && context?.dataTableRowsTransformer) {
-                    return context.dataTableRowsTransformer(rows)
-                }
-
-                return rows
+                return context?.dataTableRowsTransformer ? context.dataTableRowsTransformer(rows ?? []) : rows
             },
         ],
         queryWithDefaults: [
