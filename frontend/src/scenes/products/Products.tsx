@@ -4,11 +4,11 @@ import { router } from 'kea-router'
 import { useState } from 'react'
 
 import * as Icons from '@posthog/icons'
-import { IconArrowRight, IconCheckCircle, IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowRight, IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonLabel, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
-import { getProductUri, onboardingLogic } from 'scenes/onboarding/onboardingLogic'
+import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -25,7 +25,7 @@ export const scene: SceneExport = {
 
 const isValidIconKey = (key: string): key is keyof typeof Icons => key in Icons
 type AvailableOnboardingProductKey = keyof typeof availableOnboardingProducts
-const AVAILABLE_ONBOARDING_PRODUCT_KEYS = Object.keys(availableOnboardingProducts) as AvailableOnboardingProductKey[]
+const availableOnboardingProductKeys = Object.keys(availableOnboardingProducts) as AvailableOnboardingProductKey[]
 const isAvailableOnboardingProductKey = (key: string | ProductKey): key is AvailableOnboardingProductKey =>
     key in availableOnboardingProducts
 
@@ -52,67 +52,41 @@ export function SelectableProductCard({
     className?: string
     selected?: boolean
 }): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-
-    const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[productKey]
     const vertical = orientation === 'vertical'
     const description = product.description || ''
 
     return (
-        <Tooltip
-            title={
-                <>
-                    {product.description}
-                    <br />
-                    {onboardingCompleted && <em>You've already set up this app. Click to return to its page.</em>}
-                </>
-            }
+        <LemonCard
+            data-attr={`${productKey}-onboarding-card`}
+            className={clsx(
+                'flex cursor-pointer',
+                vertical ? 'flex-col justify-center' : 'items-center hover:transform-none',
+                className
+            )}
+            key={productKey}
+            onClick={onClick}
+            focused={selected}
+            hoverEffect
         >
-            <LemonCard
-                data-attr={`${productKey}-onboarding-card`}
-                className={clsx(
-                    'flex cursor-pointer',
-                    vertical ? 'flex-col justify-center' : 'items-center hover:transform-none',
-                    className
-                )}
-                key={productKey}
-                onClick={onClick}
-                focused={selected}
-                hoverEffect={!vertical}
-            >
-                {onboardingCompleted && (
-                    <div
-                        className="relative"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            router.actions.push(getProductUri(productKey as ProductKey))
-                        }}
-                        data-attr={`return-to-${productKey}`}
-                    >
-                        <IconCheckCircle className="absolute top-0 right-0" color="green" />
+            {vertical ? (
+                // Vertical layout (original)
+                <div className="grid grid-rows-[repeat(2,_48px)] justify-items-center select-none">
+                    <div className="self-center">{getProductIcon(product.iconColor, product.icon, 'text-2xl')}</div>
+                    <div className="font-bold text-center self-start text-md">{product.name}</div>
+                </div>
+            ) : (
+                // Horizontal layout with description
+                <div className="flex items-start gap-4">
+                    <div className="text-3xl flex-shrink-0">
+                        {getProductIcon(product.iconColor, product.icon, 'text-3xl')}
                     </div>
-                )}
-
-                {vertical ? (
-                    // Vertical layout (original)
-                    <div className="grid grid-rows-[repeat(2,_48px)] justify-items-center select-none">
-                        <div className="self-center">{getProductIcon(product.iconColor, product.icon, 'text-2xl')}</div>
-                        <div className="font-bold text-center self-start text-md">{product.name}</div>
+                    <div className="flex-1">
+                        <h3 className="font-semibold mb-1">{product.name}</h3>
+                        {showDescription && description && <p className="text-muted text-sm mb-0">{description}</p>}
                     </div>
-                ) : (
-                    // Horizontal layout with description
-                    <div className="flex items-start gap-4">
-                        <div className="text-3xl flex-shrink-0">
-                            {getProductIcon(product.iconColor, product.icon, 'text-3xl')}
-                        </div>
-                        <div className="flex-1">
-                            <h3 className="font-semibold mb-1">{product.name}</h3>
-                            {showDescription && description && <p className="text-muted text-sm mb-0">{description}</p>}
-                        </div>
-                    </div>
-                )}
-            </LemonCard>
-        </Tooltip>
+                </div>
+            )}
+        </LemonCard>
     )
 }
 
@@ -127,7 +101,7 @@ export function Products(): JSX.Element {
 
     // Get all non-recommended products
     const availablePreSelectedProducts = preSelectedProducts.filter(isAvailableOnboardingProductKey)
-    const otherProducts = AVAILABLE_ONBOARDING_PRODUCT_KEYS.filter((key) => !availablePreSelectedProducts.includes(key))
+    const otherProducts = availableOnboardingProductKeys.filter((key) => !availablePreSelectedProducts.includes(key))
 
     return (
         <div className="flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">
@@ -235,7 +209,7 @@ export function Products(): JSX.Element {
                         ) : (
                             // OLD LAYOUT: Flex wrap layout (when use case onboarding is disabled)
                             <div className="flex flex-row flex-wrap gap-4 justify-center max-w-[680px]">
-                                {AVAILABLE_ONBOARDING_PRODUCT_KEYS.map((productKey) => (
+                                {availableOnboardingProductKeys.map((productKey) => (
                                     <SelectableProductCard
                                         key={productKey}
                                         product={availableOnboardingProducts[productKey]}
