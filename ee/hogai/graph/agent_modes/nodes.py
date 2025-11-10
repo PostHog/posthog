@@ -254,7 +254,7 @@ class AgentNode(BaseAgentNode):
         """
         Get the system prompt template for the agent.
 
-        A prompt template can include following variables:
+        A prompt template can include the following variables:
         - `{{{role}}}`
         - `{{{tone_and_style}}}`
         - `{{{writing_style}}}`
