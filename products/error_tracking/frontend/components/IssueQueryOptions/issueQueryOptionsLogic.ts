@@ -1,7 +1,7 @@
 import equal from 'fast-deep-equal'
 import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import posthog from 'posthog-js'
+import posthog, { Properties } from 'posthog-js'
 
 import { Params } from 'scenes/sceneTypes'
 
@@ -89,18 +89,16 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
 
     listeners(({ values }) => ({
         setOrderBy: ({ orderBy }) => {
-            posthog.capture('error_tracking_issues_sorted', {
-                sort_by: orderBy,
-                sort_direction: values.orderDirection,
-                revenue_entity: orderBy === 'revenue' ? values.revenueEntity : undefined,
-            })
+            posthog.capture(
+                'error_tracking_issues_sorted',
+                issueSortedCaptureProperties(orderBy, values.orderDirection, values.revenueEntity)
+            )
         },
         setOrderDirection: ({ orderDirection }) => {
-            posthog.capture('error_tracking_issues_sorted', {
-                sort_by: values.orderBy,
-                sort_direction: orderDirection,
-                revenue_entity: values.orderBy === 'revenue' ? values.revenueEntity : undefined,
-            })
+            posthog.capture(
+                'error_tracking_issues_sorted',
+                issueSortedCaptureProperties(values.orderBy, orderDirection, values.revenueEntity)
+            )
         },
     })),
 
@@ -160,3 +158,16 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         }
     }),
 ])
+
+function issueSortedCaptureProperties(orderBy: any, orderDirection: any, revenueEntity: any): Properties {
+    const properties: Properties = {
+        sort_by: orderBy,
+        sort_direction: orderDirection,
+    }
+
+    if (orderBy === 'revenue') {
+        properties.revenue_entity = revenueEntity
+    }
+
+    return properties
+}

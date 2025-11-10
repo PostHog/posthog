@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -8,7 +8,7 @@ import { Params } from 'scenes/sceneTypes'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb, PropertyFilterType } from '~/types'
+import { ActivityScope, Breadcrumb, UniversalFiltersGroup } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
@@ -111,66 +111,12 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     }),
 
     subscriptions(({ actions, values }) => ({
-        query: (query, oldQuery) => {
-            // Clear selected issues when query changes
+        query: () => {
             actions.setSelectedIssueIds([])
 
-            // Don't fire analytics if query hasn't actually changed
-            if (equal(query, oldQuery)) {
-                return
-            }
-
-            // Calculate filter properties
-            const filterGroup = values.filterGroup
-            const hasFilters =
-                filterGroup.values.length > 0 &&
-                filterGroup.values.some(
-                    (groupValue) =>
-                        'values' in groupValue && Array.isArray(groupValue.values) && groupValue.values.length > 0
-                )
-            const filterCount = filterGroup.values.reduce((count, groupValue) => {
-                if ('values' in groupValue && Array.isArray(groupValue.values)) {
-                    return count + groupValue.values.length
-                }
-                return count
-            }, 0)
-
-            // Analyze filter categories used
-            const filterCategories: string[] = []
-            filterGroup.values.forEach((groupValue) => {
-                if ('values' in groupValue && Array.isArray(groupValue.values)) {
-                    groupValue.values.forEach((filterValue) => {
-                        if ('type' in filterValue && typeof filterValue.type === 'string') {
-                            const type = filterValue.type as PropertyFilterType
-                            if (type === PropertyFilterType.Person && !filterCategories.includes('person_properties')) {
-                                filterCategories.push('person_properties')
-                            } else if (
-                                type === PropertyFilterType.Event &&
-                                !filterCategories.includes('event_properties')
-                            ) {
-                                filterCategories.push('event_properties')
-                            } else if (
-                                type === PropertyFilterType.ErrorTrackingIssue &&
-                                !filterCategories.includes('error_tracking_issues')
-                            ) {
-                                filterCategories.push('error_tracking_issues')
-                            } else if (type === PropertyFilterType.Cohort && !filterCategories.includes('cohorts')) {
-                                filterCategories.push('cohorts')
-                            } else if (
-                                type === PropertyFilterType.HogQL &&
-                                !filterCategories.includes('sql_expression')
-                            ) {
-                                filterCategories.push('sql_expression')
-                            }
-                        }
-                    })
-                }
-            })
-
+            const filterGroup = values.filterGroup.values[0] as UniversalFiltersGroup
             posthog.capture('error_tracking_query_executed', {
-                has_filters: hasFilters,
-                filter_count: filterCount,
-                filter_categories_used: filterCategories,
+                filter_count: filterGroup.values.length,
                 has_search_query: !!values.searchQuery,
                 filter_test_accounts: values.filterTestAccounts,
                 sort_by: values.orderBy,
@@ -209,30 +155,4 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             '*': urlToAction,
         }
     }),
-
-    events(({ values }) => ({
-        afterMount: () => {
-            // Calculate filter properties
-            const filterGroup = values.filterGroup
-            const hasFilters =
-                filterGroup.values.length > 0 &&
-                filterGroup.values.some((group) => group.values && group.values.length > 0)
-            const filterCount = filterGroup.values.reduce((count, group) => count + (group.values?.length || 0), 0)
-
-            // Calculate date range in days
-            const dateRange = values.dateRange.date_from || '-7d'
-            const dateRangeDays = dateRange.startsWith('-') ? parseInt(dateRange.slice(1, -1)) : null
-
-            posthog.capture('error_tracking_issues_list_viewed', {
-                has_filters: hasFilters,
-                filter_count: filterCount,
-                has_search_query: !!values.searchQuery,
-                filter_test_accounts: values.filterTestAccounts,
-                sort_by: values.orderBy,
-                sort_direction: values.orderDirection,
-                date_range_days: dateRangeDays,
-                active_tab: values.activeTab,
-            })
-        },
-    })),
 ])
