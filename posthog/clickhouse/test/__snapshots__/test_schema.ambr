@@ -945,15 +945,16 @@
       , soe_entry_fbclid Nullable(String)
   
       -- for channel type calculation, it's enough to know if these were present
-      , soe_entry_has_gclid Boolean
-      , soe_entry_has_fbclid Boolean
+      , soe_entry_has_gclid Boolean DEFAULT False
+      , soe_entry_has_fbclid Boolean DEFAULT False
   
       -- for lower-tier ad ids, just put them in a map, and set of the ones present
-      , soe_entry_ad_ids_map Map(String, String)
-      , soe_entry_ad_ids_set Array(String)
+      , soe_entry_ad_ids_map Map(String, String) DEFAULT map()
+      , soe_entry_ad_ids_set Array(String) DEFAULT array()
   
       -- bounce rate
-      , soe_page_screen_autocapture_uniq_up_to Array(UUID)
+      , soe_page_screen_uniq_up_to Array(UUID) DEFAULT array()
+      , soe_has_autocapture Boolean DEFAULT False
   
       
   , _timestamp DateTime
@@ -2762,6 +2763,196 @@
   
   '''
 # ---
+# name: test_create_table_query[raw_sessions_overrides_v3]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS raw_sessions_overrides_v3
+  (
+      team_id Int64,
+      session_id_v7 UInt128,
+  
+      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      pageview_prio_timestamp_min SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      pageview_prio_timestamp_max SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      -- urls
+      has_pageview_or_screen SimpleAggregateFunction(max, Boolean), -- this makes it not a subset of the sessions table, but is needed to handle url logic
+      entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
+  
+      -- attribution
+      entry_referring_domain AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_campaign AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_medium AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_term AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_content AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_gclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_gad_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_fbclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  
+      -- for channel type calculation, it's enough to know if these were present
+      entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+      entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+  
+      -- for lower-tier ad ids, just put them in a map, and set of the ones present
+      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
+  
+      -- bounce rate
+      page_screen_uniq_up_to AggregateFunction(groupUniqArray(2), Nullable(UUID)),
+      has_autocapture SimpleAggregateFunction(max, Boolean)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions_overrides_v3', cityHash64(session_id_v7))
+  
+  '''
+# ---
+# name: test_create_table_query[raw_sessions_overrides_v3_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS raw_sessions_overrides_v3_mv
+  TO posthog_test.writable_raw_sessions_overrides_v3
+  AS
+  
+  WITH
+      
+          JSONExtract(properties, 'Tuple(
+              `$current_url` Nullable(String),
+              `$external_click_url` Nullable(String),
+              `$referring_domain` Nullable(String),
+              `utm_source` Nullable(String),
+              `utm_campaign` Nullable(String),
+              `utm_medium` Nullable(String),
+              `utm_term` Nullable(String),
+              `utm_content` Nullable(String),
+              `gclid` Nullable(String),
+              `gad_source` Nullable(String),
+              `fbclid` Nullable(String),
+              `gclsrc` Nullable(String),
+              `dclid` Nullable(String),
+              `gbraid` Nullable(String),
+              `wbraid` Nullable(String),
+              `msclkid` Nullable(String),
+              `twclid` Nullable(String),
+              `li_fat_id` Nullable(String),
+              `mc_cid` Nullable(String),
+              `igshid` Nullable(String),
+              `ttclid` Nullable(String),
+              `epik` Nullable(String),
+              `qclid` Nullable(String),
+              `sccid` Nullable(String),
+              `_kx` Nullable(String),
+              `irclid` Nullable(String)
+          )') as p,
+          tupleElement(p, '$current_url') as _current_url,
+          tupleElement(p, '$external_click_url') as _external_click_url,
+          tupleElement(p, '$referring_domain') as _referring_domain,
+          tupleElement(p, 'utm_source') as _utm_source,
+          tupleElement(p, 'utm_campaign') as _utm_campaign,
+          tupleElement(p, 'utm_medium') as _utm_medium,
+          tupleElement(p, 'utm_term') as _utm_term,
+          tupleElement(p, 'utm_content') as _utm_content,
+          tupleElement(p, 'gclid') as _gclid,
+          tupleElement(p, 'gad_source') as _gad_source,
+          tupleElement(p, 'fbclid') as _fbclid,
+          tupleElement(p, 'gclsrc') as gclsrc,
+          tupleElement(p, 'dclid') as dclid,
+          tupleElement(p, 'gbraid') as gbraid,
+          tupleElement(p, 'wbraid') as wbraid,
+          tupleElement(p, 'msclkid') as msclkid,
+          tupleElement(p, 'twclid') as twclid,
+          tupleElement(p, 'li_fat_id') as li_fat_id,
+          tupleElement(p, 'mc_cid') as mc_cid,
+          tupleElement(p, 'igshid') as igshid,
+          tupleElement(p, 'ttclid') as ttclid,
+          tupleElement(p, 'epik') as epik,
+          tupleElement(p, 'qclid') as qclid,
+          tupleElement(p, 'sccid') as sccid,
+          tupleElement(p, '_kx') as _kx,
+          tupleElement(p, 'irclid') as irclid,
+          CAST(mapFilter((k, v) -> v IS NOT NULL, map(
+              'gclsrc', gclsrc,
+              'dclid', dclid,
+              'gbraid', gbraid,
+              'wbraid', wbraid,
+              'msclkid', msclkid,
+              'twclid', twclid,
+              'li_fat_id', li_fat_id,
+              'mc_cid', mc_cid,
+              'igshid', igshid,
+              'ttclid', ttclid,
+              'epik', epik,
+              'qclid', qclid,
+              'sccid', sccid,
+              '_kx', _kx,
+              'irclid', irclid
+          )) AS Map(String, String)) as ad_ids_map,
+          CAST(arrayFilter(x -> x IS NOT NULL, [
+              if(gclsrc IS NOT NULL, 'gclsrc', NULL),
+              if(dclid IS NOT NULL, 'dclid', NULL),
+              if(gbraid IS NOT NULL, 'gbraid', NULL),
+              if(wbraid IS NOT NULL, 'wbraid', NULL),
+              if(msclkid IS NOT NULL, 'msclkid', NULL),
+              if(twclid IS NOT NULL, 'twclid', NULL),
+              if(li_fat_id IS NOT NULL, 'li_fat_id', NULL),
+              if(mc_cid IS NOT NULL, 'mc_cid', NULL),
+              if(igshid IS NOT NULL, 'igshid', NULL),
+              if(ttclid IS NOT NULL, 'ttclid', NULL),
+              if(epik IS NOT NULL, 'epik', NULL),
+              if(qclid IS NOT NULL, 'qclid', NULL),
+              if(sccid IS NOT NULL, 'sccid', NULL),
+              if(_kx IS NOT NULL, '_kx', NULL),
+              if(irclid IS NOT NULL, 'irclid', NULL)
+          ]) AS Array(String)) as ad_ids_set
+  SELECT
+      team_id,
+      `$session_id_uuid` AS session_id_v7,
+  
+      timestamp AS min_timestamp,
+      timestamp AS max_timestamp,
+      -- attribution properties from non-pageview/screen events should be deprioritized, so make the timestamp +/- 1 year so they sort last
+      if (event = '$pageview' OR event = '$screen', timestamp, timestamp + toIntervalYear(1)) as pageview_prio_timestamp_min,
+      if (event = '$pageview' OR event = '$screen', timestamp, timestamp - toIntervalYear(1)) as pageview_prio_timestamp_max,
+      inserted_at AS max_inserted_at,
+  
+      -- urls
+      (event = '$pageview' OR event = '$screen') as has_pageview_or_screen,
+      initializeAggregation('argMinState', _current_url, pageview_prio_timestamp_min) as entry_url,
+      initializeAggregation('argMaxState', _current_url, pageview_prio_timestamp_max) as end_url,
+      initializeAggregation('argMaxState', _external_click_url, timestamp) as last_external_click_url,
+  
+      -- attribution
+      initializeAggregation('argMinState', _referring_domain, pageview_prio_timestamp_min) as entry_referring_domain,
+      initializeAggregation('argMinState', _utm_source, pageview_prio_timestamp_min) as entry_utm_source,
+      initializeAggregation('argMinState', _utm_campaign, pageview_prio_timestamp_min) as entry_utm_campaign,
+      initializeAggregation('argMinState', _utm_medium, pageview_prio_timestamp_min) as entry_utm_medium,
+      initializeAggregation('argMinState', _utm_term, pageview_prio_timestamp_min) as entry_utm_term,
+      initializeAggregation('argMinState', _utm_content, pageview_prio_timestamp_min) as entry_utm_content,
+      initializeAggregation('argMinState', _gclid, pageview_prio_timestamp_min) as entry_gclid,
+      initializeAggregation('argMinState', _gad_source, pageview_prio_timestamp_min) as entry_gad_source,
+      initializeAggregation('argMinState', _fbclid, pageview_prio_timestamp_min) as entry_fbclid,
+  
+      -- has gclid/fbclid for reading fewer bytes when calculating channel type
+      initializeAggregation('argMinState', _gclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_gclid,
+      initializeAggregation('argMinState', _fbclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_fbclid,
+  
+      -- other ad ids
+      initializeAggregation('argMinState', ad_ids_map, pageview_prio_timestamp_min) as entry_ad_ids_map,
+      initializeAggregation('argMinState', ad_ids_set, pageview_prio_timestamp_min) as entry_ad_ids_set,
+  
+      -- perf
+      initializeAggregation('groupUniqArrayState(2)', if(event='$pageview' OR event='$screen', uuid, NULL)) as page_screen_uniq_up_to,
+      (event = '$autocapture') as has_autocapture
+  FROM posthog_test.sharded_events
+  WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+  AND TRUE
+      
+  
+  '''
+# ---
 # name: test_create_table_query[raw_sessions_v3]
   '''
   
@@ -3683,15 +3874,16 @@
       , soe_entry_fbclid Nullable(String)
   
       -- for channel type calculation, it's enough to know if these were present
-      , soe_entry_has_gclid Boolean
-      , soe_entry_has_fbclid Boolean
+      , soe_entry_has_gclid Boolean DEFAULT False
+      , soe_entry_has_fbclid Boolean DEFAULT False
   
       -- for lower-tier ad ids, just put them in a map, and set of the ones present
-      , soe_entry_ad_ids_map Map(String, String)
-      , soe_entry_ad_ids_set Array(String)
+      , soe_entry_ad_ids_map Map(String, String) DEFAULT map()
+      , soe_entry_ad_ids_set Array(String) DEFAULT array()
   
       -- bounce rate
-      , soe_page_screen_autocapture_uniq_up_to Array(UUID)
+      , soe_page_screen_uniq_up_to Array(UUID) DEFAULT array()
+      , soe_has_autocapture Boolean DEFAULT False
   
       
   , _timestamp DateTime
@@ -3838,6 +4030,204 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_raw_sessions0]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_raw_sessions ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      session_id_v7 UInt128, -- integer representation of a uuidv7
+  
+      -- ClickHouse will pick the latest value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      -- urls
+      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      -- device
+      initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_browser_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+      initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+  
+      -- geoip
+      -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
+      initial_geoip_country_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- attribution
+      initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_dclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_wbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_fbclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_msclkid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_twclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_li_fat_id AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Count pageview, autocapture, and screen events for providing totals.
+      -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
+      -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
+      -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
+      -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
+      -- satisfied that counts are accurate.
+      pageview_count SimpleAggregateFunction(sum, Int64),
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_count SimpleAggregateFunction(sum, Int64),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_count SimpleAggregateFunction(sum, Int64),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
+  
+      -- replay
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+  
+      -- web vitals
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
+  
+  PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
+  ORDER BY (
+      team_id,
+      toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
+      cityHash64(session_id_v7),
+      session_id_v7
+  )
+  SAMPLE BY cityHash64(session_id_v7)
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_raw_sessions1]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_raw_sessions ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      session_id_v7 UInt128, -- integer representation of a uuidv7
+  
+      -- ClickHouse will pick the latest value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      -- urls
+      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      -- device
+      initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_browser_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+      initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+  
+      -- geoip
+      -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
+      initial_geoip_country_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- attribution
+      initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_dclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_wbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_fbclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_msclkid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_twclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_li_fat_id AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Count pageview, autocapture, and screen events for providing totals.
+      -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
+      -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
+      -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
+      -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
+      -- satisfied that counts are accurate.
+      pageview_count SimpleAggregateFunction(sum, Int64),
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_count SimpleAggregateFunction(sum, Int64),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_count SimpleAggregateFunction(sum, Int64),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
+  
+      -- replay
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+  
+      -- web vitals
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
+  
+  PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
+  ORDER BY (
+      team_id,
+      toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
+      cityHash64(session_id_v7),
+      session_id_v7
+  )
+  SAMPLE BY cityHash64(session_id_v7)
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_raw_sessions]
   '''
   
@@ -3934,6 +4324,60 @@
       session_id_v7
   )
   SAMPLE BY cityHash64(session_id_v7)
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_raw_sessions_overrides_v3]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_raw_sessions_overrides_v3
+  (
+      team_id Int64,
+      session_id_v7 UInt128,
+  
+      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      pageview_prio_timestamp_min SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      pageview_prio_timestamp_max SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      -- urls
+      has_pageview_or_screen SimpleAggregateFunction(max, Boolean), -- this makes it not a subset of the sessions table, but is needed to handle url logic
+      entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
+  
+      -- attribution
+      entry_referring_domain AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_campaign AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_medium AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_term AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_content AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_gclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_gad_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_fbclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  
+      -- for channel type calculation, it's enough to know if these were present
+      entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+      entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+  
+      -- for lower-tier ad ids, just put them in a map, and set of the ones present
+      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
+  
+      -- bounce rate
+      page_screen_uniq_up_to AggregateFunction(groupUniqArray(2), Nullable(UUID)),
+      has_autocapture SimpleAggregateFunction(max, Boolean)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_overrides_v3', '{replica}')
+  
+  PARTITION BY toYYYYMM(session_timestamp)
+  ORDER BY (
+      team_id,
+      session_timestamp,
+      session_id_v7
+  )
   
   '''
 # ---
@@ -5097,6 +5541,53 @@
   
   '''
 # ---
+# name: test_create_table_query[writable_raw_sessions_overrides_v3]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_raw_sessions_overrides_v3
+  (
+      team_id Int64,
+      session_id_v7 UInt128,
+  
+      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      pageview_prio_timestamp_min SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      pageview_prio_timestamp_max SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      -- urls
+      has_pageview_or_screen SimpleAggregateFunction(max, Boolean), -- this makes it not a subset of the sessions table, but is needed to handle url logic
+      entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
+  
+      -- attribution
+      entry_referring_domain AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_campaign AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_medium AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_term AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_content AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_gclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_gad_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_fbclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  
+      -- for channel type calculation, it's enough to know if these were present
+      entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+      entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+  
+      -- for lower-tier ad ids, just put them in a map, and set of the ones present
+      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
+  
+      -- bounce rate
+      page_screen_uniq_up_to AggregateFunction(groupUniqArray(2), Nullable(UUID)),
+      has_autocapture SimpleAggregateFunction(max, Boolean)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions_overrides_v3', cityHash64(session_id_v7))
+  
+  '''
+# ---
 # name: test_create_table_query[writable_raw_sessions_v3]
   '''
   
@@ -6189,15 +6680,16 @@
       , soe_entry_fbclid Nullable(String)
   
       -- for channel type calculation, it's enough to know if these were present
-      , soe_entry_has_gclid Boolean
-      , soe_entry_has_fbclid Boolean
+      , soe_entry_has_gclid Boolean DEFAULT False
+      , soe_entry_has_fbclid Boolean DEFAULT False
   
       -- for lower-tier ad ids, just put them in a map, and set of the ones present
-      , soe_entry_ad_ids_map Map(String, String)
-      , soe_entry_ad_ids_set Array(String)
+      , soe_entry_ad_ids_map Map(String, String) DEFAULT map()
+      , soe_entry_ad_ids_set Array(String) DEFAULT array()
   
       -- bounce rate
-      , soe_page_screen_autocapture_uniq_up_to Array(UUID)
+      , soe_page_screen_uniq_up_to Array(UUID) DEFAULT array()
+      , soe_has_autocapture Boolean DEFAULT False
   
       
   , _timestamp DateTime
@@ -6344,6 +6836,204 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[sharded_raw_sessions0]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_raw_sessions ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      session_id_v7 UInt128, -- integer representation of a uuidv7
+  
+      -- ClickHouse will pick the latest value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      -- urls
+      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      -- device
+      initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_browser_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+      initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+  
+      -- geoip
+      -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
+      initial_geoip_country_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- attribution
+      initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_dclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_wbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_fbclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_msclkid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_twclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_li_fat_id AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Count pageview, autocapture, and screen events for providing totals.
+      -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
+      -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
+      -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
+      -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
+      -- satisfied that counts are accurate.
+      pageview_count SimpleAggregateFunction(sum, Int64),
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_count SimpleAggregateFunction(sum, Int64),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_count SimpleAggregateFunction(sum, Int64),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
+  
+      -- replay
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+  
+      -- web vitals
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
+  
+  PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
+  ORDER BY (
+      team_id,
+      toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
+      cityHash64(session_id_v7),
+      session_id_v7
+  )
+  SAMPLE BY cityHash64(session_id_v7)
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_raw_sessions1]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_raw_sessions ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      session_id_v7 UInt128, -- integer representation of a uuidv7
+  
+      -- ClickHouse will pick the latest value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      -- urls
+      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      -- device
+      initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_browser_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+      initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+  
+      -- geoip
+      -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
+      initial_geoip_country_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- attribution
+      initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_dclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_wbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_fbclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_msclkid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_twclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_li_fat_id AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Count pageview, autocapture, and screen events for providing totals.
+      -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
+      -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
+      -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
+      -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
+      -- satisfied that counts are accurate.
+      pageview_count SimpleAggregateFunction(sum, Int64),
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_count SimpleAggregateFunction(sum, Int64),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_count SimpleAggregateFunction(sum, Int64),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
+  
+      -- replay
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+  
+      -- web vitals
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
+  
+  PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
+  ORDER BY (
+      team_id,
+      toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
+      cityHash64(session_id_v7),
+      session_id_v7
+  )
+  SAMPLE BY cityHash64(session_id_v7)
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[sharded_raw_sessions]
   '''
   
@@ -6440,6 +7130,60 @@
       session_id_v7
   )
   SAMPLE BY cityHash64(session_id_v7)
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_raw_sessions_overrides_v3]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_raw_sessions_overrides_v3
+  (
+      team_id Int64,
+      session_id_v7 UInt128,
+  
+      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      pageview_prio_timestamp_min SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      pageview_prio_timestamp_max SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      -- urls
+      has_pageview_or_screen SimpleAggregateFunction(max, Boolean), -- this makes it not a subset of the sessions table, but is needed to handle url logic
+      entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
+  
+      -- attribution
+      entry_referring_domain AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_campaign AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_medium AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_term AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_utm_content AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_gclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_gad_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      entry_fbclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  
+      -- for channel type calculation, it's enough to know if these were present
+      entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+      entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+  
+      -- for lower-tier ad ids, just put them in a map, and set of the ones present
+      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
+  
+      -- bounce rate
+      page_screen_uniq_up_to AggregateFunction(groupUniqArray(2), Nullable(UUID)),
+      has_autocapture SimpleAggregateFunction(max, Boolean)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_overrides_v3', '{replica}')
+  
+  PARTITION BY toYYYYMM(session_timestamp)
+  ORDER BY (
+      team_id,
+      session_timestamp,
+      session_id_v7
+  )
   
   '''
 # ---
