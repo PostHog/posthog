@@ -28,11 +28,20 @@ async def get_monitors_due_for_check() -> list[tuple[str, str]]:
     Query database for monitors that are enabled and due for check.
     Returns list of (monitor_id, region) tuples.
     """
+    from django.db import connection
+
     from products.synthetic_monitoring.backend.models import SyntheticMonitor
 
-    monitors = await sync_to_async(list)(
-        SyntheticMonitor.objects.filter(enabled=True).select_related("team").values("id", "regions")
-    )
+    def _get_monitors():
+        try:
+            monitors = list(
+                SyntheticMonitor.objects.filter(enabled=True).select_related("team").values("id", "regions")
+            )
+            return monitors
+        finally:
+            connection.close()
+
+    monitors = await sync_to_async(_get_monitors)()
 
     checks_to_run = []
     for monitor_data in monitors:
@@ -56,11 +65,18 @@ async def execute_http_check_via_lambda(monitor_id: str, region: str) -> None:
     Updates monitor state and emits events based on results.
     """
     from django.conf import settings
+    from django.db import connection
 
     from products.synthetic_monitoring.backend.models import SyntheticMonitor
 
+    def _get_monitor():
+        try:
+            return SyntheticMonitor.objects.select_related("team").get(id=monitor_id)
+        finally:
+            connection.close()
+
     try:
-        monitor = await sync_to_async(SyntheticMonitor.objects.select_related("team").get)(id=monitor_id)
+        monitor = await sync_to_async(_get_monitor)()
     except SyntheticMonitor.DoesNotExist:
         logger.exception("Monitor not found", monitor_id=monitor_id)
         return
@@ -118,14 +134,14 @@ async def execute_http_check_via_lambda(monitor_id: str, region: str) -> None:
             response_time_ms = result.get("response_time_ms", 0)
             error_message = result.get("error_message")
 
-            # Extract timing metrics from Lambda response
+            timings = result.get("timings", {})
             timing_metrics = {
-                "dns_ms": result.get("dns_ms"),
-                "tcp_ms": result.get("tcp_ms"),
-                "tls_ms": result.get("tls_ms"),
-                "request_send_ms": result.get("request_send_ms"),
-                "download_ms": result.get("download_ms"),
-                "total_ms": result.get("total_ms"),
+                "dns_ms": timings.get("dns_ms"),
+                "tcp_ms": timings.get("tcp_ms"),
+                "tls_ms": timings.get("tls_ms"),
+                "request_send_ms": timings.get("request_send_ms"),
+                "download_ms": timings.get("download_ms"),
+                "total_ms": timings.get("total_ms"),
             }
 
             logger.info(
