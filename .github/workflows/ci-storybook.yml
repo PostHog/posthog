@@ -264,7 +264,7 @@ jobs:
               run: pnpm install http-server wait-on -g
 
             - name: Download Storybook build artifact
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v6
               with:
                   name: storybook-build
                   path: common/storybook/dist
@@ -439,7 +439,7 @@ jobs:
             - name: Download snapshot patches
               id: download-patches
               continue-on-error: true
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v6
               with:
                   pattern: snapshot-patch-*
                   path: /tmp/snapshot-patches/

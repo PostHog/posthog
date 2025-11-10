@@ -115,25 +115,25 @@ jobs:
         runs-on: ubuntu-22.04
         steps:
             - name: Download wheels from ubuntu-22.04
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v6
               with:
                   name: wheels-ubuntu-22.04
                   path: dist
 
             - name: Download wheels from buildjet-2vcpu-ubuntu-2204-arm
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v6
               with:
                   name: wheels-buildjet-2vcpu-ubuntu-2204-arm
                   path: dist
 
             - name: Download wheels from macos-13
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v6
               with:
                   name: wheels-macos-13
                   path: dist
 
             - name: Download wheels from macos-14
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v6
               with:
                   name: wheels-macos-14
                   path: dist
