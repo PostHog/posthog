@@ -3,3 +3,4 @@ python/**
 **/generated.ts
 node_modules/
 .mypy_cache/
+typescript/worker-configuration.d.ts

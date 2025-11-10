@@ -1,5 +1,5 @@
 {
-    "name": "posthog-mcp-monorepo",
+    "name": "mcp",
     "version": "0.0.0",
     "private": true,
     "scripts": {
