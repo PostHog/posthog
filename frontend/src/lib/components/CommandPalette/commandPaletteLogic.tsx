@@ -71,7 +71,7 @@ import { InsightType } from '~/types'
 import { commandBarLogic } from '../CommandBar/commandBarLogic'
 import { BarStatus } from '../CommandBar/types'
 import { hedgehogBuddyLogic } from '../HedgehogBuddy/hedgehogBuddyLogic'
-import { openCHQueriesDebugModal } from './DebugCHQueries'
+import { openCHQueriesDebugModal } from '../SceneShortcuts/utils/DebugCHQueries'
 import type { commandPaletteLogicType } from './commandPaletteLogicType'
 
 // If CommandExecutor returns CommandFlow, flow will be entered

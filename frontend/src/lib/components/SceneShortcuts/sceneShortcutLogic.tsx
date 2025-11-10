@@ -1,9 +1,8 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
-import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
-import { openCHQueriesDebugModal } from 'lib/components/CommandPalette/DebugCHQueries'
 import type { SceneShortcut } from 'lib/components/SceneShortcuts/SceneShortcut'
 import { SceneShortcutProps } from 'lib/components/SceneShortcuts/SceneShortcut'
+import { openCHQueriesDebugModal } from 'lib/components/SceneShortcuts/utils/DebugCHQueries'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -12,7 +11,7 @@ import type { sceneShortcutLogicType } from './sceneShortcutLogicType'
 export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
     path(['lib', 'components', 'SceneShortcuts', 'sceneShortcutLogic']),
     connect(() => ({
-        values: [sceneLogic, ['activeTab', 'activeTabId'], commandBarLogic, ['barStatus']],
+        values: [sceneLogic, ['activeTab', 'activeTabId']],
         actions: [sceneLogic, ['newTab', 'removeTab']],
     })),
 
@@ -186,9 +185,6 @@ export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
     listeners(({ values, actions }) => ({
         triggerNewTab: () => {
             actions.newTab()
-        },
-        toggleSearchBar: () => {
-            commandBarLogic.actions.toggleSearchBar()
         },
         triggerCloseCurrentTab: () => {
             if (values.activeTab) {

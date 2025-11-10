@@ -19,12 +19,12 @@ import {
 import { Link } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
-import { openCHQueriesDebugModal } from 'lib/components/CommandPalette/DebugCHQueries'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { SceneShortcut } from 'lib/components/SceneShortcuts/SceneShortcut'
 import { sceneShortcutLogic } from 'lib/components/SceneShortcuts/sceneShortcutLogic'
+import { openCHQueriesDebugModal } from 'lib/components/SceneShortcuts/utils/DebugCHQueries'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'

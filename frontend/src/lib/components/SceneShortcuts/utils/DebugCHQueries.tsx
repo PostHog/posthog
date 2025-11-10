@@ -9,6 +9,7 @@ import { IconCodeInsert, IconCopy, IconRefresh } from '@posthog/icons'
 import { ChartConfiguration, ChartDataset } from 'lib/Chart'
 import { Chart, ChartItem } from 'lib/Chart'
 import api from 'lib/api'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -23,7 +24,6 @@ import { urls } from 'scenes/urls'
 
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, Realm, Region } from '~/types'
 
-import { CodeSnippet, Language } from '../CodeSnippet'
 import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
 
 export function openCHQueriesDebugModal(): void {
