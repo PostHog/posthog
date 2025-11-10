@@ -25,7 +25,7 @@ export const scene: SceneExport = {
 
 const isValidIconKey = (key: string): key is keyof typeof Icons => key in Icons
 type AvailableOnboardingProductKey = keyof typeof availableOnboardingProducts
-const availableOnboardingProductKeys = Object.keys(availableOnboardingProducts) as AvailableOnboardingProductKey[]
+const AVAILABLE_ONBOARDING_PRODUCT_KEYS = Object.keys(availableOnboardingProducts) as AvailableOnboardingProductKey[]
 const isAvailableOnboardingProductKey = (key: string | ProductKey): key is AvailableOnboardingProductKey =>
     key in availableOnboardingProducts
 
@@ -101,7 +101,7 @@ export function Products(): JSX.Element {
 
     // Get all non-recommended products
     const availablePreSelectedProducts = preSelectedProducts.filter(isAvailableOnboardingProductKey)
-    const otherProducts = availableOnboardingProductKeys.filter((key) => !availablePreSelectedProducts.includes(key))
+    const otherProducts = AVAILABLE_ONBOARDING_PRODUCT_KEYS.filter((key) => !availablePreSelectedProducts.includes(key))
 
     return (
         <div className="flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">
@@ -209,7 +209,7 @@ export function Products(): JSX.Element {
                         ) : (
                             // OLD LAYOUT: Flex wrap layout (when use case onboarding is disabled)
                             <div className="flex flex-row flex-wrap gap-4 justify-center max-w-[680px]">
-                                {availableOnboardingProductKeys.map((productKey) => (
+                                {AVAILABLE_ONBOARDING_PRODUCT_KEYS.map((productKey) => (
                                     <SelectableProductCard
                                         key={productKey}
                                         product={availableOnboardingProducts[productKey]}
