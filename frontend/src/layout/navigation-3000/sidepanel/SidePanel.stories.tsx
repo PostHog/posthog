@@ -55,6 +55,17 @@ const BaseTemplate = (props: { panel: SidePanelTab }): JSX.Element => {
 }
 
 export const SidePanelDocs: StoryFn = () => {
+    // Mock the iframe postMessage to simulate successful docs load
+    useOnMountEffect(() => {
+        // Simulate the docs-ready message that the iframe would normally send
+        // Need to dispatch a MessageEvent with the correct origin (https://posthog.com)
+        const messageEvent = new MessageEvent('message', {
+            data: { type: 'docs-ready' },
+            origin: 'https://posthog.com',
+        })
+        window.dispatchEvent(messageEvent)
+    })
+
     return <BaseTemplate panel={SidePanelTab.Docs} />
 }
 
