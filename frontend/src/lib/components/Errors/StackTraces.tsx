@@ -6,7 +6,7 @@ import { MouseEvent, useState } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { IconBox } from '@posthog/icons'
-import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, Link, Tooltip } from '@posthog/lemon-ui'
 import { PropertiesTable } from '@posthog/products-error-tracking/frontend/components/PropertiesTable'
 import { cancelEvent } from '@posthog/products-error-tracking/frontend/utils'
 
@@ -30,22 +30,26 @@ import { formatResolvedName, formatType, stacktraceHasInAppFrames } from './util
 
 export type ExceptionHeaderProps = {
     id?: string
-    type?: string
-    value?: string
+    exception: ErrorTrackingException
     loading: boolean
     part?: FingerprintRecordPart
 }
 
-function ExceptionHeader({ type, value, part }: ExceptionHeaderProps): JSX.Element {
+function ExceptionHeader({ exception, part }: ExceptionHeaderProps): JSX.Element {
+    const type = formatType(exception)
+    const value = exception.value
+
     return (
         <div className="flex flex-col gap-0.5 mb-2">
             <h3 className="StackTrace__type mb-0 flex items-center" title={type}>
                 {type}
                 {part && <FingerprintRecordPartDisplay className="ml-1" part={part} />}
             </h3>
-            <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs" title={value}>
-                {value}
-            </div>
+            {value && (
+                <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs" title={value}>
+                    {value}
+                </div>
+            )}
         </div>
     )
 }
@@ -66,7 +70,7 @@ export function ChainedStackTraces({
     onFrameContextClick?: FrameContextClickHandler
     onFirstFrameExpanded?: () => void
 }): JSX.Element {
-    const { exceptionList, getExceptionFingerprint } = useValues(errorPropertiesLogic)
+    const { exceptionList, exceptionAttributes, getExceptionFingerprint } = useValues(errorPropertiesLogic)
     const [hasCalledOnFirstExpanded, setHasCalledOnFirstExpanded] = useState<boolean>(false)
 
     const handleFrameExpanded = (): void => {
@@ -76,13 +80,34 @@ export function ChainedStackTraces({
         }
     }
 
+    const isScriptError =
+        exceptionAttributes &&
+        exceptionAttributes.type === 'Error' &&
+        exceptionAttributes.runtime === 'web' &&
+        exceptionAttributes.value === 'Script error'
+
     return (
         <div className="flex flex-col gap-y-2">
+            {isScriptError && (
+                <LemonBanner type="warning">
+                    This error occurs when JavaScript exceptions are thrown from a third-party script but details are
+                    hidden due to cross-origin restrictions.{' '}
+                    <Link
+                        to="https://posthog.com/docs/error-tracking/common-questions#what-is-a-script-error-with-no-stack-traces"
+                        target="_blank"
+                    >
+                        Read our docs
+                    </Link>{' '}
+                    to learn how to get the full exception context.
+                </LemonBanner>
+            )}
+
             {exceptionList.map((exception, index) => {
-                const { stacktrace, value, id } = exception
+                const { stacktrace, id } = exception
                 const displayTrace = shouldDisplayTrace(stacktrace, showAllFrames)
                 const part = getExceptionFingerprint(id)
-                const traceHeaderProps = { id, type: formatType(exception), value, part, loading: false }
+                const traceHeaderProps = { id, exception, part, loading: false }
+
                 return (
                     <div
                         key={id ?? index}

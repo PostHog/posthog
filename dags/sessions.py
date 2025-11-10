@@ -14,6 +14,7 @@ MAX_PARTITIONS_PER_RUN = 30
 daily_partitions = DailyPartitionsDefinition(
     start_date="2019-01-01",  # this is a year before posthog was founded, so should be early enough even including data imports
     timezone="UTC",
+    end_offset=1,  # include today's partition (note that will create a partition with incomplete data, but all our backfills are idempotent so this is ok providing we re-run later)
 )
 
 
