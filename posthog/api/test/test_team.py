@@ -30,6 +30,7 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
@@ -309,6 +310,48 @@ def team_api_test_factory():
             self.assertEqual(response_data["receive_org_level_activity_logs"], False)
 
         def test_update_receive_org_level_activity_logs(self):
+            response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_data = response.json()
+            self.assertEqual(response_data["receive_org_level_activity_logs"], True)
+
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.receive_org_level_activity_logs, True)
+
+        def test_update_receive_org_level_activity_logs_requires_admin(self):
+            member_user = User.objects.create_user(email="member@posthog.com", password="password", first_name="Member")
+            OrganizationMembership.objects.create(
+                user=member_user,
+                organization=self.organization,
+                level=OrganizationMembership.Level.MEMBER,
+            )
+            self.client.force_login(member_user)
+
+            response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "authentication_error",
+                    "code": "permission_denied",
+                    "detail": "Only organization owners and admins can modify the receive_org_level_activity_logs setting.",
+                    "attr": None,
+                },
+            )
+
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.receive_org_level_activity_logs, False)
+
+        def test_update_receive_org_level_activity_logs_allows_admin(self):
+            admin_user = User.objects.create_user(email="admin@posthog.com", password="password", first_name="Admin")
+            OrganizationMembership.objects.create(
+                user=admin_user,
+                organization=self.organization,
+                level=OrganizationMembership.Level.ADMIN,
+            )
+            self.client.force_login(admin_user)
+
             response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
