@@ -51,7 +51,7 @@ export function SelectableProductCard({
                 <>
                     {product.description}
                     <br />
-                    {onboardingCompleted && "You've already set up this app. Click to return to its page."}
+                    {onboardingCompleted && <em>You've already set up this app. Click to return to its page.</em>}
                 </>
             }
         >
