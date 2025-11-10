@@ -188,10 +188,10 @@ pub async fn do_team_lookups(
         let (indices, task) = (lookup.indices, lookup.inner);
         match task.await.expect("Task was not cancelled") {
             Ok(maybe_team) => {
-                results.insert(token, maybe_team);
                 if maybe_team.is_none() {
                     warn!("Received event for unknown team token: {}", token);
                 }
+                results.insert(token, maybe_team);
             }
             Err(err) => return Err((indices[0], err).into()),
         };
