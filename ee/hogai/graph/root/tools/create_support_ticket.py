@@ -6,7 +6,7 @@ from posthog.schema import DraftSupportTicketToolOutput
 
 from ee.hogai.tool import MaxTool
 
-SUPPORT_ESCALATION_PROMPT = f"""<support_escalation>
+SUPPORT_ESCALATION_PROMPT = """<support_escalation>
 You have access to the `create_support_ticket` tool to escalate issues to human support when needed.
 
 IMPORTANT: Don't overuse this tool. Only escalate when human assistance is genuinely needed after you've exhausted your capabilities or you judge that a human intervention will have a more positive outcome than continuing the conversation.

@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { useLayoutEffect, useMemo, useState } from 'react'
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { twMerge } from 'tailwind-merge'
 
 import {
@@ -1399,10 +1399,9 @@ interface SupportTicketAnswerProps {
 
 function SupportTicketAnswer({ draftTicketData }: SupportTicketAnswerProps): JSX.Element {
     const [submissionStatus, setSubmissionStatus] = useState<'draft' | 'submitting' | 'submitted' | 'error'>('draft')
+    const submitFnRef = useRef<(() => Promise<void>) | null>(null)
 
     const handleCreateTicket = (): void => {
-        let submitFn: (() => Promise<void>) | null = null
-
         LemonDialog.open({
             title: 'Create Support Ticket',
             width: 600,
@@ -1414,7 +1413,7 @@ function SupportTicketAnswer({ draftTicketData }: SupportTicketAnswerProps): JSX
                         setSubmissionStatus('submitted')
                     }}
                     onSubmitRef={(fn) => {
-                        submitFn = fn
+                        submitFnRef.current = fn
                     }}
                 />
             ),
@@ -1422,8 +1421,12 @@ function SupportTicketAnswer({ draftTicketData }: SupportTicketAnswerProps): JSX
                 children: 'Send',
                 type: 'primary',
                 onClick: async () => {
-                    if (submitFn) {
-                        await submitFn()
+                    if (submitFnRef.current) {
+                        try {
+                            await submitFnRef.current()
+                        } catch (error) {
+                            posthog.captureException(error)
+                        }
                     }
                 },
             },
