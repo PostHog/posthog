@@ -339,7 +339,7 @@ jobs:
 
                     if [ $EXIT_CODE -ne 0 ]; then
                       # Still failing - check if we should update snapshots
-                      if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -qi "snapshot.*failed" /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt2.log 2>/dev/null; then
+                      if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -Eqi "(snapshot.*(failed|was not written)|Expected image to be the same size)" /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt2.log 2>/dev/null; then
                         echo "Snapshot failure confirmed on attempt 2 - updating snapshots"
                         # Attempt 3: Update snapshots
                         echo "Attempt 3: Running @storybook/test-runner (update)"
