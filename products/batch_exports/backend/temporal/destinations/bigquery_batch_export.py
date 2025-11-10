@@ -120,6 +120,85 @@ BigQueryTypeName = typing.Literal[
 ]
 
 
+def bigquery_default_fields() -> list[BatchExportField]:
+    """Default fields for a BigQuery batch export.
+
+    Starting from the common default fields, we add and tweak some fields for
+    backwards compatibility.
+    """
+    batch_export_fields = default_fields()
+    batch_export_fields.append(
+        {
+            "expression": "nullIf(JSONExtractString(properties, '$ip'), '')",
+            "alias": "ip",
+        }
+    )
+    # Fields kept or removed for backwards compatibility with legacy apps schema.
+    batch_export_fields.append({"expression": "toJSONString(elements_chain)", "alias": "elements"})
+    batch_export_fields.append({"expression": "''", "alias": "site_url"})
+    batch_export_fields.append({"expression": "NOW64()", "alias": "bq_ingested_timestamp"})
+    batch_export_fields.pop(batch_export_fields.index({"expression": "created_at", "alias": "created_at"}))
+
+    return batch_export_fields
+
+
+def get_bigquery_fields_from_record_schema(
+    record_schema: pa.Schema, known_json_columns: collections.abc.Sequence[str]
+) -> list[bigquery.SchemaField]:
+    """Generate a list of supported BigQuery fields from PyArrow schema.
+
+    This function is used to map custom schemas to BigQuery-supported types. Some loss
+    of precision is expected.
+
+    Arguments:
+        record_schema: The schema of a PyArrow RecordBatch from which we'll attempt to
+            derive BigQuery-supported types.
+        known_json_columns: If a string type field is a known JSON column then use JSON
+            as its BigQuery type.
+    """
+    bq_schema: list[bigquery.SchemaField] = []
+
+    for name in record_schema.names:
+        if name == "_inserted_at":
+            continue
+
+        repeated = False
+        pa_field = record_schema.field(name)
+
+        if pa.types.is_string(pa_field.type) or isinstance(pa_field.type, JsonType):
+            if pa_field.name in known_json_columns:
+                bq_type = "JSON"
+            else:
+                bq_type = "STRING"
+
+        elif pa.types.is_binary(pa_field.type):
+            bq_type = "BYTES"
+
+        elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
+            # The latter comparison is hoping we don't overflow, but BigQuery doesn't have an uint64 type.
+            bq_type = "INT64"
+
+        elif pa.types.is_floating(pa_field.type):
+            bq_type = "FLOAT64"
+
+        elif pa.types.is_boolean(pa_field.type):
+            bq_type = "BOOL"
+
+        elif pa.types.is_timestamp(pa_field.type):
+            bq_type = "TIMESTAMP"
+
+        elif pa.types.is_list(pa_field.type) and pa.types.is_string(pa_field.type.value_type):
+            bq_type = "STRING"
+            repeated = True
+
+        else:
+            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
+
+        bq_schema.append(bigquery.SchemaField(name, bq_type, mode="REPEATED" if repeated else "NULLABLE"))
+
+    return bq_schema
+
+
 class BigQueryType(typing.NamedTuple):
     name: BigQueryTypeName
     repeated: bool
@@ -677,77 +756,6 @@ class MissingRequiredPermissionsError(Exception):
         super().__init__("Missing required permissions to run this batch export")
 
 
-def get_bigquery_fields_from_record_schema(
-    record_schema: pa.Schema, known_json_columns: collections.abc.Sequence[str]
-) -> list[bigquery.SchemaField]:
-    """Generate a list of supported BigQuery fields from PyArrow schema.
-
-    This function is used to map custom schemas to BigQuery-supported types. Some loss
-    of precision is expected.
-
-    Arguments:
-        record_schema: The schema of a PyArrow RecordBatch from which we'll attempt to
-            derive BigQuery-supported types.
-        known_json_columns: If a string type field is a known JSON column then use JSON
-            as its BigQuery type.
-    """
-    bq_schema: list[bigquery.SchemaField] = []
-
-    for name in record_schema.names:
-        if name == "_inserted_at":
-            continue
-
-        repeated = False
-        pa_field = record_schema.field(name)
-
-        if pa.types.is_string(pa_field.type) or isinstance(pa_field.type, JsonType):
-            if pa_field.name in known_json_columns:
-                bq_type = "JSON"
-            else:
-                bq_type = "STRING"
-
-        elif pa.types.is_binary(pa_field.type):
-            bq_type = "BYTES"
-
-        elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
-            # The latter comparison is hoping we don't overflow, but BigQuery doesn't have an uint64 type.
-            bq_type = "INT64"
-
-        elif pa.types.is_floating(pa_field.type):
-            bq_type = "FLOAT64"
-
-        elif pa.types.is_boolean(pa_field.type):
-            bq_type = "BOOL"
-
-        elif pa.types.is_timestamp(pa_field.type):
-            bq_type = "TIMESTAMP"
-
-        elif pa.types.is_list(pa_field.type) and pa.types.is_string(pa_field.type.value_type):
-            bq_type = "STRING"
-            repeated = True
-
-        else:
-            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
-
-        bq_schema.append(bigquery.SchemaField(name, bq_type, mode="REPEATED" if repeated else "NULLABLE"))
-
-    return bq_schema
-
-
-@dataclasses.dataclass(kw_only=True)
-class BigQueryInsertInputs(BatchExportInsertInputs):
-    """Inputs for BigQuery."""
-
-    project_id: str
-    dataset_id: str
-    table_id: str
-    private_key: str
-    private_key_id: str
-    token_uri: str
-    client_email: str
-    use_json_type: bool = False
-
-
 class BigQueryQuotaExceededError(Exception):
     """Exception raised when a BigQuery quota is exceeded.
 
@@ -757,28 +765,6 @@ class BigQueryQuotaExceededError(Exception):
 
     def __init__(self, message: str):
         super().__init__(f"A BigQuery quota has been exceeded. Error: {message}")
-
-
-def bigquery_default_fields() -> list[BatchExportField]:
-    """Default fields for a BigQuery batch export.
-
-    Starting from the common default fields, we add and tweak some fields for
-    backwards compatibility.
-    """
-    batch_export_fields = default_fields()
-    batch_export_fields.append(
-        {
-            "expression": "nullIf(JSONExtractString(properties, '$ip'), '')",
-            "alias": "ip",
-        }
-    )
-    # Fields kept or removed for backwards compatibility with legacy apps schema.
-    batch_export_fields.append({"expression": "toJSONString(elements_chain)", "alias": "elements"})
-    batch_export_fields.append({"expression": "''", "alias": "site_url"})
-    batch_export_fields.append({"expression": "NOW64()", "alias": "bq_ingested_timestamp"})
-    batch_export_fields.pop(batch_export_fields.index({"expression": "created_at", "alias": "created_at"}))
-
-    return batch_export_fields
 
 
 class BigQueryConsumer(Consumer):
@@ -860,6 +846,20 @@ def _get_merge_settings(
         return None
 
     return MergeSettings(primary_key, version_key)
+
+
+@dataclasses.dataclass(kw_only=True)
+class BigQueryInsertInputs(BatchExportInsertInputs):
+    """Inputs for BigQuery."""
+
+    project_id: str
+    dataset_id: str
+    table_id: str
+    private_key: str
+    private_key_id: str
+    token_uri: str
+    client_email: str
+    use_json_type: bool = False
 
 
 @activity.defn
