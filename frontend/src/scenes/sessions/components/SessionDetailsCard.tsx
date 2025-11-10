@@ -5,8 +5,6 @@ import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonDivider, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SessionData, sessionProfileLogic } from '../sessionProfileLogic'
 
@@ -68,10 +66,8 @@ export interface SessionDetailsCardProps {
 
 export function SessionDetailsCard(): JSX.Element | null {
     const { sessionData, isInitialLoading, supportTicketEvents } = useValues(sessionProfileLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     // only support zendesk ticket for our organization through feature flag
-    const hasSupportTickets =
-        featureFlags[FEATURE_FLAGS.SUPPORT_TICKETS_IN_SESSION_DETAILS] && supportTicketEvents.length > 0
+    const hasSupportTickets = supportTicketEvents.length > 0
 
     if (!sessionData || isInitialLoading) {
         return null
