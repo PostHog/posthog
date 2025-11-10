@@ -3,7 +3,7 @@ import { connect, kea, path, props, selectors } from 'kea'
 import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import 'lib/components/Errors/stackFrameLogic'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingRelease, ErrorTrackingStackFrame } from 'lib/components/Errors/types'
+import { ErrorTrackingRelease } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
 
 import type { releasePreviewLogicType } from './releasePreviewLogicType'
@@ -25,13 +25,13 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
         values: [errorPropertiesLogic(props), ['frames'], stackFrameLogic, ['stackFrameRecords']],
     })),
 
-    selectors(({ values }) => ({
+    selectors(() => ({
         release: [
             (s) => [s.frames, s.stackFrameRecords],
-            () => {
-                const frames = values.frames as ErrorTrackingStackFrame[]
-                const stackFrameRecords = values.stackFrameRecords
-
+            (frames, stackFrameRecords) => {
+                if (!frames.length || Object.keys(stackFrameRecords).length === 0) {
+                    return undefined
+                }
                 const rawIds = frames.map((f) => f.raw_id)
                 const relatedReleases: ErrorTrackingRelease[] = rawIds
                     .map((id) => stackFrameRecords[id]?.release)
@@ -42,15 +42,14 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
                     return relatedReleases[0]
                 }
                 const kaboomFrame = frames.reverse()[0]
-                if (stackFrameRecords[kaboomFrame.raw_id]?.release) {
+                if (stackFrameRecords[kaboomFrame?.raw_id]?.release) {
                     return stackFrameRecords[kaboomFrame.raw_id].release
-                } else {
-                    // get most recent release
-                    const sortedReleases = relatedReleases.sort(
-                        (a, b) => dayjs(b.timestamp).unix() - dayjs(a.timestamp).unix()
-                    )
-                    return sortedReleases[0]
                 }
+                // get most recent release
+                const sortedReleases = relatedReleases.sort(
+                    (a, b) => dayjs(b.timestamp).unix() - dayjs(a.timestamp).unix()
+                )
+                return sortedReleases[0]
             },
         ],
     })),
