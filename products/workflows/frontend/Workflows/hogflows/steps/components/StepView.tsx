@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 
@@ -17,8 +17,6 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     const { selectedNode, mode } = useValues(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
     const isSelected = selectedNode?.id === action.id
-    const inputRef = useRef<HTMLInputElement>(null)
-    const descriptionInputRef = useRef<HTMLTextAreaElement>(null)
 
     const stepViewLogicProps: StepViewLogicProps = { action, workflowLogicProps: logicProps }
     const { isEditingName, isEditingDescription, editNameValue, editDescriptionValue } = useValues(
@@ -55,22 +53,6 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
 
     const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
 
-    useEffect(() => {
-        if (isEditingName && inputRef.current) {
-            inputRef.current.focus()
-            const length = inputRef.current.value.length
-            inputRef.current.setSelectionRange(length, length)
-        }
-    }, [isEditingName])
-
-    useEffect(() => {
-        if (isEditingDescription && descriptionInputRef.current) {
-            descriptionInputRef.current.focus()
-            const length = descriptionInputRef.current.value.length
-            descriptionInputRef.current.setSelectionRange(length, length)
-        }
-    }, [isEditingDescription])
-
     return (
         <div
             className="relative flex flex-col cursor-pointer rounded user-select-none bg-surface-primary"
@@ -97,33 +79,30 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                 <div className="flex flex-col flex-1 min-w-0">
                     <div className="flex justify-between items-center gap-1">
                         {isEditingName ? (
-                            <input
-                                ref={inputRef}
-                                type="text"
-                                value={editNameValue}
-                                onChange={(e) => setEditNameValue(e.target.value)}
-                                onBlur={(e) => {
-                                    e.stopPropagation()
-                                    saveName()
-                                    e.currentTarget.blur()
-                                }}
-                                onKeyDown={(e) => {
-                                    e.stopPropagation()
-                                    if (e.key === 'Enter') {
-                                        e.preventDefault()
+                            <div onClick={(e) => e.stopPropagation()} className="flex-1 min-w-0">
+                                <LemonInput
+                                    autoFocus
+                                    value={editNameValue}
+                                    onChange={setEditNameValue}
+                                    onBlur={(e: React.FocusEvent) => {
+                                        e.stopPropagation()
                                         saveName()
-                                        e.currentTarget.blur()
-                                    } else if (e.key === 'Escape') {
-                                        e.preventDefault()
-                                        cancelEditingName()
-                                        e.currentTarget.blur()
-                                    }
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                className="text-[0.45rem] font-sans font-medium bg-transparent border-0 outline-none pl-1 pr-0 py-0 m-0 w-full focus:ring-1 focus:ring-primary focus:ring-offset-0 rounded"
-                                style={{ color: 'inherit' }}
-                            />
+                                    }}
+                                    onKeyDown={(e: React.KeyboardEvent) => {
+                                        e.stopPropagation()
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault()
+                                            saveName()
+                                            ;(e.target as HTMLInputElement).blur()
+                                        } else if (e.key === 'Escape') {
+                                            e.preventDefault()
+                                            cancelEditingName()
+                                            ;(e.target as HTMLInputElement).blur()
+                                        }
+                                    }}
+                                    className="text-[0.45rem] font-sans font-medium !bg-transparent !border-0 !shadow-none !p-0 !pl-1 !m-0 !min-h-0 !h-[0.55rem] !leading-tight focus-within:!ring-1 focus-within:!ring-primary !rounded"
+                                />
+                            </div>
                         ) : (
                             <Tooltip title={action.name}>
                                 <div
@@ -141,32 +120,30 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     </div>
 
                     {isEditingDescription ? (
-                        <textarea
-                            ref={descriptionInputRef}
-                            value={editDescriptionValue}
-                            onChange={(e) => setEditDescriptionValue(e.target.value)}
-                            onBlur={(e) => {
-                                e.stopPropagation()
-                                saveDescription()
-                                e.currentTarget.blur()
-                            }}
-                            onKeyDown={(e) => {
-                                e.stopPropagation()
-                                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                                    e.preventDefault()
+                        <div onClick={(e) => e.stopPropagation()} className="min-w-0">
+                            <LemonTextArea
+                                autoFocus
+                                value={editDescriptionValue}
+                                onChange={setEditDescriptionValue}
+                                onBlur={(e: React.FocusEvent) => {
+                                    e.stopPropagation()
                                     saveDescription()
-                                    e.currentTarget.blur()
-                                } else if (e.key === 'Escape') {
-                                    e.preventDefault()
-                                    cancelEditingDescription()
-                                    e.currentTarget.blur()
-                                }
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            className="text-[0.3rem]/1.5 text-muted bg-transparent border-0 outline-none pl-1 pr-0 py-0 m-0 w-full focus:ring-1 focus:ring-primary focus:ring-offset-0 rounded resize-none overflow-hidden"
-                            style={{ color: 'inherit', height: '0.9rem', lineHeight: '1.5' }}
-                        />
+                                }}
+                                onKeyDown={(e: React.KeyboardEvent) => {
+                                    e.stopPropagation()
+                                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                                        e.preventDefault()
+                                        saveDescription()
+                                        ;(e.target as HTMLTextAreaElement).blur()
+                                    } else if (e.key === 'Escape') {
+                                        e.preventDefault()
+                                        cancelEditingDescription()
+                                        ;(e.target as HTMLTextAreaElement).blur()
+                                    }
+                                }}
+                                className="text-[0.3rem] text-muted !bg-transparent !border-0 !shadow-none !p-0 !pl-1 !m-0 !min-h-0 !max-h-[0.9rem] !leading-[0.45rem] !resize-none !overflow-hidden focus-within:!ring-1 focus-within:!ring-primary !rounded"
+                            />
+                        </div>
                     ) : (
                         <Tooltip title={action.description || ''}>
                             <div
