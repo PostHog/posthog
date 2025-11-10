@@ -136,28 +136,18 @@ class CleanupResult:
 @click.option("--dry-run", is_flag=True, help="Show what would be cleaned without deleting")
 @click.option("--yes", "-y", is_flag=True, help="Auto-confirm all cleanup operations")
 @click.option(
-    "--flox",
-    is_flag=True,
-    help="Non-interactive mode for Flox auto-cleanup (implies --yes, --flox-logs, skips summary)",
+    "--area",
+    multiple=True,
+    type=click.Choice(
+        ["flox-logs", "docker", "python", "dagster", "node-artifacts", "rust", "node-modules"],
+        case_sensitive=False,
+    ),
+    help="Specific cleanup area(s) to run. Can be specified multiple times. Without this, all areas run.",
 )
-@click.option("--flox-logs", is_flag=True, help="Clean Flox logs only")
-@click.option("--docker", is_flag=True, help="Clean Docker system only")
-@click.option("--python", is_flag=True, help="Clean Python caches only")
-@click.option("--dagster", is_flag=True, help="Clean Dagster storage only")
-@click.option("--node-artifacts", is_flag=True, help="Clean Node.js/TS build artifacts only")
-@click.option("--rust", is_flag=True, help="Clean Rust Cargo targets only")
-@click.option("--node-modules", is_flag=True, help="Clean node_modules only")
 def doctor_disk(
     dry_run: bool,
     yes: bool,
-    flox: bool,
-    flox_logs: bool,
-    docker: bool,
-    python: bool,
-    dagster: bool,
-    node_artifacts: bool,
-    rust: bool,
-    node_modules: bool,
+    area: tuple[str, ...],
 ) -> None:
     """Clean up disk space by pruning caches, build outputs, and containers.
 
@@ -177,19 +167,10 @@ def doctor_disk(
 
     from hogli.core.manifest import REPO_ROOT
 
-    # --flox implies --yes, --flox-logs, and enables silent mode
-    if flox:
-        yes = True
-        flox_logs = True
+    click.echo("🔍 PostHog Disk Space Cleanup\n")
 
-    # Determine which categories to run
-    has_specific_flags = any([flox_logs, docker, python, dagster, node_artifacts, rust, node_modules])
-
-    if not flox:
-        click.echo("🔍 PostHog Disk Space Cleanup\n")
-
-        if dry_run:
-            click.echo("🚀 Running in DRY-RUN mode - no files will be deleted\n")
+    if dry_run:
+        click.echo("🚀 Running in DRY-RUN mode - no files will be deleted\n")
 
     all_categories: list[CleanupCategory] = [
         CleanupCategory(
@@ -275,34 +256,17 @@ def doctor_disk(
         ),
     ]
 
-    # Filter categories based on flags
-    if has_specific_flags:
-        enabled_ids = set()
-        if flox_logs:
-            enabled_ids.add("flox_logs")
-        if docker:
-            enabled_ids.add("docker")
-        if python:
-            enabled_ids.add("python")
-        if dagster:
-            enabled_ids.add("dagster")
-        if node_artifacts:
-            enabled_ids.add("node_artifacts")
-        if rust:
-            enabled_ids.add("rust")
-        if node_modules:
-            enabled_ids.add("node_modules")
+    # Filter categories based on --area flag
+    if area:
+        # Convert area names (with hyphens) to category IDs (with underscores)
+        enabled_ids = {area_name.replace("-", "_") for area_name in area}
         categories = [cat for cat in all_categories if cat.id in enabled_ids]
     else:
         categories = all_categories
 
     results: list[CleanupResult] = []
     for category in categories:
-        results.append(_run_category(category, REPO_ROOT, dry_run, yes, flox))
-
-    # Skip summary in --flox mode
-    if flox:
-        return
+        results.append(_run_category(category, REPO_ROOT, dry_run, yes, silent=False))
 
     total_freed = sum(result.freed for result in results)
     non_counted = [

@@ -90,7 +90,7 @@ echo -e "\033[1;36m🔧 Configuring development environment...\033[0m"
 # Clean up old Flox log files (older than 7 days) via hogli
 echo -e "  \033[1;34m🧹 Flox logs\033[0m"
 if [ -f "$FLOX_ENV_PROJECT/bin/hogli" ]; then
-  "$FLOX_ENV_PROJECT/bin/hogli" doctor:disk --flox 2>/dev/null || true
+  "$FLOX_ENV_PROJECT/bin/hogli" doctor:disk --area=flox-logs --yes 2>/dev/null || true
   echo -e "    \033[32m✅ Flox logs cleaned up\033[0m"
 else
   # Fallback if hogli not available yet
