@@ -1,5 +1,5 @@
 from copy import deepcopy
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
@@ -1055,6 +1055,47 @@ class EnterpriseExperimentsViewSet(
                 "created_at": recalculation_request.created_at.isoformat(),
             },
             status=201,
+        )
+
+    @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
+    def stats(self, request: Request, **kwargs: Any) -> Response:
+        """Get experimentation velocity statistics."""
+        team_tz = ZoneInfo(self.team.timezone) if self.team.timezone else ZoneInfo("UTC")
+        today = datetime.now(team_tz).date()
+
+        last_30d_start = today - timedelta(days=30)
+        previous_30d_start = today - timedelta(days=60)
+        previous_30d_end = last_30d_start
+
+        base_queryset = Experiment.objects.filter(team=self.team, deleted=False, archived=False)
+
+        launched_last_30d = base_queryset.filter(
+            start_date__gte=last_30d_start, start_date__lt=today + timedelta(days=1)
+        ).count()
+
+        launched_previous_30d = base_queryset.filter(
+            start_date__gte=previous_30d_start, start_date__lt=previous_30d_end
+        ).count()
+
+        if launched_previous_30d == 0:
+            percent_change = 100.0 if launched_last_30d > 0 else 0.0
+        else:
+            percent_change = ((launched_last_30d - launched_previous_30d) / launched_previous_30d) * 100
+
+        active_experiments = base_queryset.filter(start_date__isnull=False, end_date__isnull=True).count()
+
+        completed_last_30d = base_queryset.filter(
+            end_date__gte=last_30d_start, end_date__lt=today + timedelta(days=1)
+        ).count()
+
+        return Response(
+            {
+                "launched_last_30d": launched_last_30d,
+                "launched_previous_30d": launched_previous_30d,
+                "percent_change": round(percent_change, 1),
+                "active_experiments": active_experiments,
+                "completed_last_30d": completed_last_30d,
+            }
         )
 
 

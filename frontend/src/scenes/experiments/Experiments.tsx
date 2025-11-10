@@ -38,6 +38,7 @@ import {
 } from '~/types'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
+import { ExperimentVelocityStats } from './ExperimentVelocityStats'
 import { StatusTag, createMaxToolExperimentSurveyConfig } from './ExperimentView/components'
 import { ExperimentsSettings } from './ExperimentsSettings'
 import { Holdouts } from './Holdouts'
@@ -445,6 +446,7 @@ export function Experiments(): JSX.Element {
                     </AccessControlAction>
                 }
             />
+            <ExperimentVelocityStats />
             <LemonTabs
                 activeKey={tab}
                 onChange={(newKey) => setExperimentsTab(newKey)}
