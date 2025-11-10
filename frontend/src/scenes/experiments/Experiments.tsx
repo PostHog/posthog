@@ -426,7 +426,6 @@ export function Experiments(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Experiments"
-                description={EXPERIMENTS_PRODUCT_DESCRIPTION}
                 resourceType={{
                     type: 'experiment',
                 }}
