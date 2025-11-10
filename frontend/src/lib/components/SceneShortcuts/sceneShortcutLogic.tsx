@@ -249,8 +249,6 @@ export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
                     event.preventDefault()
                     event.stopPropagation()
                     matchingShortcut.action()
-                    // close action palette
-                    actions.setActionPaletteOpen(false)
                 }
             }
 

@@ -3,7 +3,6 @@ import './ButtonPrimitives.scss'
 import { type VariantProps, cva } from 'cva'
 import React, { ReactNode, createContext, forwardRef, useContext } from 'react'
 
-import { SceneShortcut, SceneShortcutProps } from 'lib/components/SceneShortcuts/SceneShortcut'
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 
@@ -53,7 +52,6 @@ type ButtonBaseProps = {
     buttonWrapper?: (button: JSX.Element) => JSX.Element
     // Like disabled but doesn't show the disabled state or focus state (still shows tooltip)
     inert?: boolean
-    sceneShortcut?: SceneShortcutProps
 } & VariantProps<typeof buttonPrimitiveVariants>
 
 /* -------------------------------------------------------------------------- */
@@ -277,7 +275,6 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         tooltipInteractive,
         autoHeight,
         inert,
-        sceneShortcut,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
@@ -338,10 +335,6 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
 
     if (buttonWrapper) {
         buttonComponent = buttonWrapper(buttonComponent)
-    }
-
-    if (sceneShortcut) {
-        buttonComponent = <SceneShortcut {...sceneShortcut}>{buttonComponent}</SceneShortcut>
     }
 
     return buttonComponent
