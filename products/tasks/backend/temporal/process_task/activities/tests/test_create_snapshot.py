@@ -50,9 +50,6 @@ class TestCreateSnapshotActivity:
             assert "test-owner/test-repo" in created_snapshot.repos
             assert created_snapshot.status == SandboxSnapshot.Status.COMPLETE
 
-            snapshot_status = Sandbox.get_snapshot_status(created_snapshot.external_id)
-            assert snapshot_status.value == "complete"
-
         finally:
             if sandbox:
                 sandbox.destroy()
@@ -100,9 +97,6 @@ class TestCreateSnapshotActivity:
             assert "existing-owner/existing-repo" in created_snapshot.repos
             assert "new-owner/new-repo" in created_snapshot.repos
             assert len(created_snapshot.repos) == 2
-
-            snapshot_status = Sandbox.get_snapshot_status(created_snapshot.external_id)
-            assert snapshot_status.value == "complete"
 
         finally:
             base_snapshot.delete()

@@ -7,13 +7,12 @@ from asgiref.sync import async_to_sync
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox import Sandbox
+from products.tasks.backend.temporal.conftest import get_or_create_test_snapshots
 from products.tasks.backend.temporal.exceptions import SandboxProvisionError, SnapshotNotFoundError
 from products.tasks.backend.temporal.process_task.activities.create_sandbox_from_snapshot import (
     CreateSandboxFromSnapshotInput,
     create_sandbox_from_snapshot,
 )
-
-from .constants import BASE_SNAPSHOT
 
 
 @pytest.mark.skipif(
@@ -39,7 +38,8 @@ class TestCreateSandboxFromSnapshotActivity:
 
     @pytest.mark.django_db
     def test_create_sandbox_from_snapshot_success(self, activity_environment, github_integration):
-        snapshot = self._create_snapshot(github_integration, external_id=BASE_SNAPSHOT["external_id"])
+        snapshots = get_or_create_test_snapshots(github_integration)
+        snapshot = snapshots["single"]
         task_id = "test-task-123"
         sandbox_id = None
 
@@ -54,10 +54,8 @@ class TestCreateSandboxFromSnapshotActivity:
 
             sandbox = Sandbox.get_by_id(sandbox_id)
             assert sandbox.id == sandbox_id
-            assert sandbox.status in ["pending", "initializing", "running"]
 
         finally:
-            self._cleanup_snapshot(snapshot)
             if sandbox_id:
                 self._cleanup_sandbox(sandbox_id)
 

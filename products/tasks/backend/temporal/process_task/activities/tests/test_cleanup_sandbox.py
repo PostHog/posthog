@@ -4,6 +4,7 @@ import threading
 
 import pytest
 
+import modal
 from asgiref.sync import async_to_sync
 
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
@@ -17,9 +18,11 @@ from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox imp
 class TestCleanupSandboxActivity:
     @pytest.mark.django_db
     def test_cleanup_sandbox_success(self, activity_environment):
+        test_tag = f"test-cleanup-{time.time()}"
         config = SandboxConfig(
-            name="test-cleanup-sandbox",
+            name=f"test-cleanup-sandbox-{time.time()}",
             template=SandboxTemplate.DEFAULT_BASE,
+            metadata={"test_tag": test_tag},
         )
 
         sandbox = Sandbox.create(config)
@@ -28,12 +31,15 @@ class TestCleanupSandboxActivity:
         existing_sandbox = Sandbox.get_by_id(sandbox_id)
         assert existing_sandbox.id == sandbox_id
 
+        sandboxes_before = list(modal.Sandbox.list(tags={"test_tag": test_tag}))
+        assert len(sandboxes_before) > 0
+
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
 
         async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
-        cleaned_sandbox = Sandbox.get_by_id(sandbox_id)
-        assert cleaned_sandbox.status.value == "shutdown"
+        sandboxes_after = list(modal.Sandbox.list(tags={"test_tag": test_tag}))
+        assert len(sandboxes_after) == 0
 
     @pytest.mark.django_db
     def test_cleanup_sandbox_not_found_does_not_raise(self, activity_environment):
@@ -43,28 +49,35 @@ class TestCleanupSandboxActivity:
 
     @pytest.mark.django_db
     def test_cleanup_sandbox_idempotency(self, activity_environment):
+        test_tag = f"test-cleanup-idempotent-{time.time()}"
         config = SandboxConfig(
-            name="test-cleanup-idempotent",
+            name=f"test-cleanup-idempotent-{time.time()}",
             template=SandboxTemplate.DEFAULT_BASE,
+            metadata={"test_tag": test_tag},
         )
 
         sandbox = Sandbox.create(config)
         sandbox_id = sandbox.id
 
+        sandboxes_before = list(modal.Sandbox.list(tags={"test_tag": test_tag}))
+        assert len(sandboxes_before) > 0
+
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
 
         async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
-        cleaned_sandbox = Sandbox.get_by_id(sandbox_id)
-        assert cleaned_sandbox.status.value == "shutdown"
+        sandboxes_after = list(modal.Sandbox.list(tags={"test_tag": test_tag}))
+        assert len(sandboxes_after) == 0
 
         async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
     @pytest.mark.django_db
     def test_cleanup_sandbox_during_execution(self, activity_environment):
+        test_tag = f"test-cleanup-during-exec-{time.time()}"
         config = SandboxConfig(
-            name="test-cleanup-during-execution",
+            name=f"test-cleanup-during-execution-{time.time()}",
             template=SandboxTemplate.DEFAULT_BASE,
+            metadata={"test_tag": test_tag},
         )
 
         sandbox = Sandbox.create(config)
@@ -81,11 +94,13 @@ class TestCleanupSandboxActivity:
 
         time.sleep(5)
 
+        sandboxes_before = list(modal.Sandbox.list(tags={"test_tag": test_tag}))
+        assert len(sandboxes_before) > 0
+
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
         async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
         long_task.join(timeout=5)
 
-        remaining_sandbox = Sandbox.get_by_id(sandbox_id)
-
-        assert remaining_sandbox.status.value in ["shutdown", "failure"]
+        sandboxes_after = list(modal.Sandbox.list(tags={"test_tag": test_tag}))
+        assert len(sandboxes_after) == 0

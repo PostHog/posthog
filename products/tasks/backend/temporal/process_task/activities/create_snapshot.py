@@ -1,4 +1,3 @@
-import json
 from dataclasses import dataclass
 
 from temporalio import activity
@@ -40,14 +39,7 @@ def create_snapshot(input: CreateSnapshotInput) -> str:
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
-        snapshot_external_id = sandbox.create_snapshot(
-            {
-                "integration_id": str(input.github_integration_id),
-                "team_id": str(input.team_id),
-                "repositories": json.dumps(new_repos),
-                "base_snapshot_id": str(base_snapshot.id) if base_snapshot else "",
-            }
-        )
+        snapshot_external_id = sandbox.create_snapshot()
 
         snapshot = SandboxSnapshot.objects.create(
             integration_id=input.github_integration_id,

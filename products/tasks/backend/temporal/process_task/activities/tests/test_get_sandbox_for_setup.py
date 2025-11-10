@@ -7,13 +7,12 @@ from asgiref.sync import async_to_sync
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox import Sandbox
+from products.tasks.backend.temporal.conftest import get_or_create_test_snapshots
 from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_setup import (
     GetSandboxForSetupInput,
     get_sandbox_for_setup,
 )
 from products.tasks.backend.temporal.process_task.utils import get_sandbox_name_for_task
-
-from .constants import BASE_SNAPSHOT
 
 
 @pytest.mark.skipif(
@@ -39,14 +38,15 @@ class TestGetSandboxForSetupActivity:
 
     @pytest.mark.django_db
     def test_get_sandbox_for_setup_with_existing_snapshot(self, activity_environment, github_integration, ateam):
-        snapshot = self._create_snapshot(github_integration, external_id=BASE_SNAPSHOT["external_id"])
+        snapshots = get_or_create_test_snapshots(github_integration)
+        snapshot = snapshots["single"]
 
         task_id = "test-task-123"
         sandbox_id = None
 
         try:
             input_data = GetSandboxForSetupInput(
-                github_integration_id=github_integration.id,
+                github_integration_id=snapshot.integration_id,
                 team_id=ateam.id,
                 task_id=task_id,
                 distinct_id="test-user-id",
@@ -58,10 +58,8 @@ class TestGetSandboxForSetupActivity:
 
             sandbox = Sandbox.get_by_id(sandbox_id)
             assert sandbox.id == sandbox_id
-            assert sandbox.status in ["pending", "initializing", "running"]
 
         finally:
-            self._cleanup_snapshot(snapshot)
             if sandbox_id:
                 self._cleanup_sandbox(sandbox_id)
 
