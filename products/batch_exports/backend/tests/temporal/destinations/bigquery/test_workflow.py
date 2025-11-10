@@ -386,10 +386,6 @@ async def test_bigquery_export_workflow_handles_unexpected_insert_activity_error
                     "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.Producer.start",
                     side_effect=RuntimeError("A useful error message"),
                 ),
-                unittest.mock.patch(
-                    "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.ProducerFromInternalStage.start",
-                    side_effect=RuntimeError("A useful error message"),
-                ),
             ):
                 with pytest.raises(WorkflowFailureError):
                     await activity_environment.client.execute_workflow(
@@ -449,10 +445,6 @@ async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_er
             with (
                 unittest.mock.patch(
                     "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.Producer.start",
-                    side_effect=RefreshError("A useful error message"),
-                ),
-                unittest.mock.patch(
-                    "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.ProducerFromInternalStage.start",
                     side_effect=RefreshError("A useful error message"),
                 ),
             ):
