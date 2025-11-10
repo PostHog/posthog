@@ -1165,7 +1165,7 @@ class EmailIntegration:
         # if so, ensure this team is part of the same organization. If not, we block creation.
         same_domain_integrations = Integration.objects.filter(kind="email", config__domain=domain)
         for integration in same_domain_integrations:
-            if integration.team.organization_id != organization_id:
+            if str(integration.team.organization.id) != str(organization_id):
                 raise ValidationError(
                     f"An email integration with domain {domain} already exists in another organization. Try a different domain or contact support if you believe this is a mistake."
                 )
