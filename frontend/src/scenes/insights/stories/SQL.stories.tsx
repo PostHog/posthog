@@ -140,6 +140,7 @@ export const SQLQueryError: StoryFn = () => {
 }
 SQLQueryError.parameters = {
     testOptions: {
+        waitForLoadersToDisappear: false,
         waitForSelector: '.InsightErrorState',
     },
 }
