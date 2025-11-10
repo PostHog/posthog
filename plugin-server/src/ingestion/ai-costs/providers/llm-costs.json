@@ -1300,8 +1300,8 @@
                 "completion_token": 1.3e-7
             },
             "deepinfra-fp8": {
-                "prompt_token": 5e-7,
-                "completion_token": 0.000001
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000012
             },
             "novita-bf16": {
                 "prompt_token": 8e-7,
@@ -2034,8 +2034,8 @@
                 "completion_token": 6e-8
             },
             "deepinfra-fp16": {
-                "prompt_token": 6e-8,
-                "completion_token": 6e-8
+                "prompt_token": 8e-8,
+                "completion_token": 8e-8
             },
             "mancer-fp8": {
                 "prompt_token": 5e-7,
@@ -2355,10 +2355,6 @@
                 "prompt_token": 1e-7,
                 "completion_token": 1e-7
             },
-            "inference-net-fp16": {
-                "prompt_token": 2e-8,
-                "completion_token": 3e-8
-            },
             "nebius-fast": {
                 "prompt_token": 3e-8,
                 "completion_token": 9e-8
@@ -2399,10 +2395,6 @@
                 "completion_token": 4.9e-8,
                 "image": 0.00007948
             },
-            "inference-net-fp16": {
-                "prompt_token": 5.5e-8,
-                "completion_token": 5.5e-8
-            },
             "together-turbo": {
                 "prompt_token": 1.8e-7,
                 "completion_token": 1.8e-7
@@ -2422,10 +2414,6 @@
             },
             "deepinfra-bf16": {
                 "prompt_token": 5e-9,
-                "completion_token": 1e-8
-            },
-            "inference-net-fp16": {
-                "prompt_token": 1e-8,
                 "completion_token": 1e-8
             }
         }
@@ -2448,10 +2436,6 @@
             "hyperbolic-fp8": {
                 "prompt_token": 1e-7,
                 "completion_token": 1e-7
-            },
-            "inference-net-fp16": {
-                "prompt_token": 2e-8,
-                "completion_token": 2e-8
             },
             "novita-bf16": {
                 "prompt_token": 3e-8,
@@ -2984,10 +2968,6 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012
             },
-            "parasail-fp8": {
-                "prompt_token": 2.5e-7,
-                "completion_token": 0.000001
-            },
             "siliconflow-fp8": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012
@@ -3313,10 +3293,6 @@
             "deepinfra-fp8": {
                 "prompt_token": 2e-8,
                 "completion_token": 4e-8
-            },
-            "inference-net-fp8": {
-                "prompt_token": 3.75e-8,
-                "completion_token": 1e-7
             },
             "mistral": {
                 "prompt_token": 1.5e-7,
@@ -3708,6 +3684,26 @@
             "moonshotai-turbo": {
                 "prompt_token": 0.0000024,
                 "completion_token": 0.00001
+            }
+        }
+    },
+    {
+        "model": "moonshotai/kimi-k2-thinking",
+        "cost": {
+            "default": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000025,
+                "cache_read_token": 1.5e-7
+            },
+            "moonshotai": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000025,
+                "cache_read_token": 1.5e-7
+            },
+            "moonshotai-turbo": {
+                "prompt_token": 0.00000115,
+                "completion_token": 0.000008,
+                "cache_read_token": 1.5e-7
             }
         }
     },
@@ -4608,10 +4604,6 @@
                 "completion_token": 6e-7,
                 "cache_read_token": 7.5e-8
             },
-            "inference-net": {
-                "prompt_token": 5e-8,
-                "completion_token": 4.5e-7
-            },
             "ncompass": {
                 "prompt_token": 5e-8,
                 "completion_token": 2.8e-7
@@ -4702,10 +4694,6 @@
             "hyperbolic": {
                 "prompt_token": 4e-8,
                 "completion_token": 4e-8
-            },
-            "inference-net": {
-                "prompt_token": 3e-8,
-                "completion_token": 1.5e-7
             },
             "ncompass": {
                 "prompt_token": 4e-8,
@@ -4974,6 +4962,19 @@
         }
     },
     {
+        "model": "openrouter/polaris-alpha",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "stealth": {
+                "prompt_token": 0,
+                "completion_token": 0
+            }
+        }
+    },
+    {
         "model": "perplexity/sonar",
         "cost": {
             "default": {
@@ -5182,10 +5183,6 @@
                 "prompt_token": 2e-7,
                 "completion_token": 2e-7,
                 "image": 0.0001445
-            },
-            "inference-net-bf16": {
-                "prompt_token": 2e-7,
-                "completion_token": 2e-7
             }
         }
     },
@@ -5386,7 +5383,7 @@
                 "completion_token": 2.2e-7
             },
             "deepinfra-fp8": {
-                "prompt_token": 6e-8,
+                "prompt_token": 8e-8,
                 "completion_token": 2.4e-7
             },
             "nextbit-int4": {
@@ -6294,8 +6291,8 @@
                 "completion_token": 7.5e-7
             },
             "deepinfra-fp8": {
-                "prompt_token": 6.5e-7,
-                "completion_token": 7.5e-7
+                "prompt_token": 8.5e-7,
+                "completion_token": 8.5e-7
             },
             "nextbit-fp8": {
                 "prompt_token": 6.5e-7,
@@ -6315,8 +6312,8 @@
                 "completion_token": 7.5e-7
             },
             "deepinfra-fp8": {
-                "prompt_token": 6.5e-7,
-                "completion_token": 7.5e-7
+                "prompt_token": 8.5e-7,
+                "completion_token": 8.5e-7
             },
             "nextbit-bf16": {
                 "prompt_token": 6.5e-7,

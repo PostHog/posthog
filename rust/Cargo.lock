@@ -1828,6 +1828,7 @@ dependencies = [
 name = "common-cache"
 version = "0.1.0"
 dependencies = [
+ "common-metrics",
  "common-redis",
  "moka",
  "serde",

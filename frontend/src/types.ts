@@ -2144,6 +2144,15 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
+export interface EndpointVersion {
+    id: string
+    version: number
+    query: HogQLQuery | InsightQueryNode
+    created_at: string
+    created_by: UserBasicType | null
+    change_summary: string
+}
+
 export interface EndpointType extends WithAccessControl {
     id: string
     name: string
@@ -2156,10 +2165,23 @@ export interface EndpointType extends WithAccessControl {
     updated_at: string
     created_by: UserBasicType | null
     cache_age_seconds: number
+    is_materialized: boolean
+    current_version: number
+    versions_count: number
     /** Purely local value to determine whether the query endpoint should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /** Last execution time from ClickHouse query_log table */
     last_executed_at?: string
+    materialization?: EndpointMaterializationType
+}
+
+export interface EndpointMaterializationType {
+    can_materialize: boolean
+    reason?: string
+    status?: string
+    error?: string
+    last_materialized_at?: string
+    sync_frequency?: DataWarehouseSyncInterval
 }
 
 export interface DashboardBasicType extends WithAccessControl {
@@ -2173,7 +2195,7 @@ export interface DashboardBasicType extends WithAccessControl {
     last_viewed_at?: string | null
     is_shared: boolean
     deleted: boolean
-    creation_mode: 'default' | 'template' | 'duplicate'
+    creation_mode: 'default' | 'template' | 'duplicate' | 'unlisted'
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
@@ -3680,6 +3702,7 @@ export enum DashboardPlacement {
     Export = 'export', // When the dashboard is being exported (alike to being printed)
     Person = 'person', // When the dashboard is being viewed on a person page
     Group = 'group', // When the dashboard is being viewed on a group page
+    Builtin = 'builtin', // Dashboard built into product UI with external controls provided by parent context
 }
 
 // Default mode is null

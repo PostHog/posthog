@@ -805,6 +805,12 @@ jobs:
                   include-hidden-files: true
                   retention-days: 2
 
+            - name: Verify new snapshots for flakiness
+              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              shell: bash
+              run: |
+                  .github/scripts/verify-new-snapshots.sh
+
             - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
               if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}

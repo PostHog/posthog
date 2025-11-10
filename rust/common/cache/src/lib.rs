@@ -42,10 +42,12 @@
 //! }
 //! ```
 
+pub mod metrics;
 pub mod negative_cache;
 pub mod read_through;
 pub mod types;
 
+pub use metrics::ReadThroughCacheWithMetrics;
 pub use negative_cache::NegativeCache;
 pub use read_through::ReadThroughCache;
 pub use types::{CacheConfig, CacheResult, CacheSource};

@@ -664,10 +664,6 @@
             "description": "A source file included in the exception.",
             "label": "Exception source"
         },
-        "$exception_stack_trace_raw": {
-            "description": "The exceptions stack trace, as a string.",
-            "label": "Exception raw stack trace"
-        },
         "$exception_type": {
             "description": "Exception categorized into types.",
             "examples": ["Error"],
@@ -2614,10 +2610,6 @@
         "$exception_sources": {
             "description": "A source file included in the exception.",
             "label": "Exception source"
-        },
-        "$exception_stack_trace_raw": {
-            "description": "The exceptions stack trace, as a string.",
-            "label": "Exception raw stack trace"
         },
         "$exception_type": {
             "description": "Exception categorized into types.",
