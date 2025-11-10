@@ -12,7 +12,6 @@ import {
     IconCopy,
     IconExpand,
     IconGlobe,
-    IconInfo,
     IconLaptop,
     IconPlusSmall,
     IconRewind,
@@ -20,7 +19,7 @@ import {
     IconServer,
     IconTrash,
 } from '@posthog/icons'
-import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -551,136 +550,135 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     )}
                                 </LemonField>
                             )}
-                            <SceneDivider />
-                            <SceneSection title="Evaluation environments">
-                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
-                                    <div className="text-secondary text-sm mb-2">
-                                        Evaluation environment tags provide fine-grained control over where and when
-                                        your feature flags evaluate.{' '}
-                                        <Link
-                                            to="https://posthog.com/docs/feature-flags/evaluation-environments"
-                                            target="_blank"
-                                            targetBlankIcon
-                                        >
-                                            Learn more about using evaluation environments
-                                        </Link>
-                                    </div>
-                                )}
-                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
-                                    <LemonField
-                                        name="evaluation_runtime"
-                                        label={
-                                            <span className="flex items-center gap-2">
-                                                Evaluation runtime
-                                                <Tooltip title="This setting controls where your feature flag can be evaluated. If you try to use a flag in a runtime where it's not allowed (e.g., using a server-only flag in client-side code), it won't evaluate.">
-                                                    <IconInfo className="text-secondary text-lg" />
-                                                </Tooltip>
-                                            </span>
-                                        }
-                                    >
-                                        {({ value, onChange }) => (
-                                            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                                                {[
-                                                    {
-                                                        value: FeatureFlagEvaluationRuntime.ALL,
-                                                        icon: <IconGlobe />,
-                                                        title: 'Both client and server',
-                                                        description: 'Single-user apps + multi-user systems',
-                                                    },
-                                                    {
-                                                        value: FeatureFlagEvaluationRuntime.CLIENT,
-                                                        icon: <IconLaptop />,
-                                                        title: 'Client-side only',
-                                                        description: 'Single-user apps (mobile, desktop, embedded)',
-                                                    },
-                                                    {
-                                                        value: FeatureFlagEvaluationRuntime.SERVER,
-                                                        icon: <IconServer />,
-                                                        title: 'Server-side only',
-                                                        description: 'Multi-user systems in trusted environments',
-                                                    },
-                                                ].map((option) => (
-                                                    <div
-                                                        key={option.value}
-                                                        className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-primary-light ${
-                                                            value === option.value
-                                                                ? 'border-primary bg-primary-highlight'
-                                                                : 'border-border'
-                                                        }`}
-                                                        onClick={() => onChange(option.value)}
-                                                    >
-                                                        <div className="flex items-start gap-3">
-                                                            <div className="text-lg text-muted">{option.icon}</div>
-                                                            <div className="flex-1">
-                                                                <div className="font-medium text-sm">
-                                                                    {option.title}
+                            {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
+                                <>
+                                    <SceneDivider />
+                                    <SceneSection title="Evaluation runtime">
+                                        <div className="text-secondary text-sm mb-2">
+                                            This setting controls where your feature flag can be evaluated. If you try
+                                            to use a flag in a runtime where it's not allowed (e.g., using a server-only
+                                            flag in client-side code), it won't evaluate.{' '}
+                                            <Link
+                                                to="https://posthog.com/docs/feature-flags/evaluation-environments"
+                                                target="_blank"
+                                                targetBlankIcon
+                                            >
+                                                Learn more about using evaluation environments
+                                            </Link>
+                                        </div>
+                                        <LemonField name="evaluation_runtime">
+                                            {({ value, onChange }) => (
+                                                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                                                    {[
+                                                        {
+                                                            value: FeatureFlagEvaluationRuntime.ALL,
+                                                            icon: <IconGlobe />,
+                                                            title: 'Both client and server',
+                                                            description: 'Single-user apps + multi-user systems',
+                                                        },
+                                                        {
+                                                            value: FeatureFlagEvaluationRuntime.CLIENT,
+                                                            icon: <IconLaptop />,
+                                                            title: 'Client-side only',
+                                                            description: 'Single-user apps (mobile, desktop, embedded)',
+                                                        },
+                                                        {
+                                                            value: FeatureFlagEvaluationRuntime.SERVER,
+                                                            icon: <IconServer />,
+                                                            title: 'Server-side only',
+                                                            description: 'Multi-user systems in trusted environments',
+                                                        },
+                                                    ].map((option) => (
+                                                        <div
+                                                            key={option.value}
+                                                            className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-primary-light ${
+                                                                value === option.value
+                                                                    ? 'border-primary bg-primary-highlight'
+                                                                    : 'border-border'
+                                                            }`}
+                                                            onClick={() => onChange(option.value)}
+                                                        >
+                                                            <div className="flex items-start gap-3">
+                                                                <div className="text-lg text-muted">{option.icon}</div>
+                                                                <div className="flex-1">
+                                                                    <div className="font-medium text-sm">
+                                                                        {option.title}
+                                                                    </div>
+                                                                    <div className="text-xs text-muted mt-1">
+                                                                        {option.description}
+                                                                    </div>
                                                                 </div>
-                                                                <div className="text-xs text-muted mt-1">
-                                                                    {option.description}
-                                                                </div>
+                                                                <input
+                                                                    type="radio"
+                                                                    name="evaluation-environment"
+                                                                    checked={value === option.value}
+                                                                    onChange={() => onChange(option.value)}
+                                                                    className="cursor-pointer"
+                                                                />
                                                             </div>
-                                                            <input
-                                                                type="radio"
-                                                                name="evaluation-environment"
-                                                                checked={value === option.value}
-                                                                onChange={() => onChange(option.value)}
-                                                                className="cursor-pointer"
-                                                            />
                                                         </div>
-                                                    </div>
-                                                ))}
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </LemonField>
+                                    </SceneSection>
+                                </>
+                            )}
+                            {hasAvailableFeature(AvailableFeature.TAGGING) && (
+                                <>
+                                    <SceneDivider />
+                                    <SceneSection title="Tags">
+                                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
+                                            <div className="text-secondary text-sm mb-2">
+                                                Tags provide fine-grained control over where and when your feature flags
+                                                evaluate.{' '}
+                                                <Link
+                                                    to="https://posthog.com/docs/feature-flags/evaluation-environments"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                >
+                                                    Learn more about using evaluation environments
+                                                </Link>
                                             </div>
                                         )}
-                                    </LemonField>
-                                )}
-                                {hasAvailableFeature(AvailableFeature.TAGGING) && (
-                                    <LemonField
-                                        name="tags"
-                                        label={
-                                            <span className="flex items-center gap-2">
-                                                Tags
-                                                <Tooltip title="Use tags to add fine-grained control over where and when your feature flags evaluate.">
-                                                    <IconInfo className="text-secondary text-lg" />
-                                                </Tooltip>
-                                            </span>
-                                        }
-                                    >
-                                        {({ value: formTags, onChange: onChangeTags }) => (
-                                            <>
-                                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                                    <LemonField name="evaluation_tags">
-                                                        {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
-                                                            <FeatureFlagEvaluationTags
-                                                                tags={formTags}
-                                                                evaluationTags={formEvalTags || []}
-                                                                onChange={(updatedTags, updatedEvaluationTags) => {
-                                                                    onChangeTags(updatedTags)
-                                                                    onChangeEvalTags(updatedEvaluationTags)
-                                                                }}
-                                                                tagsAvailable={tags.filter(
-                                                                    (tag: string) => !formTags?.includes(tag)
-                                                                )}
-                                                                className="mt-2"
-                                                                flagId={featureFlag.id}
-                                                            />
-                                                        )}
-                                                    </LemonField>
-                                                ) : (
-                                                    <ObjectTags
-                                                        tags={formTags}
-                                                        onChange={onChangeTags}
-                                                        saving={featureFlagLoading}
-                                                        tagsAvailable={tags.filter(
-                                                            (tag: string) => !formTags?.includes(tag)
-                                                        )}
-                                                        className="mt-2"
-                                                    />
-                                                )}
-                                            </>
-                                        )}
-                                    </LemonField>
-                                )}
-                            </SceneSection>
+                                        <LemonField name="tags">
+                                            {({ value: formTags, onChange: onChangeTags }) => (
+                                                <>
+                                                    {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                                        <LemonField name="evaluation_tags">
+                                                            {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
+                                                                <FeatureFlagEvaluationTags
+                                                                    tags={formTags}
+                                                                    evaluationTags={formEvalTags || []}
+                                                                    onChange={(updatedTags, updatedEvaluationTags) => {
+                                                                        onChangeTags(updatedTags)
+                                                                        onChangeEvalTags(updatedEvaluationTags)
+                                                                    }}
+                                                                    tagsAvailable={tags.filter(
+                                                                        (tag: string) => !formTags?.includes(tag)
+                                                                    )}
+                                                                    className="mt-2"
+                                                                    flagId={featureFlag.id}
+                                                                />
+                                                            )}
+                                                        </LemonField>
+                                                    ) : (
+                                                        <ObjectTags
+                                                            tags={formTags}
+                                                            onChange={onChangeTags}
+                                                            saving={featureFlagLoading}
+                                                            tagsAvailable={tags.filter(
+                                                                (tag: string) => !formTags?.includes(tag)
+                                                            )}
+                                                            className="mt-2"
+                                                        />
+                                                    )}
+                                                </>
+                                            )}
+                                        </LemonField>
+                                    </SceneSection>
+                                </>
+                            )}
                             <SceneDivider />
 
                             <FeatureFlagCodeExample featureFlag={featureFlag} />
