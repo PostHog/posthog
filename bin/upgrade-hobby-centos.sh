@@ -1,0 +1,267 @@
+#!/usr/bin/env bash
+
+set -e
+
+echo "Upgrading PostHog. This will cause a few minutes of downtime."
+read -r -p "Do you want to upgrade PostHog? [y/N] " response
+if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+then
+    echo "OK!"
+else
+    exit
+fi
+
+if [ "$REGISTRY_URL" == "" ]
+then
+export REGISTRY_URL="posthog/posthog"
+fi
+
+export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}"
+
+echo "Checking for named postgres and clickhouse volumes to avoid data loss when upgrading from < 1.39"
+if docker volume ls | grep -Pzoq 'clickhouse-data\n(.|\n)*postgres-data\n'
+then
+    DOCKER_VOLUMES_MISSING=FALSE
+    echo "Found postgres and clickhouse volumes, proceeding..."
+else
+    DOCKER_VOLUMES_MISSING=TRUE
+    echo ""
+    echo ""
+    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨 WARNING: POTENTIAL DATA LOSS 🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+    echo ""
+    echo ""
+    echo "We were unable to find named clickhouse and postgres volumes."
+    echo "If you created your PostHog stack PRIOR TO August 12th, 2022 / v1.39.0, the Postgres and Clickhouse containers did NOT have persistent named volumes by default."
+    echo "If you choose to upgrade, you 💣 will likely lose data 💣 contained in these anonymous volumes."
+    echo ""
+    echo "See the discussion here for more information: https://github.com/PostHog/posthog/pull/11256"
+    echo ""
+    echo "WE STRONGLY RECOMMEND YOU:"
+    echo ""
+    echo "🛑 Stop this script and do not proceed"
+    echo "✅ Back up your entire environment/installation (vm, host, etc.), including all docker containers and volumes:"
+    echo "✅ Specifically back up the contents of :"
+    echo "  ☑ /var/lib/postgresql/data in the postgres (*_db_1) container"
+    echo "  ☑ /var/lib/clickhouse in the clickhouse (*_clickhouse_1) container"
+    echo "and be ready to check/recopy the data before you boot PostHog next."
+    read -r -p "Do you want to proceed anyway? [y/N] " response
+    if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+    then
+        echo "OK!"
+    else
+        exit
+    fi
+fi
+
+# a previous version of the deploy script should have been quoting the caddy_host env var
+tmp="$(mktemp)"
+awk '
+  /^[[:space:]]*($|#)/ { print; next }        # keep blanks/comments
+  {
+    # split on first "=" only
+    p = index($0, "="); if (!p) { print; next }
+    key = substr($0,1,p-1); val = substr($0,p+1)
+
+    # trim
+    sub(/^[[:space:]]+/,"",key); sub(/[[:space:]]+$/,"",key)
+    sub(/^[[:space:]]+/,"",val); sub(/[[:space:]]+$/,"",val)
+
+    # already quoted?
+    if (val ~ /^".*"$/ || val ~ /^'\''.*'\''$/) { print key "=" val; next }
+
+    # quote if value has space, comma, or ://
+    if (val ~ /[[:space:],]|:\/\//) {
+      gsub(/"/, "\\\"", val)
+      print key "=\"" val "\""
+    } else {
+      print key "=" val
+    }
+  }
+' .env > "$tmp" && mv "$tmp" .env
+
+if [[ -f ".env" ]]; then
+    set -a           # auto-export all variables
+    . ./.env         # or: source .env
+    set +a
+else
+    echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set."
+    exit 1
+fi
+
+# we introduced ENCRYPTION_SALT_KEYS and so if there isn't one, need to add it
+# check for it in the .env file
+if ! grep -q "ENCRYPTION_SALT_KEYS" .env; then
+    ENCRYPTION_KEY=$(openssl rand -hex 16)
+    echo "ENCRYPTION_SALT_KEYS=$ENCRYPTION_KEY" >> .env
+    echo "Added missing ENCRYPTION_SALT_KEYS to .env file"
+    source .env
+else
+    # Read the existing key
+    EXISTING_KEY=$(grep "ENCRYPTION_SALT_KEYS" .env | cut -d '=' -f2)
+    
+    # Check if the existing key is in the correct format (32 bytes base64url)
+    if [[ ! $EXISTING_KEY =~ ^[A-Za-z0-9_-]{32}$ ]]; then
+        echo "ENCRYPTION_SALT_KEYS is not in the correct fernet format and will not work"
+        echo "🛑 Stop this script and do not proceed"
+        echo "remove ENCRYPTION_SALT_KEYS from .env and try again"
+        exit 1
+    fi
+fi
+
+if ! grep -q "SESSION_RECORDING_V2_METADATA_SWITCHOVER" .env; then
+  SESSION_RECORDING_V2_METADATA_SWITCHOVER=$(date -Iseconds)
+  echo "SESSION_RECORDING_V2_METADATA_SWITCHOVER=$SESSION_RECORDING_V2_METADATA_SWITCHOVER" >> .env
+  echo "Added missing SESSION_RECORDING_V2_METADATA_SWITCHOVER to .env file"
+  echo "Session replay will switch to v2 ingestion"
+  source .env
+fi
+
+# Check if session recording storage migration marker exists
+if ! grep -q "SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS" .env; then
+  echo ""
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📦 SESSION RECORDING STORAGE UPDATE"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "PostHog now uses SeaweedFS for session recording storage."
+  echo "Your existing session recordings are stored in MinIO."
+  echo ""
+  echo "You have TWO options:"
+  echo ""
+  echo "1. 🔄 MIGRATE your existing session recordings to SeaweedFS"
+  echo "   - Keeps all your existing recordings accessible"
+  echo "   - Run migration script after upgrade"
+  echo "   - New recordings will be stored in SeaweedFS"
+  echo "   - Migration is best-effort for hobby deployments; support is limited"
+  echo ""
+  echo "2. ⚠️  ACCEPT DATA LOSS of existing session recordings"
+  echo "   - Existing recordings will become inaccessible"
+  echo "   - Only new recordings will be available"
+  echo "   - Faster upgrade, no migration needed"
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  read -r -p "Do you want to MIGRATE existing session recordings? [y/N] " response
+  if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+  then
+    echo ""
+    echo "✅ You chose to MIGRATE existing recordings."
+    echo ""
+    echo "After the upgrade completes, run this command to migrate:"
+    echo ""
+    echo "  ./bin/migrate-session-recordings-hobby"
+    echo ""
+    echo "Options:"
+    echo "  --dry-run          Preview what would be migrated"
+    echo "  --resume           Resume from last checkpoint if interrupted"
+    echo "  --force            Overwrite existing objects in destination"
+    echo "  --workers <n>      Number of concurrent workers (default: 5)"
+    echo ""
+    read -r -p "Press ENTER to acknowledge and continue..."
+    echo "SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS=pending_migration" >> .env
+  else
+    echo ""
+    echo "⚠️  You chose to ACCEPT DATA LOSS."
+    echo "Existing session recordings will not be accessible after upgrade."
+    echo ""
+    read -r -p "Are you sure? This cannot be undone. [y/N] " confirm
+    if [[ "$confirm" =~ ^([yY][eE][sS]|[yY])+$ ]]
+    then
+      echo "SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS=data_loss_accepted" >> .env
+      echo "✅ Proceeding without migration."
+    else
+      echo "Upgrade cancelled. No changes made."
+      exit 1
+    fi
+  fi
+  source .env
+fi
+
+export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
+
+cd posthog
+git pull --prune
+cd ../
+
+# 
+# ⬇️ *** MODIFIED SECTION FOR CENTOS *** ⬇️
+#
+# Download GeoLite2-City.mmdb if it doesn't exist
+echo "Downloading GeoIP database file"
+# Install dependencies for CentOS (yum) instead of apt-get
+# epel-release is needed for 'brotli'
+# gettext is needed for 'envsubst' (used later)
+echo "Installing dependencies (epel-release, curl, brotli, gettext)..."
+sudo yum install -y epel-release
+sudo yum install -y curl ca-certificates brotli gettext
+
+mkdir -p ./share && 
+if [ ! -f ./share/GeoLite2-City.mmdb ]; then 
+    curl -L 'https://mmdbcdn.posthog.net/' --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb && 
+    echo '{\"date\": \"'$(date +%Y-%m-%d)'\"}' > ./share/GeoLite2-City.json && 
+    chmod 644 ./share/GeoLite2-City.mmdb &&
+    chmod 644 ./share/GeoLite2-City.json
+fi
+#
+# ⬆️ *** END OF MODIFIED SECTION *** ⬆️
+#
+
+# Upgrade Docker Compose to version 2.33.1
+echo "Setting up Docker Compose"
+sudo rm /usr/local/bin/docker-compose
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.33.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || true
+sudo chmod +x /usr/local/bin/docker-compose
+
+rm -f docker-compose.yml
+cp posthog/docker-compose.base.yml docker-compose.base.yml
+cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
+envsubst < docker-compose.yml.tmpl > docker-compose.yml
+rm docker-compose.yml.tmpl
+
+docker-compose pull
+
+echo "Checking if async migrations are up to date"
+sudo -E docker-compose run asyncmigrationscheck
+
+echo "Stopping the stack!"
+docker-compose stop
+
+# rewrite entrypoint
+# TODO: this is duplicated from bin/deploy-hobby. We should refactor this into a
+# single script.
+cat > compose/start <<EOF
+#!/bin/bash
+./compose/wait
+./bin/migrate
+./bin/docker-server
+EOF
+
+if [ ${DOCKER_VOLUMES_MISSING} == 'TRUE' ];
+then
+    echo ""
+    echo ""
+    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨🚨WARNING: LAST CHANCE TO AVOID DATA LOSS 🚨🚨🚨"
+    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+    echo ""
+    echo ""
+    echo "Before we restart the stack, you should restore data you have backed up from the previous warning."
+    echo ""
+    echo ""
+fi
+
+read -r -p "Do you want to restart the PostHog stack now ? (docker-compose up) [y/N] " response
+if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+then
+    echo "OK, Restarting the stack!"
+    sudo -E docker-compose up -d
+else
+    echo "OK, we are leaving the stack OFFLINE. Run 'sudo -E docker-compose up -d' when you are ready to start it."
+    exit
+fi
+
+echo "Consider running 'docker system prune -a' to clean up old images and free disk space"
+echo "PostHog upgraded successfully!"
