@@ -240,7 +240,6 @@ export const FEATURE_FLAGS = {
     CUSTOMER_ANALYTICS: 'customer-analytics', // owner: @arthurdedeus #team-customer-analytics
     SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     SESSIONS_EXPLORER: 'sessions-explorer', // owner: @arthurdedeus @jabahamondes
-    SUPPORT_TICKETS_IN_SESSION_DETAILS: 'support-tickets-in-session-details', // @owner @arthurdedeus @jabahamondes
     SAVE_INSIGHT_TASK: 'save-insight-task', // owner: @joshsny
     DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     ERROR_TRACKING_ALERT_ROUTING: 'error-tracking-alert-routing', // owner: #team-error-tracking
