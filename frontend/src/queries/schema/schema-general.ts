@@ -2337,11 +2337,13 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     function?: string
     first_event?: {
         uuid: string
+        distinct_id: string
         timestamp: string
         properties: string
     }
     last_event?: {
         uuid: string
+        distinct_id: string
         timestamp: string
         properties: string
     }

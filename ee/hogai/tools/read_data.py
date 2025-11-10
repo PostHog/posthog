@@ -22,7 +22,7 @@ If the user wants to reduce their spending, always call this tool to get suggest
 If an insight shows zero data, it could mean either the query is looking at the wrong data or there was a temporary data collection issue. You can investigate potential dips in usage/captured data using the billing tool.
 """.strip()
 
-READ_DATA_PROMPT = f"""
+READ_DATA_PROMPT = """
 Use this tool to read user data created in PostHog. This tool returns data that the user manually creates in PostHog.
 
 # Data warehouse schema
@@ -32,7 +32,7 @@ You MUST use this tool when:
 - Working with SQL.
 - The request is about data warehouse, connected data sources, etc.
 
-{{billing_prompt}}
+{{{billing_prompt}}}
 """.strip()
 
 BILLING_INSUFFICIENT_ACCESS_PROMPT = """

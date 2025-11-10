@@ -14,11 +14,11 @@ from posthog.schema import (
 )
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.root.tools.create_and_query_insight import (
+from ee.hogai.graph.schema_generator.nodes import SchemaGenerationException
+from ee.hogai.tools.create_and_query_insight import (
     INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT,
     CreateAndQueryInsightTool,
 )
-from ee.hogai.graph.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
 from ee.models.assistant import Conversation
