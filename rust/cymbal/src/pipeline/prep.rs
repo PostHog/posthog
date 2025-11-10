@@ -6,7 +6,6 @@ use common_types::{
     CapturedEvent, ClickHouseEvent, PersonMode, RawEvent, Team,
 };
 use serde_json::Value;
-use tracing::warn;
 
 use crate::{
     error::{EventError, PipelineFailure, PipelineResult},
@@ -33,7 +32,6 @@ pub fn prepare_events(
                     .expect("Team lookup table is fully populated");
 
                 let Some(team) = maybe_team else {
-                    warn!("Received event for unknown team token: {}", outer.token);
                     buffer.push(Err(EventError::NoTeamForToken(outer.token)));
                     continue;
                 };
