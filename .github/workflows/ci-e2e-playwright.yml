@@ -124,6 +124,12 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   fetch-depth: 50 # Need enough history for flap detection to find last human commit
+                  clean: false
+            - name: Clean up data directories with container permissions
+              run: |
+                  # Use docker to clean up files created by containers
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
 
             - name: Stop/Start stack with Docker Compose
               shell: bash
@@ -396,11 +402,17 @@ jobs:
                     exit 0
                   fi
 
-                  # Check if there are any changes in the playwright directory
-                  if git diff --quiet playwright/; then
+                  # Check if there are any changes (modified or untracked) in the playwright directory
+                  # Use git status --porcelain to detect both modifications and new untracked files
+                  if [ -z "$(git status --porcelain playwright/)" ]; then
                     echo "No screenshot changes"
                     echo "has-changes=false" >> $GITHUB_OUTPUT
                   else
+                    echo "Screenshot changes detected:"
+                    git status --short playwright/
+
+                    # Stage untracked files so git diff can include them in the patch
+                    git add -N playwright/
                     # Create binary-safe patch file
                     mkdir -p /tmp/patches
                     git diff --binary --full-index playwright/ > /tmp/patches/playwright-patch.patch
