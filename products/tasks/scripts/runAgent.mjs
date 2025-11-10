@@ -20,7 +20,6 @@ export async function runAgent(
     posthogApiUrl,
     posthogApiKey,
     posthogProjectId,
-    poosthogProjectId,
     prompt,
     maxTurns
 ) {
