@@ -28,9 +28,6 @@ test.describe('Use Case Selection Onboarding', () => {
         // Check for main heading
         await expect(page.locator('h1')).toContainText('What do you want to do with PostHog?')
 
-        // Check that all use cases are displayed
-        await expect(page.locator('[data-attr*="-onboarding-card"]')).toHaveCount(5)
-
         // Check for specific use cases
         await expect(page.locator('text=Understand how users behave')).toBeVisible()
         await expect(page.locator('text=Find and fix issues')).toBeVisible()

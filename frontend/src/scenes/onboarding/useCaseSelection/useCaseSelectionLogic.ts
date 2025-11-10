@@ -1,6 +1,7 @@
-import { actions, kea, listeners, path } from 'kea'
+import { actions, connect, kea, listeners, path } from 'kea'
 import { router } from 'kea-router'
 
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { UseCaseOption, getRecommendedProducts } from '../productRecommendations'
@@ -8,22 +9,20 @@ import type { useCaseSelectionLogicType } from './useCaseSelectionLogicType'
 
 export const useCaseSelectionLogic = kea<useCaseSelectionLogicType>([
     path(['scenes', 'onboarding', 'useCaseSelectionLogic']),
+    connect({
+        actions: [eventUsageLogic, ['reportOnboardingUseCaseSelected']],
+    }),
 
     actions({
         selectUseCase: (useCase: UseCaseOption) => ({ useCase }),
     }),
 
-    listeners(() => ({
+    listeners(({ actions }) => ({
         selectUseCase: ({ useCase }: { useCase: UseCaseOption }) => {
-            // Track analytics
-            if (window.posthog) {
-                window.posthog.capture('onboarding_use_case_selected', {
-                    use_case: useCase,
-                    recommended_products: getRecommendedProducts(useCase),
-                })
+            if (useCase !== 'pick_myself') {
+                actions.reportOnboardingUseCaseSelected(useCase, getRecommendedProducts(useCase))
             }
 
-            // Navigate with URL param - no API call needed!
             router.actions.push(urls.products(), { useCase })
         },
     })),

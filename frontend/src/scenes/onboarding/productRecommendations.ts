@@ -26,7 +26,7 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
         description: 'Understand user behavior with event-based analytics, cohorts, and conversion funnels',
         iconKey: 'IconGraph',
         iconColor: 'rgb(47 128 250)',
-        products: [ProductKey.PRODUCT_ANALYTICS, ProductKey.SESSION_REPLAY],
+        products: [ProductKey.PRODUCT_ANALYTICS, ProductKey.SESSION_REPLAY, ProductKey.WEB_ANALYTICS],
     },
     {
         key: 'fix_issues',
@@ -58,7 +58,7 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
         description: 'Monitor AI/LLM performance with traces, costs, and quality metrics',
         iconKey: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
-        products: [ProductKey.LLM_ANALYTICS],
+        products: [ProductKey.LLM_ANALYTICS, ProductKey.PRODUCT_ANALYTICS],
     },
 ] as const
 
