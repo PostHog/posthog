@@ -107,6 +107,7 @@ class CleanupStats:
 class CleanupCategory:
     """Metadata and handlers for a disk cleanup category."""
 
+    id: str
     title: str
     description: Sequence[str]
     estimate: Callable[[Path], CleanupEstimate]
@@ -137,9 +138,27 @@ class CleanupResult:
 @click.option(
     "--flox",
     is_flag=True,
-    help="Non-interactive mode for Flox auto-cleanup (implies --yes, skips summary)",
+    help="Non-interactive mode for Flox auto-cleanup (implies --yes, --flox-logs, skips summary)",
 )
-def doctor_disk(dry_run: bool, yes: bool, flox: bool) -> None:
+@click.option("--flox-logs", is_flag=True, help="Clean Flox logs only")
+@click.option("--docker", is_flag=True, help="Clean Docker system only")
+@click.option("--python", is_flag=True, help="Clean Python caches only")
+@click.option("--dagster", is_flag=True, help="Clean Dagster storage only")
+@click.option("--node-artifacts", is_flag=True, help="Clean Node.js/TS build artifacts only")
+@click.option("--rust", is_flag=True, help="Clean Rust Cargo targets only")
+@click.option("--node-modules", is_flag=True, help="Clean node_modules only")
+def doctor_disk(
+    dry_run: bool,
+    yes: bool,
+    flox: bool,
+    flox_logs: bool,
+    docker: bool,
+    python: bool,
+    dagster: bool,
+    node_artifacts: bool,
+    rust: bool,
+    node_modules: bool,
+) -> None:
     """Clean up disk space by pruning caches, build outputs, and containers.
 
     This command is tailored to the technologies used in the repository:
@@ -151,22 +170,30 @@ def doctor_disk(dry_run: bool, yes: bool, flox: bool) -> None:
     - Rust workspaces built with Cargo
     - pnpm-managed node_modules across the workspace
 
-    Use --dry-run to preview what would be removed and --yes to skip prompts.
+    By default, runs all cleanup categories interactively. Use flags to target
+    specific categories. Use --dry-run to preview what would be removed and
+    --yes to skip prompts.
     """
 
     from hogli.core.manifest import REPO_ROOT
 
-    # --flox implies --yes and enables silent mode
+    # --flox implies --yes, --flox-logs, and enables silent mode
     if flox:
         yes = True
-    else:
+        flox_logs = True
+
+    # Determine which categories to run
+    has_specific_flags = any([flox_logs, docker, python, dagster, node_artifacts, rust, node_modules])
+
+    if not flox:
         click.echo("🔍 PostHog Disk Space Cleanup\n")
 
         if dry_run:
             click.echo("🚀 Running in DRY-RUN mode - no files will be deleted\n")
 
-    categories: list[CleanupCategory] = [
+    all_categories: list[CleanupCategory] = [
         CleanupCategory(
+            id="flox_logs",
             title="📁 Flox logs (.flox/log)",
             description=[
                 "Remove Flox CLI logs older than 7 days from the dev environment manager.",
@@ -178,6 +205,7 @@ def doctor_disk(dry_run: bool, yes: bool, flox: bool) -> None:
             dry_run_message="Would delete Flox log files older than 7 days.",
         ),
         CleanupCategory(
+            id="docker",
             title="🐳 Docker system (images, containers, volumes)",
             description=[
                 "Runs 'docker system prune -a --volumes' to reclaim unused Docker resources.",
@@ -191,6 +219,7 @@ def doctor_disk(dry_run: bool, yes: bool, flox: bool) -> None:
             dry_run_message="Would run: docker system prune -a --volumes -f",
         ),
         CleanupCategory(
+            id="python",
             title="🐍 Python caches (__pycache__, .mypy_cache, .pytest_cache, .ruff_cache)",
             description=[
                 "Removes bytecode and analysis caches created by Django, pytest, mypy, and ruff.",
@@ -200,6 +229,7 @@ def doctor_disk(dry_run: bool, yes: bool, flox: bool) -> None:
             confirmation_prompt="Clean up Python caches?",
         ),
         CleanupCategory(
+            id="dagster",
             title="🔧 Dagster storage (runs older than 7 days)",
             description=[
                 "Dagster jobs store logs in .dagster_home; old run data can accumulate quickly.",
@@ -209,6 +239,7 @@ def doctor_disk(dry_run: bool, yes: bool, flox: bool) -> None:
             confirmation_prompt="Clean up old Dagster run storage?",
         ),
         CleanupCategory(
+            id="node_artifacts",
             title="📦 JS/TS build caches (pnpm, Vite, Tailwind, Storybook, Playwright)",
             description=[
                 "Cleans build outputs and caches listed in .gitignore for the pnpm workspace.",
@@ -218,6 +249,7 @@ def doctor_disk(dry_run: bool, yes: bool, flox: bool) -> None:
             confirmation_prompt="Clean up JavaScript build caches and artifacts?",
         ),
         CleanupCategory(
+            id="rust",
             title="🦀 Rust Cargo targets",
             description=[
                 "Removes Cargo 'target' directories from anywhere in the repository.",
@@ -228,6 +260,7 @@ def doctor_disk(dry_run: bool, yes: bool, flox: bool) -> None:
             confirmation_prompt="Clean up Rust target directories?",
         ),
         CleanupCategory(
+            id="node_modules",
             title="⚠️  node_modules (pnpm workspace)",
             description=[
                 "Deletes pnpm-managed node_modules directories across the workspace.",
@@ -241,6 +274,27 @@ def doctor_disk(dry_run: bool, yes: bool, flox: bool) -> None:
             post_cleanup_message="   ⚠️  Remember to run: pnpm install",
         ),
     ]
+
+    # Filter categories based on flags
+    if has_specific_flags:
+        enabled_ids = set()
+        if flox_logs:
+            enabled_ids.add("flox_logs")
+        if docker:
+            enabled_ids.add("docker")
+        if python:
+            enabled_ids.add("python")
+        if dagster:
+            enabled_ids.add("dagster")
+        if node_artifacts:
+            enabled_ids.add("node_artifacts")
+        if rust:
+            enabled_ids.add("rust")
+        if node_modules:
+            enabled_ids.add("node_modules")
+        categories = [cat for cat in all_categories if cat.id in enabled_ids]
+    else:
+        categories = all_categories
 
     results: list[CleanupResult] = []
     for category in categories:
