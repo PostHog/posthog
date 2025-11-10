@@ -78,11 +78,13 @@ function GitFooter({ git }: { git: ReleaseGitMetadata }): JSX.Element {
                         {`${parsedRemoteUrl.owner}/${parsedRemoteUrl.repository}`}
                     </PropertyDisplay>
                 )}
-                <Link to={viewCommitLink} target="_blank">
-                    <ButtonPrimitive size="xs" tooltip="Open commit in GitHub" className="text-accent">
-                        <IconShare />
-                    </ButtonPrimitive>
-                </Link>
+                {viewCommitLink && (
+                    <Link to={viewCommitLink} target="_blank">
+                        <ButtonPrimitive size="xs" tooltip="Open commit in GitHub" className="text-accent">
+                            <IconShare />
+                        </ButtonPrimitive>
+                    </Link>
+                )}
             </div>
         </div>
     )
