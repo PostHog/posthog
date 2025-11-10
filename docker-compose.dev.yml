@@ -275,6 +275,9 @@ services:
         extends:
             file: docker-compose.base.yml
             service: seaweedfs
+        command: server -s3 -s3.port=8333 -filer -dir=/data
+        ports:
+            - '127.0.0.1:8888:8888' # SeaweedFS Filer UI
         volumes:
             - 'seaweedfs-data:/data'
 
