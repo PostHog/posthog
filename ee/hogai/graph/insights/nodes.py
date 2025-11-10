@@ -4,7 +4,7 @@ import inspect
 import warnings
 from datetime import timedelta
 from functools import wraps
-from typing import TYPE_CHECKING, Optional, TypedDict
+from typing import Optional, TypedDict
 from uuid import uuid4
 
 from django.db.models import Max
@@ -35,10 +35,6 @@ from .prompts import (
     PAGINATION_INSTRUCTIONS_TEMPLATE,
     TOOL_BASED_EVALUATION_SYSTEM_PROMPT,
 )
-
-if TYPE_CHECKING:
-    pass
-
 
 logger = structlog.get_logger(__name__)
 # Silence Pydantic serializer warnings for creation of VisualizationMessage/Query execution
