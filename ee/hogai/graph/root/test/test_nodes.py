@@ -868,21 +868,30 @@ class TestRootNodeTools(BaseTest):
             root_tool_call_id="xyz",
         )
 
-        result = await node.arun(
-            state,
-            {
-                "configurable": {
-                    "team": self.team,
-                    "user": self.user,
-                    "contextual_tools": {"search_session_recordings": {"current_filters": {}}},
-                }
-            },
+        mock_tool = AsyncMock()
+        mock_tool.ainvoke.return_value = LangchainToolMessage(
+            content="✅ Updated session recordings filters.",
+            tool_call_id="xyz",
+            name="search_session_recordings",
+            artifact={"filters": {"duration": {"operator": ">", "value": 300}}},
         )
 
-        self.assertIsInstance(result, PartialAssistantState)
-        assert result is not None
-        self.assertEqual(len(result.messages), 1)
-        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+        with mock_contextual_tool(mock_tool):
+            result = await node.arun(
+                state,
+                {
+                    "configurable": {
+                        "team": self.team,
+                        "user": self.user,
+                        "contextual_tools": {"search_session_recordings": {"current_filters": {}}},
+                    }
+                },
+            )
+
+            self.assertIsInstance(result, PartialAssistantState)
+            assert result is not None
+            self.assertEqual(len(result.messages), 1)
+            self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
 
     async def test_navigate_tool_call_raises_node_interrupt(self):
         """Test that navigate tool calls raise NodeInterrupt to pause graph execution"""
