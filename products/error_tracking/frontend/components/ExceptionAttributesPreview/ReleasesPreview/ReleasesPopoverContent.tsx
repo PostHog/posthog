@@ -28,7 +28,7 @@ export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps):
                     </tr>
                     <tr>
                         <th>Version</th>
-                        <td className="text-right">{release.version}</td>
+                        <td className="text-right">{release.version.slice(0, 10)}</td>
                     </tr>
                 </table>
             </div>
