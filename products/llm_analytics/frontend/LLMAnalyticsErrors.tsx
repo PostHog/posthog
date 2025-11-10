@@ -42,7 +42,11 @@ export function LLMAnalyticsErrors(): JSX.Element {
             context={{
                 columns: {
                     error: {
-                        title: 'Error',
+                        renderTitle: () => (
+                            <Tooltip title="Normalized error message with IDs, timestamps, and numbers replaced by placeholders for grouping">
+                                <span>Error</span>
+                            </Tooltip>
+                        ),
                         render: function RenderError(x) {
                             const errorValue = x.value
                             if (!errorValue || errorValue === 'null' || errorValue === '') {
