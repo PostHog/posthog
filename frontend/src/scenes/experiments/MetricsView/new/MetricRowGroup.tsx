@@ -512,9 +512,10 @@ export function MetricRowGroup({
                 )
             })}
 
+            {/* Breakdown tags */}
             {(metric.breakdownFilter?.breakdowns || []).length > 0 && (
                 <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0">
-                    <td colSpan={5}>
+                    <td colSpan={6} className={`border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
                         <div className="flex items-center h-full text-xs p-3 gap-2">
                             {metric.breakdownFilter?.breakdowns?.map((breakdown, index) => (
                                 <BreakdownTag
