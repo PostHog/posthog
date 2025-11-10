@@ -102,7 +102,13 @@ def _log_restore_activity(
 
 
 # Set deleted=True on instance
-def _soft_delete(instance: Any, *, field: str = "deleted", extra_updates: Optional[dict[str, Any]] = None) -> None:
+def _soft_delete(
+    instance: Any,
+    *,
+    field: str = "deleted",
+    extra_updates: Optional[dict[str, Any]] = None,
+    user: Optional[User] = None,
+) -> None:
     update_fields: list[str] = []
     if extra_updates:
         for attr, value in extra_updates.items():
@@ -112,6 +118,9 @@ def _soft_delete(instance: Any, *, field: str = "deleted", extra_updates: Option
     if getattr(instance, field) is not True:
         setattr(instance, field, True)
         update_fields.append(field)
+
+    _set_last_modified_by(instance, user, update_fields)
+
     if update_fields:
         instance.save(update_fields=update_fields)
     else:
@@ -126,6 +135,7 @@ def _restore_soft_delete(
     field: str = "deleted",
     extra_updates: Optional[dict[str, Any]] = None,
     restore_path: Optional[str] = None,
+    user: Optional[User] = None,
 ) -> Any:
     if restore_path is not None and hasattr(instance, "_create_in_folder"):
         segments = split_path(restore_path)
@@ -140,11 +150,35 @@ def _restore_soft_delete(
             if getattr(instance, attr) != value:
                 setattr(instance, attr, value)
                 update_fields.append(attr)
+
+    _set_last_modified_by(instance, user, update_fields)
+
     if update_fields:
         instance.save(update_fields=update_fields)
     else:
         instance.save()
     return instance
+
+
+def _set_last_modified_by(instance: Any, user: Optional[User], update_fields: list[str]) -> None:
+    if not user or not getattr(user, "is_authenticated", False):
+        return
+
+    if not hasattr(instance, "last_modified_by"):
+        return
+
+    current_id = getattr(instance, "last_modified_by_id", None)
+    instance.last_modified_by = user
+
+    if current_id != user.id and "last_modified_by" not in update_fields:
+        update_fields.append("last_modified_by")
+
+
+def _get_request_user(viewset: "FileSystemViewSet") -> Optional[User]:
+    request_user = getattr(viewset.request, "user", None)
+    if request_user and getattr(request_user, "is_authenticated", False):
+        return cast(User, request_user)
+    return None
 
 
 def _require_entry_ref(entry: FileSystem) -> str:
@@ -156,49 +190,59 @@ def _require_entry_ref(entry: FileSystem) -> str:
 
 def _delete_action(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     action = Action.objects.get(team=entry.team, id=_require_entry_ref(entry))
-    _soft_delete(action)
+    _soft_delete(action, user=_get_request_user(viewset))
 
 
 def _restore_action(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Action:
     action = Action.objects.get(team=viewset.team, id=payload["ref"])
-    return cast(Action, _restore_soft_delete(action, restore_path=payload.get("path")))
+    return cast(
+        Action,
+        _restore_soft_delete(action, restore_path=payload.get("path"), user=_get_request_user(viewset)),
+    )
 
 
 def _delete_dashboard(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     dashboard = Dashboard.objects_including_soft_deleted.get(team=entry.team, id=_require_entry_ref(entry))
-    if dashboard.deleted:
-        dashboard.save(update_fields=["deleted"])
-    else:
-        dashboard.deleted = True
-        dashboard.save(update_fields=["deleted"])
+    _soft_delete(dashboard, user=_get_request_user(viewset))
 
 
 def _restore_dashboard(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Dashboard:
     dashboard = Dashboard.objects_including_soft_deleted.get(team=viewset.team, id=payload["ref"])
-    return cast(Dashboard, _restore_soft_delete(dashboard, restore_path=payload.get("path")))
+    return cast(
+        Dashboard,
+        _restore_soft_delete(dashboard, restore_path=payload.get("path"), user=_get_request_user(viewset)),
+    )
 
 
 def _delete_feature_flag(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     flag = FeatureFlag.objects.get(team=entry.team, id=_require_entry_ref(entry))
-    _soft_delete(flag, extra_updates={"active": False})
+    _soft_delete(flag, extra_updates={"active": False}, user=_get_request_user(viewset))
 
 
 def _restore_feature_flag(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> FeatureFlag:
     flag = FeatureFlag.objects.get(team=viewset.team, id=payload["ref"])
     return cast(
         FeatureFlag,
-        _restore_soft_delete(flag, extra_updates={"active": True}, restore_path=payload.get("path")),
+        _restore_soft_delete(
+            flag,
+            extra_updates={"active": True},
+            restore_path=payload.get("path"),
+            user=_get_request_user(viewset),
+        ),
     )
 
 
 def _delete_experiment(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     experiment = Experiment.objects.get(team=entry.team, id=_require_entry_ref(entry))
-    _soft_delete(experiment)
+    _soft_delete(experiment, user=_get_request_user(viewset))
 
 
 def _restore_experiment(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Experiment:
     experiment = Experiment.objects.get(team=viewset.team, id=payload["ref"])
-    return cast(Experiment, _restore_soft_delete(experiment, restore_path=payload.get("path")))
+    return cast(
+        Experiment,
+        _restore_soft_delete(experiment, restore_path=payload.get("path"), user=_get_request_user(viewset)),
+    )
 
 
 def _delete_insight(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
@@ -206,7 +250,7 @@ def _delete_insight(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     insight_name = insight.name or insight.derived_name or "Untitled insight"
     insight_id = insight.id
     insight_short_id = insight.short_id
-    _soft_delete(insight)
+    _soft_delete(insight, user=_get_request_user(viewset))
     _log_file_system_activity(
         viewset,
         scope="Insight",
@@ -219,7 +263,14 @@ def _delete_insight(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
 
 def _restore_insight(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Insight:
     insight = Insight.objects_including_soft_deleted.get(team=viewset.team, short_id=payload["ref"])
-    restored_insight = cast(Insight, _restore_soft_delete(insight, restore_path=payload.get("path")))
+    restored_insight = cast(
+        Insight,
+        _restore_soft_delete(
+            insight,
+            restore_path=payload.get("path"),
+            user=_get_request_user(viewset),
+        ),
+    )
     _log_restore_activity(
         viewset,
         scope="Insight",
@@ -246,7 +297,7 @@ def _delete_link(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
 
 def _delete_notebook(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     notebook = Notebook.objects.get(team=entry.team, short_id=_require_entry_ref(entry))
-    _soft_delete(notebook)
+    _soft_delete(notebook, user=_get_request_user(viewset))
     organization = getattr(viewset, "organization", None)
     if organization:
         log_notebook_activity(
@@ -261,7 +312,14 @@ def _delete_notebook(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
 
 def _restore_notebook(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Notebook:
     notebook = Notebook.objects.get(team=viewset.team, short_id=payload["ref"])
-    restored_notebook = cast(Notebook, _restore_soft_delete(notebook, restore_path=payload.get("path")))
+    restored_notebook = cast(
+        Notebook,
+        _restore_soft_delete(
+            notebook,
+            restore_path=payload.get("path"),
+            user=_get_request_user(viewset),
+        ),
+    )
     organization = getattr(viewset, "organization", None)
     if organization:
         log_notebook_activity(
@@ -278,7 +336,7 @@ def _restore_notebook(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> 
 
 def _delete_session_recording_playlist(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     playlist = SessionRecordingPlaylist.objects.get(team=entry.team, short_id=_require_entry_ref(entry))
-    _soft_delete(playlist)
+    _soft_delete(playlist, user=_get_request_user(viewset))
     organization = getattr(viewset, "organization", None)
     if organization:
         log_playlist_activity(
@@ -299,7 +357,11 @@ def _restore_session_recording_playlist(
     playlist = SessionRecordingPlaylist.objects.get(team=viewset.team, short_id=payload["ref"])
     restored_playlist = cast(
         SessionRecordingPlaylist,
-        _restore_soft_delete(playlist, restore_path=payload.get("path")),
+        _restore_soft_delete(
+            playlist,
+            restore_path=payload.get("path"),
+            user=_get_request_user(viewset),
+        ),
     )
     organization = getattr(viewset, "organization", None)
     if organization:
@@ -329,7 +391,7 @@ def _delete_cohort(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
     cohort = Cohort.objects.get(team=entry.team, id=_require_entry_ref(entry))
     cohort_name = cohort.name or "Untitled cohort"
     cohort_id = cohort.id
-    _soft_delete(cohort)
+    _soft_delete(cohort, user=_get_request_user(viewset))
     _log_file_system_activity(
         viewset,
         scope="Cohort",
@@ -341,7 +403,14 @@ def _delete_cohort(viewset: "FileSystemViewSet", entry: FileSystem) -> None:
 
 def _restore_cohort(viewset: "FileSystemViewSet", payload: dict[str, Any]) -> Cohort:
     cohort = Cohort.objects.get(team=viewset.team, id=payload["ref"])
-    restored_cohort = cast(Cohort, _restore_soft_delete(cohort, restore_path=payload.get("path")))
+    restored_cohort = cast(
+        Cohort,
+        _restore_soft_delete(
+            cohort,
+            restore_path=payload.get("path"),
+            user=_get_request_user(viewset),
+        ),
+    )
     _log_restore_activity(
         viewset,
         scope="Cohort",
@@ -355,7 +424,7 @@ def _delete_hog_function(viewset: "FileSystemViewSet", entry: FileSystem) -> Non
     hog_function = HogFunction.objects.get(team=entry.team, id=_require_entry_ref(entry))
     hog_function_name = hog_function.name or "Untitled"
     hog_function_id = hog_function.id
-    _soft_delete(hog_function, extra_updates={"enabled": False})
+    _soft_delete(hog_function, extra_updates={"enabled": False}, user=_get_request_user(viewset))
     _log_file_system_activity(
         viewset,
         scope="HogFunction",
@@ -369,7 +438,12 @@ def _restore_hog_function(viewset: "FileSystemViewSet", payload: dict[str, Any])
     hog_function = HogFunction.objects.get(team=viewset.team, id=payload["ref"])
     restored_hog_function = cast(
         HogFunction,
-        _restore_soft_delete(hog_function, extra_updates={"enabled": True}, restore_path=payload.get("path")),
+        _restore_soft_delete(
+            hog_function,
+            extra_updates={"enabled": True},
+            restore_path=payload.get("path"),
+            user=_get_request_user(viewset),
+        ),
     )
     _log_restore_activity(
         viewset,
