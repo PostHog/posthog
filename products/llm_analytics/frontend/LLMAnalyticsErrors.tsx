@@ -53,14 +53,13 @@ export function LLMAnalyticsErrors(): JSX.Element {
                             const displayValue =
                                 errorString.length > 80 ? errorString.slice(0, 77) + '...' : errorString
 
-                            // Extract tokens from the normalized error for filtering
-                            // Split only on placeholders to get the stable text parts between them
-                            // This creates AND filters requiring all stable parts to be present
+                            // Extract the first 3 chunks of text between placeholders for filtering
+                            // These chunks are the stable parts of the error message
                             const tokens = errorString
                                 .split(/<ID>|<TIMESTAMP>|<PATH>|<RESPONSE_ID>|<TOOL_CALL_ID>|<TOKEN_COUNT>|<N>/)
                                 .map((token) => token.trim())
-                                .filter((token) => token.length >= 3) // Only keep meaningful tokens
-                                .slice(0, 10) // Take first 10 tokens to avoid too many filters
+                                .filter((token) => token.length >= 3) // Only keep meaningful chunks
+                                .slice(0, 3) // Take first 3 chunks
 
                             return (
                                 <div className="flex items-center gap-1">
@@ -68,12 +67,22 @@ export function LLMAnalyticsErrors(): JSX.Element {
                                         <Link
                                             to={
                                                 combineUrl(urls.llmAnalyticsTraces(), {
-                                                    filters: tokens.map((token) => ({
-                                                        type: PropertyFilterType.Event,
-                                                        key: '$ai_error',
-                                                        operator: 'icontains' as any,
-                                                        value: token,
-                                                    })),
+                                                    filters: [
+                                                        // First filter: only show traces with errors
+                                                        {
+                                                            type: PropertyFilterType.Event,
+                                                            key: '$ai_is_error',
+                                                            operator: 'exact' as any,
+                                                            value: 'true',
+                                                        },
+                                                        // Then filter by key words from the error
+                                                        ...tokens.map((token) => ({
+                                                            type: PropertyFilterType.Event,
+                                                            key: '$ai_error',
+                                                            operator: 'icontains' as any,
+                                                            value: token,
+                                                        })),
+                                                    ],
                                                 }).url
                                             }
                                             className="font-mono text-sm"

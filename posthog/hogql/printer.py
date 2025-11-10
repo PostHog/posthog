@@ -881,17 +881,21 @@ class _Printer(Visitor[str]):
         if left in hack_sessions_timestamp or right in hack_sessions_timestamp:
             not_nullable = True
 
-        # :HACK: Prevent ifNull() wrapping for $ai_trace_id and $ai_session_id to allow bloom filter index usage
-        # The materialized columns mat_$ai_trace_id and mat_$ai_session_id have bloom filter indexes for performance
+        # :HACK: Prevent ifNull() wrapping for $ai_trace_id, $ai_session_id, and $ai_is_error to allow index usage
+        # The materialized columns mat_$ai_trace_id, mat_$ai_session_id, and mat_$ai_is_error have bloom filter indexes for performance
         if (
             "mat_$ai_trace_id" in left
             or "mat_$ai_trace_id" in right
             or "mat_$ai_session_id" in left
             or "mat_$ai_session_id" in right
+            or "mat_$ai_is_error" in left
+            or "mat_$ai_is_error" in right
             or "$ai_trace_id" in left
             or "$ai_trace_id" in right
             or "$ai_session_id" in left
             or "$ai_session_id" in right
+            or "$ai_is_error" in left
+            or "$ai_is_error" in right
         ):
             not_nullable = True
 
@@ -1668,10 +1672,10 @@ class _Printer(Visitor[str]):
 
         materialized_property_source = self.__get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
-            # Special handling for $ai_trace_id and $ai_session_id to avoid nullIf wrapping for bloom filter index optimization
+            # Special handling for $ai_trace_id, $ai_session_id, and $ai_is_error to avoid nullIf wrapping for index optimization
             if (
                 len(type.chain) == 1
-                and type.chain[0] in ("$ai_trace_id", "$ai_session_id")
+                and type.chain[0] in ("$ai_trace_id", "$ai_session_id", "$ai_is_error")
                 and isinstance(materialized_property_source, PrintableMaterializedColumn)
             ):
                 materialized_property_sql = str(materialized_property_source)

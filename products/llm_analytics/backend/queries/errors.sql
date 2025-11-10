@@ -9,17 +9,22 @@ WITH extracted_errors AS (
         JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
         JSONExtractRaw(properties, '$ai_session_id') as ai_session_id,
         CASE
+            -- For common Anthropic format: extract the actual error message text
+            -- This gives us: "Your credit balance is too low..." instead of JSON structure
+            WHEN notEmpty(JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'error'))
+                THEN JSONExtractString(JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'error'), 'message')
+            -- Try nested error.message pattern
             WHEN notEmpty(JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'message'))
                 THEN JSONExtractString(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'), 'message')
+            -- Try direct message field
             WHEN notEmpty(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'message'))
                 THEN JSONExtractString(JSONExtractString(properties, '$ai_error'), 'message')
-            WHEN notEmpty(JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error'))
-                THEN JSONExtractString(JSONExtractString(properties, '$ai_error'), 'error')
+            -- Otherwise keep the raw string as-is to preserve format for matching
             ELSE JSONExtractString(properties, '$ai_error')
         END as raw_error
     FROM events
     WHERE event IN ('$ai_generation', '$ai_span', '$ai_trace', '$ai_embedding')
-        AND (notEmpty(JSONExtractString(properties, '$ai_error')) OR JSONExtractString(properties, '$ai_is_error') = 'true')
+        AND properties.$ai_is_error = 'true'
         AND {filters}
 ),
 ids_normalized AS (

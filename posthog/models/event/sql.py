@@ -99,6 +99,8 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"'))
     , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"'))
     , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
+    , `mat_$ai_is_error` Nullable(String) MATERIALIZED JSONExtract(properties, '$ai_is_error', 'Nullable(String)') COMMENT 'column_materializer::properties::$ai_is_error'
+    , INDEX `bloom_filter_$ai_is_error` `mat_$ai_is_error` TYPE bloom_filter GRANULARITY 1
     , INDEX `minmax_$group_0` `$group_0` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$group_1` `$group_1` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$group_2` `$group_2` TYPE minmax GRANULARITY 1
@@ -122,6 +124,7 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = f"""
     , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
     , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
     , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
+    , `mat_$ai_is_error` Nullable(String) COMMENT 'column_materializer::properties::$ai_is_error'
     , {", ".join(property_groups.get_create_table_pieces("events"))}
 """
 
