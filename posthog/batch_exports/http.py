@@ -351,6 +351,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
     latest_runs = BatchExportRunSerializer(many=True, read_only=True)
     interval = serializers.ChoiceField(choices=BATCH_EXPORT_INTERVALS)
     hogql_query = HogQLSelectQueryField(required=False)
+    filters = serializers.JSONField(required=False, allow_null=True)
 
     class Meta:
         model = BatchExport
@@ -384,6 +385,21 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("HTTP batch exports only support the events model")
 
         return attrs
+
+    def validate_filters(self, filters):
+        if filters is None:
+            return filters
+
+        if not isinstance(filters, list):
+            raise serializers.ValidationError("'filters' should be an array of filters")
+
+        for filter in filters:
+            if isinstance(filter, dict) and any(key in filter for key in ("data_interval_start", "data_interval_end")):
+                raise serializers.ValidationError(
+                    "'data_interval_start' and 'data_interval_end' are run attributes and not 'filters'."
+                    " Trigger a backfill if you wish to manually control which periods to batch export."
+                )
+        return filters
 
     # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
