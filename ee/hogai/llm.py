@@ -108,27 +108,6 @@ class MaxChatMixin(BaseModel):
                     break
         return messages
 
-    # def _with_custom_metadata(
-    #     self,
-    #     kwargs: Mapping[str, Any] | None = None,
-    # ) -> dict[str, Any]:
-    #     """Return a shallow copy of kwargs with custom metadata and billable flag injected into metadata."""
-    #     new_kwargs = dict(kwargs or {})
-    #     metadata = new_kwargs.get("metadata", {})
-    #     if not isinstance(metadata, dict):
-    #         metadata = {}
-
-    #     # Create a new metadata dict with custom metadata nested properly
-    #     metadata = dict(metadata)
-
-    #     # Add billable flag to custom_metadata
-    #     custom_meta = dict(self.custom_metadata) if self.custom_metadata else {}
-    #     custom_meta["$ai_billable"] = self.billable
-
-    #     metadata["custom_metadata"] = custom_meta
-
-    #     return {**new_kwargs, "metadata": metadata}
-
     def _with_custom_metadata(
         self,
         kwargs: Mapping[str, Any] | None = None,
