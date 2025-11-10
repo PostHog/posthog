@@ -338,9 +338,6 @@ COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog dags dags/
 COPY --chown=posthog:posthog products products/
 
-# Keep server command backwards compatible
-RUN cp ./bin/docker-server-unit ./bin/docker-server
-
 # Setup ENV.
 ENV NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium \

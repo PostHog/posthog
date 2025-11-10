@@ -1,0 +1,4 @@
+#!/bin/bash
+# Wrapper script for backward compatibility
+# Calls the dual-mode server script (Granian/Unit)
+exec "$(dirname "$0")/docker-server-unit" "$@"
