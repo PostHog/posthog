@@ -2342,6 +2342,7 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     }
     last_event?: {
         uuid: string
+        distinct_id: string
         timestamp: string
         properties: string
     }

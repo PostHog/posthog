@@ -242,6 +242,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                                 ast.Tuple(
                                     exprs=[
                                         ast.Field(chain=["uuid"]),
+                                        ast.Field(chain=["distinct_id"]),
                                         ast.Field(chain=["timestamp"]),
                                         ast.Field(chain=["properties"]),
                                     ]

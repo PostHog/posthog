@@ -184,7 +184,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     return null
                 }
                 const initialEvent: ErrorEventType = {
+                    event: '$exception',
                     uuid: positionEvent.uuid,
+                    distinct_id: positionEvent.distinct_id,
                     timestamp: positionEvent.timestamp,
                     person: { distinct_ids: [], properties: {} },
                     properties: JSON.parse(positionEvent.properties),

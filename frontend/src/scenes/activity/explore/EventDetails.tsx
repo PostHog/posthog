@@ -1,4 +1,5 @@
 import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
+import { ErrorEventType } from 'lib/components/Errors/types'
 import { ErrorPropertyTabEvent, EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
@@ -55,7 +56,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                     case 'error_display':
                         return (
                             <div className="mx-3">
-                                <ErrorDisplay eventProperties={properties} eventId={idFrom(event)} />
+                                <ErrorDisplay eventProperties={properties} eventId={idFrom(event as ErrorEventType)} />
                             </div>
                         )
                     case 'exception_properties':

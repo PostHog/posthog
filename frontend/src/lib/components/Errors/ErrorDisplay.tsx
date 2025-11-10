@@ -9,18 +9,22 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { ErrorPropertyTabEvent } from '../EventPropertyTabs/EventPropertyTabs'
 import { ChainedStackTraces } from './StackTraces'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
-import { ErrorEventId, ErrorEventProperties } from './types'
+import { ErrorEventId, ErrorEventProperties, ErrorEventType } from './types'
 import { concatValues } from './utils'
 
-export function idFrom(event: ErrorPropertyTabEvent): string {
+export function idFrom(event: ErrorEventType): string {
     if ('uuid' in event && event.uuid) {
         return event.uuid
     }
+
     // Fallback to timestamp if uuid is not available
-    return event.timestamp ? dayjs(event.timestamp).toISOString() : (event.id ?? 'error')
+    if (event.timestamp) {
+        return dayjs(event.timestamp).toISOString()
+    }
+
+    return 'error'
 }
 
 export function ErrorDisplay({
