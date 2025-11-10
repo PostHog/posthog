@@ -613,8 +613,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if parsed.select_from is None:
             raise serializers.ValidationError("Query must SELECT FROM events")
 
+        if parsed.ctes:
+            raise serializers.ValidationError("CTEs are not supported")
+
         if isinstance(parsed.select_from.table, ast.SelectQuery):
-            raise serializers.ValidationError("Subqueries or CTEs are not supported")
+            raise serializers.ValidationError("Subqueries are not supported")
 
         # Not sure how to make mypy understand this works, hence the ignore comment.
         # And if it doesn't, it's still okay as it could mean an unsupported query.

@@ -43,7 +43,7 @@ class TraversingVisitor(Visitor[None]):
     """Visitor that traverses the AST tree without returning anything"""
 
     def visit_cte(self, node: ast.CTE):
-        pass
+        self.visit(node.expr)
 
     def visit_alias(self, node: ast.Alias):
         self.visit(node.expr)
