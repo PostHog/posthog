@@ -57,6 +57,21 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         },
     },
     {
+        identifier: 'create_survey' as const,
+        name: TOOL_DEFINITIONS['create_survey'].name,
+        description: TOOL_DEFINITIONS['create_survey'].description,
+    },
+    {
+        identifier: 'create_experiment' as const,
+        name: TOOL_DEFINITIONS['create_experiment'].name,
+        description: TOOL_DEFINITIONS['create_experiment'].description,
+    },
+    {
+        identifier: 'create_feature_flag' as const,
+        name: TOOL_DEFINITIONS['create_feature_flag'].name,
+        description: TOOL_DEFINITIONS['create_feature_flag'].description,
+    },
+    {
         identifier: 'create_dashboard' as const,
         name: TOOL_DEFINITIONS['create_dashboard'].name,
         description: TOOL_DEFINITIONS['create_dashboard'].description,
@@ -75,21 +90,6 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         identifier: 'create_and_query_insight' as const,
         name: 'Query data',
         description: 'Query data by creating insights and SQL queries',
-    },
-    {
-        identifier: 'create_survey' as const,
-        name: TOOL_DEFINITIONS['create_survey'].name,
-        description: TOOL_DEFINITIONS['create_survey'].description,
-    },
-    {
-        identifier: 'create_feature_flag' as const,
-        name: TOOL_DEFINITIONS['create_feature_flag'].name,
-        description: TOOL_DEFINITIONS['create_feature_flag'].description,
-    },
-    {
-        identifier: 'create_experiment' as const,
-        name: TOOL_DEFINITIONS['create_experiment'].name,
-        description: TOOL_DEFINITIONS['create_experiment'].description,
     },
 ]
 
