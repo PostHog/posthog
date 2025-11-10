@@ -13,21 +13,19 @@ CUSTOM_FIELDS_STATE_KEY = "ticket_custom_fields_v2"
 
 # Resources that will always get pulled
 BASE_ENDPOINTS = ["ticket_fields", "ticket_events", "tickets", "ticket_metric_events"]
-INCREMENTAL_ENDPOINTS = ["tickets"]
+INCREMENTAL_ENDPOINTS = [
+    "tickets",
+    "brands",
+    "groups",
+    "organizations",
+    "sla_policies",
+    "ticket_events",
+    "ticket_fields",
+    "ticket_metric_events",
+    "users",
+]
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "tickets": [
-        {
-            "label": "created_at",
-            "type": IncrementalFieldType.DateTime,
-            "field": "created_at",
-            "field_type": IncrementalFieldType.DateTime,
-        },
-        {
-            "label": "updated_at",
-            "type": IncrementalFieldType.DateTime,
-            "field": "updated_at",
-            "field_type": IncrementalFieldType.DateTime,
-        },
         {
             "label": "generated_timestamp",
             "type": IncrementalFieldType.Integer,
@@ -93,15 +91,9 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     ],
     "ticket_events": [
         {
-            "label": "created_at",
-            "type": IncrementalFieldType.DateTime,
-            "field": "created_at",
-            "field_type": IncrementalFieldType.DateTime,
-        },
-        {
-            "label": "timestamp",
+            "label": "generated_timestamp",
             "type": IncrementalFieldType.Integer,
-            "field": "timestamp",
+            "field": "generated_timestamp",
             "field_type": IncrementalFieldType.Integer,
         },
     ],
@@ -121,10 +113,10 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     ],
     "ticket_metric_events": [
         {
-            "label": "time",
-            "type": IncrementalFieldType.DateTime,
-            "field": "time",
-            "field_type": IncrementalFieldType.DateTime,
+            "label": "generated_timestamp",
+            "type": IncrementalFieldType.Integer,
+            "field": "generated_timestamp",
+            "field_type": IncrementalFieldType.Integer,
         },
     ],
     "users": [
