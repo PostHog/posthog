@@ -118,12 +118,9 @@ runs:
               if [ "$TOTAL" -gt 0 ]; then
                 git add ${{ inputs.snapshot-path }} -A
                 git commit -m "${{ inputs.commit-message }}"
-                # Pull before push to avoid race condition when multiple workflows commit simultaneously
-                # Only fetch current branch to avoid verbose output from fetching all branches
-                CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-                git fetch origin "$CURRENT_BRANCH" --quiet
-                git rebase origin/"$CURRENT_BRANCH" --autostash
-                git push --quiet
+                # Push directly - SHA verification already ensured we're up to date
+                BRANCH_NAME="${{ inputs.branch-name }}"
+                git push origin HEAD:"$BRANCH_NAME" --quiet
                 SNAPSHOT_SHA=$(git rev-parse HEAD)
                 echo "committed=true" >> $GITHUB_OUTPUT
                 echo "snapshot-sha=$SNAPSHOT_SHA" >> $GITHUB_OUTPUT
