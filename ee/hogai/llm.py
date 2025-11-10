@@ -49,9 +49,10 @@ class MaxChatMixin(BaseModel):
     Whether to inject project/org/user context into the system prompt.
     Set to False to disable automatic context injection.
     """
-    custom_metadata: dict[str, Any] | None = None
+    posthog_properties: dict[str, Any] | None = None
     """
-    Custom metadata to be added to the generation metadata.
+    Additional PostHog properties to be added to the $ai_generation event.
+    These will be merged with the standard properties like $ai_billable and team_id.
     """
 
     def model_post_init(self, __context: Any) -> None:
@@ -108,20 +109,20 @@ class MaxChatMixin(BaseModel):
                     break
         return messages
 
-    def _with_custom_metadata(
+    def _with_posthog_properties(
         self,
         kwargs: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Return a shallow copy of kwargs with custom metadata, billable flag, and team_id injected into metadata."""
+        """Return a shallow copy of kwargs with PostHog properties, billable flag, and team_id injected into metadata."""
         new_kwargs = dict(kwargs or {})
         metadata = dict(new_kwargs.get("metadata") or {})
 
-        # Build custom_metadata with billable flag and team_id
-        custom_meta = dict(self.custom_metadata or {})
-        custom_meta["$ai_billable"] = self.billable
-        custom_meta["team_id"] = self.team.id
+        # Build posthog_properties with billable flag and team_id
+        posthog_props = dict(self.posthog_properties or {})
+        posthog_props["$ai_billable"] = self.billable
+        posthog_props["team_id"] = self.team.id
 
-        metadata["custom_metadata"] = custom_meta
+        metadata["posthog_properties"] = posthog_props
         new_kwargs["metadata"] = metadata
 
         return new_kwargs
@@ -170,7 +171,7 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
             else:
                 messages = self._enrich_messages(messages, project_org_user_variables)
 
-        kwargs = self._with_custom_metadata(kwargs)
+        kwargs = self._with_posthog_properties(kwargs)
 
         return super().generate(messages, *args, **kwargs)
 
@@ -187,7 +188,7 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
             else:
                 messages = self._enrich_messages(messages, project_org_user_variables)
 
-        kwargs = self._with_custom_metadata(kwargs)
+        kwargs = self._with_posthog_properties(kwargs)
 
         return await super().agenerate(messages, *args, **kwargs)
 
@@ -209,7 +210,7 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
             project_org_user_variables = self._get_project_org_user_variables()
             messages = self._enrich_messages(messages, project_org_user_variables)
 
-        kwargs = self._with_custom_metadata(kwargs)
+        kwargs = self._with_posthog_properties(kwargs)
 
         return super().generate(messages, *args, **kwargs)
 
@@ -223,6 +224,6 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
             project_org_user_variables = await self._aget_project_org_user_variables()
             messages = self._enrich_messages(messages, project_org_user_variables)
 
-        kwargs = self._with_custom_metadata(kwargs)
+        kwargs = self._with_posthog_properties(kwargs)
 
         return await super().agenerate(messages, *args, **kwargs)
