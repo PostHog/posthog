@@ -230,7 +230,7 @@ export const FEATURE_FLAGS = {
     SCHEMA_MANAGEMENT: 'schema-management', // owner: @aspicer
     SDK_DOCTOR_BETA: 'sdk-doctor-beta', // owner: @slshults
     ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS: 'onboarding-data-warehouse-for-product-analytics', // owner: @joshsny
-    ONBOARDING_USE_CASE_SELECTION: 'onboarding-use-case-selection', // owner: @mattbrooker
+    ONBOARDING_USE_CASE_SELECTION: 'onboarding-use-case-selection', // owner: @mattbro
     DELAYED_LOADING_ANIMATION: 'delayed-loading-animation', // owner: @raquelmsmith
     WEB_ANALYTICS_PAGE_REPORTS: 'web-analytics-page-reports', // owner: @lricoy #team-web-analytics
     ENDPOINTS: 'embedded-analytics', // owner: @sakce #team-clickhouse
