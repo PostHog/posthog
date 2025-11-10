@@ -23,7 +23,7 @@ from posthog.schema import (
 )
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.root.tools.read_billing_tool.tool import ReadBillingTool
+from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
 from ee.hogai.utils.types import AssistantState
 
 
@@ -136,7 +136,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_get_top_events_by_usage(self):
         mock_results = [("pageview", 1000), ("$autocapture", 500)]
         with patch(
-            "ee.hogai.graph.root.tools.read_billing_tool.tool.sync_execute", return_value=mock_results
+            "ee.hogai.tools.read_billing_tool.tool.sync_execute", return_value=mock_results
         ) as mock_sync_execute:
             top_events = self.tool._get_top_events_by_usage()
             self.assertEqual(len(top_events), 2)
@@ -153,7 +153,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def test_get_top_events_by_usage_query_fails(self):
         with patch(
-            "ee.hogai.graph.root.tools.read_billing_tool.tool.sync_execute",
+            "ee.hogai.tools.read_billing_tool.tool.sync_execute",
             side_effect=Exception("DB connection failed"),
         ) as mock_sync_execute:
             top_events = self.tool._get_top_events_by_usage()

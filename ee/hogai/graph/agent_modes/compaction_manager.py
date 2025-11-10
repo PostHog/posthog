@@ -1,7 +1,7 @@
 import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 from uuid import uuid4
 
 from langchain_anthropic import ChatAnthropic
@@ -19,9 +19,6 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.types import AssistantMessageUnion
-
-if TYPE_CHECKING:
-    pass
 
 T = TypeVar("T", bound=AssistantMessageUnion)
 

@@ -87,7 +87,7 @@
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
-         argMin(tuple(e.uuid, toTimeZone(e.timestamp, 'UTC'), e.properties), toTimeZone(e.timestamp, 'UTC')) AS first_event,
+         argMin(tuple(e.uuid, e.distinct_id, toTimeZone(e.timestamp, 'UTC'), e.properties), toTimeZone(e.timestamp, 'UTC')) AS first_event,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -124,7 +124,7 @@
          count(DISTINCT nullIf(e.`$session_id`, '')) AS sessions,
          count(DISTINCT e__person.id) AS users,
          sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(e.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(e.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1)))), range(0, 1)))) AS volumeRange,
-         argMin(tuple(e.uuid, toTimeZone(e.timestamp, 'UTC'), e.properties), toTimeZone(e.timestamp, 'UTC')) AS first_event,
+         argMin(tuple(e.uuid, e.distinct_id, toTimeZone(e.timestamp, 'UTC'), e.properties), toTimeZone(e.timestamp, 'UTC')) AS first_event,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN

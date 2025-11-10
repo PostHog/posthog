@@ -12,8 +12,9 @@ from parameterized import parameterized
 
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, ContextMessage, HumanMessage
 
-from ee.hogai.graph.root.compaction_manager import AnthropicConversationCompactionManager
 from ee.hogai.utils.types.base import AssistantMessageUnion
+
+from ..compaction_manager import AnthropicConversationCompactionManager
 
 
 class TestAnthropicConversationCompactionManager(BaseTest):

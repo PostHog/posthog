@@ -10,8 +10,8 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from ee.hogai.graph.insights.nodes import InsightSearchNode, NoInsightsException
-from ee.hogai.graph.root.tools.full_text_search.tool import EntitySearchTool, FTSKind
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
+from ee.hogai.tools.full_text_search.tool import EntitySearchTool, FTSKind
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
