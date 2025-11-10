@@ -32,18 +32,32 @@ function getEndpointUrl(endpointPath: string): string {
     return `${window.location.origin}${endpointPath}`
 }
 
-function generateTerminalExample(endpointPath: string, variables: Record<string, any>): string {
+function generateTerminalExample(
+    endpointPath: string,
+    variables: Record<string, any>,
+    selectedVersion: number | null,
+    currentVersion: number
+): string {
+    const versionParam =
+        selectedVersion !== null && selectedVersion !== currentVersion ? `,\n    "version": ${selectedVersion}` : ''
     return `curl -X POST ${getEndpointUrl(endpointPath)} \\
   -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "variables_values": {
 ${generateVariablesJson(variables)}
-    }
+    }${versionParam}
   }'`
 }
 
-function generatePythonExample(endpointPath: string, variables: Record<string, any>): string {
+function generatePythonExample(
+    endpointPath: string,
+    variables: Record<string, any>,
+    selectedVersion: number | null,
+    currentVersion: number
+): string {
+    const versionParam =
+        selectedVersion !== null && selectedVersion !== currentVersion ? `,\n    "version": ${selectedVersion}` : ''
     return `import requests
 import json
 
@@ -57,14 +71,21 @@ headers = {
 payload = {
     "variables_values": {
 ${generateVariablesJson(variables)}
-    }
+    }${versionParam}
 }
 
 response = requests.post(url, headers=headers, data=json.dumps(payload))
 print(response.json())`
 }
 
-function generateNodeExample(endpointPath: string, variables: Record<string, any>): string {
+function generateNodeExample(
+    endpointPath: string,
+    variables: Record<string, any>,
+    selectedVersion: number | null,
+    currentVersion: number
+): string {
+    const versionParam =
+        selectedVersion !== null && selectedVersion !== currentVersion ? `,\n    "version": ${selectedVersion}` : ''
     return `const fetch = require('node-fetch');
 
 const url = '${getEndpointUrl(endpointPath)}';
@@ -77,7 +98,7 @@ const headers = {
 const payload = {
     "variables_values": {
 ${generateVariablesJson(variables)}
-    }
+    }${versionParam}
 };
 
 fetch(url, {
@@ -91,8 +112,8 @@ fetch(url, {
 }
 
 export function EndpointCodeExamples({ tabId }: EndpointCodeExamplesProps): JSX.Element {
-    const { setActiveCodeExampleTab } = useActions(endpointLogic({ tabId }))
-    const { activeCodeExampleTab, endpoint } = useValues(endpointLogic({ tabId }))
+    const { setActiveCodeExampleTab, setSelectedCodeExampleVersion } = useActions(endpointLogic({ tabId }))
+    const { activeCodeExampleTab, endpoint, selectedCodeExampleVersion } = useValues(endpointLogic({ tabId }))
 
     if (!endpoint || isInsightQueryNode(endpoint.query)) {
         return <></>
@@ -103,13 +124,33 @@ export function EndpointCodeExamples({ tabId }: EndpointCodeExamplesProps): JSX.
     const getCodeExample = (tab: CodeExampleTab): string => {
         switch (tab) {
             case 'terminal':
-                return generateTerminalExample(endpoint.endpoint_path, variables)
+                return generateTerminalExample(
+                    endpoint.endpoint_path,
+                    variables,
+                    selectedCodeExampleVersion,
+                    endpoint.current_version
+                )
             case 'python':
-                return generatePythonExample(endpoint.endpoint_path, variables)
+                return generatePythonExample(
+                    endpoint.endpoint_path,
+                    variables,
+                    selectedCodeExampleVersion,
+                    endpoint.current_version
+                )
             case 'nodejs':
-                return generateNodeExample(endpoint.endpoint_path, variables)
+                return generateNodeExample(
+                    endpoint.endpoint_path,
+                    variables,
+                    selectedCodeExampleVersion,
+                    endpoint.current_version
+                )
             default:
-                return generateTerminalExample(endpoint.endpoint_path, variables)
+                return generateTerminalExample(
+                    endpoint.endpoint_path,
+                    variables,
+                    selectedCodeExampleVersion,
+                    endpoint.current_version
+                )
         }
     }
 
@@ -126,10 +167,25 @@ export function EndpointCodeExamples({ tabId }: EndpointCodeExamplesProps): JSX.
         }
     }
 
+    // Generate version options
+    const versionOptions = Array.from({ length: endpoint.current_version }, (_, i) => {
+        const version = i + 1
+        return {
+            value: version,
+            label: version === endpoint.current_version ? `v${version} (Current)` : `v${version}`,
+        }
+    })
+
     return (
         <SceneSection title="How to call this endpoint">
             <div className="flex flex-col gap-4">
-                <div>
+                <div className="flex gap-2">
+                    <LemonSelect
+                        options={versionOptions}
+                        onChange={setSelectedCodeExampleVersion}
+                        value={selectedCodeExampleVersion || endpoint.current_version}
+                        placeholder="Select version"
+                    />
                     <LemonSelect
                         options={[
                             { value: 'terminal', label: 'Terminal' },
