@@ -514,7 +514,7 @@ export function MetricRowGroup({
 
             {/* Breakdown tags */}
             {(metric.breakdownFilter?.breakdowns || []).length > 0 && (
-                <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0">
+                <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0 border-l-5 border-r-5">
                     <td colSpan={6} className={`border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
                         <div className="flex items-center h-full text-xs p-3 gap-2">
                             {metric.breakdownFilter?.breakdowns?.map((breakdown, index) => (
@@ -539,13 +539,13 @@ export function MetricRowGroup({
                 if (variantResults.length === 0) {
                     return (
                         <tr
-                            className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
+                            className="hover:bg-bg-hover group [&:last-child>td]:border-b-0 border-l-5 border-r-5"
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
                             {/* Metric column - always visible */}
                             <td
                                 className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
-                                    !isLastMetric ? 'border-b' : ''
+                                    !isLastMetric ? 'border-b-5' : ''
                                 } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                             >
                                 {formatBreakdownLabel(
@@ -562,7 +562,7 @@ export function MetricRowGroup({
                             <td
                                 colSpan={5}
                                 className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
-                                    !isLastMetric ? 'border-b' : ''
+                                    !isLastMetric ? 'border-b-5' : ''
                                 }`}
                                 style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                             >
@@ -585,7 +585,7 @@ export function MetricRowGroup({
                     <>
                         {/* Baseline row */}
                         <tr
-                            className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
+                            className="hover:bg-bg-hover group [&:last-child>td]:border-b-0 border-l-5 border-r-5"
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
                             <td
@@ -711,7 +711,7 @@ export function MetricRowGroup({
                             return (
                                 <tr
                                     key={`${metric.uuid}-${variant.key}`}
-                                    className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
+                                    className="hover:bg-bg-hover group [&:last-child>td]:border-b-0 border-l-5 border-r-5"
                                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                                     onMouseEnter={(e) => handleTooltipMouseEnter(e, variant)}
                                     onMouseLeave={handleTooltipMouseLeave}
