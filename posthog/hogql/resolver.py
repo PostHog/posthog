@@ -120,6 +120,7 @@ class Resolver(CloningVisitor):
         self.dialect = dialect
         self.database = context.database
         self.cte_counter = 0
+        self.inside_union = False
 
     def visit(self, node: ast.AST | None):
         if isinstance(node, ast.Expr) and node.type is not None:
@@ -129,18 +130,35 @@ class Resolver(CloningVisitor):
         return super().visit(node)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
+        # For UNION ALL queries, CTEs from all parts should be accumulated and available to all parts
+        parent_ctes = self.ctes
+        parent_inside_union = self.inside_union
+        self.ctes = dict(parent_ctes)
+        self.inside_union = True
+
         node = super().visit_select_set_query(node)
         node.type = ast.SelectSetQueryType(
             types=[node.initial_select_query.type, *(x.select_query.type for x in node.subsequent_select_queries)]  # type: ignore
         )
 
+        self.ctes = parent_ctes
+        self.inside_union = parent_inside_union
+
         return node
 
     def visit_cte(self, node: ast.CTE):
         self.cte_counter += 1
+
+        # Save the current CTEs and create a new scope for nested queries
+        parent_ctes = self.ctes
+        self.ctes = dict(parent_ctes)
+
         cte_expr = clone_expr(node.expr)
         cte_expr = self.visit(cte_expr)
         node.type = ast.CTETableType(name=node.name, select_query_type=cte_expr.type)
+
+        # Restore parent CTEs
+        self.ctes = parent_ctes
         self.cte_counter -= 1
 
         node.expr = cte_expr
@@ -155,11 +173,21 @@ class Resolver(CloningVisitor):
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
 
+        # Save parent CTEs for nested queries (unless we're in a UNION where CTEs should accumulate)
+        parent_ctes = self.ctes if not self.inside_union else {}
+
         # First step: parse all the "WITH" CTEs onto "self.ctes" if there are any
         if node.ctes:
+            # If not in a UNION, start with parent CTEs so this query can reference them
+            if not self.inside_union:
+                self.ctes = dict(parent_ctes)
+            # If in a UNION, CTEs accumulate in the shared union scope (don't create new dict)
             for cte in node.ctes.values():
                 self.visit(cte)
             node_type.ctes = node.ctes
+        elif not self.inside_union:
+            # No CTEs in this query, but inherit parent CTEs (if not in UNION)
+            self.ctes = dict(parent_ctes)
 
         # Append the "scope" onto the stack early, so that nodes we "self.visit" below can access it.
         self.scopes.append(node_type)
@@ -265,6 +293,10 @@ class Resolver(CloningVisitor):
         new_node.view_name = node.view_name
 
         self.scopes.pop()
+
+        # Restore parent CTEs (unless we're in a UNION where CTEs should accumulate)
+        if not self.inside_union:
+            self.ctes = parent_ctes
 
         return new_node
 
@@ -658,7 +690,24 @@ class Resolver(CloningVisitor):
                     raise QueryError(f"Cannot access fields on CTE {cte.name} yet")
 
                 assert isinstance(cte.type, ast.CTETableType)
-                return ast.Field(chain=node.chain, type=cte.type.select_query_type)
+
+                if cte.cte_type == "column":
+                    # Try to extract the actual return type from the scalar CTE's SELECT query
+                    # Scalar CTEs should return a single column, so we get the type of the first selected column
+                    inner_type: ast.Type = ast.StringType()
+                    if isinstance(cte.type.select_query_type, ast.SelectQueryType):
+                        select_query_type = cte.type.select_query_type
+                        if select_query_type.columns:
+                            # Get the type of the first (and should be only) column
+                            first_column_type = next(iter(select_query_type.columns.values()), None)
+                            if first_column_type is not None:
+                                inner_type = first_column_type
+
+                    return ast.Field(chain=node.chain, type=ast.FieldAliasType(alias=name, type=inner_type))
+                else:
+                    # For subquery CTEs, they should only be used in FROM clauses (handled in visit_join_expr)
+                    # If we get here, it means someone is trying to use a subquery CTE as a value
+                    raise QueryError(f"Cannot use subquery CTE {cte.name} as a value. Use it in a FROM clause instead.")
 
         if not type:
             if self.context.globals is not None and name in self.context.globals:
