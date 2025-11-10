@@ -15,7 +15,7 @@ export const BreakdownTag: Story = {
     render: () => (
         <>
             <div className="mb-3">
-                <h5>Basic breakdown tag</h5>
+                <h5>Basic breakdown tag example</h5>
                 <BreakdownTagComponent breakdownType="event" breakdown="$browser" onClick={() => alert('Clicked!')} />
             </div>
             <div className="mb-3">
