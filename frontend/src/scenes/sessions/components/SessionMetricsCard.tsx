@@ -31,17 +31,6 @@ function MetricCard({ title, value, isLoading, subtitle }: MetricCardProps): JSX
     )
 }
 
-export interface SessionMetricsCardProps {
-    duration: number | null
-    uniqueUrlCount: number
-    totalEventCount: number
-    pageviewCount?: number
-    autocaptureCount?: number
-    screenCount?: number
-    otherEventCount?: number
-    isLoading?: boolean
-}
-
 export function SessionMetricsCard(): JSX.Element {
     const { sessionData, sessionDuration, uniqueUrlCount, totalEventCount, otherEventCount, isInitialLoading } =
         useValues(sessionProfileLogic)

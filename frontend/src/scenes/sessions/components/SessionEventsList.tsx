@@ -5,9 +5,6 @@ import { useState } from 'react'
 import { IconCollapse, IconExpand, IconSort } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
-
 import { RecordingEventType } from '~/types'
 
 import { sessionProfileLogic } from '../sessionProfileLogic'
@@ -85,14 +82,6 @@ export function SessionEventsList(): JSX.Element {
         )
     }
 
-    // When sorted ASC, first event is oldest (startTime), last is newest (endTime)
-    // When sorted DESC, first event is newest (endTime), last is oldest (startTime)
-    const firstEvent = dayjs(sessionEvents[0].timestamp)
-    const lastEvent = dayjs(sessionEvents[sessionEvents.length - 1].timestamp)
-    const startTime = sortOrder === 'asc' ? firstEvent : lastEvent
-    const endTime = sortOrder === 'asc' ? lastEvent : firstEvent
-    const durationSeconds = startTime && endTime ? endTime.diff(startTime, 'second') : 0
-
     return (
         <LemonCard className="overflow-hidden p-0" hoverEffect={false}>
             {/* Header */}
@@ -111,14 +100,6 @@ export function SessionEventsList(): JSX.Element {
                                 : sessionEvents.length}
                             )
                         </h3>
-                        {startTime && (
-                            <div className="text-xs text-muted-alt">
-                                {humanFriendlyDetailedTime(startTime)}
-                                {durationSeconds > 0 && (
-                                    <span> - Duration: {humanFriendlyDuration(durationSeconds)}</span>
-                                )}
-                            </div>
-                        )}
                     </div>
                 </div>
                 <div className="flex gap-2">
@@ -145,7 +126,7 @@ export function SessionEventsList(): JSX.Element {
                     {sessionEvents?.map((event, index) => (
                         <SessionEventItem
                             key={event.id}
-                            event={event}
+                            event={{ ...event, fullyLoaded: true } as RecordingEventType}
                             index={index}
                             isExpanded={expandedIndices.has(index)}
                             onToggleExpand={handleToggleExpand}
