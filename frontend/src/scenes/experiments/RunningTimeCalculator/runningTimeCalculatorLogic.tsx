@@ -299,7 +299,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 // If we don't have a "local" state, use the exposure estimate config saved in the experiment parameters
                 // In case of not having all of the fields, we use the default exposure estimate config
-                if (experiment.parameters.exposure_estimate_config) {
+                if (experiment.parameters?.exposure_estimate_config) {
                     return {
                         ...defaultExposureEstimateConfig,
                         ...experiment.parameters.exposure_estimate_config,

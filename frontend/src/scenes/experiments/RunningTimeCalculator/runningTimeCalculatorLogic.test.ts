@@ -1,7 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { uuid } from 'lib/utils'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -14,17 +13,13 @@ describe('runningTimeCalculatorLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        experimentLogic.mount()
-
-        logic = runningTimeCalculatorLogic()
-        logic.mount()
     })
 
     // Should match https://docs.google.com/spreadsheets/d/11alyC8n7uqewZFLKfV4UAbW-0zH__EdV_Hrk2OQ4140/edit?gid=777532876#gid=777532876
     describe('calculations for MEAN total count', () => {
         describe('with EventsNode', () => {
             beforeEach(() => {
-                experimentLogic.actions.setExperiment({
+                const experiment = {
                     metrics: [
                         {
                             uuid: uuid(),
@@ -53,8 +48,10 @@ describe('runningTimeCalculatorLogic', () => {
                             },
                         },
                     } as unknown as FeatureFlagBasicType,
-                })
+                }
 
+                logic = runningTimeCalculatorLogic({ experiment })
+                logic.mount()
                 logic.actions.setMetricIndex(0)
             })
 
@@ -78,7 +75,7 @@ describe('runningTimeCalculatorLogic', () => {
 
         describe('with ActionsNode', () => {
             beforeEach(() => {
-                experimentLogic.actions.setExperiment({
+                const experiment = {
                     metrics: [
                         {
                             uuid: uuid(),
@@ -107,8 +104,10 @@ describe('runningTimeCalculatorLogic', () => {
                             },
                         },
                     } as unknown as FeatureFlagBasicType,
-                })
+                }
 
+                logic = runningTimeCalculatorLogic({ experiment })
+                logic.mount()
                 logic.actions.setMetricIndex(0)
             })
 
@@ -135,7 +134,7 @@ describe('runningTimeCalculatorLogic', () => {
     describe('calculations for MEAN sum', () => {
         describe('with EventsNode', () => {
             beforeEach(() => {
-                experimentLogic.actions.setExperiment({
+                const experiment = {
                     metrics: [
                         {
                             uuid: uuid(),
@@ -164,8 +163,10 @@ describe('runningTimeCalculatorLogic', () => {
                             },
                         },
                     } as unknown as FeatureFlagBasicType,
-                })
+                }
 
+                logic = runningTimeCalculatorLogic({ experiment })
+                logic.mount()
                 logic.actions.setMetricIndex(0)
             })
 
@@ -189,7 +190,7 @@ describe('runningTimeCalculatorLogic', () => {
 
         describe('with ActionsNode', () => {
             beforeEach(() => {
-                experimentLogic.actions.setExperiment({
+                const experiment = {
                     metrics: [
                         {
                             uuid: uuid(),
@@ -219,8 +220,10 @@ describe('runningTimeCalculatorLogic', () => {
                             },
                         },
                     } as unknown as FeatureFlagBasicType,
-                })
+                }
 
+                logic = runningTimeCalculatorLogic({ experiment })
+                logic.mount()
                 logic.actions.setMetricIndex(0)
             })
 
@@ -247,7 +250,7 @@ describe('runningTimeCalculatorLogic', () => {
     describe('calculations for FUNNEL', () => {
         describe('with EventsNode', () => {
             beforeEach(() => {
-                experimentLogic.actions.setExperiment({
+                const experiment = {
                     metrics: [
                         {
                             uuid: uuid(),
@@ -280,8 +283,10 @@ describe('runningTimeCalculatorLogic', () => {
                             },
                         },
                     } as unknown as FeatureFlagBasicType,
-                })
+                }
 
+                logic = runningTimeCalculatorLogic({ experiment })
+                logic.mount()
                 logic.actions.setMetricIndex(0)
             })
 
@@ -310,7 +315,7 @@ describe('runningTimeCalculatorLogic', () => {
 
         describe('with ActionsNode', () => {
             beforeEach(() => {
-                experimentLogic.actions.setExperiment({
+                const experiment = {
                     metrics: [
                         {
                             uuid: uuid(),
@@ -343,8 +348,10 @@ describe('runningTimeCalculatorLogic', () => {
                             },
                         },
                     } as unknown as FeatureFlagBasicType,
-                })
+                }
 
+                logic = runningTimeCalculatorLogic({ experiment })
+                logic.mount()
                 logic.actions.setMetricIndex(0)
             })
 
