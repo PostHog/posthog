@@ -41,6 +41,9 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
 else
     echo "🔧 Starting with Nginx Unit server (default, stable)..."
 
+    # Cleanup temp directory on exit
+    trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
+
     export NGINX_UNIT_PYTHON_PROTOCOL=${NGINX_UNIT_PYTHON_PROTOCOL:-wsgi}
     export NGINX_UNIT_APP_PROCESSES=${NGINX_UNIT_APP_PROCESSES:-4}
     envsubst < /docker-entrypoint.d/unit.json.tpl > /docker-entrypoint.d/unit.json
