@@ -110,11 +110,13 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
             return metadata
 
     except Team.DoesNotExist:
-        logger.warning(f"Team not found for key: {team_key}")
+        # Log only that a team was not found, without exposing the key
+        logger.warning("Team not found for cache lookup")
         return HyperCacheStoreMissing()
 
     except Exception:
-        logger.exception(f"Error loading team metadata for {team_key}")
+        # Log the error without exposing sensitive team information
+        logger.exception("Error loading team metadata")
         return HyperCacheStoreMissing()
 
 
@@ -155,10 +157,13 @@ def update_team_metadata_cache(team: Team | str | int) -> bool:
     success = team_metadata_hypercache.update_cache(team)
 
     if success:
-        team_key = team.api_token if isinstance(team, Team) else team
-        logger.info(f"Updated metadata cache for team {team_key}")
+        # Log team ID instead of sensitive API token
+        team_id = team.id if isinstance(team, Team) else "unknown"
+        logger.info(f"Updated metadata cache for team_id={team_id}")
     else:
-        logger.warning(f"Failed to update metadata cache for team {team}")
+        # Log team ID instead of full team object
+        team_id = team.id if isinstance(team, Team) else "unknown"
+        logger.warning(f"Failed to update metadata cache for team_id={team_id}")
 
     return success
 
@@ -173,8 +178,9 @@ def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = 
     """
     team_metadata_hypercache.clear_cache(team, kinds=kinds)
 
-    team_key = team.api_token if isinstance(team, Team) else team
-    logger.info(f"Cleared metadata cache for team {team_key}")
+    # Log team ID instead of sensitive API token
+    team_id = team.id if isinstance(team, Team) else "unknown"
+    logger.info(f"Cleared metadata cache for team_id={team_id}")
 
 
 def get_teams_needing_refresh(
