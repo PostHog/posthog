@@ -57,6 +57,12 @@ const BaseTemplate = (props: { panel: SidePanelTab }): JSX.Element => {
 export const SidePanelDocs: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Docs} />
 }
+SidePanelDocs.parameters = {
+    testOptions: {
+        // Wait for iframe to load - it's hidden until ready
+        waitForSelector: 'iframe[title="Docs"]:not(.hidden)',
+    },
+}
 
 export const SidePanelSettings: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Settings} />
