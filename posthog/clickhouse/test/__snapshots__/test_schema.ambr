@@ -485,6 +485,7 @@
       document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      content String, -- The actual text content that was embedded
       embedding Array(Float64) -- The embedding itself
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_document_embeddings_test', kafka_group_name = 'clickhouse_document_embeddings', kafka_format = 'JSONEachRow')
@@ -1702,6 +1703,7 @@
       document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      content String, -- The actual text content that was embedded
       embedding Array(Float64) -- The embedding itself
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_document_embeddings_test', kafka_group_name = 'clickhouse_document_embeddings', kafka_format = 'JSONEachRow')
@@ -2263,6 +2265,7 @@
       document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      content String DEFAULT '', -- The actual text content that was embedded
       embedding Array(Float64) -- The embedding itself
       
       
@@ -2297,6 +2300,7 @@
   document_id,
   timestamp,
   _timestamp as inserted_at,
+  coalesce(content, '') as content,
   embedding,
   _timestamp,
   _offset,
@@ -5798,6 +5802,7 @@
       document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      content String DEFAULT '', -- The actual text content that was embedded
       embedding Array(Float64) -- The embedding itself
       
       
