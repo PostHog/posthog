@@ -168,9 +168,8 @@ async def assert_clickhouse_records_in_postgres(
             expected_record = {}
 
             for k, v in record.items():
-                if k == "_inserted_at" or k == "bq_ingested_timestamp":
+                if k == "_inserted_at":
                     # _inserted_at is not exported, only used for tracking progress.
-                    # bq_ingested_timestamp cannot be compared as it comes from an unstable function.
                     continue
 
                 # Remove \u0000 from strings and bytes (we perform the same operation in the COPY query)

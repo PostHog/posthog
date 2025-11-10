@@ -54,6 +54,8 @@ def test_properties(request, session_id):
             "unicode_null": "\u0000",
             "emoji": "🤣",
             "newline": "\n",
+            # URL with curly braces, which needs to be escaped when converted to a PostgreSQL array.
+            "$current_url": "https://www.posthog.com#link={foo}",
         }
 
 
