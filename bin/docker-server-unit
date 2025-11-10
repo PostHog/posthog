@@ -7,7 +7,6 @@ set -e
 # provide a directory for `prometheus_client` to store a shared registry.
 export PROMETHEUS_MULTIPROC_DIR=$(mktemp -d)
 chmod -R 777 $PROMETHEUS_MULTIPROC_DIR
-trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
 
 export PROMETHEUS_METRICS_EXPORT_PORT=8001
 export STATSD_PORT=${STATSD_PORT:-8125}
@@ -23,6 +22,8 @@ if [ "${USE_GRANIAN:-true}" = "true" ]; then
     # Start metrics HTTP server in background on port 8001
     python ./bin/granian_metrics.py &
     METRICS_PID=$!
+
+    # Combined trap: kill metrics server and cleanup temp directory
     trap 'kill $METRICS_PID 2>/dev/null; rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
 
     exec granian \

@@ -54,5 +54,3 @@ def self_capture_wrapper(func):
 
 
 application = lifetime_wrapper(self_capture_wrapper(get_asgi_application()))
-# Test reload change
-# Test reload change 1761826641
