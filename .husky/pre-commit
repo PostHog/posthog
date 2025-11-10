@@ -3,8 +3,8 @@
 
 # Activate Flox environment if available and not already active
 # This ensures lint-staged commands work in GUI Git clients (GitHub Desktop, etc.)
-if [ -x /usr/local/bin/flox ] && [ -z "$FLOX_ENV" ]; then
-    exec /usr/local/bin/flox activate -- bash -c "NODE_OPTIONS='--max-old-space-size=8192' pnpm lint-staged"
+if command -v flox &> /dev/null && [ -z "$FLOX_ENV" ]; then
+    exec "$(command -v flox)" activate -- bash -c "NODE_OPTIONS='--max-old-space-size=8192' pnpm lint-staged"
 fi
 
 # Fallback: run without Flox (for non-Flox users or if already activated)
