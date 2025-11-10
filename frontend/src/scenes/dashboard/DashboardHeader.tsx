@@ -2,7 +2,15 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconGraph, IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
+import {
+    IconGraph,
+    IconGridMasonry,
+    IconNotebook,
+    IconPalette,
+    IconScreen,
+    IconSparkles,
+    IconTrash,
+} from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
@@ -28,7 +36,7 @@ import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
-import { MaxTool } from 'scenes/max/MaxTool'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -142,6 +150,23 @@ export function DashboardHeader(): JSX.Element | null {
     useEffect(() => {
         setIsPinned(dashboard?.pinned)
     }, [dashboard?.pinned])
+
+    const { openMax } = useMaxTool({
+        identifier: 'edit_current_dashboard',
+        context: {
+            current_dashboard: dashboard
+                ? {
+                      id: dashboard.id,
+                      name: dashboard.name,
+                      description: dashboard.description,
+                      tags: dashboard.tags,
+                  }
+                : undefined,
+        },
+        active: !!dashboard && canEditDashboard,
+        callback: () => loadDashboard({ action: DashboardLoadAction.Update }),
+        initialMaxPrompt: 'Add an insight showing',
+    })
 
     return dashboard || dashboardLoading ? (
         <>
@@ -468,37 +493,26 @@ export function DashboardHeader(): JSX.Element | null {
                                                 Add text card
                                             </LemonButton>
                                         </AccessControlAction>
-                                        <MaxTool
-                                            identifier="edit_current_dashboard"
-                                            context={{
-                                                current_dashboard: dashboard
-                                                    ? {
-                                                          id: dashboard.id,
-                                                          name: dashboard.name,
-                                                          description: dashboard.description,
-                                                          tags: dashboard.tags,
-                                                      }
-                                                    : undefined,
-                                            }}
-                                            active={!!dashboard && canEditDashboard}
-                                            callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
-                                            position="top-right"
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.Dashboard}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                            userAccessLevel={dashboard.user_access_level}
                                         >
-                                            <AccessControlAction
-                                                resourceType={AccessControlResourceType.Dashboard}
-                                                minAccessLevel={AccessControlLevel.Editor}
-                                                userAccessLevel={dashboard.user_access_level}
+                                            <LemonButton
+                                                onClick={showAddInsightToDashboardModal}
+                                                type="primary"
+                                                data-attr="dashboard-add-graph-header"
+                                                size="small"
+                                                sideAction={{
+                                                    icon: <IconSparkles />,
+                                                    tooltip: 'Do it quickest by asking PostHog AI',
+                                                    onClick: openMax,
+                                                    tooltipPlacement: 'top-end',
+                                                }}
                                             >
-                                                <LemonButton
-                                                    onClick={showAddInsightToDashboardModal}
-                                                    type="primary"
-                                                    data-attr="dashboard-add-graph-header"
-                                                    size="small"
-                                                >
-                                                    Add insight
-                                                </LemonButton>
-                                            </AccessControlAction>
-                                        </MaxTool>
+                                                Add insight
+                                            </LemonButton>
+                                        </AccessControlAction>
                                     </>
                                 ) : null}
                             </>
