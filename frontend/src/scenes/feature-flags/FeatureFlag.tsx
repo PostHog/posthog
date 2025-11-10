@@ -553,17 +553,19 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             )}
                             <SceneDivider />
                             <SceneSection title="Evaluation environments">
-                                <div className="text-secondary text-sm mb-2">
-                                    Evaluation environment tags provide fine-grained control over where and when your
-                                    feature flags evaluate.{' '}
-                                    <Link
-                                        to="https://posthog.com/docs/feature-flags/evaluation-environments"
-                                        target="_blank"
-                                        targetBlankIcon
-                                    >
-                                        Learn more about using evaluation environments
-                                    </Link>
-                                </div>
+                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
+                                    <div className="text-secondary text-sm mb-2">
+                                        Evaluation environment tags provide fine-grained control over where and when
+                                        your feature flags evaluate.{' '}
+                                        <Link
+                                            to="https://posthog.com/docs/feature-flags/evaluation-environments"
+                                            target="_blank"
+                                            targetBlankIcon
+                                        >
+                                            Learn more about using evaluation environments
+                                        </Link>
+                                    </div>
+                                )}
                                 {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
                                     <LemonField
                                         name="evaluation_runtime"
