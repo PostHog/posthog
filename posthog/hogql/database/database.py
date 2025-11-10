@@ -70,7 +70,7 @@ from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
 )
-from posthog.hogql.database.schema.logs import LogsTable
+from posthog.hogql.database.schema.logs import LogsTable, LogAttributesTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
@@ -185,7 +185,8 @@ class Database(BaseModel):
             "exchange_rate": TableNode(name="exchange_rate", table=ExchangeRateTable()),
             "document_embeddings": TableNode(name="document_embeddings", table=DocumentEmbeddingsTable()),
             "pg_embeddings": TableNode(name="pg_embeddings", table=PgEmbeddingsTable()),
-            "logs": TableNode(name="logs", table=LogsTable()),
+            "logs": TableNode(name="logs29", table=LogsTable()),
+            "log_attributes": TableNode(name="log_attributes", table=LogAttributesTable()),
             "numbers": TableNode(name="numbers", table=NumbersTable()),
             "system": SystemTables(),  # This is a `TableNode` already, refer to implementation
             # Web analytics pre-aggregated tables (internal use only)

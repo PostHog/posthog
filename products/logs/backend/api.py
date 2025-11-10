@@ -85,9 +85,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 )
                 return LogsQueryRunner(slice_query, self.team), LogsQueryRunner(remainder_query, self.team)
 
-            # if we're searching more than 30 minutes, first fetch the first 3 minutes of logs and see if that hits the limit
-            if date_range_length > dt.timedelta(minutes=30):
-                recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=3))
+            # if we're searching more than 15 minutes, first fetch the first 1 minutes of logs and see if that hits the limit
+            if date_range_length > dt.timedelta(minutes=15):
+                recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=1))
                 response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
                 limit -= len(response.results)
                 yield from response.results
@@ -122,7 +122,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             results = list(itertools.islice(results_generator(query, logs_query_params), logs_query_params["limit"]))
         except Exception as e:
             capture_exception(e)
-            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            raise
+            # return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response({"query": query, "results": results}, status=200)
 
     @action(detail=False, methods=["POST"], required_scopes=["error_tracking:read"])
@@ -142,7 +143,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         except Exception as e:
             capture_exception(e)
-            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            raise
+            # return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
         return Response(response.results, status=status.HTTP_200_OK)
 
@@ -164,6 +166,7 @@ FROM (
     AND attribute_key LIKE %(search)s
     GROUP BY team_id, attribute_key
     ORDER BY sum(attribute_count) desc, attribute_key asc
+    LIMIT 100
 )
 """,
             args={"search": f"%{search}%", "team_id": self.team.id},
@@ -202,7 +205,7 @@ FROM (
     AND attribute_key = %(key)s
     AND attribute_value LIKE %(search)s
     GROUP BY team_id, attribute_value
-    ORDER BY sum(attribute_count) desc, attribute_value asc
+    ORDER BY sum(attribute_count) desc, attribute_value asc limit 100
 )
 """,
             args={"key": key, "search": f"%{search}%", "team_id": self.team.id},

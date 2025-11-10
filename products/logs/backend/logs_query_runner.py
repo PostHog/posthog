@@ -100,7 +100,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             filters=HogQLFilters(dateRange=self.query.dateRange),
             settings=self.settings,
         )
-
         results = []
         for result in response.results:
             results.append(
@@ -129,24 +128,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         return response
 
     def to_query(self) -> ast.SelectQuery:
-        # utilize a hack to fix read_in_order_optimization not working correctly
-        # from: https://github.com/ClickHouse/ClickHouse/pull/82478/
-        query = self.paginator.paginate(
-            parse_select("""
-                SELECT _part_starting_offset+_part_offset from logs
-            """)
-        )
-        assert isinstance(query, ast.SelectQuery)
-
-        order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
-
-        query.where = ast.And(exprs=[self.where()])
-        query.order_by = [
-            parse_order_expr("team_id"),
-            parse_order_expr(f"time_bucket {order_dir}"),
-            parse_order_expr(f"timestamp {order_dir}"),
-        ]
-        final_query = parse_select(
+        query = parse_select(
             """
             SELECT
                 uuid,
@@ -162,18 +144,56 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 resource_attributes,
                 instrumentation_scope,
                 event_name
-            FROM logs where (_part_starting_offset+_part_offset) in ({query})
-        """,
-            placeholders={"query": query},
-        )
-        assert isinstance(final_query, ast.SelectQuery)
-        final_query.order_by = [parse_order_expr(f"timestamp {order_dir}")]
-        return final_query
+            FROM logs
+        """)
+        assert isinstance(query, ast.SelectQuery)
+
+        order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
+
+        query.where = ast.And(exprs=[self.where()])
+        query.order_by = [
+            parse_order_expr(f"timestamp {order_dir}")
+        ]
+        return query
 
     def where(self):
         exprs: list[ast.Expr] = [
-            ast.Placeholder(expr=ast.Field(chain=["filters"])),
         ]
+
+        if self.query.serviceNames:
+            exprs.append(
+                parse_expr(
+                    "service_name IN {serviceNames}",
+                    placeholders={
+                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
+                    },
+                )
+            )
+
+        if self.query.filterGroup and self.query.filterGroup.values and len(self.query.filterGroup.values) > 0:
+            filterExprs = []
+
+            for property_filter in self.query.filterGroup.values[0].values:
+                if len(property_filter.key) > 255 or any(len(val) > 255 for val in (property_filter.value or [])):
+                    filterExprs = []
+                    break
+                if property_filter.operator==PropertyOperator.EXACT:
+                    filterExprs.append(parse_expr("""attribute_key={key} and attribute_value in {value}""", placeholders={"key": ''.join(property_filter.key.split('__')[:-1]), "value": property_filter.value}))
+
+            if len(filterExprs) > 0:
+                exprs.append(parse_expr("""
+                    (service_name, resource_fingerprint) in
+                    (select service_name,arrayJoin(bitmapToArray(groupBitmapAndState(bitmap))) from (
+                    select groupBitmapState(resource_fingerprint) as bitmap, service_name,attribute_key, attribute_value from log_attributes
+                    where
+                    time_bucket >= toStartOfInterval({date_from},toIntervalMinute(10))
+                    and time_bucket <= toStartOfInterval({date_to},toIntervalMinute(10)) and {filterExprs} and {exprs} group by service_name, attribute_key, attribute_value) group by service_name)
+                """, placeholders={
+                    **self.query_date_range.to_placeholders(),
+                    "exprs": ast.And(exprs=[expr for expr in exprs]), "filterExprs": ast.Or(exprs=filterExprs)
+                }))
+
+            exprs.append(property_to_expr(self.query.filterGroup, team=self.team))
 
         if self.query.severityLevels:
             exprs.append(
@@ -183,16 +203,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                         "severityLevels": ast.Tuple(
                             exprs=[ast.Constant(value=str(sl)) for sl in self.query.severityLevels]
                         )
-                    },
-                )
-            )
-
-        if self.query.serviceNames:
-            exprs.append(
-                parse_expr(
-                    "service_name IN {serviceNames}",
-                    placeholders={
-                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
                     },
                 )
             )
@@ -212,10 +222,9 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                     placeholders={"searchTerm": ast.Constant(value=f"{self.query.searchTerm}")},
                 )
             )
-
-        if self.query.filterGroup:
-            exprs.append(property_to_expr(self.query.filterGroup, team=self.team))
-
+        exprs.append(
+            ast.Placeholder(expr=ast.Field(chain=["filters"])),
+        )
         return ast.And(exprs=exprs)
 
     @cached_property
