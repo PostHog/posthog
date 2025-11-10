@@ -732,7 +732,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             handler = _get_delete_handler(current.type)
 
             if handler is None:
-                continue
+                raise serializers.ValidationError(
+                    {"detail": f"Deletion for type '{current.type or '<empty>'}' is not supported."}
+                )
 
             if remaining == 0 and not current.ref:
                 raise serializers.ValidationError(
@@ -766,8 +768,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         handler = _get_delete_handler(entry.type)
         if handler is None:
-            entry.delete()
-            return deleted_objects
+            raise serializers.ValidationError(
+                {"detail": f"Deletion for type '{entry.type or '<empty>'}' is not supported."}
+            )
 
         if remaining > 0:
             entry.delete()
