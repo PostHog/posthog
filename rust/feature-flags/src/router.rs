@@ -34,8 +34,13 @@ use crate::{
 
 #[derive(Clone)]
 pub struct State {
+    // Shared Redis for non-critical path (analytics counters, billing limits)
     pub redis_reader: Arc<dyn RedisClient + Send + Sync>,
     pub redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    // Dedicated Redis for flags cache (critical path isolation)
+    // None if not configured (falls back to shared Redis)
+    pub dedicated_redis_reader: Option<Arc<dyn RedisClient + Send + Sync>>,
+    pub dedicated_redis_writer: Option<Arc<dyn RedisClient + Send + Sync>>,
     pub database_pools: Arc<DatabasePools>,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
@@ -50,9 +55,11 @@ pub struct State {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn router<RR, RW>(
+pub fn router<RR, RW, DRR, DRW>(
     redis_reader: Arc<RR>,
     redis_writer: Arc<RW>,
+    dedicated_redis_reader: Option<Arc<DRR>>,
+    dedicated_redis_writer: Option<Arc<DRW>>,
     database_pools: Arc<DatabasePools>,
     cohort_cache: Arc<CohortCacheManager>,
     geoip: Arc<GeoIpClient>,
@@ -65,6 +72,8 @@ pub fn router<RR, RW>(
 where
     RR: RedisClient + Send + Sync + 'static,
     RW: RedisClient + Send + Sync + 'static,
+    DRR: RedisClient + Send + Sync + 'static,
+    DRW: RedisClient + Send + Sync + 'static,
 {
     // Initialize flag definitions rate limiter with default and custom team rates
     let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
@@ -106,9 +115,17 @@ where
     // Clone database_pools for readiness check before moving into State
     let db_pools_for_readiness = database_pools.clone();
 
+    // Convert generic Arc types to trait objects for State
+    let dedicated_redis_reader_trait: Option<Arc<dyn RedisClient + Send + Sync>> =
+        dedicated_redis_reader.map(|arc| -> Arc<dyn RedisClient + Send + Sync> { arc });
+    let dedicated_redis_writer_trait: Option<Arc<dyn RedisClient + Send + Sync>> =
+        dedicated_redis_writer.map(|arc| -> Arc<dyn RedisClient + Send + Sync> { arc });
+
     let state = State {
         redis_reader,
         redis_writer,
+        dedicated_redis_reader: dedicated_redis_reader_trait,
+        dedicated_redis_writer: dedicated_redis_writer_trait,
         database_pools,
         cohort_cache_manager: cohort_cache,
         geoip,

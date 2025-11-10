@@ -6,7 +6,6 @@ from langchain_core.messages import AIMessageChunk
 from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
-    AssistantToolCallMessage,
     AssistantUpdateEvent,
     FailureMessage,
     MultiVisualizationMessage,
@@ -224,12 +223,7 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         ):
             return message
 
-        if isinstance(message, AssistantToolCallMessage):
-            # No need to yield tool call messages not at the root level
-            return None
-
-        # Should not reach here
-        raise ValueError(f"Unhandled special message type: {type(message).__name__}")
+        return None
 
     def _handle_message_stream(
         self, event: AssistantDispatcherEvent, message: AIMessageChunk
