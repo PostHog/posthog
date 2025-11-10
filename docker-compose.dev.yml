@@ -201,6 +201,10 @@ services:
         depends_on:
             - redis
             - db
+        environment:
+            # Mode 2: Dual-write warming phase for developers
+            FLAGS_REDIS_URL: 'redis://redis:6379/1'
+            FLAGS_REDIS_ENABLED: 'false' # Warming but not reading yet
 
     livestream:
         extends:
@@ -248,12 +252,12 @@ services:
             service: otel-collector
         depends_on:
             - jaeger
-            - log-capture
+            - capture-logs
 
-    log-capture:
+    capture-logs:
         extends:
             file: docker-compose.base.yml
-            service: log-capture
+            service: capture-logs
         depends_on:
             - kafka
 
@@ -267,9 +271,20 @@ services:
             file: docker-compose.base.yml
             service: localstack
 
+    seaweedfs:
+        extends:
+            file: docker-compose.base.yml
+            service: seaweedfs
+        command: server -s3 -s3.port=8333 -filer -dir=/data
+        ports:
+            - '127.0.0.1:8888:8888' # SeaweedFS Filer UI
+        volumes:
+            - 'seaweedfs-data:/data'
+
 networks:
     otel_network:
         driver: bridge
 
 volumes:
     redpanda-data:
+    seaweedfs-data:

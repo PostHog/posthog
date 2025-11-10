@@ -57,7 +57,7 @@ class SparklineQueryRunner(LogsQueryRunner):
                 ) AS am
                 LEFT JOIN (
                     SELECT
-                        toStartOfInterval(time_bucket, {one_interval_period}) AS time,
+                        toStartOfInterval({time_field}, {one_interval_period}) AS time,
                         severity_text,
                         count() AS event_count
                     FROM logs
@@ -69,6 +69,9 @@ class SparklineQueryRunner(LogsQueryRunner):
         """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
+                "time_field": ast.Field(chain=["time_minute"])
+                if self.query_date_range.interval_name != "second"
+                else ast.Field(chain=["timestamp"]),
                 "where": self.where(),
             },
         )

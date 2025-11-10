@@ -167,6 +167,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     notebook: {
         icon: <IconNotebook />,
     },
+    live_debugger: {
+        icon: <IconBug />,
+    },
     action: {
         icon: <IconCursor />,
     },
@@ -338,6 +341,7 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: urls.dataPipelinesNew('source'),
             icon: <IconPlug />,
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
+            sceneKeys: ['HogFunction'],
         },
         {
             path: `Data/Destination`,
@@ -345,6 +349,7 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: urls.dataPipelinesNew('destination'),
             icon: <IconPlug />,
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
+            sceneKeys: ['HogFunction'],
         },
         {
             path: `Data/Transformation`,
@@ -352,6 +357,7 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: urls.dataPipelinesNew('transformation'),
             icon: <IconPlug />,
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
+            sceneKeys: ['HogFunction'],
         },
         {
             path: `Data/Site app`,
@@ -359,6 +365,7 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: urls.dataPipelinesNew('site_app'),
             icon: <IconPlug />,
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
+            sceneKeys: ['HogFunction'],
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
@@ -369,14 +376,16 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         category: 'Schema',
         iconType: 'event_definition',
         href: urls.eventDefinitions(),
-        sceneKey: 'EventDefinition',
+        sceneKey: 'EventDefinitions',
+        sceneKeys: ['EventDefinition', 'EventDefinitions'],
     },
     {
         path: 'Property definitions',
         category: 'Schema',
         iconType: 'property_definition',
         href: urls.propertyDefinitions(),
-        sceneKey: 'PropertyDefinition',
+        sceneKey: 'PropertyDefinitions',
+        sceneKeys: ['PropertyDefinition', 'PropertyDefinitions'],
     },
     {
         path: 'Property groups',
@@ -391,6 +400,7 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         iconType: 'annotation',
         href: urls.annotations(),
         sceneKey: 'Annotations',
+        sceneKeys: ['Annotations'],
     },
     {
         path: 'Comments',
@@ -398,6 +408,7 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         iconType: 'comment',
         href: urls.comments(),
         sceneKey: 'Comments',
+        sceneKeys: ['Comments'],
     },
     {
         path: 'Ingestion warnings',
@@ -406,6 +417,7 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         href: urls.ingestionWarnings(),
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         sceneKey: 'IngestionWarnings',
+        sceneKeys: ['IngestionWarnings'],
     },
     {
         path: `Sources`,
@@ -414,6 +426,7 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         iconType: 'data_pipeline_metadata',
         href: urls.dataPipelines('sources'),
         sceneKey: 'DataPipelines',
+        sceneKeys: ['DataPipelines'],
     } as FileSystemImport,
     {
         path: `Transformations`,
@@ -422,6 +435,7 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         iconType: 'data_pipeline_metadata',
         href: urls.dataPipelines('transformations'),
         sceneKey: 'DataPipelines',
+        sceneKeys: ['DataPipelines'],
     } as FileSystemImport,
     {
         path: `Destinations`,
@@ -430,6 +444,7 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         iconType: 'data_pipeline_metadata',
         href: urls.dataPipelines('destinations'),
         sceneKey: 'DataPipelines',
+        sceneKeys: ['DataPipelines'],
     } as FileSystemImport,
     {
         path: 'Managed viewsets',
@@ -451,6 +466,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             iconColor: ['var(--color-product-dashboards-light)'] as FileSystemIconColor,
             href: urls.dashboards(),
             sceneKey: 'Dashboards',
+            sceneKeys: ['Dashboard', 'Dashboards'],
         },
         {
             path: 'Notebooks',
@@ -459,6 +475,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             iconType: 'notebook' as FileSystemIconType,
             href: urls.notebooks(),
             sceneKey: 'Notebooks',
+            sceneKeys: ['Notebook', 'Notebooks'],
         },
         {
             path: `Data pipelines`,
@@ -468,6 +485,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
             href: urls.dataPipelines(),
             sceneKey: 'DataPipelines',
+            sceneKeys: ['DataPipelines'],
         } as FileSystemImport,
         {
             path: `SQL editor`,
@@ -477,6 +495,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
             href: urls.sqlEditor(),
             sceneKey: 'SQLEditor',
+            sceneKeys: ['SQLEditor'],
         } as FileSystemImport,
         {
             path: 'Heatmaps',
@@ -489,6 +508,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             href: urls.heatmaps(),
             tags: ['beta'],
             sceneKey: 'Heatmaps',
+            sceneKeys: ['Heatmaps'],
         } as FileSystemImport,
     ].sort((a, b) => {
         if (a.visualOrder === -1) {
@@ -510,6 +530,8 @@ export const getDefaultTreePersons = (): FileSystemImport[] => [
         iconType: 'persons',
         href: urls.persons(),
         visualOrder: 10,
+        sceneKey: 'Persons',
+        sceneKeys: ['Person', 'Persons'],
     },
     {
         path: 'Cohorts',
@@ -517,5 +539,7 @@ export const getDefaultTreePersons = (): FileSystemImport[] => [
         type: 'cohort',
         href: urls.cohorts(),
         visualOrder: 20,
+        sceneKey: 'Cohorts',
+        sceneKeys: ['Cohort', 'Cohorts'],
     },
 ]

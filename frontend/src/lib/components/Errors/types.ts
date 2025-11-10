@@ -5,7 +5,7 @@ export interface ErrorTrackingException {
     module?: string
     id: string
     type: string
-    value: string
+    value: string // can be an empty string
     mechanism?: {
         synthetic?: boolean
         handled?: boolean
@@ -71,6 +71,7 @@ export interface ErrorTrackingStackFrame {
     resolved: boolean
     resolve_failure: string | null
     module: string | null
+    code_variables?: Record<string, unknown>
 }
 
 export interface ErrorTrackingFingerprint {

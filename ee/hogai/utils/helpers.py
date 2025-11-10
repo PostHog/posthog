@@ -38,8 +38,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
-from ee.hogai.utils.types import AssistantMessageUnion
-from ee.hogai.utils.types.base import AssistantDispatcherEvent
+from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantMessageUnion
 
 
 def remove_line_breaks(line: str) -> str:
@@ -265,23 +264,13 @@ def extract_thinking_from_ai_message(response: BaseMessage) -> list[dict[str, An
 
 
 def normalize_ai_message(message: AIMessage | AIMessageChunk) -> AssistantMessage:
-    message_id = None
-    if isinstance(message, AIMessageChunk):
-        tool_calls = [
-            AssistantToolCall(
-                id=tool_call["id"],
-                name=tool_call["name"],
-                args=(tool_call["args"] if isinstance(tool_call["args"], dict) else {}),
-            )
-            for tool_call in message.tool_call_chunks
-            if tool_call["id"] is not None and tool_call["name"] is not None
-        ]
-    else:
+    message_id: str | None = None
+    if not isinstance(message, AIMessageChunk):
         message_id = str(uuid4())
-        tool_calls = [
-            AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"] or {})
-            for tool_call in message.tool_calls
-        ]
+    tool_calls = [
+        AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"] or {})
+        for tool_call in message.tool_calls
+    ]
     content = extract_content_from_ai_message(message)
     thinking = extract_thinking_from_ai_message(message)
     return AssistantMessage(

@@ -14,19 +14,29 @@ import { HogFlowEditorPanelBuild } from './HogFlowEditorPanelBuild'
 import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 import { HogFlowEditorPanelLogs } from './HogFlowEditorPanelLogs'
 import { HogFlowEditorPanelMetrics } from './HogFlowEditorPanelMetrics'
+import { HogFlowEditorPanelVariables } from './HogFlowEditorPanelVariables'
 import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 
 export function HogFlowEditorPanel(): JSX.Element | null {
-    const { selectedNode, mode, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
+    const { selectedNode, mode, selectedNodeCanBeDeleted, workflow } = useValues(hogFlowEditorLogic)
     const { setMode, setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { deleteElements } = useReactFlow()
 
+    const variablesCount = workflow?.variables?.length || 0
+
     const tabs: LemonTab<HogFlowEditorMode>[] = HOG_FLOW_EDITOR_MODES.map((mode) => ({
-        label: capitalizeFirstLetter(mode),
+        label: (
+            <>
+                {capitalizeFirstLetter(mode)}
+                {mode === 'variables' && variablesCount > 0 && (
+                    <span className="ml-1 text-muted">({variablesCount})</span>
+                )}
+            </>
+        ),
         key: mode,
     }))
 
-    const width = mode !== 'build' ? '36rem' : selectedNode ? '36rem' : '22rem'
+    const width = mode !== 'build' ? '37rem' : selectedNode ? '37rem' : '24rem'
 
     const Step = useHogFlowStep(selectedNode?.data)
     const { actionValidationErrorsById } = useValues(workflowLogic)
@@ -69,9 +79,11 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                     </div>
 
                     {selectedNode && (
-                        <span className="flex gap-1 items-center font-medium rounded-md mr-3">
+                        <span className="flex gap-1 items-center font-medium rounded-md mr-3 min-w-0">
                             <span className="text-lg">{Step?.icon}</span>
-                            <span className="font-semibold whitespace-nowrap">{selectedNode.data.name}</span>step
+                            <Tooltip title={selectedNode.data.name}>
+                                <span className="font-semibold truncate">{selectedNode.data.name}</span>
+                            </Tooltip>
                             {validationResult?.valid === false && (
                                 <Tooltip title="Some fields need attention">
                                     <div>
@@ -100,6 +112,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                 {mode === 'build' && (
                     <>{!selectedNode ? <HogFlowEditorPanelBuild /> : <HogFlowEditorPanelBuildDetail />}</>
                 )}
+                {mode === 'variables' && <HogFlowEditorPanelVariables />}
                 {mode === 'test' && <HogFlowEditorPanelTest />}
                 {mode === 'metrics' && <HogFlowEditorPanelMetrics />}
                 {mode === 'logs' && <HogFlowEditorPanelLogs />}

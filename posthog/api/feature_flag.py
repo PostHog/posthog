@@ -189,7 +189,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
 
         # If user doesn't have access to TAGGING feature or FLAG_EVALUATION_TAGS is disabled, skip validation
         # Evaluation tags are preserved in DB but hidden from user (like regular tags)
-        if not self._is_licensed_for_tagging() or not self._is_evaluation_tags_feature_enabled():
+        if not self._is_evaluation_tags_feature_enabled():
             return attrs
 
         # Get evaluation_tags from the request
@@ -220,14 +220,6 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
                 )
 
         return attrs
-
-    def _is_licensed_for_tagging(self):
-        """Check if user has access to TAGGING feature."""
-        return (
-            "request" in self.context
-            and not self.context["request"].user.is_anonymous
-            and self.context["request"].user.organization.is_feature_available(AvailableFeature.TAGGING)
-        )
 
     def _is_evaluation_tags_feature_enabled(self):
         """Check if FLAG_EVALUATION_TAGS feature flag is enabled."""
@@ -298,11 +290,8 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         ret = super().to_representation(obj)
 
         # Include evaluation tags in the serialized output
-        # Hide evaluation_tags if:
-        # 1. User doesn't have TAGGING access (like TaggedItemSerializerMixin does for tags)
-        if not self._is_licensed_for_tagging():
-            ret["evaluation_tags"] = []
-        elif hasattr(obj, "evaluation_tags"):
+        # The evaluation_tags are hidden (if user doesn't have access) in list and retrieve methods
+        if hasattr(obj, "evaluation_tags"):
             # Django's prefetch_related creates a cache in _prefetched_objects_cache.
             # If the viewset used prefetch_related (which it should for performance),
             # we can access the tags without hitting the database again.
@@ -468,6 +457,13 @@ class FeatureFlagSerializer(
         if "groups" not in filters and self.context["request"].method == "PATCH":
             # mypy cannot tell that self.instance is a FeatureFlag
             return self.instance.filters
+
+        # Only validate empty groups for new flag creation (POST), not updates (PUT/PATCH)
+        # Existing flags may legitimately have empty groups temporarily during scheduled changes
+        if self.context["request"].method == "POST":
+            groups = filters.get("groups", [])
+            if not groups:
+                raise serializers.ValidationError("Feature flags must have at least one condition set (group).")
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 

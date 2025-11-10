@@ -6,13 +6,14 @@ import yaml
 from posthoganalytics import capture_exception
 
 from posthog.api.search import EntityConfig, search_entities
-from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey, Team, User
+from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
 from products.error_tracking.backend.models import ErrorTrackingIssue
 
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
+from ee.hogai.tool import MaxSubtool
 
 from .prompts import ENTITY_TYPE_SUMMARY_TEMPLATE, FOUND_ENTITIES_MESSAGE_TEMPLATE
 
@@ -91,13 +92,9 @@ SEARCH_KIND_TO_DATABASE_ENTITY_TYPE: dict[FTSKind, str] = {
 }
 
 
-class EntitySearchToolkit:
+class EntitySearchTool(MaxSubtool):
     MAX_ENTITY_RESULTS = 10
     MAX_CONCURRENT_SEARCHES = 10
-
-    def __init__(self, team: Team, user: User):
-        self._team = team
-        self._user = user
 
     async def execute(self, query: str, search_kind: FTSKind) -> str:
         """Search for entities by query and entity."""
@@ -112,7 +109,7 @@ class EntitySearchToolkit:
             else:
                 return f"Invalid entity kind: {search_kind}. Will not perform search for it."
 
-            results, counts = await database_sync_to_async(search_entities)(
+            results, counts = await database_sync_to_async(search_entities, thread_sensitive=False)(
                 entity_types,
                 query,
                 self._team.project_id,

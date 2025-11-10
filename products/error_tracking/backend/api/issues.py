@@ -3,9 +3,10 @@ from django.db.models.query import QuerySet
 from django.http import JsonResponse
 
 import structlog
+import posthoganalytics
 from loginas.utils import is_impersonated_session
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -13,11 +14,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.cohort.cohort import Cohort
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueCohort,
     ErrorTrackingIssueFingerprintV2,
 )
 
@@ -31,14 +34,28 @@ DEFAULT_MIN_DISTANCE_THRESHOLD = 0.10
 logger = structlog.get_logger(__name__)
 
 
-class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
+class ErrorTrackingIssuePreviewSerializer(serializers.ModelSerializer):
     first_seen = serializers.DateTimeField()
     assignee = ErrorTrackingIssueAssignmentSerializer(source="assignment")
-    external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
 
     class Meta:
         model = ErrorTrackingIssue
-        fields = ["id", "status", "name", "description", "first_seen", "assignee", "external_issues"]
+        fields = ["id", "status", "name", "description", "first_seen", "assignee"]
+
+
+class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
+    first_seen = serializers.DateTimeField()
+    assignee = ErrorTrackingIssueAssignmentSerializer(source="assignment")
+    external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
+    cohort = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ErrorTrackingIssue
+        fields = ["id", "status", "name", "description", "first_seen", "assignee", "external_issues", "cohort"]
+
+    def get_cohort(self, instance):
+        first_cohort = instance.cohorts.filter(cohort__deleted=False).first()
+        return {"id": first_cohort.cohort_id, "name": first_cohort.cohort.name} if first_cohort is not None else None
 
     def update(self, instance, validated_data):
         team = instance.team
@@ -89,12 +106,13 @@ class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ErrorTrackingIssue.objects.with_first_seen().all()
-    serializer_class = ErrorTrackingIssueSerializer
+    serializer_class = ErrorTrackingIssueFullSerializer
 
     def safely_get_queryset(self, queryset):
         return (
             queryset.select_related("assignment")
             .prefetch_related("external_issues__integration")
+            .prefetch_related("cohorts__cohort")
             .filter(team_id=self.team.id)
         )
 
@@ -146,6 +164,28 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         assign_issue(
             instance, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
         )
+
+        return Response({"success": True})
+
+    @action(methods=["PUT"], detail=True)
+    def cohort(self, request, **kwargs):
+        cohort_id = request.data.get("cohortId", None)
+        if cohort_id is None:
+            raise ValidationError("Please provide a cohort id")
+
+        issue: ErrorTrackingIssue = self.get_object()
+        cohort = Cohort.objects.filter(team=self.team, id=cohort_id).first()
+        if cohort is None:
+            raise NotFound("Cohort not found")
+
+        try:
+            ## Upsert cohort_id as a cohort might have been soft deleted
+            _ = ErrorTrackingIssueCohort.objects.update_or_create(issue=issue, defaults={"cohort_id": cohort.id})
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e, distinct_id=self.request.user.pk, properties={"issue_id": issue.id, "cohort_id": cohort.id}
+            )
+            raise ValidationError("An error occurred while assigning this cohort")
 
         return Response({"success": True})
 
@@ -251,7 +291,7 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
             },
         )
 
-        send_error_tracking_issue_assigned(assignment_after, user)
+        send_error_tracking_issue_assigned.delay(assignment_after.id, user.id)
 
         serialized_assignment_after = (
             ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None
