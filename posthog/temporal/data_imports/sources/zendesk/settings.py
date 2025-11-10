@@ -18,9 +18,9 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "tickets": [
         {
             "label": "generated_timestamp",
-            "type": IncrementalFieldType.Integer,
+            "type": IncrementalFieldType.DateTime,
             "field": "generated_timestamp",
-            "field_type": IncrementalFieldType.Integer,
+            "field_type": IncrementalFieldType.DateTime,
         }
     ],
 }
