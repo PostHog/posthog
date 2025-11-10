@@ -245,6 +245,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             snapshot_id=snapshot_id,
             task_id=self.task_details.task_id,
             distinct_id=self.task_details.distinct_id,
+            github_integration_id=self.task_details.github_integration_id,
         )
         return await workflow.execute_activity(
             create_sandbox_from_snapshot,

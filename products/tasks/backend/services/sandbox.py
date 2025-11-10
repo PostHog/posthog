@@ -139,9 +139,17 @@ class Sandbox:
 
             config = SandboxConfig(name=getattr(sb, "name", f"sandbox-{sandbox_id}"))
 
-            sandbox = Sandbox(sandbox=sb, status=SandboxStatus.RUNNING, config=config)
+            # TRICKY: Modal does not expose the status of the sandbox, so we need to check if the sandbox is running by executing a command.
+            status = SandboxStatus.RUNNING
+            try:
+                process = sb.exec("echo", "test")
+                process.wait()
+            except Exception:
+                status = SandboxStatus.SHUTDOWN
 
-            logger.info(f"Retrieved sandbox {sandbox_id}")
+            sandbox = Sandbox(sandbox=sb, status=status, config=config)
+
+            logger.info(f"Retrieved sandbox {sandbox_id} with status {status}")
 
             return sandbox
 

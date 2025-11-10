@@ -57,6 +57,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         setScopes: (scopes: string[]) => ({ scopes }),
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
         cancel: () => ({}),
+        setCanceling: (canceling: boolean) => ({ canceling }),
     }),
     loaders({
         allTeams: [
@@ -78,14 +79,19 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             },
         ],
     }),
-    listeners(({ values }) => ({
+    listeners(({ values, actions }) => ({
         cancel: async () => {
-            await oauthAuthorize({
-                scoped_organizations: values.oauthAuthorization.scoped_organizations,
-                scoped_teams: values.oauthAuthorization.scoped_teams,
-                access_type: values.oauthAuthorization.access_type,
-                allow: false,
-            })
+            actions.setCanceling(true)
+            try {
+                await oauthAuthorize({
+                    scoped_organizations: values.oauthAuthorization.scoped_organizations,
+                    scoped_teams: values.oauthAuthorization.scoped_teams,
+                    access_type: values.oauthAuthorization.access_type,
+                    allow: false,
+                })
+            } finally {
+                actions.setCanceling(false)
+            }
         },
     })),
     reducers({
@@ -99,6 +105,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             null as 'organization' | 'team' | null,
             {
                 setRequiredAccessLevel: (_, { requiredAccessLevel }) => requiredAccessLevel,
+            },
+        ],
+        isCanceling: [
+            false,
+            {
+                setCanceling: (_, { canceling }) => canceling,
             },
         ],
     }),
