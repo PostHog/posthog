@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel
 
-from ee.hogai.utils.types.base import AgentMode
+from posthog.schema import AgentMode
 
 from .nodes import AgentExecutable, AgentToolkit, AgentToolsExecutable
 
