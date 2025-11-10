@@ -265,7 +265,7 @@ class AgentNode(BaseAgentNode):
         - `{{{tool_usage_policy}}}`
         - `{{{core_memory_instructions}}}`
 
-        Tje variables from above can have the following nested variables that will be injected:
+        The variables from above can have the following nested variables that will be injected:
         - `{{{groups}}}` – a prompt containing the description of the groups.
         - `{{{billing_context}}}` – a prompt containing the billing context: permissions and billing information.
         - `{{{core_memory}}}` – memory contents.
