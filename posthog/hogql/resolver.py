@@ -176,7 +176,7 @@ class Resolver(CloningVisitor):
         # Save parent CTEs for nested queries (unless we're in a UNION where CTEs should accumulate)
         parent_ctes = self.ctes if not self.inside_union else {}
 
-        # First step: parse all the "WITH" CTEs onto "self.ctes" if there are any
+        # First step: resolve all the "WITH" CTEs onto "self.ctes" if there are any
         if node.ctes:
             # If not in a UNION, start with parent CTEs so this query can reference them
             if not self.inside_union:
