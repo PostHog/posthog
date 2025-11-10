@@ -843,4 +843,224 @@ describe('sessionRecordingsPlaylistLogic', () => {
             })
         })
     })
+
+    describe('deep-linking to recordings not in current page', () => {
+        const deepLinkRecording = {
+            id: 'deep-link-recording',
+            viewed: false,
+            recording_duration: 15,
+            start_time: '2023-09-12T16:55:36.404000Z',
+            console_error_count: 25,
+        }
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings/properties': {
+                        results: [
+                            { id: 's1', properties: { blah: 'blah1' } },
+                            { id: 's2', properties: { blah: 'blah2' } },
+                        ],
+                    },
+
+                    'api/projects/:team/property_definitions/seen_together': { $pageview: true },
+
+                    '/api/environments/:team_id/session_recordings': (req) => {
+                        const { searchParams } = req.url
+                        const sessionIds = searchParams.get('session_ids')
+
+                        // Handle deep-link recording fetch
+                        if (sessionIds && JSON.parse(sessionIds).includes('deep-link-recording')) {
+                            return [
+                                200,
+                                {
+                                    results: [deepLinkRecording],
+                                },
+                            ]
+                        }
+
+                        // Handle recording that doesn't match filters
+                        if (sessionIds && JSON.parse(sessionIds).includes('recording-no-match')) {
+                            return [
+                                200,
+                                {
+                                    results: [],
+                                },
+                            ]
+                        }
+
+                        // Handle API error scenario
+                        if (sessionIds && JSON.parse(sessionIds).includes('recording-api-error')) {
+                            return [500, { detail: 'Internal server error' }]
+                        }
+
+                        // Default response
+                        if (
+                            (searchParams.get('events')?.length || 0) > 0 &&
+                            JSON.parse(searchParams.get('events') || '[]')[0]?.['id'] === '$autocapture'
+                        ) {
+                            return [
+                                200,
+                                {
+                                    results: ['List of recordings filtered by events'],
+                                },
+                            ]
+                        } else if (searchParams.get('person_uuid') === 'cool_user_99') {
+                            return [
+                                200,
+                                {
+                                    results: ["List of specific user's recordings from server"],
+                                },
+                            ]
+                        } else if (searchParams.get('offset') !== null) {
+                            return [
+                                200,
+                                {
+                                    results: [offsetRecording],
+                                },
+                            ]
+                        } else if (
+                            searchParams.get('date_from') === '2021-10-05' &&
+                            searchParams.get('date_to') === '2021-10-20'
+                        ) {
+                            return [
+                                200,
+                                {
+                                    results: ['Recordings filtered by date'],
+                                },
+                            ]
+                        } else if (
+                            (searchParams.get('having_predicates')?.length || 0) > 0 &&
+                            JSON.parse(searchParams.get('having_predicates') || '[]')[0]['value'] === 600
+                        ) {
+                            return [
+                                200,
+                                {
+                                    results: ['Recordings filtered by duration'],
+                                },
+                            ]
+                        }
+                        return [
+                            200,
+                            {
+                                results: listOfSessionRecordings,
+                            },
+                        ]
+                    },
+                    '/api/projects/:team/session_recording_playlists/:playlist_id/recordings': () => {
+                        return [
+                            200,
+                            {
+                                results: ['Pinned recordings'],
+                            },
+                        ]
+                    },
+                },
+            })
+            logic = sessionRecordingsPlaylistLogic({
+                key: 'deep-link-tests',
+                updateSearchParams: true,
+            })
+            logic.mount()
+            playlistLogic.mount()
+            playlistLogic.actions.setIsFiltersExpanded(false)
+        })
+
+        describe('prependRecording reducer', () => {
+            it('should prepend a recording that is not in the list', async () => {
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
+                    sessionRecordings: listOfSessionRecordings,
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.prependRecording(deepLinkRecording)
+                }).toMatchValues({
+                    sessionRecordings: [deepLinkRecording, ...listOfSessionRecordings],
+                })
+            })
+
+            it('should not duplicate when recording already exists in list', async () => {
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
+                    sessionRecordings: listOfSessionRecordings,
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.prependRecording(aRecording)
+                }).toMatchValues({
+                    sessionRecordings: listOfSessionRecordings,
+                })
+            })
+
+            it('should maintain order with new recording at beginning', async () => {
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
+                    sessionRecordings: listOfSessionRecordings,
+                })
+
+                const secondRecording = {
+                    id: 'second-prepended',
+                    viewed: false,
+                    recording_duration: 20,
+                    start_time: '2023-11-12T16:55:36.404000Z',
+                    console_error_count: 30,
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.prependRecording(deepLinkRecording)
+                    logic.actions.prependRecording(secondRecording)
+                }).toMatchValues({
+                    sessionRecordings: [secondRecording, deepLinkRecording, ...listOfSessionRecordings],
+                })
+            })
+        })
+
+        describe('setSelectedRecordingId listener with missing recording', () => {
+            it('should fetch and prepend recording when not found in current list', async () => {
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
+                    sessionRecordings: listOfSessionRecordings,
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setSelectedRecordingId('deep-link-recording')
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        selectedRecordingId: 'deep-link-recording',
+                        sessionRecordings: [deepLinkRecording, ...listOfSessionRecordings],
+                    })
+            })
+
+            it('should not attempt to fetch if selectedRecordingId is null', async () => {
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
+                    sessionRecordings: listOfSessionRecordings,
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setSelectedRecordingId(null)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        selectedRecordingId: null,
+                    })
+            })
+
+            it('should not fetch if recording is already in the list', async () => {
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
+                    sessionRecordings: listOfSessionRecordings,
+                })
+
+                const lengthBefore = logic.values.sessionRecordings.length
+
+                await expectLogic(logic, () => {
+                    logic.actions.setSelectedRecordingId('abc')
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        selectedRecordingId: 'abc',
+                    })
+
+                // List should not have grown
+                expect(logic.values.sessionRecordings.length).toBe(lengthBefore)
+            })
+        })
+    })
 })

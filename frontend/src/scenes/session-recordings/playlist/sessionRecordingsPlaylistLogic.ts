@@ -463,6 +463,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
         }),
+        prependRecording: (recording: SessionRecordingType) => ({ recording }),
         loadAllRecordings: true,
         loadPinnedRecordings: true,
         loadSessionRecordings: (direction?: 'newer' | 'older', userModifiedFilters?: Record<string, any>) => ({
@@ -704,6 +705,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     )
                 },
 
+                prependRecording: (state, { recording }) => {
+                    // Only add if not already in list
+                    if (state.find((r) => r.id === recording.id)) {
+                        return state
+                    }
+                    // Add to beginning of list
+                    return [recording, ...state]
+                },
+
                 setSelectedRecordingId: (state, { id }) =>
                     state.map((s) => {
                         if (s.id === id) {
@@ -795,12 +805,41 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
         },
 
-        setSelectedRecordingId: () => {
+        setSelectedRecordingId: async () => {
             // Close filters when selecting a recording
             actions.setIsFiltersExpanded(false)
 
-            // If we are at the end of the list then try to load more
             const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
+
+            // If recording not found in current list, fetch it specifically
+            if (recordingIndex === -1 && values.selectedRecordingId) {
+                try {
+                    // Fetch the specific recording using session_ids filter
+                    const response = await api.recordings.list({
+                        kind: NodeKind.RecordingsQuery,
+                        session_ids: [values.selectedRecordingId],
+                        // Include current filters to verify recording matches
+                        ...convertUniversalFiltersToRecordingsQuery(values.filters),
+                    })
+
+                    if (response.results && response.results.length > 0) {
+                        // Prepend the recording to the list so it's visible
+                        actions.prependRecording(response.results[0])
+                    } else {
+                        // Recording doesn't match current filters
+                        lemonToast.error('This recording does not match the current filters')
+                        actions.setSelectedRecordingId(null)
+                        return
+                    }
+                } catch (error) {
+                    lemonToast.error('Failed to load recording')
+                    posthog.captureException(error)
+                    actions.setSelectedRecordingId(null)
+                    return
+                }
+            }
+
+            // If we are at the end of the list then try to load more
             if (recordingIndex === values.sessionRecordings.length - 1) {
                 actions.maybeLoadSessionRecordings('older')
             }
