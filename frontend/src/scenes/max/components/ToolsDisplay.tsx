@@ -164,7 +164,7 @@ function TruncatedHorizontalCollection<Children extends React.ReactElement>({
 function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration[] }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    /** Dynamic list of things Max can do right now, i.e. general capabilities + tools registered. */
+    /** Dynamic list of things PostHog AI can do right now, i.e. general capabilities + tools registered. */
     const maxCanHere = useMemo(
         () =>
             (toolsInReverse as { name?: string; description?: string; identifier?: keyof typeof TOOL_DEFINITIONS }[])
@@ -196,7 +196,7 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                 )),
         [toolsInReverse.map((t) => t.name).join(';')] // eslint-disable-line react-hooks/exhaustive-deps
     )
-    /** Dynamic list of things Max can do elsewhere in PostHog, by product. */
+    /** Dynamic list of things PostHog AI can do elsewhere in PostHog, by product. */
     const maxCanElsewhereByProduct = useMemo(
         () =>
             Object.entries(TOOL_DEFINITIONS)
@@ -220,7 +220,7 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                 ),
         [toolsInReverse.map((t) => t.name).join(';'), featureFlags] // eslint-disable-line react-hooks/exhaustive-deps
     )
-    /** Dynamic list of things Max can do elsewhere in PostHog, by product. */
+    /** Dynamic list of things PostHog AI can do elsewhere in PostHog, by product. */
     const maxCanElsewhere = useMemo(
         () =>
             Object.entries(maxCanElsewhereByProduct).map(([product, tools]) => (
@@ -244,7 +244,7 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
     return (
         <>
             <div className="mb-2">
-                <div className="font-semibold mb-0.5">Max can:</div>
+                <div className="font-semibold mb-0.5">PostHog AI can:</div>
                 <ul className="space-y-0.5 text-sm *:flex *:items-start">
                     {maxCanHere.map((item, index) => (
                         <li key={`here-${index}`}>{item}</li>
@@ -255,7 +255,7 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                 </ul>
             </div>
             <div>
-                <div className="font-semibold mb-0.5">Max can't (yet):</div>
+                <div className="font-semibold mb-0.5">PostHog AI can't (yet):</div>
                 <ul className="space-y-0.5 text-sm *:flex *:items-start">
                     {MAX_GENERALLY_CANNOT.map((item, index) => (
                         <li key={index}>
