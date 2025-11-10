@@ -10,7 +10,7 @@ export const RDKAFKA_LOG_LEVEL_MAPPING = {
     ERROR: 3,
 }
 
-export type KafkaConfigTarget = 'PRODUCER' | 'CONSUMER' | 'CDP_PRODUCER'
+export type KafkaConfigTarget = 'PRODUCER' | 'CONSUMER' | 'CDP_PRODUCER' | 'WARPSTREAM_PRODUCER'
 
 export const getKafkaConfigFromEnv = (prefix: KafkaConfigTarget): GlobalConfig => {
     // NOTE: We have learnt that having as much exposed config to the env as possible is really useful

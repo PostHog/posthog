@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import CurrencyCode
+from posthog.schema import CurrencyCode, HumanMessage
 
 from posthog.event_usage import groups
 from posthog.models import Team
@@ -15,7 +15,8 @@ from posthog.models.action.action import Action
 from posthog.models.user import User
 
 from ee.hogai.utils.dispatcher import AssistantDispatcher, create_dispatcher_from_config
-from ee.hogai.utils.types.base import BaseStateWithIntermediateSteps, NodePath
+from ee.hogai.utils.helpers import find_start_message
+from ee.hogai.utils.types.base import AssistantState, BaseStateWithIntermediateSteps, NodePath
 from ee.models import Conversation, CoreMemory
 
 
@@ -132,6 +133,12 @@ class AssistantContextMixin(ABC):
         """
         return (config.get("configurable") or {}).get("thread_id") or None
 
+    def _is_first_turn(self, state: AssistantState) -> bool:
+        last_message = state.messages[-1]
+        if isinstance(last_message, HumanMessage):
+            return last_message == find_start_message(state.messages, start_id=state.start_id)
+        return False
+
 
 class StateClassMixin:
     """Mixin to extract state types from generic class parameters."""
@@ -198,13 +205,12 @@ class TaxonomyUpdateDispatcherNodeMixin:
 
 
 class AssistantDispatcherMixin(ABC):
-    _node_path: tuple[NodePath, ...]
     _config: RunnableConfig | None
     _dispatcher: AssistantDispatcher | None = None
 
     @property
-    def node_path(self) -> tuple[NodePath, ...]:
-        return self._node_path
+    @abstractmethod
+    def node_path(self) -> tuple[NodePath, ...]: ...
 
     @property
     @abstractmethod
@@ -212,7 +218,7 @@ class AssistantDispatcherMixin(ABC):
 
     @property
     def tool_call_id(self) -> str:
-        parent_tool_call_id = next((path.tool_call_id for path in reversed(self._node_path) if path.tool_call_id), None)
+        parent_tool_call_id = next((path.tool_call_id for path in reversed(self.node_path) if path.tool_call_id), None)
         if not parent_tool_call_id:
             raise ValueError("No tool call ID found")
         return parent_tool_call_id
