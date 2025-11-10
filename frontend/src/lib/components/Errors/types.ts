@@ -127,16 +127,19 @@ export interface ExceptionAttributes {
     appVersion?: string
 }
 
+export interface ReleaseGitMetadata {
+    commit_id?: string
+    remote_url?: string
+    repo_name?: string
+    branch?: string
+}
+
 export interface ErrorTrackingRelease {
     id: string
     metadata?: {
-        git?: {
-            commit_id?: string
-            remote_url?: string
-            repo_name?: string
-            branch?: string
-        }
+        git?: ReleaseGitMetadata
     }
+    project?: string // Only present in recent releases (10-11-2025)
     version: string
     timestamp: string
 }

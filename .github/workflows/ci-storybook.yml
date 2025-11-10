@@ -385,11 +385,17 @@ jobs:
                     exit 0
                   fi
 
-                  # Check if there are any changes in the snapshot directory
-                  if git diff --quiet frontend/__snapshots__/; then
+                  # Check if there are any changes (modified or untracked) in the snapshot directory
+                  # Use git status --porcelain to detect both modifications and new untracked files
+                  if [ -z "$(git status --porcelain frontend/__snapshots__/)" ]; then
                     echo "No snapshot changes"
                     echo "has-changes=false" >> $GITHUB_OUTPUT
                   else
+                    echo "Snapshot changes detected:"
+                    git status --short frontend/__snapshots__/
+
+                    # Stage untracked files so git diff can include them in the patch
+                    git add -N frontend/__snapshots__/
                     # Create binary-safe patch file
                     mkdir -p /tmp/patches
                     git diff --binary --full-index frontend/__snapshots__/ > /tmp/patches/shard-${{ matrix.browser }}-${{ matrix.shard }}.patch

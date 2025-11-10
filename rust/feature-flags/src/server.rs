@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_geoip::GeoIpClient;
-use common_redis::RedisClient;
+use common_redis::{CompressionConfig, RedisClient};
 use health::{HealthHandle, HealthRegistry};
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use tokio::net::TcpListener;
@@ -19,8 +19,18 @@ use common_cookieless::CookielessManager;
 
 /// Helper to create a Redis client with error logging
 /// Returns None and logs an error if client creation fails
-async fn create_redis_client(url: &str, client_type: &str) -> Option<Arc<RedisClient>> {
-    match RedisClient::new(url.to_string()).await {
+async fn create_redis_client(
+    url: &str,
+    client_type: &str,
+    compression_config: CompressionConfig,
+) -> Option<Arc<RedisClient>> {
+    match RedisClient::with_config(
+        url.to_string(),
+        compression_config,
+        common_redis::RedisValueFormat::default(),
+    )
+    .await
+    {
         Ok(client) => Some(Arc::new(client)),
         Err(e) => {
             tracing::error!(
@@ -38,15 +48,32 @@ pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
+    // Configure compression based on environment variable
+    let compression_config = if *config.redis_compression_enabled {
+        tracing::info!("Redis compression enabled");
+        CompressionConfig::default()
+    } else {
+        tracing::info!("Redis compression disabled");
+        CompressionConfig::disabled()
+    };
+
     // Create separate Redis clients for shared Redis (non-critical path: analytics, billing, cookieless)
-    let Some(redis_reader_client) =
-        create_redis_client(config.get_redis_reader_url(), "shared reader").await
+    let Some(redis_reader_client) = create_redis_client(
+        config.get_redis_reader_url(),
+        "shared reader",
+        compression_config.clone(),
+    )
+    .await
     else {
         return;
     };
 
-    let Some(redis_writer_client) =
-        create_redis_client(config.get_redis_writer_url(), "shared writer").await
+    let Some(redis_writer_client) = create_redis_client(
+        config.get_redis_writer_url(),
+        "shared writer",
+        compression_config.clone(),
+    )
+    .await
     else {
         return;
     };
@@ -59,12 +86,22 @@ where
     ) {
         (Some(reader_url), Some(writer_url)) => {
             // Dedicated flags Redis is configured
-            let Some(reader) = create_redis_client(reader_url, "dedicated flags reader").await
+            let Some(reader) = create_redis_client(
+                reader_url,
+                "dedicated flags reader",
+                compression_config.clone(),
+            )
+            .await
             else {
                 return;
             };
 
-            let Some(writer) = create_redis_client(writer_url, "dedicated flags writer").await
+            let Some(writer) = create_redis_client(
+                writer_url,
+                "dedicated flags writer",
+                compression_config.clone(),
+            )
+            .await
             else {
                 return;
             };
@@ -179,18 +216,23 @@ where
         }
     };
 
-    let redis_cookieless_client =
-        match RedisClient::new(config.get_redis_cookieless_url().to_string()).await {
-            Ok(client) => Arc::new(client),
-            Err(e) => {
-                tracing::error!(
-                    "Failed to create Redis cookieless client for URL {}: {}",
-                    config.get_redis_cookieless_url(),
-                    e
-                );
-                return;
-            }
-        };
+    let redis_cookieless_client = match RedisClient::with_config(
+        config.get_redis_cookieless_url().to_string(),
+        compression_config.clone(),
+        common_redis::RedisValueFormat::default(),
+    )
+    .await
+    {
+        Ok(client) => Arc::new(client),
+        Err(e) => {
+            tracing::error!(
+                "Failed to create Redis cookieless client for URL {}: {}",
+                config.get_redis_cookieless_url(),
+                e
+            );
+            return;
+        }
+    };
 
     let cookieless_manager = Arc::new(CookielessManager::new(
         config.get_cookieless_config(),
