@@ -10,16 +10,16 @@ from products.tasks.backend.temporal.process_task.activities.get_task_details im
 
 
 class TestGetTaskDetailsActivity:
-    def _create_task_with_repo(self, ateam, auser, github_integration, repo_config):
+    def _create_task_with_repo(self, team, user, github_integration, repo_config):
         return Task.objects.create(
-            team=ateam,
+            team=team,
             title="Test Task",
             description="Test task description",
             origin_product=Task.OriginProduct.USER_CREATED,
             position=0,
             github_integration=github_integration,
             repository_config=repo_config,
-            created_by=auser,
+            created_by=user,
         )
 
     def _cleanup_task(self, task):
@@ -50,9 +50,9 @@ class TestGetTaskDetailsActivity:
             async_to_sync(activity_environment.run)(get_task_details, invalid_task_id)
 
     @pytest.mark.django_db
-    def test_get_task_details_with_different_repository(self, activity_environment, ateam, auser, github_integration):
+    def test_get_task_details_with_different_repository(self, activity_environment, team, user, github_integration):
         task = self._create_task_with_repo(
-            ateam, auser, github_integration, {"organization": "posthog", "repository": "posthog-js"}
+            team, user, github_integration, {"organization": "posthog", "repository": "posthog-js"}
         )
 
         try:
@@ -66,10 +66,10 @@ class TestGetTaskDetailsActivity:
             self._cleanup_task(task)
 
     @pytest.mark.django_db
-    def test_get_task_details_with_missing_repository(self, activity_environment, ateam, auser, github_integration):
+    def test_get_task_details_with_missing_repository(self, activity_environment, team, user, github_integration):
         task = self._create_task_with_repo(
-            ateam,
-            auser,
+            team,
+            user,
             github_integration,
             {"organization": "test-org"},
         )

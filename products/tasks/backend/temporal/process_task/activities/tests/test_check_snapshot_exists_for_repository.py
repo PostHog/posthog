@@ -154,10 +154,10 @@ class TestCheckSnapshotExistsForRepositoryActivity:
 
     @pytest.mark.django_db
     def test_check_snapshot_exists_for_repository_different_integration(
-        self, activity_environment, github_integration, ateam
+        self, activity_environment, github_integration, team
     ):
         other_integration = Integration.objects.create(
-            team=ateam,
+            team=team,
             kind="github",
             config={"access_token": "other_fake_token"},
         )

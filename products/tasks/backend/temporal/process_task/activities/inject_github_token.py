@@ -41,8 +41,12 @@ def inject_github_token(input: InjectGitHubTokenInput) -> None:
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
         escaped_github_token = shlex.quote(github_token)
-        result = sandbox.execute(
-            f"echo 'export GITHUB_TOKEN={escaped_github_token}' >> ~/.bash_profile && echo 'export GITHUB_TOKEN=\"{escaped_github_token}\"' >> ~/.bashrc"
+        command = f"echo 'export GITHUB_TOKEN=\"{escaped_github_token}\"' >> ~/.bashrc"
+
+        activity.logger.info(f"Executing command: {command}")
+        result = sandbox.execute(command)
+        activity.logger.info(
+            f"Command result - exit_code: {result.exit_code}, stdout: {result.stdout}, stderr: {result.stderr}"
         )
 
         if result.exit_code != 0:
@@ -50,3 +54,8 @@ def inject_github_token(input: InjectGitHubTokenInput) -> None:
                 f"Failed to inject GitHub token into sandbox",
                 {"sandbox_id": input.sandbox_id, "exit_code": result.exit_code, "stderr": result.stderr[:500]},
             )
+
+        verify_result = sandbox.execute("bash -c 'source ~/.bashrc && echo $GITHUB_TOKEN'")
+        activity.logger.info(
+            f"Verification result - exit_code: {verify_result.exit_code}, stdout: {verify_result.stdout}, stderr: {verify_result.stderr}"
+        )

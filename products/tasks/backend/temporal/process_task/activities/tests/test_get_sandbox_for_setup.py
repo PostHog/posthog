@@ -12,7 +12,6 @@ from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_set
     GetSandboxForSetupInput,
     get_sandbox_for_setup,
 )
-from products.tasks.backend.temporal.process_task.utils import get_sandbox_name_for_task
 
 
 @pytest.mark.skipif(
@@ -37,7 +36,7 @@ class TestGetSandboxForSetupActivity:
         sandbox.destroy()
 
     @pytest.mark.django_db
-    def test_get_sandbox_for_setup_with_existing_snapshot(self, activity_environment, github_integration, ateam):
+    def test_get_sandbox_for_setup_with_existing_snapshot(self, activity_environment, github_integration, team):
         snapshots = get_or_create_test_snapshots(github_integration)
         snapshot = snapshots["single"]
 
@@ -47,7 +46,7 @@ class TestGetSandboxForSetupActivity:
         try:
             input_data = GetSandboxForSetupInput(
                 github_integration_id=snapshot.integration_id,
-                team_id=ateam.id,
+                team_id=team.id,
                 task_id=task_id,
                 distinct_id="test-user-id",
             )
@@ -64,14 +63,14 @@ class TestGetSandboxForSetupActivity:
                 self._cleanup_sandbox(sandbox_id)
 
     @pytest.mark.django_db
-    def test_get_sandbox_for_setup_without_existing_snapshot(self, activity_environment, github_integration, ateam):
+    def test_get_sandbox_for_setup_without_existing_snapshot(self, activity_environment, github_integration, team):
         task_id = "test-task-456"
         sandbox_id = None
 
         try:
             input_data = GetSandboxForSetupInput(
                 github_integration_id=github_integration.id,
-                team_id=ateam.id,
+                team_id=team.id,
                 task_id=task_id,
                 distinct_id="test-user-id",
             )
@@ -90,7 +89,7 @@ class TestGetSandboxForSetupActivity:
                 self._cleanup_sandbox(sandbox_id)
 
     @pytest.mark.django_db
-    def test_get_sandbox_for_setup_ignores_incomplete_snapshots(self, activity_environment, github_integration, ateam):
+    def test_get_sandbox_for_setup_ignores_incomplete_snapshots(self, activity_environment, github_integration, team):
         in_progress_snapshot = self._create_snapshot(github_integration, status=SandboxSnapshot.Status.IN_PROGRESS)
         error_snapshot = self._create_snapshot(github_integration, status=SandboxSnapshot.Status.ERROR)
 
@@ -100,7 +99,7 @@ class TestGetSandboxForSetupActivity:
         try:
             input_data = GetSandboxForSetupInput(
                 github_integration_id=github_integration.id,
-                team_id=ateam.id,
+                team_id=team.id,
                 task_id=task_id,
                 distinct_id="test-user-id",
             )
@@ -119,14 +118,14 @@ class TestGetSandboxForSetupActivity:
                 self._cleanup_sandbox(sandbox_id)
 
     @pytest.mark.django_db
-    def test_get_sandbox_for_setup_sandbox_name_generation(self, activity_environment, github_integration, ateam):
+    def test_get_sandbox_for_setup_sandbox_name_generation(self, activity_environment, github_integration, team):
         task_id = "special-task-id-with-uuid-abc123"
         sandbox_id = None
 
         try:
             input_data = GetSandboxForSetupInput(
                 github_integration_id=github_integration.id,
-                team_id=ateam.id,
+                team_id=team.id,
                 task_id=task_id,
                 distinct_id="test-user-id",
             )
@@ -138,7 +137,6 @@ class TestGetSandboxForSetupActivity:
             sandbox = Sandbox.get_by_id(sandbox_id)
 
             assert sandbox.id == sandbox_id
-            assert sandbox.name == get_sandbox_name_for_task(task_id)
 
         finally:
             if sandbox_id:

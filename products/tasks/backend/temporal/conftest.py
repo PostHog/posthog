@@ -3,12 +3,9 @@ import random
 
 import pytest
 
-from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import Organization, OrganizationMembership, Team
-from posthog.models.integration import Integration
-from posthog.models.user import User
+from posthog.models import Integration, Organization, OrganizationMembership, Team, User
 from posthog.temporal.common.logger import configure_logger
 
 from products.tasks.backend.models import SandboxSnapshot, Task
@@ -46,32 +43,27 @@ def team(organization):
 
 
 @pytest.fixture
-async def aorganization():
-    """Async test organization."""
-    name = f"TasksTestOrg-{random.randint(1, 99999)}"
-    org = await sync_to_async(Organization.objects.create)(name=name, is_ai_data_processing_approved=True)
+def user(team):
+    user = User.objects.create(
+        email=f"test-{random.randint(1, 99999)}@example.com",
+        password="testpassword123",
+    )
 
-    yield org
+    OrganizationMembership.objects.create(
+        user=user,
+        organization_id=team.organization_id,
+    )
 
-    await sync_to_async(org.delete)()
+    yield user
 
-
-@pytest.fixture
-async def ateam(aorganization):
-    """Async test team."""
-    name = f"TasksTestTeam-{random.randint(1, 99999)}"
-    team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
-
-    yield team
-
-    await sync_to_async(team.delete)()
+    user.delete()
 
 
 @pytest.fixture
-def github_integration(ateam):
+def github_integration(team):
     """Create a test GitHub integration."""
     integration = Integration.objects.create(
-        team=ateam,
+        team=team,
         kind="github",
         sensitive_config={"access_token": "fake_token"},
     )
@@ -82,28 +74,12 @@ def github_integration(ateam):
 
 
 @pytest.fixture
-async def auser(ateam):
-    user = await sync_to_async(User.objects.create)(
-        email=f"test-{random.randint(1, 99999)}@example.com",
-        password="testpassword123",
-    )
-
-    await sync_to_async(OrganizationMembership.objects.create)(
-        user=user,
-        organization_id=ateam.organization_id,
-    )
-
-    yield user
-    await sync_to_async(user.delete)()
-
-
-@pytest.fixture
-async def test_task(ateam, auser, github_integration):
+def test_task(team, user, github_integration):
     """Create a test task."""
 
-    task = await sync_to_async(Task.objects.create)(
-        team=ateam,
-        created_by=auser,
+    task = Task.objects.create(
+        team=team,
+        created_by=user,
         title="Test Task for Temporal Activities",
         description="This is a test task for testing temporal activities",
         origin_product=Task.OriginProduct.USER_CREATED,
@@ -114,7 +90,7 @@ async def test_task(ateam, auser, github_integration):
 
     yield task
 
-    await sync_to_async(task.delete)()
+    task.delete()
 
 
 @pytest.fixture(autouse=True)

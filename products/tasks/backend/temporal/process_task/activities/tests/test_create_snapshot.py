@@ -17,7 +17,7 @@ from products.tasks.backend.temporal.process_task.activities.create_snapshot imp
 )
 class TestCreateSnapshotActivity:
     @pytest.mark.django_db
-    def test_create_snapshot_real(self, activity_environment, github_integration, ateam):
+    def test_create_snapshot_real(self, activity_environment, github_integration, team):
         config = SandboxConfig(
             name="test-create-snapshot",
             template=SandboxTemplate.DEFAULT_BASE,
@@ -32,7 +32,7 @@ class TestCreateSnapshotActivity:
             input_data = CreateSnapshotInput(
                 sandbox_id=sandbox.id,
                 github_integration_id=github_integration.id,
-                team_id=ateam.id,
+                team_id=team.id,
                 repository="test-owner/test-repo",
                 task_id="test-task-123",
                 distinct_id="test-user-id",
@@ -61,7 +61,7 @@ class TestCreateSnapshotActivity:
                 Sandbox.delete_snapshot(created_snapshot_external_id)
 
     @pytest.mark.django_db
-    def test_create_snapshot_with_existing_base_snapshot(self, activity_environment, github_integration, ateam):
+    def test_create_snapshot_with_existing_base_snapshot(self, activity_environment, github_integration, team):
         base_snapshot = SandboxSnapshot.objects.create(
             integration=github_integration,
             external_id=f"fake_base_{uuid.uuid4().hex[:8]}",
@@ -83,7 +83,7 @@ class TestCreateSnapshotActivity:
             input_data = CreateSnapshotInput(
                 sandbox_id=sandbox.id,
                 github_integration_id=github_integration.id,
-                team_id=ateam.id,
+                team_id=team.id,
                 repository="new-owner/new-repo",
                 task_id="test-task-with-base",
                 distinct_id="test-user-id",
@@ -108,11 +108,11 @@ class TestCreateSnapshotActivity:
                 Sandbox.delete_snapshot(created_snapshot_external_id)
 
     @pytest.mark.django_db
-    def test_create_snapshot_sandbox_not_found(self, activity_environment, github_integration, ateam):
+    def test_create_snapshot_sandbox_not_found(self, activity_environment, github_integration, team):
         input_data = CreateSnapshotInput(
             sandbox_id="non-existent-sandbox-id",
             github_integration_id=github_integration.id,
-            team_id=ateam.id,
+            team_id=team.id,
             repository="test-owner/test-repo",
             task_id="test-task-not-found",
             distinct_id="test-user-id",

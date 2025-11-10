@@ -96,7 +96,7 @@ class Sandbox:
                 snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
                 if snapshot.status == SandboxSnapshot.Status.COMPLETE:
                     try:
-                        image = modal.Image.from_registry(snapshot.external_id)
+                        image = modal.Image.from_id(snapshot.external_id)
                     except Exception as e:
                         logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")
 

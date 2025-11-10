@@ -17,7 +17,11 @@ from .activities.check_snapshot_exists_for_repository import (
 from .activities.cleanup_personal_api_key import cleanup_personal_api_key
 from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .activities.clone_repository import CloneRepositoryInput, clone_repository
-from .activities.create_sandbox_from_snapshot import CreateSandboxFromSnapshotInput, create_sandbox_from_snapshot
+from .activities.create_sandbox_from_snapshot import (
+    CreateSandboxFromSnapshotInput,
+    CreateSandboxFromSnapshotOutput,
+    create_sandbox_from_snapshot,
+)
 from .activities.create_snapshot import CreateSnapshotInput, create_snapshot
 from .activities.execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
 from .activities.get_sandbox_for_setup import GetSandboxForSetupInput, get_sandbox_for_setup
@@ -77,12 +81,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             snapshot_id = await self._get_snapshot_for_repository()
 
-            sandbox_id = await self._create_sandbox_from_snapshot(snapshot_id)
+            create_sandbox_output = await self._create_sandbox_from_snapshot(snapshot_id)
 
-            await self._inject_github_token(sandbox_id)
-
-            api_key_output = await self._inject_personal_api_key(sandbox_id)
-            personal_api_key_id = api_key_output.personal_api_key_id
+            sandbox_id = create_sandbox_output.sandbox_id
+            personal_api_key_id = create_sandbox_output.personal_api_key_id
 
             result = await self._execute_task_in_sandbox(sandbox_id)
 
@@ -241,7 +243,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if setup_sandbox_id:
                 await self._cleanup_sandbox(setup_sandbox_id)
 
-    async def _create_sandbox_from_snapshot(self, snapshot_id: str) -> str:
+    async def _create_sandbox_from_snapshot(self, snapshot_id: str) -> CreateSandboxFromSnapshotOutput:
         create_sandbox_input = CreateSandboxFromSnapshotInput(
             snapshot_id=snapshot_id,
             task_id=self.task_details.task_id,

@@ -86,12 +86,15 @@ def inject_personal_api_key(input: InjectPersonalAPIKeyInput) -> InjectPersonalA
         escaped_value = shlex.quote(value)
         escaped_api_url = shlex.quote(settings.SITE_URL)
 
-        result = sandbox.execute(
-            f"echo 'export POSTHOG_PERSONAL_API_KEY={escaped_value}' >> ~/.bash_profile && "
-            f"echo 'export POSTHOG_API_URL={escaped_api_url}' >> ~/.bash_profile && "
+        command = (
             f"echo 'export POSTHOG_PERSONAL_API_KEY={escaped_value}' >> ~/.bashrc && "
-            f"echo 'export POSTHOG_API_URL={escaped_api_url}' >> ~/.bashrc",
-            timeout_seconds=30,
+            f"echo 'export POSTHOG_API_URL={escaped_api_url}' >> ~/.bashrc"
+        )
+
+        activity.logger.info(f"Executing command: {command}")
+        result = sandbox.execute(command, timeout_seconds=30)
+        activity.logger.info(
+            f"Command result - exit_code: {result.exit_code}, stdout: {result.stdout}, stderr: {result.stderr}"
         )
 
         if result.exit_code != 0:
@@ -99,6 +102,11 @@ def inject_personal_api_key(input: InjectPersonalAPIKeyInput) -> InjectPersonalA
                 f"Failed to inject personal API key into sandbox",
                 {"sandbox_id": input.sandbox_id, "exit_code": result.exit_code, "stderr": result.stderr[:500]},
             )
+
+        verify_result = sandbox.execute("bash -c 'source ~/.bashrc && echo $POSTHOG_PERSONAL_API_KEY'")
+        activity.logger.info(
+            f"Verification result - exit_code: {verify_result.exit_code}, stdout: {verify_result.stdout}, stderr: {verify_result.stderr}"
+        )
 
         return InjectPersonalAPIKeyOutput(personal_api_key_id=personal_api_key.id)
 
