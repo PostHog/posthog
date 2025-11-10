@@ -62,6 +62,7 @@ export function handleToolError(
     const properties: Record<string, any> = {
         team: 'growth',
         tool: mcpError.tool,
+        is_mcp_tool_error: error instanceof MCPToolError,
         $exception_fingerprint: `${mcpError.tool}-${mcpError.message}`,
     }
 
