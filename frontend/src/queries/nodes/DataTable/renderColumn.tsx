@@ -186,7 +186,7 @@ export function renderColumn(
         ) : (
             content
         )
-    } else if (key === 'timestamp' || key === 'created_at') {
+    } else if (key === 'timestamp' || key === 'created_at' || key === 'session_start' || key === 'session_end') {
         return <TZLabel time={value} showSeconds />
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
         // TODO: remove after removing the old events table
