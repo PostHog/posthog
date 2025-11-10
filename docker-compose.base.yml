@@ -212,6 +212,7 @@ services:
             PGPASSWORD: posthog
             DEPLOYMENT: hobby
             CDP_API_URL: 'http://plugins:6738'
+            FLAGS_REDIS_ENABLED: false
 
     web:
         <<: *worker
@@ -247,12 +248,12 @@ services:
             REDIS_URL: 'redis://redis:6379/'
             CAPTURE_MODE: recordings
 
-    log-capture:
-        image: ghcr.io/posthog/posthog/log-capture:master
+    capture-logs:
+        image: ghcr.io/posthog/posthog/capture-logs:master
         build:
             context: rust/
             args:
-                BIN: log-capture
+                BIN: capture-logs
         restart: on-failure
         environment:
             BIND_HOST: '0.0.0.0'
@@ -293,12 +294,19 @@ services:
             WRITE_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             READ_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             MAXMIND_DB_PATH: '/share/GeoLite2-City.mmdb'
+            # Shared Redis for non-critical path (analytics, billing, cookieless)
             REDIS_URL: 'redis://redis:6379/'
             # Optional: Use separate Redis URLs for read/write separation
             # REDIS_READER_URL: 'redis://redis-replica:6379/'
             # REDIS_WRITER_URL: 'redis://redis-primary:6379/'
             # Optional: Increase Redis timeout (default is 100ms)
             # REDIS_TIMEOUT_MS: 200
+            # Dedicated Redis database for critical path (team cache + flags cache)
+            # Hobby deployments start in Mode 1 (shared-only). Developers override in docker-compose.dev.yml for Mode 2.
+            # FLAGS_REDIS_URL: 'redis://redis:6379/1'
+            # Optional: Use separate Flags Redis URLs for read/write separation
+            # FLAGS_REDIS_READER_URL: 'redis://redis-replica:6379/1'
+            # FLAGS_REDIS_WRITER_URL: 'redis://redis-primary:6379/1'
             ADDRESS: '0.0.0.0:3001'
             RUST_LOG: 'info'
             COOKIELESS_REDIS_HOST: redis7

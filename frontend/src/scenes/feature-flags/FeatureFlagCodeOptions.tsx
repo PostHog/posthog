@@ -1,18 +1,16 @@
 import { IconServer } from '@posthog/icons'
-
 import {
-    IconAndroidOS,
-    IconAppleIOS,
     IconCSharp,
     IconFlutter,
-    IconGolang,
+    IconGo,
     IconJavascript,
-    IconNodeJS,
     IconPHP,
     IconPython,
     IconReact,
     IconRuby,
-} from 'lib/lemon-ui/icons'
+} from '@posthog/icons'
+
+import { IconAndroidOS, IconAppleIOS, IconNodeJS } from 'lib/lemon-ui/icons'
 
 import { SDKKey } from '~/types'
 
@@ -87,7 +85,7 @@ export const OPTIONS: InstructionOption[] = [
         Snippet: GolangSnippet,
         type: LibraryType.Server,
         key: SDKKey.GO,
-        Icon: IconGolang,
+        Icon: IconGo,
     },
     {
         value: 'Flutter',

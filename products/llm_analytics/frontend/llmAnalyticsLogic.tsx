@@ -94,15 +94,14 @@ function getDayDateRange(day: string): { date_from: string; date_to: string } {
 export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsLogic']),
     props({} as LLMAnalyticsLogicProps),
-    key(({ logicKey }: LLMAnalyticsLogicProps) => logicKey || 'llmAnalyticsScene'),
+    key((props: LLMAnalyticsLogicProps) => props?.personId || 'llmAnalyticsScene'),
     connect(() => ({
-        values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']],
+        values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled'], featureFlagLogic, ['featureFlags']],
         actions: [teamLogic, ['addProductIntent']],
     })),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setDashboardDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
         setGenerationsQuery: (query: DataTableNode) => ({ query }),
@@ -116,6 +115,15 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         toggleGenerationExpanded: (uuid: string, traceId: string) => ({ uuid, traceId }),
         setLoadedTrace: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
         clearExpandedGenerations: true,
+        toggleSessionExpanded: (sessionId: string) => ({ sessionId }),
+        toggleTraceExpanded: (traceId: string) => ({ traceId }),
+        loadSessionTraces: (sessionId: string) => ({ sessionId }),
+        loadSessionTracesSuccess: (sessionId: string, traces: LLMTrace[]) => ({ sessionId, traces }),
+        loadSessionTracesFailure: (sessionId: string, error: Error) => ({ sessionId, error }),
+        loadFullTrace: (traceId: string) => ({ traceId }),
+        loadFullTraceSuccess: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
+        loadFullTraceFailure: (traceId: string, error: Error) => ({ traceId, error }),
+        loadLLMDashboards: true,
     }),
 
     reducers({
@@ -246,9 +254,126 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 setShouldFilterTestAccounts: () => ({}),
             },
         ],
+
+        expandedSessionIds: [
+            new Set<string>() as Set<string>,
+            {
+                toggleSessionExpanded: (state, { sessionId }) => {
+                    const newSet = new Set(state)
+                    if (newSet.has(sessionId)) {
+                        newSet.delete(sessionId)
+                    } else {
+                        newSet.add(sessionId)
+                    }
+                    return newSet
+                },
+                setDates: () => new Set<string>(),
+                setPropertyFilters: () => new Set<string>(),
+                setShouldFilterTestAccounts: () => new Set<string>(),
+            },
+        ],
+
+        expandedTraceIds: [
+            new Set<string>() as Set<string>,
+            {
+                toggleTraceExpanded: (state, { traceId }) => {
+                    const newSet = new Set(state)
+                    if (newSet.has(traceId)) {
+                        newSet.delete(traceId)
+                    } else {
+                        newSet.add(traceId)
+                    }
+                    return newSet
+                },
+                setDates: () => new Set<string>(),
+                setPropertyFilters: () => new Set<string>(),
+                setShouldFilterTestAccounts: () => new Set<string>(),
+            },
+        ],
+
+        sessionTraces: [
+            {} as Record<string, LLMTrace[]>,
+            {
+                loadSessionTracesSuccess: (state, { sessionId, traces }) => ({
+                    ...state,
+                    [sessionId]: traces,
+                }),
+                setDates: () => ({}),
+                setPropertyFilters: () => ({}),
+                setShouldFilterTestAccounts: () => ({}),
+            },
+        ],
+
+        fullTraces: [
+            {} as Record<string, LLMTrace>,
+            {
+                loadFullTraceSuccess: (state, { traceId, trace }) => ({
+                    ...state,
+                    [traceId]: trace,
+                }),
+                setDates: () => ({}),
+                setPropertyFilters: () => ({}),
+                setShouldFilterTestAccounts: () => ({}),
+            },
+        ],
+
+        loadingSessionTraces: [
+            new Set<string>() as Set<string>,
+            {
+                loadSessionTraces: (state, { sessionId }) => new Set(state).add(sessionId),
+                loadSessionTracesSuccess: (state, { sessionId }) => {
+                    const newSet = new Set(state)
+                    newSet.delete(sessionId)
+                    return newSet
+                },
+                loadSessionTracesFailure: (state, { sessionId }) => {
+                    const newSet = new Set(state)
+                    newSet.delete(sessionId)
+                    return newSet
+                },
+            },
+        ],
+
+        loadingFullTraces: [
+            new Set<string>() as Set<string>,
+            {
+                loadFullTrace: (state, { traceId }) => new Set(state).add(traceId),
+                loadFullTraceSuccess: (state, { traceId }) => {
+                    const newSet = new Set(state)
+                    newSet.delete(traceId)
+                    return newSet
+                },
+                loadFullTraceFailure: (state, { traceId }) => {
+                    const newSet = new Set(state)
+                    newSet.delete(traceId)
+                    return newSet
+                },
+            },
+        ],
+
+        selectedDashboardId: [
+            null as number | null,
+            { persist: true, prefix: 'llma_' },
+            {
+                loadLLMDashboardsSuccess: (state, { availableDashboards }) => {
+                    // If no dashboards available, clear selection
+                    if (availableDashboards.length === 0) {
+                        return null
+                    }
+
+                    // If currently selected dashboard still exists in list, keep it
+                    if (state && availableDashboards.some((d) => d.id === state)) {
+                        return state
+                    }
+
+                    // Otherwise, select first available dashboard (new or after deletion)
+                    return availableDashboards[0].id
+                },
+            },
+        ],
     }),
 
-    loaders({
+    loaders(() => ({
         hasSentAiGenerationEvent: {
             __default: undefined as boolean | undefined,
             loadAIEventDefinition: async (): Promise<boolean> => {
@@ -266,7 +391,24 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 return false
             },
         },
-    }),
+
+        availableDashboards: [
+            [] as Array<{ id: number; name: string; description: string }>,
+            {
+                loadLLMDashboards: async () => {
+                    const response = await api.dashboards.list({
+                        tags: 'llm-analytics',
+                    })
+                    const dashboards = response.results || []
+                    return dashboards.map((d) => ({
+                        id: d.id,
+                        name: d.name,
+                        description: d.description || '',
+                    }))
+                },
+            },
+        ],
+    })),
 
     listeners(({ actions, values }) => ({
         toggleGenerationExpanded: async ({ uuid, traceId }) => {
@@ -295,6 +437,98 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 }
             }
         },
+
+        toggleSessionExpanded: async ({ sessionId }) => {
+            if (
+                values.expandedSessionIds.has(sessionId) &&
+                !values.sessionTraces[sessionId] &&
+                !values.loadingSessionTraces.has(sessionId)
+            ) {
+                actions.loadSessionTraces(sessionId)
+            }
+        },
+
+        loadSessionTraces: async ({ sessionId }) => {
+            const dateFrom = values.dateFilter.dateFrom || undefined
+            const dateTo = values.dateFilter.dateTo || undefined
+
+            const tracesQuerySource: import('~/queries/schema/schema-general').TracesQuery = {
+                kind: NodeKind.TracesQuery,
+                dateRange: {
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                },
+                properties: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$ai_session_id',
+                        operator: 'exact' as any,
+                        value: sessionId,
+                    },
+                ],
+            }
+
+            try {
+                const response = await api.query(tracesQuerySource)
+                if (response.results) {
+                    actions.loadSessionTracesSuccess(sessionId, response.results)
+                }
+            } catch (error) {
+                console.error('Error loading traces for session:', error)
+                actions.loadSessionTracesFailure(sessionId, error as Error)
+            }
+        },
+
+        toggleTraceExpanded: async ({ traceId }) => {
+            if (
+                values.expandedTraceIds.has(traceId) &&
+                !values.fullTraces[traceId] &&
+                !values.loadingFullTraces.has(traceId)
+            ) {
+                actions.loadFullTrace(traceId)
+            }
+        },
+
+        loadFullTrace: async ({ traceId }) => {
+            const dateFrom = values.dateFilter.dateFrom || undefined
+            const dateTo = values.dateFilter.dateTo || undefined
+
+            const traceQuery: TraceQuery = {
+                kind: NodeKind.TraceQuery,
+                traceId,
+                dateRange: {
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                },
+            }
+
+            try {
+                const response = await api.query(traceQuery)
+                if (response.results && response.results[0]) {
+                    actions.loadFullTraceSuccess(traceId, response.results[0])
+                }
+            } catch (error) {
+                console.error('Error loading full trace:', error)
+                actions.loadFullTraceFailure(traceId, error as Error)
+            }
+        },
+
+        loadLLMDashboardsSuccess: async ({ availableDashboards }, breakpoint) => {
+            if (availableDashboards.length === 0) {
+                try {
+                    await api.dashboards.createUnlistedDashboard('llm-analytics')
+                    await breakpoint(100)
+                    actions.loadLLMDashboards()
+                } catch (error: any) {
+                    if (error.status === 409) {
+                        await breakpoint(100)
+                        actions.loadLLMDashboards()
+                    } else {
+                        console.error('Failed to create default LLM Analytics dashboard:', error)
+                    }
+                }
+            }
+        },
     })),
 
     selectors({
@@ -320,6 +554,11 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             },
         ],
 
+        // IMPORTANT: Keep these hardcoded tiles in sync with backend template in
+        // products/llm_analytics/backend/dashboard_templates.py:4-319 until full migration to customizable dashboard.
+        //
+        // Used when LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD feature flag is OFF.
+        // When feature flag is ON, dashboard is loaded from backend template instead.
         tiles: [
             (s) => [s.dashboardDateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
             (dashboardDateFilter, shouldFilterTestAccounts, propertyFilters): QueryTile[] => [
@@ -922,32 +1161,22 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     kind: NodeKind.HogQLQuery,
                     query: `
                 SELECT
-                    ai_session_id as session_id,
-                    countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
-                    countIf(event_type = '$ai_span') as spans,
-                    countIf(event_type = '$ai_generation') as generations,
-                    countIf(event_type = '$ai_embedding') as embeddings,
-                    countIf(notEmpty(ai_error) OR ai_is_error = 'true') as errors,
-                    round(sum(toFloat(ai_total_cost_usd)), 4) as total_cost,
-                    round(sum(toFloat(ai_latency)), 2) as total_latency,
+                    properties.$ai_session_id as session_id,
+                    countDistinctIf(properties.$ai_trace_id, isNotNull(properties.$ai_trace_id)) as traces,
+                    countIf(event = '$ai_span') as spans,
+                    countIf(event = '$ai_generation') as generations,
+                    countIf(event = '$ai_embedding') as embeddings,
+                    countIf(isNotNull(properties.$ai_error) OR properties.$ai_is_error = 'true') as errors,
+                    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) as total_cost,
+                    round(sum(toFloat(properties.$ai_latency)), 2) as total_latency,
                     min(timestamp) as first_seen,
                     max(timestamp) as last_seen
-                FROM (
-                    SELECT
-                        event as event_type,
-                        timestamp,
-                        JSONExtractString(properties, '$ai_session_id') as ai_session_id,
-                        JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
-                        JSONExtractRaw(properties, '$ai_total_cost_usd') as ai_total_cost_usd,
-                        JSONExtractRaw(properties, '$ai_latency') as ai_latency,
-                        JSONExtractRaw(properties, '$ai_error') as ai_error,
-                        JSONExtractString(properties, '$ai_is_error') as ai_is_error
-                    FROM events
-                    WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
-                        AND notEmpty(JSONExtractString(properties, '$ai_session_id'))
-                        AND {filters}
-                )
-                GROUP BY ai_session_id
+                FROM events
+                WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
+                    AND isNotNull(properties.$ai_session_id)
+                    AND properties.$ai_session_id != ''
+                    AND {filters}
+                GROUP BY properties.$ai_session_id
                 ORDER BY ${sessionsSort.column} ${sessionsSort.direction}
                 LIMIT 50
                     `,
@@ -1067,8 +1296,12 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         ],
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
         actions.loadAIEventDefinition()
+
+        if (values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]) {
+            actions.loadLLMDashboards()
+        }
     }),
 
     listeners(({ actions, values }) => ({

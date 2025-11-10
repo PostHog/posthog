@@ -18,9 +18,18 @@ class Digest(BaseModel):
     period_start: datetime
     period_end: datetime
 
+    def render_payload(self) -> dict[str, str]:
+        return {
+            "end_inclusive": self.period_end.isoformat(),
+            "start_inclusive": self.period_start.isoformat(),
+            "digest_key": self.key,
+        }
+
 
 class WeeklyDigestInput(BaseModel):
-    dry_run: bool
+    dry_run: bool = False
+    skip_generate: bool = False
+    digest_key_override: str | None = None
     common: CommonInput = CommonInput()
 
 
@@ -83,11 +92,19 @@ class DigestFeatureFlag(BaseModel):
 
 
 class DigestFilter(BaseModel):
-    name: str
+    name: Optional[str]
     short_id: str
     view_count: int
     recording_count: int = 0
     more_available: bool = False
+
+    def render_payload(self) -> dict[str, str | int | bool | None]:
+        return {
+            "name": self.name or "Untitled",
+            "count": self.recording_count,
+            "has_more_available": self.more_available,
+            "url_path": f"/replay/home/?filterId={self.short_id}",
+        }
 
 
 class DigestRecording(BaseModel):
@@ -165,23 +182,40 @@ class TeamDigest(BaseModel):
     recordings: RecordingList
     surveys_launched: SurveyList
 
+    def _fields(self) -> list[RootModel]:
+        return [
+            self.dashboards,
+            self.event_definitions,
+            self.experiments_launched,
+            self.experiments_completed,
+            self.external_data_sources,
+            self.feature_flags,
+            self.filters,
+            self.recordings,
+            self.surveys_launched,
+        ]
+
     def is_empty(self) -> bool:
-        return (
-            sum(
-                [
-                    len(self.dashboards.root),
-                    len(self.event_definitions.root),
-                    len(self.experiments_launched.root),
-                    len(self.experiments_completed.root),
-                    len(self.external_data_sources.root),
-                    len(self.feature_flags.root),
-                    len(self.filters.root),
-                    len(self.recordings.root),
-                    len(self.surveys_launched.root),
-                ]
-            )
-            == 0
-        )
+        return sum(len(f.root) for f in self._fields()) == 0
+
+    def count_nonempty(self) -> int:
+        return sum(1 if len(field.root) > 0 else 0 for field in self._fields())
+
+    def render_payload(self) -> dict[str, str | int | dict[str, list]]:
+        return {
+            "team_name": self.name,
+            "team_id": self.id,
+            "report": {
+                "new_dashboards": self.dashboards.model_dump(),
+                "new_event_definitions": self.event_definitions.model_dump(),
+                "new_external_data_sources": self.external_data_sources.model_dump(),
+                "new_experiments_launched": self.experiments_launched.model_dump(),
+                "new_experiments_completed": self.experiments_completed.model_dump(),
+                "interesting_saved_filters": [f.render_payload() for f in self.filters.root],
+                "new_surveys_launched": self.surveys_launched.model_dump(),
+                "new_feature_flags": self.feature_flags.model_dump(),
+            },
+        }
 
 
 class OrganizationDigest(BaseModel):
@@ -203,6 +237,20 @@ class OrganizationDigest(BaseModel):
 
     def is_empty(self) -> bool:
         return all(digest.is_empty() for digest in self.team_digests)
+
+    def count_nonempty(self) -> int:
+        return sum(td.count_nonempty() for td in self.team_digests)
+
+    def render_payload(self, digest: Digest) -> dict[str, str | list | dict[str, str] | int]:
+        return {
+            "organization_name": self.name,
+            "organization_id": str(self.id),
+            "teams": [td.render_payload() for td in self.team_digests],
+            "scope": "user",
+            "template_name": "periodic_digest_report",
+            "period": digest.render_payload(),
+            "total_digest_items_with_data": self.count_nonempty(),
+        }
 
 
 class PlaylistCount(BaseModel):

@@ -3,20 +3,23 @@ from datetime import UTC, datetime
 from typing import Optional
 from uuid import uuid4
 
+from django.conf import settings
 from django.db.models import QuerySet
 from django.utils import timezone
 
 import redis.asyncio as redis
+from posthoganalytics import Posthog
 from pydantic import ValidationError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.models.messaging import MessagingRecord, get_email_hash
+from posthog.ph_client import get_regional_ph_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.sync import database_sync_to_async
 from posthog.tasks.email import NotificationSetting, should_send_notification
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.clickhouse import get_client as get_ch_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.weekly_digest.queries import (
@@ -117,7 +120,7 @@ async def generate_digest_data_lookup(
                     team_count += 1
                     resource_count += len(digest_data.root)
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate digest data for team {team.id}, skipping...", error=str(e), team_id=team.id
                     )
                     continue
@@ -278,7 +281,7 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
         recording_count = 0
         team_count = 0
 
-        async with redis.from_url(_redis_url(input.common)) as r, get_client() as ch_client:
+        async with redis.from_url(_redis_url(input.common)) as r, get_ch_client() as ch_client:
             ch_query: str = SessionReplayEvents.get_soon_to_expire_sessions_query(format="JSON")
 
             batch_start, batch_end = input.batch
@@ -309,7 +312,7 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
                     team_count += 1
                     recording_count += len(recordings.root)
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate Replay recordings for team {team.id}, skipping...",
                         error=str(e),
                         team_id=team.id,
@@ -338,14 +341,20 @@ async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput)
             async for team in query_teams_for_digest()[batch_start:batch_end]:
                 try:
                     async for user in await database_sync_to_async(team.all_users_with_access)():
+                        if team.id == 2:
+                            logger.info(f"Processing PH user {user.id}")
+
                         if should_send_notification(user, NotificationSetting.WEEKLY_PROJECT_DIGEST.value, team.id):
                             key: str = f"{input.digest.key}-user-notify-{user.id}"
                             await r.sadd(key, team.id)
                             await r.expire(key, input.common.redis_ttl)
+                        else:
+                            if team.id == 2:
+                                logger.info(f"PH user {user.id} has disabled notifications")
                         user_count += 1
                     team_count += 1
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate access and notification settings for team {team.id}, skipping...",
                         error=str(e),
                         team_id=team.id,
@@ -433,7 +442,7 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
 
                     organization_count += 1
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate organization-level digest for organization {organization.id}, skipping...",
                         error=str(e),
                         org_id=organization.id,
@@ -458,6 +467,12 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
         empty_org_digest_count = 0
         empty_user_digest_count = 0
 
+        ph_client: Posthog = get_regional_ph_client()
+
+        if not ph_client and not input.dry_run:
+            logger.error("Failed to set up Posthog client")
+            return
+
         async with redis.from_url(_redis_url(input.common)) as r:
             batch_start, batch_end = input.batch
             async for organization in query_orgs_for_digest()[batch_start:batch_end]:
@@ -474,18 +489,21 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                     org_digest = OrganizationDigest.model_validate_json(raw_digest)
 
                     if org_digest.is_empty():
+                        logger.warning(
+                            "Got empty digest for organization, skipping...", organization_id=organization.id
+                        )
                         empty_org_digest_count += 1
                         continue
 
-                    messaging_record, created = await MessagingRecord.objects.aget_or_create(
+                    messaging_record, _ = await MessagingRecord.objects.aget_or_create(
                         email_hash=get_email_hash(f"org_{organization.id}"), campaign_key=input.digest.key
                     )
 
-                    if not created and messaging_record.sent_at:
-                        logger.info(
-                            f"Digest already sent for organization, skipping...", organization_id=organization.id
-                        )
-                        continue
+                    # if not created and messaging_record.sent_at:
+                    #    logger.info(
+                    #        f"Digest already sent for organization, skipping...", organization_id=organization.id
+                    #    )
+                    #    continue
 
                     async for member in query_org_members(organization):
                         user = member.user
@@ -495,18 +513,42 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         user_specific_digest: OrganizationDigest = org_digest.filter_for_user(user_notify_teams)
 
                         if user_specific_digest.is_empty():
+                            logger.warning(
+                                "Got empty digest for user, skipping...",
+                                organization_id=organization.id,
+                                user_id=user.id,
+                            )
                             empty_user_digest_count += 1
                             continue
 
+                        payload = user_specific_digest.render_payload(input.digest)
+
                         if input.dry_run:
-                            logger.info("DRY RUN - would send digest", digest=user_specific_digest.model_dump())
+                            logger.info(
+                                "DRY RUN - would send digest",
+                                digest=payload,
+                                user_email=user.email,
+                            )
                         else:
-                            partial = True
-                            raise NotImplementedError()
+                            if user.email == "tue@posthog.com":
+                                logger.info("Match - sending digest")
+                                partial = True
+
+                                ph_client.capture(
+                                    distinct_id=user.distinct_id,
+                                    event="transactional email",
+                                    properties=payload,
+                                    groups={
+                                        "organization": str(organization.id),
+                                        "instance": settings.SITE_URL,
+                                    },
+                                )
+
+                                ph_client.group_identify("organization", str(organization.id), payload)
 
                         sent_digest_count += 1
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to send weekly digest for organization {organization.id}, skipping...",
                         error=str(e),
                         organization_id=organization.id,
@@ -514,8 +556,12 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                     continue
                 finally:
                     if not input.dry_run and partial:
+                        ph_client.flush()
                         messaging_record.sent_at = timezone.now()
                         await messaging_record.asave()
+
+        if ph_client:
+            ph_client.shutdown()
 
         logger.info(
             "Finished sending weekly digest batch",

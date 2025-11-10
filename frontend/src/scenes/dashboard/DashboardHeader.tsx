@@ -42,7 +42,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -507,7 +506,6 @@ export function DashboardHeader(): JSX.Element | null {
                     </>
                 }
             />
-            <SceneDivider />
         </>
     ) : null
 }
