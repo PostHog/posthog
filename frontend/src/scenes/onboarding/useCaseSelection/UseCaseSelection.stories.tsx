@@ -9,12 +9,12 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-Other/Products',
+    title: 'Scenes-Other/Onboarding/Use Case Selection',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
-        pageUrl: urls.products(),
+        pageUrl: urls.useCaseSelection(),
     },
     decorators: [
         mswDecorator({
@@ -55,36 +55,11 @@ export const MobileView: Story = {
     },
 }
 
-export const WithUseCaseRecommendations: Story = {
+export const TabletView: Story = {
     parameters: {
-        pageUrl: urls.products() + '?useCase=see_user_behavior',
         testOptions: {
             viewport: {
-                width: 2048,
-                height: 1024,
-            },
-        },
-    },
-}
-
-export const PickMyselfLayout: Story = {
-    parameters: {
-        pageUrl: urls.products() + '?useCase=pick_myself',
-        testOptions: {
-            viewport: {
-                width: 2048,
-                height: 1024,
-            },
-        },
-    },
-}
-
-export const FixIssuesUseCase: Story = {
-    parameters: {
-        pageUrl: urls.products() + '?useCase=fix_issues',
-        testOptions: {
-            viewport: {
-                width: 2048,
+                width: 768,
                 height: 1024,
             },
         },

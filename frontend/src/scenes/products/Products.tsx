@@ -178,41 +178,45 @@ export function Products(): JSX.Element {
                                     </div>
                                 )}
 
-                                {/* Show all products button */}
-                                {availablePreSelectedProducts.length > 0 && !showAllProducts && (
-                                    <button
-                                        onClick={() => {
-                                            setShowAllProducts(true)
-                                            if (window.posthog) {
-                                                window.posthog.capture('onboarding_show_all_products_clicked', {
-                                                    use_case: useCase,
-                                                    recommended_count: availablePreSelectedProducts.length,
-                                                })
-                                            }
-                                        }}
-                                        className="text-muted hover:text-default text-sm mb-6 flex items-center gap-1 cursor-pointer"
-                                    >
-                                        Show all products ({otherProducts.length} more){' '}
-                                        <IconChevronDown className="text-xs" />
-                                    </button>
-                                )}
+                                {/* Other products section - always rendered to avoid layout shift */}
+                                {availablePreSelectedProducts.length > 0 && otherProducts.length > 0 && (
+                                    <div className="max-w-[800px] w-full flex flex-col items-center">
+                                        {/* Toggle button */}
+                                        <button
+                                            onClick={() => {
+                                                const newState = !showAllProducts
+                                                setShowAllProducts(newState)
+                                                if (window.posthog && newState) {
+                                                    window.posthog.capture('onboarding_show_all_products_clicked', {
+                                                        use_case: useCase,
+                                                        recommended_count: availablePreSelectedProducts.length,
+                                                    })
+                                                }
+                                            }}
+                                            className="text-muted hover:text-default text-sm mb-2 flex items-center gap-1 cursor-pointer"
+                                        >
+                                            {showAllProducts ? (
+                                                <>
+                                                    <IconChevronDown className="rotate-180 text-xs" /> Hide other
+                                                    products
+                                                </>
+                                            ) : (
+                                                <>
+                                                    Show all products ({otherProducts.length} more){' '}
+                                                    <IconChevronDown className="text-xs" />
+                                                </>
+                                            )}
+                                        </button>
 
-                                {/* All other products - shown when expanded OR when no use case selected */}
-                                {((showAllProducts && availablePreSelectedProducts.length > 0) ||
-                                    availablePreSelectedProducts.length === 0) &&
-                                    otherProducts.length > 0 && (
-                                        <div className="mb-6 max-w-[800px] w-full">
-                                            <div className="flex flex-col gap-3 items-center">
-                                                {/* Collapse button - above product list */}
-                                                {showAllProducts && availablePreSelectedProducts.length > 0 && (
-                                                    <button
-                                                        onClick={() => setShowAllProducts(false)}
-                                                        className="text-muted hover:text-default text-sm mb-2 flex items-center gap-1 cursor-pointer"
-                                                    >
-                                                        <IconChevronDown className="rotate-180 text-xs" /> Hide other
-                                                        products
-                                                    </button>
-                                                )}
+                                        {/* Products with smooth height transition */}
+                                        <div
+                                            className="w-full overflow-hidden transition-all duration-300 ease-in-out"
+                                            style={{
+                                                maxHeight: showAllProducts ? '2000px' : '0px',
+                                                opacity: showAllProducts ? 1 : 0,
+                                            }}
+                                        >
+                                            <div className="flex flex-col gap-3 mb-6">
                                                 {otherProducts.map((productKey) => (
                                                     <SelectableProductCard
                                                         key={productKey}
@@ -227,7 +231,8 @@ export function Products(): JSX.Element {
                                                 ))}
                                             </div>
                                         </div>
-                                    )}
+                                    </div>
+                                )}
                             </>
                         ) : (
                             // OLD LAYOUT: Flex wrap layout (when use case onboarding is disabled)
