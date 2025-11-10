@@ -300,7 +300,8 @@ def _run_category(
         else f"{category.confirmation_prompt}?"
     )
 
-    if auto_confirm or (not silent and click.confirm(f"\n   {prompt}", default=category.default_confirm)):
+    # In dry-run mode, always proceed without prompting
+    if dry_run or auto_confirm or (not silent and click.confirm(f"\n   {prompt}", default=category.default_confirm)):
         if dry_run:
             if not silent:
                 if category.dry_run_message:
