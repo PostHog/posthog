@@ -58,23 +58,30 @@ export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
 
     tabAwareUrlToAction(({ actions, values }) => {
         const sessionsQueryHandler: UrlToActionPayload[keyof UrlToActionPayload] = (_, __, { q: queryParam }): void => {
-            if (!equal(queryParam, values.query)) {
-                // nothing in the URL
-                if (!queryParam) {
-                    // set the default unless it's already there
-                    if (!objectsEqual(values.query, values.defaultQuery)) {
-                        actions.setQuery(values.defaultQuery)
-                    }
-                } else {
-                    if (typeof queryParam === 'object') {
-                        actions.setQuery(queryParam)
-                    } else {
-                        lemonToast.error('Invalid query in URL')
-                        console.error({ queryParam })
-                    }
-                }
+            // If query hasn't changed, do nothing
+            if (equal(queryParam, values.query)) {
+                return
             }
+
+            // Handle missing query param - set default if needed
+            if (!queryParam) {
+                if (!objectsEqual(values.query, values.defaultQuery)) {
+                    actions.setQuery(values.defaultQuery)
+                }
+                return
+            }
+
+            // Handle invalid query param type
+            if (typeof queryParam !== 'object') {
+                lemonToast.error('Invalid query in URL')
+                console.error({ queryParam })
+                return
+            }
+
+            // Valid query object - update state
+            actions.setQuery(queryParam)
         }
+
         return {
             [urls.activity(ActivityTab.ExploreSessions)]: sessionsQueryHandler,
         }
