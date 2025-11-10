@@ -246,7 +246,7 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             session_recording_list_instance = SessionRecordingListFromQuery(
                 query=match_everyone_filter, team=self.team, hogql_query_modifiers=None
             )
-            (session_recordings, _, _) = session_recording_list_instance.run()
+            (session_recordings, _, _, _) = session_recording_list_instance.run()
 
             assert sorted([x["session_id"] for x in session_recordings]) == sorted([session_id_one, session_id_two])
 
@@ -266,7 +266,7 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             session_recording_list_instance = SessionRecordingListFromQuery(
                 query=match_bla_filter, team=self.team, hogql_query_modifiers=None
             )
-            (session_recordings, _, _) = session_recording_list_instance.run()
+            (session_recordings, _, _, _) = session_recording_list_instance.run()
 
             assert len(session_recordings) == 1
             assert session_recordings[0]["session_id"] == session_id_one

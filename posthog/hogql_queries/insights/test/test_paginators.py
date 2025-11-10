@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import ActorsQuery, PersonPropertyFilter, PropertyOperator
 
-from posthog.hogql.ast import SelectQuery
+from posthog.hogql.ast import CompareOperation, Constant, SelectQuery
 from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
     LimitContext,
@@ -154,7 +154,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
     def test_limit_context_variations(self):
         limit_context = LimitContext.QUERY
 
-        test_cases = [
+        test_cases: list[dict[str, int | None]] = [
             {
                 "limit": 5,
                 "offset": 10,
@@ -334,7 +334,8 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         # Check that WHERE clause was added
         self.assertIsNotNone(paginated_query.where)
         assert paginated_query.where is not None  # Type narrowing for mypy
-        self.assertEqual(paginated_query.where.op.name, "Lt")  # Less than for DESC
+        where_clause = cast(CompareOperation, paginated_query.where)
+        self.assertEqual(where_clause.op.name, "Lt")  # Less than for DESC
 
     def test_where_clause_generation_asc(self):
         """Test that WHERE clause is correctly generated for ASC ordering"""
@@ -350,7 +351,8 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         # Check that WHERE clause was added
         self.assertIsNotNone(paginated_query.where)
         assert paginated_query.where is not None  # Type narrowing for mypy
-        self.assertEqual(paginated_query.where.op.name, "Gt")  # Greater than for ASC
+        where_clause = cast(CompareOperation, paginated_query.where)
+        self.assertEqual(where_clause.op.name, "Gt")  # Greater than for ASC
 
     def test_where_clause_combines_with_existing(self):
         """Test that cursor WHERE clause is combined with existing WHERE clause"""
@@ -377,7 +379,8 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
 
         # Check that limit is set to limit+1
         assert paginated_query.limit is not None  # Type narrowing for mypy
-        self.assertEqual(paginated_query.limit.value, 11)
+        limit_value = cast(Constant, paginated_query.limit)
+        self.assertEqual(limit_value.value, 11)
 
     def test_has_more_detection(self):
         """Test has_more is correctly detected when results exceed limit"""
