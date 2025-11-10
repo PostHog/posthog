@@ -217,8 +217,11 @@ export function Members(): JSX.Element | null {
         {
             title: 'Name',
             key: 'user_name',
-            render: (_, member) =>
-                member.user.uuid == user.uuid ? `${fullName(member.user)} (you)` : fullName(member.user),
+            render: (_, member) => (
+                <span className="ph-no-capture">
+                    {member.user.uuid == user.uuid ? `${fullName(member.user)} (you)` : fullName(member.user)}
+                </span>
+            ),
             sorter: (a, b) => fullName(a.user).localeCompare(fullName(b.user)),
         },
         {
@@ -227,7 +230,7 @@ export function Members(): JSX.Element | null {
             render: (_, member) => {
                 return (
                     <>
-                        {member.user.email}
+                        <span className="ph-no-capture">{member.user.email}</span>
                         {!member.user.is_email_verified &&
                             !member.has_social_auth &&
                             preflight?.email_service_available && (

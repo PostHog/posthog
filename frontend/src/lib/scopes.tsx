@@ -187,3 +187,20 @@ export const getMinimumEquivalentScopes = (scopes: string[]): string[] => {
         return `${object}:${action}`
     })
 }
+
+/** Convert scopes array format to object format for easier UI manipulation */
+export const scopesArrayToObject = (scopes: string[]): Record<string, string> => {
+    const result: Record<string, string> = {}
+    scopes.forEach((scope) => {
+        const [key, action] = scope.split(':')
+        if (key && action) {
+            result[key] = action
+        }
+    })
+    return result
+}
+
+/** Convert scopes object format back to array format for API submission */
+export const scopesObjectToArray = (scopesObj: Record<string, string>): string[] => {
+    return Object.entries(scopesObj).map(([key, action]) => `${key}:${action}`)
+}

@@ -352,6 +352,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string
     TEMPORAL_HOST: string
+    TEMPORAL_PORT: string | undefined
     TEMPORAL_NAMESPACE: string
     TEMPORAL_CLIENT_ROOT_CA: string | undefined
     TEMPORAL_CLIENT_CERT: string | undefined
@@ -472,11 +473,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
     USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: boolean
 
-    // Workflows
-    MAILJET_PUBLIC_KEY: string
-    MAILJET_SECRET_KEY: string
-
-    // SES
+    // SES (Workflows email sending)
     SES_ENDPOINT: string
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
@@ -798,6 +795,7 @@ export interface RawOrganization {
     created_at: string
     updated_at: string
     available_product_features: ProductFeature[]
+    default_anonymize_ips: boolean
 }
 
 // NOTE: We don't need to list all options here - only the ones we use

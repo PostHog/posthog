@@ -21,7 +21,6 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import format_events_yaml
-from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..base import BaseAssistantNode
 from ..mixins import StateClassMixin, TaxonomyUpdateDispatcherNodeMixin
@@ -33,32 +32,17 @@ from .prompts import (
     TAXONOMY_TOOL_USAGE_PROMPT,
 )
 from .toolkit import TaxonomyAgentToolkit
-from .types import EntityType, TaxonomyAgentState, TaxonomyNodeName
+from .types import EntityType, TaxonomyAgentState
 
 TaxonomyStateType = TypeVar("TaxonomyStateType", bound=TaxonomyAgentState)
 TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAgentState)
 TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]
 
 
-class ParentToolCallIdMixin(BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]):
-    _parent_tool_call_id: str | None = None
-    _toolkit: TaxonomyAgentToolkit
-
-    async def __call__(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType | None:
-        """
-        Run the assistant node and handle cancelled conversation before the node is run.
-        """
-        if self._parent_tool_call_id:
-            self._toolkit._parent_tool_call_id = self._parent_tool_call_id
-
-        return await super().__call__(state, config)
-
-
 class TaxonomyAgentNode(
     Generic[TaxonomyStateType, TaxonomyPartialStateType],
     StateClassMixin,
     TaxonomyUpdateDispatcherNodeMixin,
-    ParentToolCallIdMixin,
     TaxonomyNodeBound,
     ABC,
 ):
@@ -68,10 +52,6 @@ class TaxonomyAgentNode(
         super().__init__(team, user)
         self._toolkit = toolkit_class(team=team, user=user)
         self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentNode)
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return TaxonomyNodeName.LOOP_NODE
 
     @cached_property
     def _team_group_types(self) -> list[str]:
@@ -149,7 +129,9 @@ class TaxonomyAgentNode(
             raise ValueError("No tool calls found in the output message.")
 
         tool_calls = output_message.tool_calls
-        intermediate_steps = []
+        # Preserve previous intermediate steps (and their results)
+        previous_steps = state.intermediate_steps or []
+        intermediate_steps = [*previous_steps]
         for tool_call in tool_calls:
             result = AgentAction(tool_call["name"], tool_call["args"], tool_call["id"])
             intermediate_steps.append((result, None))
@@ -171,7 +153,6 @@ class TaxonomyAgentToolsNode(
     Generic[TaxonomyStateType, TaxonomyPartialStateType],
     StateClassMixin,
     TaxonomyUpdateDispatcherNodeMixin,
-    ParentToolCallIdMixin,
     TaxonomyNodeBound,
 ):
     """Base tools node for taxonomy agents."""
@@ -183,17 +164,16 @@ class TaxonomyAgentToolsNode(
         self._toolkit = toolkit_class(team=team, user=user)
         self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentToolsNode)
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return TaxonomyNodeName.TOOLS_NODE
-
     async def arun(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         intermediate_steps = state.intermediate_steps or []
         tools_metadata: dict[str, list[tuple[TaxonomyTool, str]]] = defaultdict(list)
         invalid_tools = []
         steps = []
         tool_msgs = []
-        for action, _ in intermediate_steps:
+        for action, observation in intermediate_steps:
+            if observation is not None:
+                steps.append((action, observation))
+                continue
             try:
                 tool_input = self._toolkit.get_tool_input_model(action)
             except ValidationError as e:
@@ -238,7 +218,9 @@ class TaxonomyAgentToolsNode(
 
         tool_results = await self._toolkit.handle_tools(tools_metadata)
 
-        for action, _ in intermediate_steps:
+        for action, observation in intermediate_steps:
+            if observation is not None:
+                continue
             if action.log in invalid_tools:
                 continue
             tool_result = tool_results[action.log]

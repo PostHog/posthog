@@ -5,15 +5,10 @@ from posthog.schema import DeepResearchNotebook, DeepResearchType, HumanMessage
 
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.notebook.prompts import DEEP_RESEARCH_NOTEBOOK_PLANNING_PROMPT
-from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
-from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState
 
 
 class DeepResearchNotebookPlanningNode(DeepResearchNode):
-    @property
-    def node_name(self) -> MaxNodeName:
-        return DeepResearchNodeName.NOTEBOOK_PLANNING
-
     async def arun(self, state: DeepResearchState, config: RunnableConfig) -> PartialDeepResearchState:
         # We use instructions with the OpenAI Responses API
         instructions = DEEP_RESEARCH_NOTEBOOK_PLANNING_PROMPT.format(

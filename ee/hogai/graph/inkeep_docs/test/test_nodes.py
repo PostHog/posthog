@@ -14,16 +14,18 @@ from langchain_core.runnables import RunnableLambda
 
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
-from ee.hogai.graph.inkeep_docs.nodes import InkeepDocsNode
+from ee.hogai.graph.agent_modes.nodes import AgentToolkit
+from ee.hogai.graph.inkeep_docs.nodes import InkeepDocsNode, InkeepExecutableNode
 from ee.hogai.graph.inkeep_docs.prompts import INKEEP_DATA_CONTINUATION_PHRASE
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName, NodePath
 
 
-class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
+class TestInkeepExecutableNode(ClickhouseTestMixin, BaseTest):
     async def test_node_handles_plain_response(self):
         test_tool_call_id = str(uuid4())
         with patch(
-            "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
+            "ee.hogai.graph.inkeep_docs.nodes.InkeepExecutableNode._get_model",
             return_value=RunnableLambda(
                 lambda _: LangchainAIMessage(content="Here's what I found in the documentation...")
             ),
@@ -54,7 +56,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         test_tool_call_id = str(uuid4())
         response_with_continuation = f"Here's what I found... {INKEEP_DATA_CONTINUATION_PHRASE}"
         with patch(
-            "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
+            "ee.hogai.graph.inkeep_docs.nodes.InkeepExecutableNode._get_model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content=response_with_continuation)),
         ):
             node = InkeepDocsNode(self.team, self.user)
@@ -67,11 +69,19 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             assert next_state is not None
             messages = cast(list, next_state.messages)
             self.assertEqual(len(messages), 2)
+            # Tool call message should have the continuation prompt
+            first_message = cast(AssistantToolCallMessage, messages[0])
+            self.assertIn("Continue with the user's data request", first_message.content)
             second_message = cast(AssistantMessage, messages[1])
             self.assertEqual(second_message.content, response_with_continuation)
 
     def test_node_constructs_messages(self):
-        node = InkeepDocsNode(self.team, self.user)
+        node = InkeepExecutableNode(
+            team=self.team,
+            user=self.user,
+            toolkit_class=AgentToolkit,
+            node_path=(NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),),
+        )
         state = AssistantState(
             messages=[
                 HumanMessage(content="First message"),
@@ -91,31 +101,11 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         self.assertIsInstance(messages[2], LangchainAIMessage)
         self.assertIsInstance(messages[3], LangchainHumanMessage)
 
-    def test_router_with_data_continuation(self):
-        node = InkeepDocsNode(self.team, self.user)
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="Explain PostHog trends, and show me an example trends insight"),
-                AssistantMessage(content=f"Here's the documentation: XYZ.\n{INKEEP_DATA_CONTINUATION_PHRASE}"),
-            ]
-        )
-        self.assertEqual(node.router(state), "root")  # Going back to root, so that the agent can continue with the task
-
-    def test_router_without_data_continuation(self):
-        node = InkeepDocsNode(self.team, self.user)
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="How do I use feature flags?"),
-                AssistantMessage(content="Here's how to use feature flags..."),
-            ]
-        )
-        self.assertEqual(node.router(state), "end")  # Ending
-
     async def test_tool_call_id_handling(self):
         """Test that tool_call_id is properly handled in both input and output states."""
         test_tool_call_id = str(uuid4())
         with patch(
-            "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
+            "ee.hogai.graph.inkeep_docs.nodes.InkeepExecutableNode._get_model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content="Response")),
         ):
             node = InkeepDocsNode(self.team, self.user)
@@ -137,7 +127,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
     async def test_message_id_generation(self):
         """Test that each message gets a unique UUID."""
         with patch(
-            "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
+            "ee.hogai.graph.inkeep_docs.nodes.InkeepExecutableNode._get_model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content="Response")),
         ):
             node = InkeepDocsNode(self.team, self.user)
@@ -158,7 +148,12 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
 
     def test_truncates_messages_after_limit(self):
         """Inkeep accepts maximum 30 messages"""
-        node = InkeepDocsNode(self.team, self.user)
+        node = InkeepExecutableNode(
+            team=self.team,
+            user=self.user,
+            toolkit_class=AgentToolkit,
+            node_path=(NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),),
+        )
         state = AssistantState(
             messages=[HumanMessage(content=str(i)) for i in range(31)],
             root_tool_call_id="test-id",
@@ -172,7 +167,12 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(next_state[-1].content, "30")
 
     def test_filters_out_empty_ai_messages(self):
-        node = InkeepDocsNode(self.team, self.user)
+        node = InkeepExecutableNode(
+            team=self.team,
+            user=self.user,
+            toolkit_class=AgentToolkit,
+            node_path=(NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),),
+        )
         state = AssistantState(
             messages=[
                 HumanMessage(content="First message"),

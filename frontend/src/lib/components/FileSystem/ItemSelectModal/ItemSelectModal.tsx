@@ -105,7 +105,12 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
     return (
         <>
             <LemonModal
-                onClose={closeItemSelectModal}
+                onClose={() => {
+                    closeItemSelectModal()
+                    setSelectedItem(null)
+                    setSearchTerm('')
+                    setTreeRoot('project://')
+                }}
                 isOpen={isOpen}
                 title="Choose an item"
                 // This is a bit of a hack. Without it, the flow "insight" -> "add to dashboard button" ->
@@ -121,9 +126,16 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                             type="primary"
                             onClick={submitForm}
                             data-attr="item-select-modal-add-button"
-                            disabledReason={!selectedItem ? 'Please select an item' : undefined}
+                            disabledReason={
+                                !selectedItem
+                                    ? 'Please select an item'
+                                    : selectedItem.record?.type === 'folder' &&
+                                        selectedItem.record?.protocol === 'new://'
+                                      ? 'Please select an item inside the folder'
+                                      : undefined
+                            }
                         >
-                            Add {selectedItem?.displayName || selectedItem?.name}
+                            Add {selectedItem?.name || selectedItem?.displayName}
                         </LemonButton>
                     </>
                 }
@@ -165,29 +177,27 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                                     </RootFolderButton>
                                 </div>
 
-                                {treeRoot === 'project://' && (
-                                    <LemonInput
-                                        type="search"
-                                        placeholder="Search project"
-                                        fullWidth
-                                        size="small"
-                                        onChange={(search) => setSearchTerm(search)}
-                                        value={searchTerm}
-                                        data-attr="folder-select-search-input"
-                                        autoFocus
-                                        inputRef={inputRef}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'ArrowDown') {
-                                                e.preventDefault() // Prevent scrolling
-                                                const visibleItems = treeRef?.current?.getVisibleItems()
-                                                if (visibleItems && visibleItems.length > 0) {
-                                                    e.currentTarget.blur() // Remove focus from input
-                                                    treeRef?.current?.focusItem(visibleItems[0].id)
-                                                }
+                                <LemonInput
+                                    type="search"
+                                    placeholder="Search"
+                                    fullWidth
+                                    size="small"
+                                    onChange={(search) => setSearchTerm(search)}
+                                    value={searchTerm}
+                                    data-attr="folder-select-search-input"
+                                    autoFocus
+                                    inputRef={inputRef}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'ArrowDown') {
+                                            e.preventDefault() // Prevent scrolling
+                                            const visibleItems = treeRef?.current?.getVisibleItems()
+                                            if (visibleItems && visibleItems.length > 0) {
+                                                e.currentTarget.blur() // Remove focus from input
+                                                treeRef?.current?.focusItem(visibleItems[0].id)
                                             }
-                                        }}
-                                    />
-                                )}
+                                        }
+                                    }}
+                                />
 
                                 <ScrollableShadows
                                     direction="vertical"

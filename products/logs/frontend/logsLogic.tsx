@@ -218,7 +218,7 @@ export const logsLogic = kea<logsLogicType>([
 
                     const response = await api.logs.query({
                         query: {
-                            limit: 99,
+                            limit: 100,
                             offset: values.logs.length,
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,

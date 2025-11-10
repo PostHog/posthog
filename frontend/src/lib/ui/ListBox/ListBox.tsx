@@ -240,6 +240,8 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
                 return false
             }
 
+            suppressAutoFocus.current = true
+
             elements.forEach((el) => el.removeAttribute('data-focused'))
 
             if (virtualFocus) {
@@ -252,6 +254,11 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
             }
 
             targetElement.scrollIntoView({ block: 'nearest' })
+
+            setTimeout(() => {
+                suppressAutoFocus.current = false
+            }, 100)
+
             return true
         },
         [virtualFocus, recalculateFocusableElements, setVirtualFocusedElement]
@@ -333,6 +340,7 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
                 return focusItemByKey(focusKey)
             }
             // Focus directly
+            suppressAutoFocus.current = true
             focusableElements.current.forEach((el) => el.removeAttribute('data-focused'))
 
             if (virtualFocus) {
@@ -345,6 +353,9 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
             }
 
             element.scrollIntoView({ block: 'nearest' })
+            setTimeout(() => {
+                suppressAutoFocus.current = false
+            }, 100)
             return true
         },
         [focusItemByKey, virtualFocus, setVirtualFocusedElement]
@@ -407,6 +418,8 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
             if (virtualFocus) {
                 elements.forEach((el) => el.removeAttribute('data-focused'))
             }
+
+            const PAGE_JUMP = 12
 
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault()
@@ -509,6 +522,21 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
                     nextEl.focus()
                 }
                 nextEl.scrollIntoView({ block: 'nearest' })
+            } else if (e.key === 'PageDown' || e.key === 'PageUp') {
+                e.preventDefault()
+                handledArrowNavigation = true
+
+                if (currentIndex === -1) {
+                    if (e.key === 'PageDown') {
+                        const firstFocusElement = elements.find((el) => el.getAttribute('data-focus-first') === 'true')
+                        nextIndex = firstFocusElement ? elements.indexOf(firstFocusElement) : 0
+                    } else {
+                        nextIndex = elements.length - 1
+                    }
+                } else {
+                    const delta = e.key === 'PageDown' ? PAGE_JUMP : -PAGE_JUMP
+                    nextIndex = Math.min(Math.max(currentIndex + delta, 0), elements.length - 1)
+                }
             } else if (e.key === 'Home' || e.key === 'End') {
                 e.preventDefault()
                 handledArrowNavigation = true
@@ -521,14 +549,20 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
             }
 
             if (handledArrowNavigation) {
-                if (virtualFocus) {
-                    setVirtualFocusedElement(elements[nextIndex])
-                    elements[nextIndex]?.setAttribute('data-focused', 'true')
-                } else {
-                    elements[nextIndex]?.focus()
+                const targetEl = elements[nextIndex]
+                const { row: newRow } = getRC(targetEl)
+                if (newRow >= 0) {
+                    stickyRowRef.current = newRow
                 }
 
-                elements[nextIndex]?.scrollIntoView({ block: 'nearest' })
+                if (virtualFocus) {
+                    setVirtualFocusedElement(targetEl)
+                    targetEl?.setAttribute('data-focused', 'true')
+                } else {
+                    targetEl?.focus()
+                }
+
+                targetEl?.scrollIntoView({ block: 'nearest' })
             }
 
             if (e.key === 'Enter') {

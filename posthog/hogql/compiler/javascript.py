@@ -238,6 +238,20 @@ class JavaScriptCompiler(Visitor):
         else:
             raise QueryError(f"Unsupported comparison operator: {op}")
 
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        self._start_scope()
+        expr = self.visit(node.expr)
+        low = self.visit(node.low)
+        high = self.visit(node.high)
+        if node.negated:
+            comparison = f"expr < {low} || expr > {high}"
+        else:
+            comparison = f"expr >= {low} && expr <= {high}"
+        code = f"(() => {{ const expr=({expr}), low=({low}), high=({high}); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!({comparison}); }})()"
+
+        self._end_scope()
+        return code
+
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         left_code = self.visit(node.left)
         right_code = self.visit(node.right)

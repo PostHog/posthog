@@ -16,14 +16,14 @@ function NuxtEnvVarsSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript}>
             {`export default defineNuxtConfig({
-                runtimeConfig: {
-                  public: {
-                    posthogPublicKey: '${currentTeam?.api_token}',
-                    posthogHost: '${apiHostOrigin()}',
-                    posthogDefaults: '${SDK_DEFAULTS_DATE}'
-                  }
-                }
-              })`}
+  runtimeConfig: {
+    public: {
+      posthogPublicKey: '${currentTeam?.api_token}',
+      posthogHost: '${apiHostOrigin()}',
+      posthogDefaults: '${SDK_DEFAULTS_DATE}'
+    }
+  }
+})`}
         </CodeSnippet>
     )
 }

@@ -1,9 +1,21 @@
 # If a file is set here, then PRs will require that team's approval to get that code merged.
 
+# WE DO NOT USE CODEOWNERS FOR MANAGING ORDINARY RISK.
+
+# Risk of outages, incidents, and operational difficulty
+# are not sufficient reason to add a region of the codebase
+# to the CODEOWNERS file. Handle these by de-risking your
+# code, or by modifying CI to suit your products needs.
+
+# Adding entries to the codeowners file is an anti-social
+# and anti-posthog-values thing to do. It must have extraordinary
+# justification. If you are not _certain_ there is _no other way_
+# to manage the risk you're thinking about, do not add an entry.
+
 # ClickHouse team owns Clickhouse migrations
 
 posthog/clickhouse/migrations/** @PostHog/clickhouse
 
-# HogQL team owns HogQL changes 
+# HogQL team owns HogQL changes
 
 posthog/hogql/** @PostHog/hogql

@@ -28,8 +28,9 @@ from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQue
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import clean_entity_properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.warehouse.models import DataWarehouseJoin
-from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+
+from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
 
@@ -149,7 +150,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
     def _avg_view_setup(self, function_name: str):
-        from posthog.warehouse.models import DataWarehouseSavedQuery
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
         table_name = self.setup_data_warehouse()
 
@@ -375,7 +376,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown_on_view(self):
-        from posthog.warehouse.models import DataWarehouseSavedQuery
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
         table_name = self.setup_data_warehouse()
 
@@ -416,7 +417,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown_on_view_with_date_timestamp(self):
-        from posthog.warehouse.models import DataWarehouseSavedQuery
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
         table_name = self.setup_data_warehouse()
 

@@ -5,7 +5,7 @@ from typing import Optional
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, override_settings
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
@@ -320,6 +320,27 @@ class TestOauthIntegrationModel(BaseTest):
 
         mock_reload.assert_not_called()
 
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_access_token_resets_errors(self, mock_post, mock_reload):
+        """Test that errors field is reset to empty string after successful refresh_access_token"""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            "expires_in": 1000,
+        }
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
+        integration.errors = "TOKEN_REFRESH_FAILED"
+        integration.save()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.errors == ""
+
     @patch("posthog.models.integration.requests.post")
     def test_salesforce_integration_without_expires_in_initial_response(self, mock_post):
         """Test that Salesforce integrations without expires_in get default 1 hour expiry"""
@@ -523,25 +544,45 @@ class TestGoogleCloudIntegrationModel(BaseTest):
 
 
 class TestGitHubIntegrationModel(BaseTest):
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
-    def test_github_integration_refresh_token(self, mock_client_request):
-        def mock_github_client_request(endpoint, method="GET"):
+    def create_integration(self, config: Optional[dict] = None, sensitive_config: Optional[dict] = None) -> Integration:
+        _config = {"expires_at": 3600}
+        _sensitive_config = {"token": "REFRESH"}
+        _config.update(config or {})
+        _sensitive_config.update(sensitive_config or {})
+
+        return Integration.objects.create(
+            team=self.team, kind="github", config=_config, sensitive_config=_sensitive_config
+        )
+
+    def mock_github_client_request(
+        self, status_code=201, token="ACCESS_TOKEN", repository_selection="all", expires_in_hours=1, error_text=None
+    ):
+        def _client_request(endpoint, method="GET"):
             mock_response = MagicMock()
-            dt = datetime.now(UTC) + timedelta(hours=1)
-            iso_time = dt.replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
             if method == "POST":
-                mock_response.status_code = 201
-                mock_response.json.return_value = {
-                    "token": "ACCESS_TOKEN",
-                    "repository_selection": "all",
-                    "expires_at": iso_time,
-                }
+                mock_response.status_code = status_code
+                dt = datetime.now(UTC) + timedelta(hours=expires_in_hours)
+                iso_time = dt.replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
+
+                if status_code == 201:
+                    mock_response.json.return_value = {
+                        "token": token,
+                        "repository_selection": repository_selection,
+                        "expires_at": iso_time,
+                    }
+                else:
+                    mock_response.text = error_text or "error"
+                    mock_response.json.return_value = {}
             else:
                 mock_response.status_code = 200
                 mock_response.json.return_value = {"account": {"type": "Organization", "login": "PostHog"}}
             return mock_response
 
-        mock_client_request.side_effect = mock_github_client_request
+        return _client_request
+
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    def test_github_integration_refresh_token(self, mock_client_request):
+        mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
         with freeze_time("2024-01-01T12:00:00Z"):
             integration = GitHubIntegration.integration_from_installation_id(
@@ -572,6 +613,43 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.sensitive_config == {
             "access_token": "ACCESS_TOKEN",
         }
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    def test_github_refresh_access_token_handles_errors(self, mock_client_request, mock_reload):
+        """Test that errors field is set if refresh_access_token fails"""
+        integration = self.create_integration({"expires_at": 3600}, {"token": "REFRESH"})
+        mock_client_request.side_effect = self.mock_github_client_request(status_code=400, error_text="error")
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            integration.errors = ""
+            integration.save()
+
+            with pytest.raises(Exception):
+                GitHubIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.errors == "TOKEN_REFRESH_FAILED"
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    def test_github_refresh_access_token_resets_errors(self, mock_client_request, mock_reload):
+        """Test that errors field is reset to empty string after successful refresh_access_token"""
+        mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            integration = GitHubIntegration.integration_from_installation_id(
+                "INSTALLATION_ID",
+                self.team.id,
+                self.user,
+            )
+            integration.errors = "TOKEN_REFRESH_FAILED"
+            integration.save()
+
+            GitHubIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.errors == ""
 
 
 class TestDatabricksIntegrationModel(BaseTest):
@@ -621,8 +699,11 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert integration.config["name"] == "Test User"
         assert integration.config["verified"] is False
 
-    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_duplicate_domain_in_another_team(self):
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    @patch("products.workflows.backend.providers.SESProvider.verify_email_domain")
+    def test_duplicate_domain_in_another_team(self, mock_create_email_domain, mock_verify_email_domain):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
+        mock_verify_email_domain.return_value = {"status": "verified", "domain": "example.com"}
         # Create an integration with a domain in another team
         other_team = Team.objects.create(organization=self.organization, name="other team")
         config = {"email": "user@example.com", "name": "Test User"}
@@ -633,7 +714,6 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
         assert "already exists in another project" in str(exc.value)
 
-    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
     def test_unsupported_email_domain(self):
         # Test with a free email domain
         config = {"email": "user@gmail.com", "name": "Test User"}

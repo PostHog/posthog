@@ -1,5 +1,5 @@
 use common_types::embedding::{EmbeddingModel, EmbeddingRequest};
-use common_types::error_tracking::{ExceptionData, FrameData, FrameId};
+use common_types::error_tracking::{ExceptionData, FrameData, RawFrameId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha512};
@@ -78,6 +78,10 @@ impl ExceptionList {
             .flat_map(Stacktrace::get_frames)
     }
 
+    fn get_in_app_frames(&self) -> impl Iterator<Item = &Frame> {
+        self.get_frames_iter().filter(|f| f.in_app)
+    }
+
     pub fn get_unique_messages(&self) -> Vec<String> {
         unique_by(self.iter(), |e| Some(e.exception_message.clone()))
     }
@@ -87,11 +91,11 @@ impl ExceptionList {
     }
 
     pub fn get_unique_sources(&self) -> Vec<String> {
-        unique_by(self.get_frames_iter(), |f| f.source.clone())
+        unique_by(self.get_in_app_frames(), |f| f.source.clone())
     }
 
     pub fn get_unique_functions(&self) -> Vec<String> {
-        unique_by(self.get_frames_iter(), |f| f.resolved_name.clone())
+        unique_by(self.get_in_app_frames(), |f| f.resolved_name.clone())
     }
 
     pub fn get_release_map(&self) -> HashMap<String, ReleaseInfo> {
@@ -409,22 +413,25 @@ impl OutputErrProps {
 }
 
 impl Stacktrace {
-    pub fn resolve(&self, team_id: i32, lookup_table: &HashMap<FrameId, Frame>) -> Option<Self> {
-        let Stacktrace::Raw { frames } = self else {
+    pub fn resolve(
+        &self,
+        team_id: i32,
+        lookup_table: &HashMap<RawFrameId, Vec<Frame>>,
+    ) -> Option<Self> {
+        let Stacktrace::Raw { frames: raw_frames } = self else {
             return Some(self.clone());
         };
 
-        let mut resolved_frames = Vec::with_capacity(frames.len());
-        for frame in frames {
-            match lookup_table.get(&frame.frame_id(team_id)) {
-                Some(resolved_frame) => resolved_frames.push(resolved_frame.clone()),
+        let mut resolved_frames = Vec::with_capacity(raw_frames.len() + 10);
+        for raw_frame in raw_frames {
+            match lookup_table.get(&raw_frame.raw_id(team_id)) {
+                Some(resolved) => resolved_frames.extend(resolved.clone()),
                 None => return None,
             }
         }
 
-        if resolved_frames.iter().any(|f| f.suspicious) {
-            metrics::counter!(POSTHOG_SDK_EXCEPTION_RESOLVED).increment(1);
-        }
+        metrics::counter!(POSTHOG_SDK_EXCEPTION_RESOLVED)
+            .increment(resolved_frames.iter().filter(|f| f.suspicious).count() as u64);
 
         Some(Stacktrace::Resolved {
             frames: resolved_frames,
@@ -436,6 +443,29 @@ impl Stacktrace {
             Stacktrace::Resolved { frames } => frames,
             _ => &[],
         }
+    }
+
+    // These two fn's are used for java, which mangles top level exception types. When
+    // we receive an exception, we push its type into the top frame, so when that frame's
+    // resolved, we can pop it
+    pub fn push_exception_type(&mut self, exception_type: String) {
+        let Self::Raw { frames } = self else {
+            return;
+        };
+        let Some(RawFrame::Java(f)) = frames.first_mut() else {
+            return;
+        };
+        f.exception_type = Some(exception_type);
+    }
+
+    pub fn pop_exception_type(&mut self) -> Option<String> {
+        let Self::Resolved { frames } = self else {
+            return None;
+        };
+        frames
+            .iter_mut()
+            .find(|f| f.exception_type.is_some())
+            .and_then(|f| f.exception_type.take())
     }
 }
 

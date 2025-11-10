@@ -70,6 +70,8 @@ gen/
 max-test-venv/
 node_modules/
 object_storage/
+data/seaweedfs/
+.migration-checkpoint.json
 playwright/e2e-vrt/**/*-darwin.png
 pnpm-error.log
 # pyright config (keep this until we have a standardized one)
@@ -122,4 +124,5 @@ bin/mprocs*.local.yaml
 # Claude Code review outputs
 CODE_REVIEW.md
 CODE_DEBUGGING_SESSION.md
-dump.rdb
+
+data/seaweedfs
