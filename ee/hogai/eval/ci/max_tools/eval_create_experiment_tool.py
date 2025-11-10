@@ -93,7 +93,6 @@ async def eval_create_experiment_basic(pytestconfig, demo_org_team_user):
         tool = await CreateExperimentTool.create_tool_class(
             team=team,
             user=user,
-            tool_call_id="test-eval-call",
             state=AssistantState(messages=[]),
             config={
                 "configurable": {
@@ -177,7 +176,6 @@ async def eval_create_experiment_types(pytestconfig, demo_org_team_user):
         tool = await CreateExperimentTool.create_tool_class(
             team=team,
             user=user,
-            tool_call_id="test-eval-call",
             state=AssistantState(messages=[]),
             config={
                 "configurable": {
@@ -258,7 +256,6 @@ async def eval_create_experiment_with_existing_flag(pytestconfig, demo_org_team_
         tool = await CreateExperimentTool.create_tool_class(
             team=team,
             user=user,
-            tool_call_id="test-eval-call",
             state=AssistantState(messages=[]),
             config={
                 "configurable": {
@@ -320,7 +317,6 @@ async def eval_create_experiment_duplicate_name_error(pytestconfig, demo_org_tea
         tool = await CreateExperimentTool.create_tool_class(
             team=team,
             user=user,
-            tool_call_id="test-eval-call",
             state=AssistantState(messages=[]),
             config={
                 "configurable": {
@@ -374,7 +370,6 @@ async def eval_create_experiment_flag_already_used_error(pytestconfig, demo_org_
         tool = await CreateExperimentTool.create_tool_class(
             team=team,
             user=user,
-            tool_call_id="test-eval-call",
             state=AssistantState(messages=[]),
             config={
                 "configurable": {

@@ -3,16 +3,15 @@ from typing import Any, Literal
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 
-from posthog.exceptions_capture import capture_exception
-from posthog.models import Experiment, FeatureFlag
 from posthog.schema import MaxExperimentSummaryContext
+
+from posthog.models import Experiment, FeatureFlag
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
 from .prompts import EXPERIMENT_SUMMARY_BAYESIAN_PROMPT, EXPERIMENT_SUMMARY_FREQUENTIST_PROMPT
-
 
 
 class CreateExperimentArgs(BaseModel):
