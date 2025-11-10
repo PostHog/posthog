@@ -243,3 +243,9 @@ export function formatType(exception: Pick<ErrorTrackingException, 'module' | 't
 
     return exception.module && hasJavaFrames ? `${exception.module}.${exception.type}` : exception.type
 }
+
+export function formatExceptionDisplay(
+    exception: Pick<ErrorTrackingException, 'module' | 'type' | 'stacktrace' | 'value'>
+): string {
+    return `${formatType(exception)}${exception.value ? `: ${exception.value}` : ''}`
+}

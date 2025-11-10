@@ -4,7 +4,7 @@ import inspect
 import warnings
 from datetime import timedelta
 from functools import wraps
-from typing import TYPE_CHECKING, Optional, TypedDict
+from typing import Optional, TypedDict
 from uuid import uuid4
 
 from django.db.models import Max
@@ -27,7 +27,6 @@ from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AssistantNodeName
 
 from .prompts import (
     ITERATIVE_SEARCH_SYSTEM_PROMPT,
@@ -36,10 +35,6 @@ from .prompts import (
     PAGINATION_INSTRUCTIONS_TEMPLATE,
     TOOL_BASED_EVALUATION_SYSTEM_PROMPT,
 )
-
-if TYPE_CHECKING:
-    from ee.hogai.utils.types.composed import MaxNodeName
-
 
 logger = structlog.get_logger(__name__)
 # Silence Pydantic serializer warnings for creation of VisualizationMessage/Query execution
@@ -117,10 +112,6 @@ class InsightSearchNode(AssistantNode):
     MAX_EVALUATION_ITERATIONS = 3
     INSIGHTS_CUTOFF_DAYS = 180
     MAX_SERIES_TO_PROCESS = 3
-
-    @property
-    def node_name(self) -> "MaxNodeName":
-        return AssistantNodeName.INSIGHTS_SEARCH
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -22,14 +22,12 @@ from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.report.prompts import DEEP_RESEARCH_REPORT_PROMPT, FINAL_REPORT_USER_PROMPT
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
-    DeepResearchNodeName,
     DeepResearchState,
     PartialDeepResearchState,
 )
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.notebook.notebook_serializer import NotebookContext
 from ee.hogai.utils.types.base import InsightArtifact, TaskArtifact
-from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class FormattedInsight(BaseModel):
@@ -50,10 +48,6 @@ class DeepResearchReportNode(DeepResearchNode):
     2. Formats insight artifacts using the query executor
     3. Generates a final markdown report with embedded insight references
     """
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return DeepResearchNodeName.REPORT
 
     async def arun(self, state: DeepResearchState, config: RunnableConfig) -> PartialDeepResearchState:
         # Collect all artifacts from task results

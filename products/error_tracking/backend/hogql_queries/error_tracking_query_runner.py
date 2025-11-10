@@ -210,6 +210,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                                 ast.Tuple(
                                     exprs=[
                                         ast.Field(chain=["uuid"]),
+                                        ast.Field(chain=["distinct_id"]),
                                         ast.Field(chain=["timestamp"]),
                                         ast.Field(chain=["properties"]),
                                     ]
@@ -242,6 +243,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                                 ast.Tuple(
                                     exprs=[
                                         ast.Field(chain=["uuid"]),
+                                        ast.Field(chain=["distinct_id"]),
                                         ast.Field(chain=["timestamp"]),
                                         ast.Field(chain=["properties"]),
                                     ]
@@ -612,6 +614,8 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                         | {
                             "last_seen": result_dict.get("last_seen"),
                             "library": result_dict.get("library"),
+                            "function": result_dict.get("function"),
+                            "source": result_dict.get("source"),
                             "first_event": (
                                 self.extract_event(result_dict.get("first_event"))
                                 if self.query.withFirstEvent
@@ -635,8 +639,9 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         else:
             return {
                 "uuid": str(event_tuple[0]),
-                "timestamp": str(event_tuple[1]),
-                "properties": event_tuple[2],
+                "distinct_id": str(event_tuple[1]),
+                "timestamp": str(event_tuple[2]),
+                "properties": event_tuple[3],
             }
 
     def get_volume_buckets(self) -> list[datetime.datetime]:

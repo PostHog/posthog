@@ -25,10 +25,6 @@ class TestAssistantGraph(BaseTest):
         graph = TestAssistantGraph(self.team, self.user)
 
         class TestNode(AssistantNode):
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
             async def arun(self, state, config):
                 return PartialAssistantState(start_id=None)
 

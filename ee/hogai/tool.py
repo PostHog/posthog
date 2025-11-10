@@ -1,6 +1,4 @@
 import json
-import pkgutil
-import importlib
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Any, Literal, Self
@@ -14,36 +12,11 @@ from posthog.schema import AssistantTool
 
 from posthog.models import Team, User
 
-import products
-
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.base.context import get_node_path, set_node_path
 from ee.hogai.graph.mixins import AssistantContextMixin, AssistantDispatcherMixin
+from ee.hogai.registry import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
-
-CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantTool, type["MaxTool"]] = {}
-
-
-def _import_max_tools() -> None:
-    """TRICKY: Dynamically import max_tools from all products"""
-    for module_info in pkgutil.iter_modules(products.__path__):
-        if module_info.name in ("conftest", "test"):
-            continue  # We mustn't import test modules in prod
-        try:
-            importlib.import_module(f"products.{module_info.name}.backend.max_tools")
-        except ModuleNotFoundError:
-            pass  # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
-
-
-def get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
-    """Get the tool class for a given tool name, handling circular import."""
-    _import_max_tools()  # Ensure max_tools are imported
-    from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
-
-    try:
-        return CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantTool(tool_name)]
-    except KeyError:
-        return None
 
 
 class ToolMessagesArtifact(BaseModel):
@@ -107,7 +80,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         self._team = team
         self._user = user
         if node_path is None:
-            self._node_path = (*(get_node_path() or ()), NodePath(name=self.node_name))
+            self._node_path = get_node_path() or ()
         else:
             self._node_path = node_path
         self._state = state if state else AssistantState(messages=[])
@@ -157,6 +130,10 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         return f"max_tool.{self.get_name()}"
 
     @property
+    def node_path(self) -> tuple[NodePath, ...]:
+        return (*self._node_path, NodePath(name=self.node_name))
+
+    @property
     def context(self) -> dict:
         return self._context_manager.get_contextual_tools().get(self.get_name(), {})
 
@@ -198,11 +175,13 @@ class MaxSubtool(AssistantDispatcherMixin, ABC):
         state: AssistantState,
         config: RunnableConfig,
         context_manager: AssistantContextManager,
+        node_path: tuple[NodePath, ...] | None = None,
     ):
         self._team = team
         self._user = user
         self._state = state
         self._context_manager = context_manager
+        self._node_path = node_path or get_node_path() or ()
 
     @abstractmethod
     async def execute(self, *args, **kwargs) -> Any:
@@ -211,3 +190,7 @@ class MaxSubtool(AssistantDispatcherMixin, ABC):
     @property
     def node_name(self) -> str:
         return f"max_subtool.{self.__class__.__name__}"
+
+    @property
+    def node_path(self) -> tuple[NodePath, ...]:
+        return self._node_path

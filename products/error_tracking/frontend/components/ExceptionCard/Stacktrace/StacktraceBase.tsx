@@ -1,18 +1,16 @@
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
-import { ErrorTrackingRuntime, FingerprintRecordPart } from 'lib/components/Errors/types'
+import { ErrorTrackingException, ErrorTrackingRuntime, FingerprintRecordPart } from 'lib/components/Errors/types'
 
 export type HeaderRenderer = (props: ExceptionHeaderProps) => JSX.Element
 export interface StacktraceBaseDisplayProps {
     className?: string
     truncateMessage: boolean
-    renderLoading: (renderHeader: HeaderRenderer) => JSX.Element
     renderEmpty: () => JSX.Element
 }
 
 export interface StacktraceBaseExceptionHeaderProps {
-    type?: string
-    value?: string
+    exception: ErrorTrackingException
     loading: boolean
     runtime?: ErrorTrackingRuntime
     part?: FingerprintRecordPart

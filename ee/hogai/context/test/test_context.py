@@ -501,7 +501,7 @@ Query results: 42 events
         result = self.context_manager._format_entity_context([], "events", "Event")
         self.assertEqual(result, "")
 
-    @patch("ee.hogai.tool.get_contextual_tool_class")
+    @patch("ee.hogai.registry.get_contextual_tool_class")
     def test_get_contextual_tools_prompt(self, mock_get_contextual_tool_class):
         """Test generation of contextual tools prompt"""
         # Mock the tool class
