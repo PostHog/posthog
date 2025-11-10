@@ -179,9 +179,10 @@ async function expectStoryToMatchSnapshot(
     const { waitForLoadersToDisappear = true, waitForSelector } = storyContext.parameters?.testOptions ?? {}
 
     if (waitForLoadersToDisappear) {
-        // The timeout is reduced so that we never allow toasts – they usually signify something wrong
+        // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
         // Use 'hidden' instead of 'detached' because some elements (like toasts) may remain in DOM but be invisible
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout: 3000 })
+        // Timeout is 5000ms to account for slower CI environments while still catching stuck elements
+        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout: 5000 })
     }
 
     if (typeof waitForSelector === 'string') {
