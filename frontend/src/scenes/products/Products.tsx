@@ -157,30 +157,28 @@ export function Products(): JSX.Element {
                     <div className="flex flex-col gap-6 md:gap-12 justify-center items-center w-full">
                         {isUseCaseOnboardingEnabled ? (
                             // NEW LAYOUT: Horizontal cards with recommendations (when use case onboarding is enabled)
-                            <>
+                            <div className="max-w-[800px] w-full flex flex-col">
                                 {/* Recommended products - always shown if we have them */}
                                 {availablePreSelectedProducts.length > 0 && (
-                                    <div className="mb-6 max-w-[800px] w-full">
-                                        <div className="flex flex-col gap-3">
-                                            {availablePreSelectedProducts.map((productKey) => (
-                                                <SelectableProductCard
-                                                    key={productKey}
-                                                    product={availableOnboardingProducts[productKey]}
-                                                    productKey={productKey}
-                                                    onClick={() => toggleSelectedProduct(productKey)}
-                                                    selected={selectedProducts.includes(productKey)}
-                                                    orientation="horizontal"
-                                                    showDescription={true}
-                                                    className="w-full"
-                                                />
-                                            ))}
-                                        </div>
+                                    <div className="flex flex-col gap-3 mb-4">
+                                        {availablePreSelectedProducts.map((productKey) => (
+                                            <SelectableProductCard
+                                                key={productKey}
+                                                product={availableOnboardingProducts[productKey]}
+                                                productKey={productKey}
+                                                onClick={() => toggleSelectedProduct(productKey)}
+                                                selected={selectedProducts.includes(productKey)}
+                                                orientation="horizontal"
+                                                showDescription={true}
+                                                className="w-full"
+                                            />
+                                        ))}
                                     </div>
                                 )}
 
                                 {/* Other products section - always rendered to avoid layout shift */}
                                 {availablePreSelectedProducts.length > 0 && otherProducts.length > 0 && (
-                                    <div className="max-w-[800px] w-full flex flex-col items-center">
+                                    <div className="flex flex-col items-center">
                                         {/* Toggle button */}
                                         <button
                                             onClick={() => {
@@ -233,7 +231,7 @@ export function Products(): JSX.Element {
                                         </div>
                                     </div>
                                 )}
-                            </>
+                            </div>
                         ) : (
                             // OLD LAYOUT: Flex wrap layout (when use case onboarding is disabled)
                             <div className="flex flex-row flex-wrap gap-4 justify-center max-w-[680px]">
