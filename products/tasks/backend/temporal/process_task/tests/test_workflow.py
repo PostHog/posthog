@@ -1,6 +1,7 @@
 import os
 import uuid
 import random
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import cast
@@ -210,6 +211,9 @@ class TestProcessTaskWorkflow:
             assert result.task_result is not None
             assert result.sandbox_id is not None
 
+            # Wait for Modal to complete the termination
+            await asyncio.sleep(10)
+
             sandbox = Sandbox.get_by_id(result.sandbox_id)
             assert sandbox.status == SandboxStatus.SHUTDOWN.value
 
@@ -229,6 +233,9 @@ class TestProcessTaskWorkflow:
             assert result.sandbox_id is not None
             sandbox_id = result.sandbox_id
 
+            # Wait for Modal to complete termination
+
+            await asyncio.sleep(10)
             sandbox = Sandbox.get_by_id(sandbox_id)
             assert sandbox.status == SandboxStatus.SHUTDOWN.value
 
