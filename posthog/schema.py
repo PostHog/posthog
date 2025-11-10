@@ -32,7 +32,7 @@ class MathGroupTypeIndex(float, Enum):
 
 class AgentMode(StrEnum):
     PRODUCT_ANALYTICS = "product_analytics"
-    SQL = "sql"
+    NOOP = "noop"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -286,8 +286,6 @@ class AssistantTool(StrEnum):
     TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
     CREATE_FEATURE_FLAG = "create_feature_flag"
-    EXECUTE_SQL = "execute_sql"
-    SWITCH_MODE = "switch_mode"
 
 
 class AssistantToolCall(BaseModel):

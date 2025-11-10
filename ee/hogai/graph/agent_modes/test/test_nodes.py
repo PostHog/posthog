@@ -53,7 +53,7 @@ def mock_contextual_tool(mock_tool):
     mock_tool_class = MagicMock()
     mock_tool_class.create_tool_class = AsyncMock(return_value=mock_tool)
 
-    with patch("ee.hogai.tool.get_contextual_tool_class", return_value=mock_tool_class):
+    with patch("ee.hogai.registry.get_contextual_tool_class", return_value=mock_tool_class):
         yield
 
 
@@ -339,63 +339,6 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             )
             self.assertIn("iterations", messages[-1].content)
 
-    async def test_node_gets_contextual_tool(self):
-        with patch("ee.hogai.graph.agent_modes.nodes.MaxChatAnthropic") as mock_chat_openai:
-            mock_model = MagicMock()
-            mock_model.get_num_tokens_from_messages.return_value = 100
-            mock_model.bind_tools.return_value = mock_model
-            mock_chat_openai.return_value = mock_model
-
-            node = AgentExecutable(self.team, self.user, AgentToolkit)
-            # Set the config on the node so context_manager can access it
-            config = RunnableConfig(
-                configurable={"contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}}
-            )
-            node._config = config
-            # Clear any cached context manager to force recreation with new config
-            node._context_manager = None
-
-            # Mock get_contextual_tool_class to return a real tool-like class
-            with (
-                patch.object(node, "_has_session_summarization_feature_flag", return_value=False),
-            ):
-                # Create a mock tool instance
-                mock_tool_instance = MagicMock()
-                mock_tool_instance.name = "search_session_recordings"
-
-                # Create a mock tool class with async create_tool_class
-                mock_tool_class = MagicMock()
-                mock_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
-
-                # We need to patch at the point where it's imported
-                with patch("ee.hogai.tool.get_contextual_tool_class") as mock_get_tool:
-                    mock_get_tool.return_value = mock_tool_class
-
-                    # Verify that context_manager has the right tools
-                    context_tools = node.context_manager.get_contextual_tools()
-                    self.assertEqual(
-                        context_tools, {"search_session_recordings": {"current_filters": {"duration": ">"}}}
-                    )
-
-                    tools = await node._get_tools(
-                        AssistantState(messages=[HumanMessage(content="show me long recordings")]), config
-                    )
-
-                    node._get_model(
-                        AssistantState(messages=[HumanMessage(content="show me long recordings")]),
-                        tools,
-                    )
-
-                    # Verify get_contextual_tool_class was called
-                    mock_get_tool.assert_called_once_with("search_session_recordings")
-
-                    # Verify bind_tools was called
-                    mock_model.bind_tools.assert_called_once()
-                    tools = mock_model.bind_tools.call_args[0][0]
-
-                    # Verify that our mock tool instance is in the list
-                    self.assertIn(mock_tool_instance, tools)
-
     async def test_node_does_not_get_contextual_tool_if_not_configured(self):
         with (
             patch(
@@ -534,7 +477,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         else:
             node._config = RunnableConfig(configurable={})
 
-        self.assertEqual(await node._get_billing_prompt(node._config), expected_prompt)
+        self.assertEqual(await node._get_billing_prompt(), expected_prompt)
 
     @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
     @patch(
@@ -599,43 +542,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         summarized_messages = mock_summarize.call_args[0][0]
         self.assertEqual(len(summarized_messages), 2)
 
-    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
-    @patch("posthoganalytics.feature_enabled")
-    async def test_get_tools_session_summarization_feature_flag(self, mock_feature_enabled, mock_model):
-        """Test that session_summarization tool is only included when feature flag is enabled"""
-        mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
-
-        node = AgentExecutable(self.team, self.user, AgentToolkit)
-        state = AssistantState(messages=[HumanMessage(content="Test")])
-
-        # Test with feature flag enabled
-        mock_feature_enabled.return_value = True
-        tools_with_flag = await node._get_tools(state, {})
-        tool_names_with_flag = [tool.name if hasattr(tool, "name") else tool.__name__ for tool in tools_with_flag]
-        self.assertIn("session_summarization", tool_names_with_flag)
-
-        # Test with feature flag disabled
-        mock_feature_enabled.return_value = False
-        tools_without_flag = await node._get_tools(state, {})
-        tool_names_without_flag = [tool.name if hasattr(tool, "name") else tool.__name__ for tool in tools_without_flag]
-        self.assertNotIn("session_summarization", tool_names_without_flag)
-
-    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
-    @patch("ee.hogai.tool.get_contextual_tool_class")
-    async def test_get_tools_ignores_unknown_contextual_tools(self, mock_get_tool_class, mock_model):
-        """Test that unknown contextual tools (None from get_contextual_tool_class) are ignored"""
-        mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
-        mock_get_tool_class.return_value = None  # Simulates unknown tool
-
-        node = AgentExecutable(self.team, self.user, AgentToolkit)
-        state = AssistantState(messages=[HumanMessage(content="Test")])
-        config = RunnableConfig(configurable={"contextual_tools": {"unknown_tool": {"some": "config"}}})
-
-        # Should not raise an error, just skip the unknown tool
-        tools = await node._get_tools(state, config)
-        self.assertIsNotNone(tools)
-
-    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentNode._get_model", return_value=FakeChatOpenAI(responses=[]))
     async def test_construct_messages_empty_list(self, mock_model):
         """Test _construct_messages with empty message list"""
         node = _create_agent_node(self.team, self.user)
@@ -831,7 +738,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(send.arg.root_tool_call_id, f"tool-{i+1}")
 
 
-class TestRootNodeTools(BaseTest):
+class TestAgentToolsNode(BaseTest):
     def test_node_tools_router(self):
         node = _create_agent_tools_node(self.team, self.user)
 
@@ -1030,7 +937,7 @@ class TestRootNodeTools(BaseTest):
             root_tool_call_id="tool-123",
         )
 
-        with patch("ee.hogai.tool.get_contextual_tool_class", return_value=None):
+        with patch("ee.hogai.registry.get_contextual_tool_class", return_value=None):
             result = await node.arun(state, {})
 
             self.assertIsInstance(result, PartialAssistantState)

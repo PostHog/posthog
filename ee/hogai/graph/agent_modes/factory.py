@@ -2,8 +2,9 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel
 
-from ee.hogai.graph.agent_modes.nodes import AgentExecutable, AgentToolkit, AgentToolsExecutable
 from ee.hogai.utils.types.base import AgentMode
+
+from .nodes import AgentExecutable, AgentToolkit, AgentToolsExecutable
 
 
 class AgentExample(BaseModel):
