@@ -272,7 +272,7 @@ services:
             file: docker-compose.base.yml
             service: seaweedfs
         volumes:
-            - './data/seaweedfs:/data'
+            - 'seaweedfs-data:/data'
 
 networks:
     otel_network:
@@ -280,3 +280,4 @@ networks:
 
 volumes:
     redpanda-data:
+    seaweedfs-data:

@@ -135,6 +135,7 @@ if ! grep -q "SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS" .env; then
   echo "   - Keeps all your existing recordings accessible"
   echo "   - Run migration script after upgrade"
   echo "   - New recordings will be stored in SeaweedFS"
+  echo "   - Migration is best-effort for hobby deployments; support is limited"
   echo ""
   echo "2. ⚠️  ACCEPT DATA LOSS of existing session recordings"
   echo "   - Existing recordings will become inaccessible"
