@@ -29,7 +29,6 @@ import { SidePanelTab } from '~/types'
 
 import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
 import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearchBar'
-import { errorTrackingBreakdownsLogic } from '../../components/Breakdowns/errorTrackingBreakdownsLogic'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
@@ -65,14 +64,12 @@ export function ErrorTrackingIssueV2Scene(): JSX.Element {
     return (
         <ErrorTrackingSetupPrompt>
             <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
-                <BindLogic logic={errorTrackingBreakdownsLogic} props={{ id: issueId }}>
-                    <ErrorTrackingSetupPrompt>
-                        <div className="ErrorTrackingIssue flex h-full min-h-0">
-                            <LeftHandColumn />
-                            <RightHandColumn />
-                        </div>
-                    </ErrorTrackingSetupPrompt>
-                </BindLogic>
+                <ErrorTrackingSetupPrompt>
+                    <div className="ErrorTrackingIssue flex h-full min-h-0">
+                        <LeftHandColumn />
+                        <RightHandColumn />
+                    </div>
+                </ErrorTrackingSetupPrompt>
             </BindLogic>
         </ErrorTrackingSetupPrompt>
     )
