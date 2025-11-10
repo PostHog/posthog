@@ -1150,7 +1150,9 @@ class EmailIntegration:
         return SESProvider()
 
     @classmethod
-    def create_native_integration(cls, config: dict, team_id: int, created_by: User | None = None) -> Integration:
+    def create_native_integration(
+        cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
+    ) -> Integration:
         email_address: str = config["email"]
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
@@ -1159,11 +1161,14 @@ class EmailIntegration:
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
             raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
 
-        # Check if any other integration already exists in a different team with the same domain
-        if Integration.objects.filter(kind="email", config__domain=domain).exclude(team_id=team_id).exists():
-            raise ValidationError(
-                f"An email integration with domain {domain} already exists in another project. Try a different domain or contact support if you believe this is a mistake."
-            )
+        # Check if any other integration already exists in a different team with the same domain,
+        # if so, ensure this team is part of the same organization. If not, we block creation.
+        same_domain_integrations = Integration.objects.filter(kind="email", config__domain=domain)
+        for integration in same_domain_integrations:
+            if integration.team.organization_id != organization_id:
+                raise ValidationError(
+                    f"An email integration with domain {domain} already exists in another organization. Try a different domain or contact support if you believe this is a mistake."
+                )
 
         # Create domain in the appropriate provider
         if provider == "ses":

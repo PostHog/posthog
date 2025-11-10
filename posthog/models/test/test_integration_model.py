@@ -24,6 +24,7 @@ from posthog.models.integration import (
     OauthIntegration,
     SlackIntegration,
 )
+from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 
@@ -691,7 +692,9 @@ class TestEmailIntegrationDomainValidation(BaseTest):
     def test_successful_domain_creation_ses(self, mock_create_email_domain):
         mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
         config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}
-        integration = EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
+        integration = EmailIntegration.create_native_integration(
+            config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+        )
         assert integration.team == self.team
         assert integration.config["email"] == "user@successdomain.com"
         assert integration.config["provider"] == "ses"
@@ -701,25 +704,52 @@ class TestEmailIntegrationDomainValidation(BaseTest):
 
     @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
     @patch("products.workflows.backend.providers.SESProvider.verify_email_domain")
-    def test_duplicate_domain_in_another_team(self, mock_create_email_domain, mock_verify_email_domain):
+    def test_duplicate_domain_in_another_organization(self, mock_create_email_domain, mock_verify_email_domain):
         mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
         mock_verify_email_domain.return_value = {"status": "verified", "domain": "example.com"}
-        # Create an integration with a domain in another team
+        # Create an integration with a domain in another organization
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org, name="other team")
+        config = {"email": "user@example.com", "name": "Test User"}
+        EmailIntegration.create_native_integration(
+            config, team_id=other_team.id, organization_id=str(other_org.id), created_by=self.user
+        )
+
+        # Attempt to create the same domain in a different organization should raise ValidationError
+        with pytest.raises(ValidationError) as exc:
+            EmailIntegration.create_native_integration(
+                config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+            )
+        assert "already exists in another organization" in str(exc.value)
+
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    def test_duplicate_domain_in_same_organization_allowed(self, mock_create_email_domain):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "example.com"}
+        # Create an integration with a domain in one team
         other_team = Team.objects.create(organization=self.organization, name="other team")
         config = {"email": "user@example.com", "name": "Test User"}
-        EmailIntegration.create_native_integration(config, team_id=other_team.id, created_by=self.user)
+        integration1 = EmailIntegration.create_native_integration(
+            config, team_id=other_team.id, organization_id=str(self.organization.id), created_by=self.user
+        )
 
-        # Attempt to create the same domain in this team should raise ValidationError
-        with pytest.raises(ValidationError) as exc:
-            EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
-        assert "already exists in another project" in str(exc.value)
+        # Creating the same domain in a different team in the same organization should succeed
+        integration2 = EmailIntegration.create_native_integration(
+            config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+        )
+
+        assert integration1.config["domain"] == "example.com"
+        assert integration2.config["domain"] == "example.com"
+        assert integration1.team_id == other_team.id
+        assert integration2.team_id == self.team.id
 
     def test_unsupported_email_domain(self):
         # Test with a free email domain
         config = {"email": "user@gmail.com", "name": "Test User"}
 
         with pytest.raises(ValidationError) as exc:
-            EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
+            EmailIntegration.create_native_integration(
+                config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+            )
         assert "not supported" in str(exc.value)
 
         # Test with a disposable email domain
@@ -727,6 +757,8 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         config = {"email": f"user@{disposable_domain}", "name": "Test User"}
 
         with pytest.raises(ValidationError) as exc:
-            EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
+            EmailIntegration.create_native_integration(
+                config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+            )
         assert disposable_domain in str(exc.value)
         assert "not supported" in str(exc.value)
