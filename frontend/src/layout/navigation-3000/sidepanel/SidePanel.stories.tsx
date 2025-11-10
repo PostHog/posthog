@@ -11,6 +11,7 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import { SidePanelTab } from '~/types'
 
+import { sidePanelDocsLogic } from './panels/sidePanelDocsLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 const meta: Meta = {
@@ -55,15 +56,11 @@ const BaseTemplate = (props: { panel: SidePanelTab }): JSX.Element => {
 }
 
 export const SidePanelDocs: StoryFn = () => {
-    // Mock the iframe postMessage to simulate successful docs load
+    const { setIframeReady } = useActions(sidePanelDocsLogic({ iframeRef: { current: null } }))
+
+    // Directly set iframeReady to skip waiting for external iframe to load
     useOnMountEffect(() => {
-        // Simulate the docs-ready message that the iframe would normally send
-        // Need to dispatch a MessageEvent with the correct origin (https://posthog.com)
-        const messageEvent = new MessageEvent('message', {
-            data: { type: 'docs-ready' },
-            origin: 'https://posthog.com',
-        })
-        window.dispatchEvent(messageEvent)
+        setIframeReady(true)
     })
 
     return <BaseTemplate panel={SidePanelTab.Docs} />
