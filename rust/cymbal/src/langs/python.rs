@@ -97,6 +97,7 @@ impl From<&RawPythonFrame> for Frame {
             synthetic: raw.meta.synthetic,
             suspicious: false,
             module: raw.module.clone(),
+            exception_type: None,
             code_variables: raw.code_variables.clone(),
         }
     }

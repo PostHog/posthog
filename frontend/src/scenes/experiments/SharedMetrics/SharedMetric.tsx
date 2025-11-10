@@ -192,6 +192,7 @@ export function SharedMetric(): JSX.Element {
             {sharedMetric.query.kind === NodeKind.ExperimentMetric ? (
                 <ExperimentMetricForm
                     metric={sharedMetric.query as ExperimentMetric}
+                    isSharedMetric={true}
                     handleSetMetric={(newMetric) => {
                         setSharedMetric({
                             ...sharedMetric,

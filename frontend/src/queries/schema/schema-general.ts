@@ -1383,6 +1383,8 @@ export type RetentionFilter = {
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
     showTrendLines?: boolean
+    /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
+    selectedInterval?: integer | null
 }
 
 export interface RetentionValue {
@@ -2335,11 +2337,13 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     function?: string
     first_event?: {
         uuid: string
+        distinct_id: string
         timestamp: string
         properties: string
     }
     last_event?: {
         uuid: string
+        distinct_id: string
         timestamp: string
         properties: string
     }

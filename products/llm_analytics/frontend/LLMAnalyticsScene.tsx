@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import React from 'react'
 
 import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import {
@@ -28,6 +29,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDuration, objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -40,7 +43,7 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
-import { EventType } from '~/types'
+import { DashboardPlacement, EventType } from '~/types'
 
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
@@ -65,12 +68,22 @@ export const scene: SceneExport = {
 }
 
 const Filters = (): JSX.Element => {
-    const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, generationsQuery, propertyFilters, activeTab } =
-        useValues(llmAnalyticsLogic)
+    const {
+        dashboardDateFilter,
+        dateFilter,
+        shouldFilterTestAccounts,
+        generationsQuery,
+        propertyFilters,
+        activeTab,
+        selectedDashboardId,
+    } = useValues(llmAnalyticsLogic)
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const dateFrom = activeTab === 'dashboard' ? dashboardDateFilter.dateFrom : dateFilter.dateFrom
     const dateTo = activeTab === 'dashboard' ? dashboardDateFilter.dateTo : dateFilter.dateTo
+
+    const useCustomizableDashboard = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]
 
     return (
         <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
@@ -83,6 +96,11 @@ const Filters = (): JSX.Element => {
             />
             <div className="flex-1" />
             <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
+            {activeTab === 'dashboard' && useCustomizableDashboard && selectedDashboardId && (
+                <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
+                    Edit dashboard
+                </LemonButton>
+            )}
             <LLMAnalyticsReloadAction />
         </div>
     )
@@ -114,11 +132,54 @@ const Tiles = (): JSX.Element => {
 }
 
 function LLMAnalyticsDashboard(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { selectedDashboardId, availableDashboardsLoading, dashboardDateFilter, propertyFilters } =
+        useValues(llmAnalyticsLogic)
+
+    const useCustomizableDashboard = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]
+    const dashboardLogicInstance = React.useMemo(
+        () =>
+            selectedDashboardId
+                ? dashboardLogic({ id: selectedDashboardId, placement: DashboardPlacement.Builtin })
+                : null,
+        [selectedDashboardId]
+    )
+
+    const fallbackLogicInstance = React.useMemo(
+        () => dashboardLogic({ id: 0, placement: DashboardPlacement.Builtin }),
+        []
+    )
+    const dashboardActions = useActions(dashboardLogicInstance || fallbackLogicInstance)
+    const setExternalFilters =
+        dashboardLogicInstance && dashboardActions?.setExternalFilters ? dashboardActions.setExternalFilters : () => {}
+
+    // Set filters using useLayoutEffect to ensure they're set before Dashboard's afterMount event fires
+    React.useLayoutEffect(() => {
+        if (selectedDashboardId && setExternalFilters) {
+            setExternalFilters({
+                date_from: dashboardDateFilter.dateFrom,
+                date_to: dashboardDateFilter.dateTo,
+                properties: propertyFilters.length > 0 ? propertyFilters : null,
+            })
+        }
+    }, [dashboardDateFilter, propertyFilters, selectedDashboardId, setExternalFilters])
+
     return (
         <LLMAnalyticsSetupPrompt>
             <div className="@container/dashboard">
                 <Filters />
-                <Tiles />
+
+                {useCustomizableDashboard ? (
+                    availableDashboardsLoading || !selectedDashboardId ? (
+                        <div className="text-center p-8">
+                            <Spinner />
+                        </div>
+                    ) : (
+                        <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
+                    )
+                ) : (
+                    <Tiles />
+                )}
             </div>
         </LLMAnalyticsSetupPrompt>
     )

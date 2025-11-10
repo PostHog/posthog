@@ -4,7 +4,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { QuerySourceUpdate, insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { BREAKDOWN_OTHER_DISPLAY, BREAKDOWN_OTHER_STRING_LABEL, formatBreakdownLabel } from 'scenes/insights/utils'
 import { ProcessedRetentionPayload } from 'scenes/retention/types'
@@ -43,16 +43,31 @@ export const retentionLogic = kea<retentionLogicType>([
             cohortsModel,
             ['cohortsById'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateDateRange', 'updateBreakdownFilter']],
+        actions: [
+            insightVizDataLogic(props),
+            ['updateInsightFilter', 'updateDateRange', 'updateBreakdownFilter', 'updateQuerySource'],
+        ],
     })),
     actions({
         setSelectedBreakdownValue: (value: string | number | boolean | null) => ({ value }),
+        setSelectedInterval: (interval: number | null) => ({ interval }),
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         updateBreakdownFilter: () => {
             // Reset selected breakdown value when breakdown filter changes
             // This prevents the dropdown from showing invalid cohort IDs
             actions.setSelectedBreakdownValue(null)
+        },
+        updateInsightFilter: () => {
+            actions.setSelectedInterval(null)
+        },
+        setSelectedInterval: ({ interval }) => {
+            actions.updateQuerySource({
+                retentionFilter: {
+                    ...values.retentionFilter,
+                    selectedInterval: interval,
+                },
+            } as QuerySourceUpdate)
         },
     })),
     reducers({
@@ -107,6 +122,21 @@ export const retentionLogic = kea<retentionLogicType>([
                             : result.breakdown_value,
                     values: result.values.filter((value) => !value.isFuture),
                 }))
+            },
+        ],
+
+        filteredResults: [
+            (s) => [s.results, s.selectedBreakdownValue],
+            (results, selectedBreakdownValue) => {
+                if (!results || results.length === 0) {
+                    return []
+                }
+                if (selectedBreakdownValue === null) {
+                    return results
+                }
+
+                // Return only results for the selected breakdown
+                return results.filter((result) => result.breakdown_value === selectedBreakdownValue)
             },
         ],
 

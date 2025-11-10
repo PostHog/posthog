@@ -751,10 +751,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Exception is synthetic",
             "description": "Whether this was detected as a synthetic exception.",
         },
-        "$exception_stack_trace_raw": {
-            "label": "Exception raw stack trace",
-            "description": "The exceptions stack trace, as a string.",
-        },
         "$exception_handled": {
             "label": "Exception was handled",
             "description": "Whether this was a handled or unhandled exception.",

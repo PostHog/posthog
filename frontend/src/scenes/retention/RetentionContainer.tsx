@@ -15,10 +15,12 @@ import { retentionLogic } from './retentionLogic'
 
 export function RetentionContainer({
     inCardView,
+    embedded,
     inSharedMode,
     vizSpecificOptions,
 }: {
     inCardView?: boolean
+    embedded?: boolean
     inSharedMode?: boolean
     context?: QueryContext<InsightVizNode>
     vizSpecificOptions?: VizSpecificOptions[InsightType.RETENTION]
@@ -44,7 +46,7 @@ export function RetentionContainer({
             {showLineGraph && showTable ? <LemonDivider /> : null}
             {showTable && (
                 <div className="RetentionContainer__table overflow-x-auto">
-                    <RetentionTable inSharedMode={inSharedMode} />
+                    <RetentionTable inSharedMode={inSharedMode} embedded={embedded} />
                 </div>
             )}
             {!inSharedMode ? <RetentionModal /> : null}

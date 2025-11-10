@@ -339,7 +339,7 @@ jobs:
 
                     if [ $EXIT_CODE -ne 0 ]; then
                       # Still failing - check if we should update snapshots
-                      if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -qi "snapshot.*failed" /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt2.log 2>/dev/null; then
+                      if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -Eqi "(snapshot.*(failed|was not written)|Expected image to be the same size)" /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt2.log 2>/dev/null; then
                         echo "Snapshot failure confirmed on attempt 2 - updating snapshots"
                         # Attempt 3: Update snapshots
                         echo "Attempt 3: Running @storybook/test-runner (update)"
@@ -373,9 +373,10 @@ jobs:
 
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
+            # Run even if tests failed, as long as snapshots may have been updated
             - name: Create snapshot patch
               id: create-patch
-              if: needs.detect-snapshot-mode.outputs.mode == 'update' && success() && github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.detect-snapshot-mode.outputs.mode == 'update' && (success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository
               run: |
                   # Verify we're in a git repository before running git commands
                   if ! git rev-parse --git-dir > /dev/null 2>&1; then
@@ -384,11 +385,17 @@ jobs:
                     exit 0
                   fi
 
-                  # Check if there are any changes in the snapshot directory
-                  if git diff --quiet frontend/__snapshots__/; then
+                  # Check if there are any changes (modified or untracked) in the snapshot directory
+                  # Use git status --porcelain to detect both modifications and new untracked files
+                  if [ -z "$(git status --porcelain frontend/__snapshots__/)" ]; then
                     echo "No snapshot changes"
                     echo "has-changes=false" >> $GITHUB_OUTPUT
                   else
+                    echo "Snapshot changes detected:"
+                    git status --short frontend/__snapshots__/
+
+                    # Stage untracked files so git diff can include them in the patch
+                    git add -N frontend/__snapshots__/
                     # Create binary-safe patch file
                     mkdir -p /tmp/patches
                     git diff --binary --full-index frontend/__snapshots__/ > /tmp/patches/shard-${{ matrix.browser }}-${{ matrix.shard }}.patch

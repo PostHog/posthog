@@ -501,8 +501,21 @@ INSERT INTO {database}.{writable_table}
         writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
             where=where,
-            # use sharded_events for the source table, this means that the backfill MUST run on every shard
-            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events",
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.events",
+        ),
+    )
+
+
+def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where="TRUE"):
+    return """
+INSERT INTO {database}.{writable_table}
+{select_sql}
+""".format(
+        database=settings.CLICKHOUSE_DATABASE,
+        writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        select_sql=RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(
+            where=where,
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.session_replay_events",
         ),
     )
 

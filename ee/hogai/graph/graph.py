@@ -1,10 +1,9 @@
 from collections.abc import Callable
-from typing import cast
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.base import BaseAssistantGraph
+from ee.hogai.graph.agent_executor import AgentExecutorGraph
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState
 
 from .memory.nodes import (
     MemoryCollectorNode,
@@ -16,17 +15,12 @@ from .memory.nodes import (
     MemoryOnboardingFinalizeNode,
     MemoryOnboardingNode,
 )
-from .root.nodes import RootNode, RootNodeTools
 
 
-class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
+class AssistantGraph(AgentExecutorGraph):
     @property
     def graph_name(self) -> AssistantGraphName:
         return AssistantGraphName.ASSISTANT
-
-    @property
-    def state_type(self) -> type[AssistantState]:
-        return AssistantState
 
     def add_title_generator(self, end_node: AssistantNodeName = AssistantNodeName.END):
         self._has_start_node = True
@@ -37,20 +31,14 @@ class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
         self._graph.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self
 
-    def add_root(self, router: Callable[[AssistantState], AssistantNodeName] | None = None):
-        root_node = RootNode(self._team, self._user)
-        self.add_node(AssistantNodeName.ROOT, root_node)
-        root_node_tools = RootNodeTools(self._team, self._user)
-        self.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools)
-        self._graph.add_conditional_edges(
-            AssistantNodeName.ROOT, router or cast(Callable[[AssistantState], AssistantNodeName], root_node.router)
-        )
-        self._graph.add_conditional_edges(
-            AssistantNodeName.ROOT_TOOLS,
-            root_node_tools.router,
-            path_map={"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END},
-        )
-        return self
+    def add_root(
+        self,
+        router: Callable[[AssistantState], AssistantNodeName] | None = None,
+        tools_router: Callable[[AssistantState], AssistantNodeName] | None = None,
+    ):
+        # Merge the agent graph into the main graph.
+        # Subgraphs incorrectly merge messages, so please don't use them here.
+        return self.add_agent_node(router=router).add_agent_tools_node(router=tools_router)
 
     def add_memory_onboarding(
         self,

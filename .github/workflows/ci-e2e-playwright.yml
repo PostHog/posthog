@@ -124,6 +124,12 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   fetch-depth: 50 # Need enough history for flap detection to find last human commit
+                  clean: false
+            - name: Clean up data directories with container permissions
+              run: |
+                  # Use docker to clean up files created by containers
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
 
             - name: Stop/Start stack with Docker Compose
               shell: bash
@@ -354,8 +360,10 @@ jobs:
 
                   if [ $EXIT_CODE -ne 0 ]; then
                     # Check if we should retry with snapshot update
-                    if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -q "Screenshot comparison failed" /tmp/playwright-output-attempt-1.log 2>/dev/null; then
-                      echo "Screenshot comparison failed - retrying with --update-snapshots"
+                    # Look for either "Screenshot comparison failed" or "snapshot doesn't exist" error messages
+                    # Use case-insensitive match to catch variations like "Snapshot does not exist"
+                    if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -qEi "(Screenshot comparison failed|snapshot does(n't| not) exist)" /tmp/playwright-output-attempt-1.log 2>/dev/null; then
+                      echo "Screenshot-related failure detected - retrying with --update-snapshots"
 
                       # Preserve attempt 1 artifacts
                       echo "Preserving attempt 1 artifacts..."
@@ -382,9 +390,10 @@ jobs:
 
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
+            # Run even if tests failed, as long as snapshots may have been updated
             - name: Create screenshot patch
               id: create-patch
-              if: needs.detect-snapshot-mode.outputs.mode == 'update' && success() && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.detect-snapshot-mode.outputs.mode == 'update' && (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               run: |
                   # Verify we're in a git repository before running git commands
                   if ! git rev-parse --git-dir > /dev/null 2>&1; then
@@ -393,11 +402,17 @@ jobs:
                     exit 0
                   fi
 
-                  # Check if there are any changes in the playwright directory
-                  if git diff --quiet playwright/; then
+                  # Check if there are any changes (modified or untracked) in the playwright directory
+                  # Use git status --porcelain to detect both modifications and new untracked files
+                  if [ -z "$(git status --porcelain playwright/)" ]; then
                     echo "No screenshot changes"
                     echo "has-changes=false" >> $GITHUB_OUTPUT
                   else
+                    echo "Screenshot changes detected:"
+                    git status --short playwright/
+
+                    # Stage untracked files so git diff can include them in the patch
+                    git add -N playwright/
                     # Create binary-safe patch file
                     mkdir -p /tmp/patches
                     git diff --binary --full-index playwright/ > /tmp/patches/playwright-patch.patch

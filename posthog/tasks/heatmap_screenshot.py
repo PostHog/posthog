@@ -8,7 +8,11 @@ from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
 from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET
 from posthog.tasks.utils import CeleryQueue
 
-from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import (
+    Page,
+    TimeoutError as PlaywrightTimeoutError,
+    sync_playwright,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -54,8 +58,6 @@ def _dismiss_cookie_banners(page: Page) -> None:
     [id*="ot-sdk" i], [class*="ot-sdk" i],
     [id*="sp_message" i], [class*="sp_message" i],
     [id*="sp-consent" i], [class*="sp-consent" i],
-    [id*="cmp" i], [class*="cmp" i],
-    [id*="osano" i], [class*="osano" i],
     [id*="quantcast" i], [class*="quantcast" i],
     iframe[src*="consent" i], iframe[src*="cookie" i], iframe[src*="onetrust" i],
     /* generic fixed overlays */
@@ -177,7 +179,7 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
     snapshot_bytes: list[tuple[int, bytes]] = []
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=True,
+            headless=True,  # TIP: for debugging, set to False
             args=[
                 "--force-device-scale-factor=1",
                 "--disable-dev-shm-usage",
@@ -202,9 +204,23 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
                 )
                 page = ctx.new_page()
                 _block_internal_requests(page)
-                page.goto(screenshot.url, wait_until="load", timeout=120_000)
-                _dismiss_cookie_banners(page)
 
+                # Start navigation and try to wait for DOM ready, but only up to 5s
+                dom_ready = True
+                try:
+                    page.goto(screenshot.url, wait_until="domcontentloaded", timeout=5_000)
+                except PlaywrightTimeoutError:
+                    dom_ready = False
+                    # Navigation may still continue in the background; we just won't block on it.
+
+                # Small settle: if DOM was ready, give JS time to render (SPAs). Otherwise, brief paint time.
+                page.wait_for_timeout(3000 if dom_ready else 1000)
+
+                # Try to clear overlays/cookie banners if present
+                _dismiss_cookie_banners(page)
+                page.wait_for_timeout(500)
+
+                # Measure final height and resize to capture everything
                 total_height = page.evaluate("""() => Math.max(
                     document.body.scrollHeight,
                     document.body.offsetHeight,
@@ -214,7 +230,7 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
                 )""")
 
                 page.set_viewport_size({"width": int(w), "height": int(total_height + HEIGHT_OFFSET)})
-                page.wait_for_timeout(1000)
+                page.wait_for_timeout(500)
 
                 image_data: bytes = page.screenshot(full_page=True, type="jpeg", quality=70)
                 snapshot_bytes.append((w, image_data))
