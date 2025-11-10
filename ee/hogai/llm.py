@@ -133,14 +133,14 @@ class MaxChatMixin(BaseModel):
         self,
         kwargs: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Return a shallow copy of kwargs with custom metadata and
-        billable flag injected into metadata."""
+        """Return a shallow copy of kwargs with custom metadata, billable flag, and team_id injected into metadata."""
         new_kwargs = dict(kwargs or {})
         metadata = dict(new_kwargs.get("metadata") or {})
 
-        # Build custom_metadata with billable flag
+        # Build custom_metadata with billable flag and team_id
         custom_meta = dict(self.custom_metadata or {})
         custom_meta["$ai_billable"] = self.billable
+        custom_meta["team_id"] = self.team.id
 
         metadata["custom_metadata"] = custom_meta
         new_kwargs["metadata"] = metadata

@@ -201,7 +201,7 @@ class TestMaxChatOpenAI(BaseTest):
         self.assertEqual(llm_anthropic.billable, False)
 
     def test_billable_metadata_when_false(self):
-        """Test that posthog_ai_billable metadata is False when billable=False."""
+        """Test that $ai_billable metadata is False when billable=False."""
         llm = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False, billable=False)
 
         mock_result = LLMResult(generations=[[Generation(text="Response")]])
@@ -211,10 +211,12 @@ class TestMaxChatOpenAI(BaseTest):
 
             call_kwargs = mock_generate.call_args.kwargs
             self.assertIn("metadata", call_kwargs)
-            self.assertEqual(call_kwargs["metadata"]["posthog_ai_billable"], False)
+            self.assertIn("custom_metadata", call_kwargs["metadata"])
+            self.assertEqual(call_kwargs["metadata"]["custom_metadata"]["$ai_billable"], False)
+            self.assertEqual(call_kwargs["metadata"]["custom_metadata"]["team_id"], self.team.id)
 
     def test_billable_metadata_when_true(self):
-        """Test that posthog_ai_billable metadata is True when billable=True."""
+        """Test that $ai_billable metadata is True when billable=True."""
         llm = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False, billable=True)
 
         mock_result = LLMResult(generations=[[Generation(text="Response")]])
@@ -224,10 +226,12 @@ class TestMaxChatOpenAI(BaseTest):
 
             call_kwargs = mock_generate.call_args.kwargs
             self.assertIn("metadata", call_kwargs)
-            self.assertEqual(call_kwargs["metadata"]["posthog_ai_billable"], True)
+            self.assertIn("custom_metadata", call_kwargs["metadata"])
+            self.assertEqual(call_kwargs["metadata"]["custom_metadata"]["$ai_billable"], True)
+            self.assertEqual(call_kwargs["metadata"]["custom_metadata"]["team_id"], self.team.id)
 
     async def test_billable_metadata_async_when_false(self):
-        """Test that posthog_ai_billable metadata is False in async generate when billable=False."""
+        """Test that $ai_billable metadata is False in async generate when billable=False."""
         llm = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False, billable=False)
 
         mock_result = LLMResult(generations=[[Generation(text="Response")]])
@@ -237,10 +241,12 @@ class TestMaxChatOpenAI(BaseTest):
 
             call_kwargs = mock_agenerate.call_args.kwargs
             self.assertIn("metadata", call_kwargs)
-            self.assertEqual(call_kwargs["metadata"]["posthog_ai_billable"], False)
+            self.assertIn("custom_metadata", call_kwargs["metadata"])
+            self.assertEqual(call_kwargs["metadata"]["custom_metadata"]["$ai_billable"], False)
+            self.assertEqual(call_kwargs["metadata"]["custom_metadata"]["team_id"], self.team.id)
 
     async def test_billable_metadata_async_when_true(self):
-        """Test that posthog_ai_billable metadata is True in async generate when billable=True."""
+        """Test that $ai_billable metadata is True in async generate when billable=True."""
         llm = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False, billable=True)
 
         mock_result = LLMResult(generations=[[Generation(text="Response")]])
@@ -250,10 +256,12 @@ class TestMaxChatOpenAI(BaseTest):
 
             call_kwargs = mock_agenerate.call_args.kwargs
             self.assertIn("metadata", call_kwargs)
-            self.assertEqual(call_kwargs["metadata"]["posthog_ai_billable"], True)
+            self.assertIn("custom_metadata", call_kwargs["metadata"])
+            self.assertEqual(call_kwargs["metadata"]["custom_metadata"]["$ai_billable"], True)
+            self.assertEqual(call_kwargs["metadata"]["custom_metadata"]["team_id"], self.team.id)
 
     def test_billable_metadata_anthropic_when_false(self):
-        """Test that posthog_ai_billable metadata is False for Anthropic when billable=False."""
+        """Test that $ai_billable metadata is False for Anthropic when billable=False."""
         llm = MaxChatAnthropic(user=self.user, team=self.team, model="claude", billable=False)
 
         mock_result = LLMResult(generations=[[Generation(text="Response")]])
@@ -263,10 +271,12 @@ class TestMaxChatOpenAI(BaseTest):
 
             call_kwargs = mock_generate.call_args.kwargs
             self.assertIn("metadata", call_kwargs)
-            self.assertEqual(call_kwargs["metadata"]["posthog_ai_billable"], False)
+            self.assertIn("custom_metadata", call_kwargs["metadata"])
+            self.assertEqual(call_kwargs["metadata"]["custom_metadata"]["$ai_billable"], False)
+            self.assertEqual(call_kwargs["metadata"]["custom_metadata"]["team_id"], self.team.id)
 
     def test_billable_metadata_anthropic_when_true(self):
-        """Test that posthog_ai_billable metadata is True for Anthropic when billable=True."""
+        """Test that $ai_billable metadata is True for Anthropic when billable=True."""
         llm = MaxChatAnthropic(user=self.user, team=self.team, model="claude", billable=True)
 
         mock_result = LLMResult(generations=[[Generation(text="Response")]])
@@ -276,4 +286,6 @@ class TestMaxChatOpenAI(BaseTest):
 
             call_kwargs = mock_generate.call_args.kwargs
             self.assertIn("metadata", call_kwargs)
-            self.assertEqual(call_kwargs["metadata"]["posthog_ai_billable"], True)
+            self.assertIn("custom_metadata", call_kwargs["metadata"])
+            self.assertEqual(call_kwargs["metadata"]["custom_metadata"]["$ai_billable"], True)
+            self.assertEqual(call_kwargs["metadata"]["custom_metadata"]["team_id"], self.team.id)
