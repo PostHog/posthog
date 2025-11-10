@@ -66,11 +66,6 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     callback?: (toolOutput: any, conversationId: string) => void | Promise<void>
 }
 
-/** Static mode definition for display purposes. */
-export interface ModeDefinition {
-    name: string
-}
-
 export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, ToolDefinition> = {
     session_summarization: {
         name: 'Summarize sessions',

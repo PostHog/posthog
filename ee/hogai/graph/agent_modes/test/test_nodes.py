@@ -542,7 +542,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         summarized_messages = mock_summarize.call_args[0][0]
         self.assertEqual(len(summarized_messages), 2)
 
-    @patch("ee.hogai.graph.agent_modes.nodes.AgentNode._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
     async def test_construct_messages_empty_list(self, mock_model):
         """Test _construct_messages with empty message list"""
         node = _create_agent_node(self.team, self.user)
