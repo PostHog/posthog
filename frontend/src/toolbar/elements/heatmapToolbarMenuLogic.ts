@@ -466,7 +466,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             actions.maybeLoadClickmap()
         },
         setWildcardHref: ({ href }) => {
-            actions.setHref(href)
+            actions.setDataHref(href)
         },
         setCommonFilters: () => {
             actions.loadAllEnabled()
