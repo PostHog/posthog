@@ -76,7 +76,7 @@ const customSnapshotsDir = path.resolve(__dirname, '../../../frontend/__snapshot
 // eslint-disable-next-line no-console
 console.log('[test-runner] Storybook snapshots will be saved to', customSnapshotsDir)
 
-const JEST_TIMEOUT_MS = 15000
+const JEST_TIMEOUT_MS = 25000 // Increased for stories with iframes (e.g. SidePanelDocs)
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
