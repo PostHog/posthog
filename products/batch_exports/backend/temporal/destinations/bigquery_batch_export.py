@@ -260,7 +260,7 @@ def data_type_to_bigquery_type(data_type: pa.DataType) -> BigQueryType:
     elif pa.types.is_timestamp(data_type):
         bq_type = "TIMESTAMP"
 
-    elif pa.types.is_list(data_type) and pa.types.is_string(data_type):
+    elif pa.types.is_list(data_type) and pa.types.is_string(data_type.value_type):
         bq_type = "STRING"
         repeated = True
 
