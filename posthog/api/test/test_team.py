@@ -310,6 +310,9 @@ def team_api_test_factory():
             self.assertEqual(response_data["receive_org_level_activity_logs"], False)
 
         def test_update_receive_org_level_activity_logs(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
             response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
