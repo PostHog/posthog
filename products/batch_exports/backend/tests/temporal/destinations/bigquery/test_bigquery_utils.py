@@ -7,9 +7,7 @@ import pytest
 import pyarrow as pa
 from google.cloud import bigquery
 
-from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
-    get_bigquery_fields_from_record_schema,
-)
+from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import BigQueryField
 
 
 @pytest.mark.parametrize(
@@ -46,9 +44,13 @@ from products.batch_exports.backend.temporal.destinations.bigquery_batch_export 
         ),
     ],
 )
-def test_get_bigquery_fields_from_record_schema(pyrecords, expected_schema):
-    """Test BigQuery schema fields generated from record match expected."""
+def test_field_resolves_to_bigquery_schema_field(pyrecords, expected_schema):
+    """Test BigQuery schema fields generated with BigQueryField match expected."""
     record_batch = pa.RecordBatch.from_pylist(pyrecords)
-    schema = get_bigquery_fields_from_record_schema(record_batch.schema, known_json_columns=[])
+
+    schema = []
+    for column in record_batch.schema:
+        field = BigQueryField.from_arrow_field(column)
+        schema.append(field.to_destination_field())
 
     assert schema == expected_schema
