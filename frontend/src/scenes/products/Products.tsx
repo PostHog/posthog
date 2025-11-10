@@ -26,6 +26,8 @@ export const scene: SceneExport = {
 const isValidIconKey = (key: string): key is keyof typeof Icons => key in Icons
 type AvailableOnboardingProductKey = keyof typeof availableOnboardingProducts
 const AVAILABLE_ONBOARDING_PRODUCT_KEYS = Object.keys(availableOnboardingProducts) as AvailableOnboardingProductKey[]
+const isAvailableOnboardingProductKey = (key: string | ProductKey): key is AvailableOnboardingProductKey =>
+    key in availableOnboardingProducts
 
 export function getProductIcon(color: string, iconKey?: string | null, className?: string): JSX.Element {
     const resolvedKey: keyof typeof Icons = iconKey && isValidIconKey(iconKey) ? iconKey : 'IconLogomark'
@@ -113,13 +115,25 @@ export function SelectableProductCard({
         </Tooltip>
     )
 }
-    )
+
+export function Products(): JSX.Element {
+    const { showInviteModal } = useActions(inviteLogic)
+    const { toggleSelectedProduct, setFirstProductOnboarding, handleStartOnboarding } = useActions(productsLogic)
+    const { selectedProducts, firstProductOnboarding, preSelectedProducts, useCase, isUseCaseOnboardingEnabled } =
+        useValues(productsLogic)
+    const { skipOnboarding } = useActions(onboardingLogic)
+    const { hasIngestedEvent } = useValues(teamLogic)
+    const [showAllProducts, setShowAllProducts] = useState(false)
+
+    // Get all non-recommended products
+    const availablePreSelectedProducts = preSelectedProducts.filter(isAvailableOnboardingProductKey)
+    const otherProducts = AVAILABLE_ONBOARDING_PRODUCT_KEYS.filter((key) => !availablePreSelectedProducts.includes(key))
 
     return (
         <div className="flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">
             <>
                 {/* Back button at the top */}
-                {useCase && useCase !== 'pick_myself' && (
+                {isUseCaseOnboardingEnabled && (
                     <div className="w-full max-w-[800px] mb-4">
                         <button
                             className="text-muted hover:text-default text-sm flex items-center gap-1 cursor-pointer"
@@ -134,21 +148,21 @@ export function SelectableProductCard({
                     <div className="mb-8">
                         <h2 className="text-center text-4xl">Which products would you like to use?</h2>
                         <p className="text-center text-muted">
-                            {useCase && useCase !== 'pick_myself'
+                            {isUseCaseOnboardingEnabled
                                 ? `We've pre-selected some products based on your goal. Feel free to change or add more.`
                                 : "Don't worry – you can pick more than one! Please select all that apply."}
                         </p>
                     </div>
 
                     <div className="flex flex-col gap-6 md:gap-12 justify-center items-center w-full">
-                        {useCase ? (
-                            // NEW LAYOUT: Horizontal cards with recommendations (when feature flag is ON)
+                        {isUseCaseOnboardingEnabled ? (
+                            // NEW LAYOUT: Horizontal cards with recommendations (when use case onboarding is enabled)
                             <>
                                 {/* Recommended products - always shown if we have them */}
-                                {preSelectedProducts.length > 0 && (
+                                {availablePreSelectedProducts.length > 0 && (
                                     <div className="mb-6 max-w-[800px] w-full">
                                         <div className="flex flex-col gap-3">
-                                            {preSelectedProducts.map((productKey) => (
+                                            {availablePreSelectedProducts.map((productKey) => (
                                                 <SelectableProductCard
                                                     key={productKey}
                                                     product={availableOnboardingProducts[productKey]}
@@ -165,14 +179,14 @@ export function SelectableProductCard({
                                 )}
 
                                 {/* Show all products button */}
-                                {preSelectedProducts.length > 0 && !showAllProducts && (
+                                {availablePreSelectedProducts.length > 0 && !showAllProducts && (
                                     <button
                                         onClick={() => {
                                             setShowAllProducts(true)
                                             if (window.posthog) {
                                                 window.posthog.capture('onboarding_show_all_products_clicked', {
                                                     use_case: useCase,
-                                                    recommended_count: preSelectedProducts.length,
+                                                    recommended_count: availablePreSelectedProducts.length,
                                                 })
                                             }
                                         }}
@@ -184,13 +198,13 @@ export function SelectableProductCard({
                                 )}
 
                                 {/* All other products - shown when expanded OR when no use case selected */}
-                                {((showAllProducts && preSelectedProducts.length > 0) ||
-                                    preSelectedProducts.length === 0) &&
+                                {((showAllProducts && availablePreSelectedProducts.length > 0) ||
+                                    availablePreSelectedProducts.length === 0) &&
                                     otherProducts.length > 0 && (
                                         <div className="mb-6 max-w-[800px] w-full">
                                             <div className="flex flex-col gap-3 items-center">
                                                 {/* Collapse button - above product list */}
-                                                {showAllProducts && preSelectedProducts.length > 0 && (
+                                                {showAllProducts && availablePreSelectedProducts.length > 0 && (
                                                     <button
                                                         onClick={() => setShowAllProducts(false)}
                                                         className="text-muted hover:text-default text-sm mb-2 flex items-center gap-1 cursor-pointer"
@@ -202,10 +216,10 @@ export function SelectableProductCard({
                                                 {otherProducts.map((productKey) => (
                                                     <SelectableProductCard
                                                         key={productKey}
-                                                        product={availableOnboardingProducts[productKey as ProductKey]}
+                                                        product={availableOnboardingProducts[productKey]}
                                                         productKey={productKey}
-                                                        onClick={() => toggleSelectedProduct(productKey as ProductKey)}
-                                                        selected={selectedProducts.includes(productKey as ProductKey)}
+                                                        onClick={() => toggleSelectedProduct(productKey)}
+                                                        selected={selectedProducts.includes(productKey)}
                                                         orientation="horizontal"
                                                         showDescription={true}
                                                         className="w-full"
@@ -216,15 +230,15 @@ export function SelectableProductCard({
                                     )}
                             </>
                         ) : (
-                            // OLD LAYOUT: Flex wrap layout (when feature flag is OFF)
+                            // OLD LAYOUT: Flex wrap layout (when use case onboarding is disabled)
                             <div className="flex flex-row flex-wrap gap-4 justify-center max-w-[680px]">
-                                {Object.keys(availableOnboardingProducts).map((productKey) => (
+                                {AVAILABLE_ONBOARDING_PRODUCT_KEYS.map((productKey) => (
                                     <SelectableProductCard
                                         key={productKey}
-                                        product={availableOnboardingProducts[productKey as ProductKey]}
+                                        product={availableOnboardingProducts[productKey]}
                                         productKey={productKey}
-                                        onClick={() => toggleSelectedProduct(productKey as ProductKey)}
-                                        selected={selectedProducts.includes(productKey as ProductKey)}
+                                        onClick={() => toggleSelectedProduct(productKey)}
+                                        selected={selectedProducts.includes(productKey)}
                                         orientation="vertical"
                                         showDescription={false}
                                         className="w-[160px]"
@@ -256,10 +270,9 @@ export function SelectableProductCard({
                                         <LemonSelect
                                             value={firstProductOnboarding}
                                             options={selectedProducts.map((productKey) => ({
-                                                label:
-                                                    availableOnboardingProducts[
-                                                        productKey as keyof typeof availableOnboardingProducts
-                                                    ]?.name ?? '',
+                                                label: isAvailableOnboardingProductKey(productKey)
+                                                    ? availableOnboardingProducts[productKey].name
+                                                    : productKey,
                                                 value: productKey,
                                             }))}
                                             onChange={(value) => value && setFirstProductOnboarding(value)}

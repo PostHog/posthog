@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { getRelativeNextPath } from 'lib/utils'
@@ -51,6 +51,12 @@ export const productsLogic = kea<productsLogicType>([
             {
                 setUseCase: (_, { useCase }) => useCase,
             },
+        ],
+    }),
+    selectors({
+        isUseCaseOnboardingEnabled: [
+            (s) => [s.useCase],
+            (useCase: string | null): boolean => !!useCase && useCase !== 'pick_myself',
         ],
     }),
     listeners(({ actions, values }) => ({
