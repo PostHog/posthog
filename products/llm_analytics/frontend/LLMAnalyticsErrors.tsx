@@ -18,7 +18,7 @@ import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 
 export function LLMAnalyticsErrors(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setErrorsSort } = useActions(llmAnalyticsLogic)
-    const { errorsQuery, errorsSort } = useValues(llmAnalyticsLogic)
+    const { errorsQuery, errorsSort, dateFilter } = useValues(llmAnalyticsLogic)
 
     const { renderSortableColumnTitle } = useSortableColumns(errorsSort, setErrorsSort)
 
@@ -87,6 +87,8 @@ export function LLMAnalyticsErrors(): JSX.Element {
                                                             value: token,
                                                         })),
                                                     ],
+                                                    date_from: dateFilter.dateFrom,
+                                                    date_to: dateFilter.dateTo,
                                                 }).url
                                             }
                                             className="font-mono text-sm"
