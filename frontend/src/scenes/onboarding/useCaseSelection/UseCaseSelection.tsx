@@ -34,7 +34,7 @@ export function UseCaseSelection(): JSX.Element {
                             onClick={() => selectUseCase(useCase.key)}
                             hoverEffect
                         >
-                            <div className="flex items-start gap-4">
+                            <div className="flex items-center gap-4">
                                 <div className="text-3xl flex-shrink-0">
                                     {getProductIcon(useCase.iconColor, useCase.iconKey, 'text-3xl')}
                                 </div>

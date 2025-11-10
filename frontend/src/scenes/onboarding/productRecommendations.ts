@@ -23,7 +23,7 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
     {
         key: 'see_user_behavior',
         title: 'Understand how users behave',
-        description: 'Track, analyze, and understand what users do with funnels, trends, and session recordings',
+        description: 'Track, analyze, and understand what users do with funnels and trends',
         iconKey: 'IconGraph',
         iconColor: 'rgb(47 128 250)',
         products: [ProductKey.PRODUCT_ANALYTICS, ProductKey.SESSION_REPLAY],
