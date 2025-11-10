@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 
-from django.core.exceptions import ObjectDoesNotExist
-
-from asgiref.sync import sync_to_async
 from temporalio import activity
+
+from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
@@ -20,17 +19,19 @@ class CreateSandboxFromSnapshotInput:
 
 
 @activity.defn
-async def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> str:
+@asyncify
+def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> str:
     """Create a sandbox from a snapshot for task execution. Returns sandbox_id when running."""
-    async with log_activity_execution(
+
+    with log_activity_execution(
         "create_sandbox_from_snapshot",
         distinct_id=input.distinct_id,
         task_id=input.task_id,
         snapshot_id=input.snapshot_id,
     ):
         try:
-            snapshot = await sync_to_async(SandboxSnapshot.objects.get)(id=input.snapshot_id)
-        except ObjectDoesNotExist:
+            snapshot = SandboxSnapshot.objects.get(id=input.snapshot_id)
+        except SandboxSnapshot.DoesNotExist:
             raise SnapshotNotFoundError(f"Snapshot {input.snapshot_id} not found", {"snapshot_id": input.snapshot_id})
 
         if snapshot.status != SandboxSnapshot.Status.COMPLETE:
@@ -47,6 +48,6 @@ async def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) ->
             metadata={"task_id": input.task_id},
         )
 
-        sandbox = await Sandbox.create(config)
+        sandbox = Sandbox.create(config)
 
         return sandbox.id

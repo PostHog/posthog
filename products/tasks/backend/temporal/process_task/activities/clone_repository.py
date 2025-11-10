@@ -2,6 +2,8 @@ from dataclasses import dataclass
 
 from temporalio import activity
 
+from posthog.temporal.common.utils import asyncify
+
 from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, RepositoryCloneError
 from products.tasks.backend.temporal.observability import log_activity_execution
@@ -19,9 +21,10 @@ class CloneRepositoryInput:
 
 
 @activity.defn
-async def clone_repository(input: CloneRepositoryInput) -> str:
+@asyncify
+def clone_repository(input: CloneRepositoryInput) -> str:
     """Clone repository into sandbox. Idempotent: wipes existing directory. Returns clone logs."""
-    async with log_activity_execution(
+    with log_activity_execution(
         "clone_repository",
         distinct_id=input.distinct_id,
         task_id=input.task_id,
@@ -29,17 +32,17 @@ async def clone_repository(input: CloneRepositoryInput) -> str:
         repository=input.repository,
     ):
         try:
-            github_token = await get_github_token(input.github_integration_id)
+            github_token = get_github_token(input.github_integration_id)
         except Exception as e:
             raise GitHubAuthenticationError(
                 f"Failed to get GitHub token for integration {input.github_integration_id}",
                 {"github_integration_id": input.github_integration_id, "error": str(e)},
             )
 
-        sandbox = await Sandbox.get_by_id(input.sandbox_id)
+        sandbox = Sandbox.get_by_id(input.sandbox_id)
 
         try:
-            result = await sandbox.clone_repository(input.repository, github_token)
+            result = sandbox.clone_repository(input.repository, github_token)
         except Exception as e:
             raise RepositoryCloneError(
                 f"Failed to clone repository {input.repository}",

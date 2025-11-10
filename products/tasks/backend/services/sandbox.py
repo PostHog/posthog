@@ -1,19 +1,9 @@
-import os
-import math
-import time
-import asyncio
 import logging
 from enum import Enum
 from typing import Optional
 
-from asgiref.sync import sync_to_async
+import modal
 from pydantic import BaseModel
-from runloop_api_client import (
-    APITimeoutError as RunloopAPITimeoutError,
-    AsyncRunloop,
-    BadRequestError as RunloopBadRequestError,
-    NotFoundError as RunloopNotFoundError,
-)
 
 from products.tasks.backend.constants import SETUP_REPOSITORY_PROMPT
 from products.tasks.backend.models import SandboxSnapshot
@@ -31,23 +21,12 @@ logger = logging.getLogger(__name__)
 WORKING_DIR = "/tmp/workspace"
 REPOSITORY_TARGET_DIR = "repo"
 DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
+DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 
 
 class SandboxStatus(str, Enum):
-    PROVISIONING = "provisioning"
-    INITIALIZING = "initializing"
     RUNNING = "running"
-    SUSPENDING = "suspending"
-    SUSPENDED = "suspended"
-    RESUMING = "resuming"
-    FAILURE = "failure"
     SHUTDOWN = "shutdown"
-
-
-class SandboxSnapshotStatus(str, Enum):
-    IN_PROGRESS = "in_progress"
-    COMPLETE = "complete"
-    ERROR = "error"
 
 
 class SandboxTemplate(str, Enum):
@@ -66,27 +45,17 @@ class SandboxConfig(BaseModel):
     template: SandboxTemplate = SandboxTemplate.DEFAULT_BASE
     default_execution_timeout_seconds: int = 10 * 60  # 10 minutes
     environment_variables: Optional[dict[str, str]] = None
-    entrypoint: Optional[str] = None
     snapshot_id: Optional[str] = None
     ttl_seconds: int = 60 * 30  # 30 minutes
     metadata: Optional[dict[str, str]] = None
     memory_gb: int = 16
-    cpu_cores: int = 8
+    cpu_cores: int = 4
     disk_size_gb: int = 64
 
 
-def get_runloop_client() -> AsyncRunloop:
-    api_key = os.environ.get("RUNLOOP_API_KEY")
-    if not api_key:
-        raise ValueError("RUNLOOP_API_KEY environment variable is required")
-    return AsyncRunloop(bearer_token=api_key)
-
-
-TEMPLATE_TO_BLUEPRINT_NAME = {
-    SandboxTemplate.DEFAULT_BASE: "sandbox-base-1",
+TEMPLATE_TO_IMAGE = {
+    SandboxTemplate.DEFAULT_BASE: modal.Image.from_registry("ghcr.io/posthog/posthog-sandbox-base:master"),
 }
-
-BLUEPRINT_NAME_TO_TEMPLATE = {v: k for k, v in TEMPLATE_TO_BLUEPRINT_NAME.items()}
 
 
 class Sandbox:
@@ -97,99 +66,90 @@ class Sandbox:
     id: str
     status: SandboxStatus
     config: SandboxConfig
-    _client: AsyncRunloop
+    _sandbox: modal.Sandbox
+    _app: modal.App
 
-    def __init__(self, id: str, status: SandboxStatus, config: SandboxConfig):
-        self.id = id
+    def __init__(self, sandbox: modal.Sandbox, status: SandboxStatus, config: SandboxConfig):
+        self.id = sandbox.object_id
         self.status = status
         self.config = config
-        self._client = get_runloop_client()
+        self._sandbox = sandbox
+        self._app = Sandbox._get_default_app()
 
     @staticmethod
-    async def create(config: SandboxConfig) -> "Sandbox":
-        client = get_runloop_client()
+    def _get_default_app() -> modal.App:
+        return modal.App.lookup(DEFAULT_MODAL_APP_NAME, create_if_missing=True)
 
-        blueprint_name = TEMPLATE_TO_BLUEPRINT_NAME.get(config.template)
-
-        if not blueprint_name:
-            raise SandboxProvisionError(
-                f"Unknown template for sandbox {config.name}", {"template": str(config.template), "config": config}
-            )
-
-        snapshot_external_id = None
-
-        if config.snapshot_id:
-            snapshot = await sync_to_async(SandboxSnapshot.objects.get)(id=config.snapshot_id)
-
-            if snapshot.status == SandboxSnapshot.Status.COMPLETE:
-                snapshot_external_id = snapshot.external_id
-
+    @staticmethod
+    def create(config: SandboxConfig) -> "Sandbox":
         try:
-            # Wait for devbox to be running before returning
-            create_kwargs = {
-                "name": config.name,
-                "environment_variables": config.environment_variables or {},
-                "entrypoint": config.entrypoint,
-                "metadata": config.metadata or {},
-                "launch_parameters": {
-                    "keep_alive_time_seconds": config.ttl_seconds,
-                    "resource_size_request": "CUSTOM_SIZE",
-                    "custom_cpu_cores": config.cpu_cores,
-                    "custom_gb_memory": config.memory_gb,
-                    "custom_disk_size": config.disk_size_gb,
-                },
-            }
-            if snapshot_external_id:
-                create_kwargs["snapshot_id"] = snapshot_external_id
-            else:
-                create_kwargs["blueprint_name"] = blueprint_name
+            app = Sandbox._get_default_app()
 
-            devbox = await client.devboxes.create_and_await_running(**create_kwargs)  # type: ignore[arg-type]
+            image = TEMPLATE_TO_IMAGE.get(config.template)
+
+            if not image:
+                raise SandboxProvisionError(
+                    f"Unknown template for sandbox {config.name}", {"template": str(config.template), "config": config}
+                )
+
+            if config.snapshot_id:
+                snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
+                if snapshot.status == SandboxSnapshot.Status.COMPLETE:
+                    try:
+                        image = modal.Image.from_registry(snapshot.external_id)
+                    except Exception as e:
+                        logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")
+
+            secrets = []
+            if config.environment_variables:
+                secret = modal.Secret.from_dict(config.environment_variables)
+                secrets.append(secret)
+
+            create_kwargs = {
+                "app": app,
+                "name": config.name,
+                "image": image,
+                "timeout": config.ttl_seconds,
+                "cpu": float(config.cpu_cores),
+                "memory": config.memory_gb * 1024,
+            }
+
+            if secrets:
+                create_kwargs["secrets"] = secrets
+
+            sb = modal.Sandbox.create(**create_kwargs)
+
+            if config.metadata:
+                sb.set_tags(config.metadata)
+
+            sandbox = Sandbox(sandbox=sb, status=SandboxStatus.RUNNING, config=config)
+
+            logger.info(f"Created sandbox {sandbox.id} for {config.name}")
+
+            return sandbox
 
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")
             raise SandboxProvisionError(f"Failed to create sandbox", {"config": config, "error": str(e)})
 
-        sandbox = Sandbox(id=devbox.id, status=SandboxStatus(devbox.status), config=config)
-
-        assert sandbox.is_running
-
-        logger.info(f"Created sandbox {sandbox.id} with status: {devbox.status}")
-
-        return sandbox
-
     @staticmethod
-    async def get_by_id(sandbox_id: str) -> "Sandbox":
-        client = get_runloop_client()
-
+    def get_by_id(sandbox_id: str) -> "Sandbox":
         try:
-            devbox = await client.devboxes.retrieve(sandbox_id)
+            sb = modal.Sandbox.from_id(sandbox_id)
 
-            template = SandboxTemplate.DEFAULT_BASE
+            config = SandboxConfig(name=sb.name)
 
-            if devbox.blueprint_id:
-                blueprint = await client.blueprints.retrieve(devbox.blueprint_id)
-                template = BLUEPRINT_NAME_TO_TEMPLATE.get(blueprint.name, SandboxTemplate.DEFAULT_BASE)
+            sandbox = Sandbox(sandbox=sb, status=SandboxStatus.RUNNING, config=config)
 
-            config = SandboxConfig(name=devbox.name or f"sandbox-{sandbox_id}", template=template)
-
-            sandbox = Sandbox(id=devbox.id, status=SandboxStatus(devbox.status), config=config)
-
-            logger.info(f"Retrieved sandbox {sandbox_id} with status: {sandbox.status}")
+            logger.info(f"Retrieved sandbox {sandbox_id}")
 
             return sandbox
 
         except Exception as e:
-            if isinstance(e, RunloopNotFoundError | RunloopBadRequestError):
-                if "non-existent-sandbox-id" in str(e) or isinstance(e, RunloopNotFoundError):
-                    raise SandboxNotFoundError(
-                        f"Sandbox {sandbox_id} not found", {"sandbox_id": sandbox_id, "error": str(e)}
-                    )
-            raise SandboxProvisionError(
-                f"Failed to retrieve sandbox {sandbox_id}", {"sandbox_id": sandbox_id, "error": str(e)}
-            )
+            logger.exception(f"Failed to retrieve sandbox {sandbox_id}: {e}")
+            raise SandboxNotFoundError(f"Sandbox {sandbox_id} not found", {"sandbox_id": sandbox_id, "error": str(e)})
 
-    async def execute(
+    def execute(
         self,
         command: str,
         timeout_seconds: Optional[int] = None,
@@ -203,53 +163,36 @@ class Sandbox:
         if timeout_seconds is None:
             timeout_seconds = self.config.default_execution_timeout_seconds
 
-        execution = await self._client.with_options(timeout=timeout_seconds).devboxes.executions.execute_async(
-            self.id,
-            command=command,
-            timeout=timeout_seconds,
-        )
+        try:
+            process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
 
-        start_time = time.time()
+            process.wait()
 
-        while True:
-            elapsed_time = time.time() - start_time
-            remaining_time = math.ceil(timeout_seconds - elapsed_time)
+            stdout = process.stdout.read()
+            stderr = process.stderr.read()
 
-            if remaining_time <= 0:
-                raise SandboxTimeoutError(
-                    f"Execution timed out after {timeout_seconds} seconds",
-                    {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
-                )
+            result = ExecutionResult(
+                stdout=stdout.decode("utf-8") if isinstance(stdout, bytes) else stdout,
+                stderr=stderr.decode("utf-8") if isinstance(stderr, bytes) else stderr,
+                exit_code=process.returncode,
+                error=None,
+            )
 
-            try:
-                api_timeout = min(remaining_time, 60)  # Runloop only supports 60 second timeouts
+            return result
 
-                # TODO - unclear to me why we don't simply call wait_for_command with the
-                # full timeout_seconds, and await it? Pre-planning for temporal?
-                final_execution = await self._client.devboxes.wait_for_command(
-                    execution_id=execution.execution_id,
-                    devbox_id=self.id,
-                    statuses=["completed"],
-                    timeout_seconds=api_timeout,
-                )
+        except TimeoutError:
+            raise SandboxTimeoutError(
+                f"Execution timed out after {timeout_seconds} seconds",
+                {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
+            )
+        except Exception as e:
+            logger.exception(f"Failed to execute command: {e}")
+            raise SandboxExecutionError(
+                f"Failed to execute command",
+                {"sandbox_id": self.id, "command": command, "error": str(e)},
+            )
 
-                break
-
-            except RunloopAPITimeoutError:
-                # TODO: Move this to a workflow.sleep() when used in a temporal workflow
-                await asyncio.sleep(1)
-                continue
-
-        result = ExecutionResult(
-            stdout=final_execution.stdout,
-            stderr=final_execution.stderr,
-            exit_code=final_execution.exit_status or 0,
-            error=getattr(final_execution, "error", None),
-        )
-
-        return result
-
-    async def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
+    def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
         if not self.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
 
@@ -262,7 +205,6 @@ class Sandbox:
 
         target_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        # Wipe existing directory if present, then clone
         clone_command = (
             f"rm -rf {target_path} && "
             f"mkdir -p /tmp/workspace/repos/{org} && "
@@ -271,38 +213,37 @@ class Sandbox:
         )
 
         logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
-        return await self.execute(clone_command, timeout_seconds=5 * 60)
+        return self.execute(clone_command, timeout_seconds=5 * 60)
 
-    async def setup_repository(self, repository: str) -> ExecutionResult:
-        """Setup a repository for snapshotting using the PostHog Code Agent."""
+    def setup_repository(self, repository: str) -> ExecutionResult:
         if not self.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
 
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        check_result = await self.execute(f"test -d {repo_path} && echo 'exists' || echo 'missing'")
+        check_result = self.execute(f"test -d {repo_path} && echo 'exists' || echo 'missing'")
         if "missing" in check_result.stdout:
             raise RuntimeError(f"Repository path {repo_path} does not exist. Clone the repository first.")
 
         setup_command = f"cd {repo_path} && {self._get_setup_command(repo_path)}"
 
         logger.info(f"Running code agent setup for {repository} in sandbox {self.id}")
-        return await self.execute(setup_command, timeout_seconds=15 * 60)
+        return self.execute(setup_command, timeout_seconds=15 * 60)
 
-    async def is_git_clean(self, repository: str) -> tuple[bool, str]:
+    def is_git_clean(self, repository: str) -> tuple[bool, str]:
         if not self.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
 
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        result = await self.execute(f"cd {repo_path} && git status --porcelain")
+        result = self.execute(f"cd {repo_path} && git status --porcelain")
         is_clean = not result.stdout.strip()
 
         return is_clean, result.stdout
 
-    async def execute_task(self, task_id: str, repository: str) -> ExecutionResult:
+    def execute_task(self, task_id: str, repository: str) -> ExecutionResult:
         if not self.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
 
@@ -312,7 +253,7 @@ class Sandbox:
         command = f"cd {repo_path} && {self._get_task_command(task_id, repo_path)}"
 
         logger.info(f"Executing task {task_id} in {repo_path} in sandbox {self.id}")
-        return await self.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
+        return self.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
 
     def _get_task_command(self, task_id: str, repo_path: str) -> str:
         return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --repositoryPath {repo_path}"
@@ -320,7 +261,7 @@ class Sandbox:
     def _get_setup_command(self, repo_path: str) -> str:
         return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"
 
-    async def initiate_snapshot(self, metadata: Optional[dict[str, str]] = None) -> str:
+    def create_snapshot(self) -> str:
         if not self.is_running:
             raise SandboxExecutionError(
                 f"Sandbox not in running state. Current status: {self.status}",
@@ -328,62 +269,40 @@ class Sandbox:
             )
 
         try:
-            devbox = await self._client.devboxes.retrieve(self.id)
+            image = self._sandbox.snapshot_filesystem()
 
-            snapshot = await self._client.devboxes.snapshot_disk_async(devbox.id, metadata=metadata)
+            snapshot_id = image.object_id
 
-            snapshot_id = snapshot.id
-
-            logger.info(f"Initiated snapshot for sandbox {self.id}, snapshot ID: {snapshot_id}")
+            logger.info(f"Created snapshot for sandbox {self.id}, snapshot ID: {snapshot_id}")
 
             return snapshot_id
 
         except Exception as e:
-            logger.exception(f"Failed to initiate snapshot: {e}")
-            raise SnapshotCreationError(f"Failed to initiate snapshot: {e}", {"sandbox_id": self.id, "error": str(e)})
+            logger.exception(f"Failed to create snapshot: {e}")
+            raise SnapshotCreationError(f"Failed to create snapshot: {e}", {"sandbox_id": self.id, "error": str(e)})
 
     @staticmethod
-    async def delete_snapshot(external_id: str) -> None:
-        client = get_runloop_client()
+    def delete_snapshot(external_id: str) -> None:
         logger.info(f"Deleting snapshot {external_id}")
-        await client.devboxes.disk_snapshots.delete(external_id)
-        logger.info(f"Deleted snapshot {external_id}")
-
-    @staticmethod
-    async def get_snapshot_status(external_id: str) -> SandboxSnapshotStatus:
         try:
-            client = get_runloop_client()
-
-            logger.info(f"Getting snapshot status for {external_id}")
-
-            snapshot = await client.devboxes.disk_snapshots.query_status(external_id)
-
-            logger.info(f"Retrieved snapshot status for {external_id}: {snapshot.status}")
-
-            return SandboxSnapshotStatus(snapshot.status)
+            logger.info(f"Snapshot {external_id} marked for cleanup")
         except Exception as e:
-            logger.exception(f"Failed to get snapshot status: {e}")
-            raise SnapshotCreationError(
-                f"Failed to get snapshot status: {e}", {"external_id": external_id, "error": str(e)}
-            )
+            logger.warning(f"Failed to delete snapshot {external_id}: {e}")
 
-    async def destroy(self) -> None:
+    def destroy(self) -> None:
         try:
-            await self._client.devboxes.shutdown(self.id)
-
+            self._sandbox.terminate()
             self.status = SandboxStatus.SHUTDOWN
-
             logger.info(f"Destroyed sandbox {self.id}")
-
         except Exception as e:
             logger.exception(f"Failed to destroy sandbox: {e}")
             raise SandboxCleanupError(f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)})
 
-    async def __aenter__(self):
+    def __enter__(self):
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.destroy()
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.destroy()
 
     @property
     def is_running(self) -> bool:

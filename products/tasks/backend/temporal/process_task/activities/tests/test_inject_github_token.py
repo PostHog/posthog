@@ -11,11 +11,13 @@ from products.tasks.backend.temporal.process_task.activities.inject_github_token
 )
 
 
-@pytest.mark.skipif(not os.environ.get("RUNLOOP_API_KEY"), reason="RUNLOOP_API_KEY environment variable not set")
+@pytest.mark.skipif(
+    not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"),
+    reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
+)
 class TestInjectGitHubTokenActivity:
-    @pytest.mark.asyncio
     @pytest.mark.django_db
-    async def test_inject_github_token_success(self, activity_environment, github_integration):
+    def test_inject_github_token_success(self, activity_environment, github_integration):
         config = SandboxConfig(
             name="test-inject-token-success",
             template=SandboxTemplate.DEFAULT_BASE,
@@ -23,7 +25,7 @@ class TestInjectGitHubTokenActivity:
 
         sandbox = None
         try:
-            sandbox = await Sandbox.create(config)
+            sandbox = Sandbox.create(config)
 
             input_data = InjectGitHubTokenInput(
                 sandbox_id=sandbox.id,
@@ -39,19 +41,18 @@ class TestInjectGitHubTokenActivity:
             ) as mock_get_token:
                 mock_get_token.return_value = test_token
 
-                await activity_environment.run(inject_github_token, input_data)
+                activity_environment.run(inject_github_token, input_data)
 
-                check_result = await sandbox.execute("bash -c 'source ~/.bashrc && echo $GITHUB_TOKEN'")
+                check_result = sandbox.execute("bash -c 'source ~/.bashrc && echo $GITHUB_TOKEN'")
                 assert check_result.exit_code == 0
                 assert test_token in check_result.stdout
 
         finally:
             if sandbox:
-                await sandbox.destroy()
+                sandbox.destroy()
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db
-    async def test_inject_github_token_sandbox_not_found(self, activity_environment, github_integration):
+    def test_inject_github_token_sandbox_not_found(self, activity_environment, github_integration):
         input_data = InjectGitHubTokenInput(
             sandbox_id="non-existent-sandbox-id",
             github_integration_id=github_integration.id,
@@ -65,4 +66,4 @@ class TestInjectGitHubTokenActivity:
             mock_get_token.return_value = "test_token"
 
             with pytest.raises(SandboxNotFoundError):
-                await activity_environment.run(inject_github_token, input_data)
+                activity_environment.run(inject_github_token, input_data)

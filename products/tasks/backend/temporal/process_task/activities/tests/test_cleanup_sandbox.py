@@ -1,5 +1,6 @@
 import os
-import asyncio
+import time
+import threading
 
 import pytest
 
@@ -7,90 +8,82 @@ from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, Sand
 from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 
 
-@pytest.mark.skipif(not os.environ.get("RUNLOOP_API_KEY"), reason="RUNLOOP_API_KEY environment variable not set")
+@pytest.mark.skipif(
+    not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"),
+    reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
+)
 class TestCleanupSandboxActivity:
-    @pytest.mark.asyncio
     @pytest.mark.django_db
-    async def test_cleanup_sandbox_success(self, activity_environment):
+    def test_cleanup_sandbox_success(self, activity_environment):
         config = SandboxConfig(
             name="test-cleanup-sandbox",
             template=SandboxTemplate.DEFAULT_BASE,
         )
 
-        sandbox = await Sandbox.create(config)
+        sandbox = Sandbox.create(config)
         sandbox_id = sandbox.id
 
-        existing_sandbox = await Sandbox.get_by_id(sandbox_id)
+        existing_sandbox = Sandbox.get_by_id(sandbox_id)
         assert existing_sandbox.id == sandbox_id
 
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
 
-        await activity_environment.run(cleanup_sandbox, input_data)
+        activity_environment.run(cleanup_sandbox, input_data)
 
-        cleaned_sandbox = await Sandbox.get_by_id(sandbox_id)
+        cleaned_sandbox = Sandbox.get_by_id(sandbox_id)
         assert cleaned_sandbox.status.value == "shutdown"
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db
-    async def test_cleanup_sandbox_not_found_does_not_raise(self, activity_environment):
+    def test_cleanup_sandbox_not_found_does_not_raise(self, activity_environment):
         input_data = CleanupSandboxInput(sandbox_id="non-existent-sandbox-id")
 
-        # cleanup_sandbox is idempotent and doesn't raise if sandbox doesn't exist
-        await activity_environment.run(cleanup_sandbox, input_data)
+        activity_environment.run(cleanup_sandbox, input_data)
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db
-    async def test_cleanup_sandbox_idempotency(self, activity_environment):
+    def test_cleanup_sandbox_idempotency(self, activity_environment):
         config = SandboxConfig(
             name="test-cleanup-idempotent",
             template=SandboxTemplate.DEFAULT_BASE,
         )
 
-        sandbox = await Sandbox.create(config)
+        sandbox = Sandbox.create(config)
         sandbox_id = sandbox.id
 
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
 
-        # First cleanup - should succeed
-        await activity_environment.run(cleanup_sandbox, input_data)
+        activity_environment.run(cleanup_sandbox, input_data)
 
-        cleaned_sandbox = await Sandbox.get_by_id(sandbox_id)
+        cleaned_sandbox = Sandbox.get_by_id(sandbox_id)
         assert cleaned_sandbox.status.value == "shutdown"
 
-        # Second cleanup - should still work on shutdown sandbox
-        await activity_environment.run(cleanup_sandbox, input_data)
+        activity_environment.run(cleanup_sandbox, input_data)
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db
-    async def test_cleanup_sandbox_during_execution(self, activity_environment):
+    def test_cleanup_sandbox_during_execution(self, activity_environment):
         config = SandboxConfig(
             name="test-cleanup-during-execution",
             template=SandboxTemplate.DEFAULT_BASE,
         )
 
-        sandbox = await Sandbox.create(config)
+        sandbox = Sandbox.create(config)
         sandbox_id = sandbox.id
 
-        async def run_long_command():
+        def run_long_command():
             try:
-                await sandbox.execute("sleep 30", timeout_seconds=60)
+                sandbox.execute("sleep 30", timeout_seconds=60)
             except Exception:
                 pass
 
-        long_task = asyncio.create_task(run_long_command())
+        long_task = threading.Thread(target=run_long_command)
+        long_task.start()
 
-        # Give it a moment to start
-        await asyncio.sleep(5)
+        time.sleep(5)
 
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
-        await activity_environment.run(cleanup_sandbox, input_data)
+        activity_environment.run(cleanup_sandbox, input_data)
 
-        long_task.cancel()
-        try:
-            await long_task
-        except asyncio.CancelledError:
-            pass
+        long_task.join(timeout=5)
 
-        remaining_sandbox = await Sandbox.get_by_id(sandbox_id)
+        remaining_sandbox = Sandbox.get_by_id(sandbox_id)
 
         assert remaining_sandbox.status.value in ["shutdown", "failure"]

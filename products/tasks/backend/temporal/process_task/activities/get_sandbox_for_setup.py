@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 
-from asgiref.sync import sync_to_async
 from temporalio import activity
+
+from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
@@ -18,18 +19,19 @@ class GetSandboxForSetupInput:
 
 
 @activity.defn
-async def get_sandbox_for_setup(input: GetSandboxForSetupInput) -> str:
+@asyncify
+def get_sandbox_for_setup(input: GetSandboxForSetupInput) -> str:
     """
     Get sandbox for setup. Searches for existing snapshot to use as base,
     otherwise uses default template. Returns sandbox_id when sandbox is running.
     """
-    async with log_activity_execution(
+    with log_activity_execution(
         "get_sandbox_for_setup",
         distinct_id=input.distinct_id,
         task_id=input.task_id,
         github_integration_id=input.github_integration_id,
     ):
-        snapshot = await sync_to_async(SandboxSnapshot.get_latest_snapshot_for_integration)(input.github_integration_id)
+        snapshot = SandboxSnapshot.get_latest_snapshot_for_integration(input.github_integration_id)
 
         config = SandboxConfig(
             name=get_sandbox_name_for_task(input.task_id),
@@ -39,6 +41,6 @@ async def get_sandbox_for_setup(input: GetSandboxForSetupInput) -> str:
             metadata={"task_id": input.task_id},
         )
 
-        sandbox = await Sandbox.create(config)
+        sandbox = Sandbox.create(config)
 
         return sandbox.id

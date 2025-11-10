@@ -4,6 +4,7 @@ from typing import Optional
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.exceptions import SandboxExecutionError, TaskExecutionFailedError
@@ -29,19 +30,20 @@ class ExecuteTaskOutput:
 
 
 @activity.defn
-async def execute_task_in_sandbox(input: ExecuteTaskInput) -> ExecuteTaskOutput:
+@asyncify
+def execute_task_in_sandbox(input: ExecuteTaskInput) -> ExecuteTaskOutput:
     """Execute the code agent task in the sandbox."""
-    async with log_activity_execution(
+    with log_activity_execution(
         "execute_task_in_sandbox",
         distinct_id=input.distinct_id,
         task_id=input.task_id,
         sandbox_id=input.sandbox_id,
         repository=input.repository,
     ):
-        sandbox = await Sandbox.get_by_id(input.sandbox_id)
+        sandbox = Sandbox.get_by_id(input.sandbox_id)
 
         try:
-            result = await sandbox.execute_task(input.task_id, input.repository)
+            result = sandbox.execute_task(input.task_id, input.repository)
         except Exception as e:
             raise SandboxExecutionError(
                 f"Failed to execute task in sandbox",

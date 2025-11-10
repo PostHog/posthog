@@ -1,5 +1,5 @@
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Optional
 
 import posthoganalytics
@@ -42,12 +42,12 @@ def log_with_workflow_context(message: str, **extra_context: Any) -> None:
     bound_logger.info(message)
 
 
-@asynccontextmanager
-async def log_activity_execution(
+@contextmanager
+def log_activity_execution(
     activity_name: str,
     distinct_id: Optional[str] = None,
     **context: Any,
-) -> AsyncIterator[None]:
+) -> Iterator[None]:
     """Context manager for activity execution with automatic logging and analytics.
 
     Automatically tracks:
