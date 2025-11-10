@@ -20,7 +20,8 @@ from posthog.temporal.data_imports.sources.zendesk.settings import (
     SUPPORT_ENDPOINTS,
 )
 from posthog.temporal.data_imports.sources.zendesk.zendesk import validate_credentials, zendesk_source
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

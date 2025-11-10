@@ -247,8 +247,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     }
                 />
 
-                <SceneDivider />
-
                 <SceneSection
                     title="Match groups"
                     className="@container"

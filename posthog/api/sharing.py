@@ -157,7 +157,6 @@ def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset 
             "insight": resource.insight.pk if resource.insight else None,
             "dashboard": resource.dashboard.pk if resource.dashboard else None,
             "export_format": "image/png",
-            "expires_after": now() + timedelta(hours=3),
         },
         context={"team_id": cast(Team, resource.team).pk},
     )
@@ -785,7 +784,15 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             heatmap_url = resource.export_context.get("heatmap_url")
 
             if not heatmap_url:
-                raise NotFound("Invalid replay export - missing heatmap_url")
+                raise NotFound("Invalid heatmap export - missing heatmap_url")
+
+            heatmap_data_url = resource.export_context.get("heatmap_data_url")
+            if not heatmap_data_url:
+                raise NotFound("Invalid heatmap export - missing heatmap_data_url")
+
+            heatmap_type = resource.export_context.get("heatmap_type")
+            if not heatmap_type:
+                raise NotFound("Invalid heatmap export - missing heatmap_type")
 
             try:
                 # Create a JWT to access the heatmap data
@@ -804,6 +811,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     {
                         "type": "heatmap",
                         "heatmap_url": heatmap_url,
+                        "heatmap_data_url": heatmap_data_url,
+                        "heatmap_type": heatmap_type,
                         "exportToken": export_access_token,
                         "noBorder": True,
                         "heatmap_context": resource.export_context,

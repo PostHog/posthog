@@ -47,8 +47,13 @@ from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
-from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 
+from products.data_warehouse.backend.models import (
+    DataWarehouseSavedQuery,
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+)
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 
 logger = structlog.get_logger(__name__)
@@ -1256,6 +1261,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.local_evaluation_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
+        or report.free_historical_rows_synced_in_period > 0
         or report.cdp_billable_invocations_in_period > 0
         or report.rows_exported_in_period > 0
         or report.exceptions_captured_in_period > 0

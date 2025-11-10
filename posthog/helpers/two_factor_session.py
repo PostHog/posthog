@@ -13,6 +13,7 @@ from posthoganalytics import capture_exception
 from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
+from posthog.cloud_utils import is_dev_mode
 from posthog.email import is_email_available
 from posthog.models.user import User
 from posthog.settings.web import AUTHENTICATION_BACKENDS
@@ -213,6 +214,9 @@ email_mfa_token_generator = EmailMFATokenGenerator()
 
 class EmailMFAVerifier:
     def should_send_email_mfa_verification(self, user: User) -> bool:
+        if is_dev_mode() and not settings.TEST:
+            return False
+
         if not is_email_available(with_absolute_urls=True):
             return False
 

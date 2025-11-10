@@ -7,6 +7,7 @@ import {
     generationFailureChunk,
     humanMessage,
     longResponseChunk,
+    sqlQueryResponseChunk,
 } from './__mocks__/chatResponse.mocks'
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
@@ -36,7 +37,7 @@ import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
 const meta: Meta = {
-    title: 'Scenes-App/Max AI',
+    title: 'Scenes-App/PostHog AI',
     decorators: [
         mswDecorator({
             post: {
@@ -1269,6 +1270,34 @@ export const MultiVisualizationInThread: StoryFn = () => {
             setTimeout(() => {
                 setConversationId(CONVERSATION_ID)
                 askMax('Analyze our product metrics comprehensively')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+
+export const ThreadWithSQLQueryOverflow: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(sqlQueryResponseChunk)),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Show me a complex SQL query')
             }, 0)
         }
     }, [dataProcessingAccepted, setConversationId, askMax])

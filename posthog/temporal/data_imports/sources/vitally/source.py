@@ -23,7 +23,8 @@ from posthog.temporal.data_imports.sources.vitally.vitally import (
     validate_credentials as validate_vitally_credentials,
     vitally_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

@@ -409,7 +409,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
                 <div>
                     <MaxTool
-                        identifier="edit_current_insight"
+                        identifier="create_and_query_insight"
                         context={{
                             current_query: querySource,
                         }}

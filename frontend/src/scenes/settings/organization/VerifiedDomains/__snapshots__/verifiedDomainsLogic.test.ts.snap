@@ -4,6 +4,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
 {
   "addModalShown": false,
   "configureSAMLModalId": null,
+  "configureSCIMModalId": null,
   "currentOrganization": {
     "allow_publicly_shared_resources": true,
     "available_product_features": [
@@ -132,6 +133,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "person_on_events_querying_enabled": true,
         "primary_dashboard": 1,
         "project_id": 997,
+        "receive_org_level_activity_logs": false,
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
@@ -221,6 +223,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   },
   "domainBeingVerified": null,
   "isSAMLAvailable": true,
+  "isSCIMAvailable": false,
   "isSSOEnforcementAvailable": true,
   "isSamlConfigSubmitting": false,
   "isSamlConfigValid": true,
@@ -237,6 +240,8 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   "samlConfigValidationErrors": {
     "saml_acs_url": undefined,
   },
+  "scimConfig": {},
+  "scimConfigLoading": false,
   "showSamlConfigErrors": false,
   "updatingDomain": false,
   "updatingDomainLoading": false,

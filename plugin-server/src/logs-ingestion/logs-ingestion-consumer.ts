@@ -80,6 +80,7 @@ export class LogsIngestionConsumer {
                     value: message.message.value,
                     key: null,
                     headers: {
+                        ...parseKafkaHeaders(message.message.headers),
                         token: message.token,
                         team_id: message.teamId.toString(),
                     },

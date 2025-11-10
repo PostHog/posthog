@@ -24,8 +24,6 @@ from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
-from ee.hogai.utils.types.base import AssistantNodeName
-from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class HogQLGeneratorArgs(BaseModel):
@@ -65,10 +63,6 @@ class HogQLGeneratorNode(
     def __init__(self, team: Team, user: User, toolkit_class: HogQLGeneratorToolkit):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.HOGQL_GENERATOR
-
     def _get_system_prompt(self) -> ChatPromptTemplate:
         """Get default system prompts. Override in subclasses for custom prompts."""
 
@@ -107,17 +101,12 @@ class HogQLGeneratorToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, Taxonom
     def __init__(self, team: Team, user: User, toolkit_class: HogQLGeneratorToolkit):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.HOGQL_GENERATOR_TOOLS
-
 
 class HogQLGeneratorGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[FinalAnswerArgs]]):
-    def __init__(self, team: Team, user: User, tool_call_id: str):
+    def __init__(self, team: Team, user: User):
         super().__init__(
             team,
             user,
-            tool_call_id,
             loop_node_class=HogQLGeneratorNode,
             tools_node_class=HogQLGeneratorToolsNode,
             toolkit_class=HogQLGeneratorToolkit,
@@ -134,9 +123,7 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
         current_query: str | None = self.context.get("current_query", "")
         user_prompt = HOGQL_GENERATOR_USER_PROMPT.format(instructions=instructions, current_query=current_query)
 
-        graph = HogQLGeneratorGraph(
-            team=self._team, user=self._user, tool_call_id=self._tool_call_id
-        ).compile_full_graph()
+        graph = HogQLGeneratorGraph(team=self._team, user=self._user).compile_full_graph()
 
         graph_context = {
             "change": user_prompt,

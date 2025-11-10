@@ -69,10 +69,12 @@ class ExperimentQueryRunner(QueryRunner):
         self,
         *args,
         override_end_date: Optional[datetime] = None,
+        user_facing: bool = True,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
+        self.user_facing = user_facing
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -160,6 +162,10 @@ class ExperimentQueryRunner(QueryRunner):
                 expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "exposure_session_id"])]),
             ),
             ast.Alias(
+                alias="exposure_timestamp",
+                expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "first_exposure_time"])]),
+            ),
+            ast.Alias(
                 expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team),
                 alias="value",
             ),
@@ -170,6 +176,11 @@ class ExperimentQueryRunner(QueryRunner):
             select_fields.append(
                 parse_expr(
                     "mapFromArrays(groupArray(COALESCE(toString(uuid), '')), groupArray(COALESCE(toString(session_id), ''))) AS uuid_to_session"
+                )
+            )
+            select_fields.append(
+                parse_expr(
+                    "mapFromArrays(groupArray(COALESCE(toString(uuid), '')), groupArray(COALESCE(timestamp, toDateTime(0)))) AS uuid_to_timestamp"
                 )
             )
 
@@ -416,17 +427,17 @@ class ExperimentQueryRunner(QueryRunner):
             step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
             select_fields.append(parse_expr(step_counts_expr))
 
-            # For each step in the funnel, get at least 100 pairs of person_id, session_id and event uuid, that have
+            # For each step in the funnel, get at least 100 pairs of person_id, session_id, event uuid, and timestamp that have
             # that step as their last step in the funnel.
-            # For the users that have 0 matching steps in the funnel (-1), we return the event uuid for the exposure event.
+            # For the users that have 0 matching steps in the funnel (-1), we return the event uuid and timestamp for the exposure event.
             event_uuids_exprs = []
             for i in range(num_steps + 1):
                 event_uuids_expr = f"""
                     groupArraySampleIf(100)(
                         if(
                             metric_events.value.2 != '',
-                            tuple(toString(metric_events.entity_id), uuid_to_session[metric_events.value.2], metric_events.value.2),
-                            tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))),
+                            tuple(toString(metric_events.entity_id), uuid_to_session[metric_events.value.2], metric_events.value.2, toString(uuid_to_timestamp[metric_events.value.2])),
+                            tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid), toString(metric_events.exposure_timestamp))),
                         metric_events.value.1 = {i} - 1
                     )
                 """
@@ -468,20 +479,22 @@ class ExperimentQueryRunner(QueryRunner):
             assert isinstance(self.metric, ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric)
 
             # Get the "missing" (not directly accessible) parameters required for the builder
-            exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
-                self.experiment
-            )
+            (
+                exposure_config,
+                multiple_variant_handling,
+                filter_test_accounts,
+            ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
             builder = ExperimentQueryBuilder(
                 team=self.team,
                 feature_flag_key=self.feature_flag.key,
-                metric=self.metric,
                 exposure_config=exposure_config,
                 filter_test_accounts=filter_test_accounts,
                 multiple_variant_handling=multiple_variant_handling,
                 variants=self.variants,
                 date_range_query=self.date_range_query,
                 entity_key=self.entity_key,
+                metric=self.metric,
             )
             return builder.build_query()
 

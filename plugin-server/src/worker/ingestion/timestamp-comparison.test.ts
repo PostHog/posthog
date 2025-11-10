@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { EventHeaders } from '../../types'
+import type { EventHeaders } from '../../types'
 import { logger } from '../../utils/logger'
 import { compareTimestamps } from './timestamp-comparison'
 

@@ -191,12 +191,12 @@ def my_meta_command() -> None:
 
 ```yaml
 dev:reset:
-    steps:
-        - docker:services:down
-        - docker:services:up
-        - migrations:run
-        - dev:demo-data
-    description: Full reset and reload
+  steps:
+    - docker:services:down
+    - docker:services:up
+    - migrations:run
+    - dev:demo-data
+  description: Full reset and reload
 ```
 
 **4. bin_script** - Delegates to shell script with logic:
@@ -217,26 +217,26 @@ Add to manifest:
 
 ```yaml
 check:my-service:
-    bin_script: my-script
-    description: Check if service is ready
-    services: [docker]
+  bin_script: my-script
+  description: Check if service is ready
+  services: [docker]
 ```
 
 **5. cmd** - Simple shell one-liner:
 
 ```yaml
 lint:
-    cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
-    description: Run code quality checks
+  cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
+  description: Run code quality checks
 ```
 
 **Hiding commands** - Add `hidden: true` to keep callable but remove from help:
 
 ```yaml
 docker:deprecated:
-    bin_script: docker
-    description: '[DEPRECATED] Use `hogli start` instead'
-    hidden: true # Still works, just not shown in --help
+  bin_script: docker
+  description: '[DEPRECATED] Use `hogli start` instead'
+  hidden: true # Still works, just not shown in --help
 ```
 
 #### Guidelines for exposing npm commands
@@ -259,9 +259,9 @@ Add workflow commands with `cmd:` type. If they could be broken into hogli steps
 
 ```yaml
 format:
-    cmd: pnpm format
-    description: Format backend and frontend code
-    # TODO: candidate for conversion to hogli steps
+  cmd: pnpm format
+  description: Format backend and frontend code
+  # TODO: candidate for conversion to hogli steps
 ```
 
 #### Service metadata
@@ -270,8 +270,8 @@ Commands can declare which services they relate to. This enables `hogli meta:con
 
 ```yaml
 command:
-    bin_script: script
-    services: [docker, kafka, postgresql]
+  bin_script: script
+  services: [docker, kafka, postgresql]
 ```
 
 Available services are defined in `manifest.yaml` metadata and auto-linked to commands for help text generation.

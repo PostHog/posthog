@@ -153,3 +153,18 @@ export function cancelEvent(event: MouseEvent): void {
     event.preventDefault()
     event.stopPropagation()
 }
+
+export function sourceDisplay(source: string): string {
+    const components = source.split('/')
+    const fileComponent = components.pop()
+
+    if (!fileComponent) {
+        return ''
+    }
+
+    const fileWithoutExtension = fileComponent.split('.')[0]
+    components.reverse()
+    const index = components.findIndex((item) => /\./.test(item) || item === 'node_modules')
+    const relevantComponents = index >= 0 ? components.slice(0, index) : components
+    return [...relevantComponents.reverse(), fileWithoutExtension].join('.')
+}

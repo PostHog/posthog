@@ -10,10 +10,8 @@ from pydantic import ConfigDict
 
 from posthog.schema import AssistantToolCall, TaskExecutionStatus
 
-from ee.hogai.graph.deep_research.types import DeepResearchNodeName
 from ee.hogai.graph.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
 from ee.hogai.utils.types.base import BaseStateWithTasks, TaskArtifact, TaskResult
-from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class MockTestState(BaseStateWithTasks):
@@ -36,10 +34,6 @@ class TaskExecutorNodeImplementation(BaseTaskExecutorNode[MockTestState, MockPar
         super().__init__(team, user)
         self.input_tuples_called = False
         self.final_state_called = False
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return DeepResearchNodeName.TASK_EXECUTOR
 
     async def arun(self, state: MockTestState, config: RunnableConfig) -> MockPartialTestState:
         """Forward to the base _arun method."""

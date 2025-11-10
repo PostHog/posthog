@@ -3,9 +3,11 @@ import './FunnelBarHorizontal.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
+import { IconInfinity } from '@posthog/icons'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { IconInfinity, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
+import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'

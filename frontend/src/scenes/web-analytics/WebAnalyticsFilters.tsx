@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear, IconGlobe } from '@posthog/icons'
+import { IconGear, IconGlobe, IconPhone } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -8,7 +8,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
-import { IconBranch, IconMonitor, IconPhone } from 'lib/lemon-ui/icons/icons'
+import { IconBranch, IconMonitor } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'

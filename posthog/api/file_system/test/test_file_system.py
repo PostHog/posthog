@@ -237,6 +237,35 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(data2["count"], 1)
         self.assertEqual(data2["results"][0]["path"], "Random/Other File")
 
+    def test_search_plain_tokens_include_type(self):
+        """
+        Plain-text tokens should match across both the path and type fields.
+        """
+
+        FileSystem.objects.create(
+            team=self.team,
+            path="unfiled/scene-tabs",
+            type="feature_flag",
+            created_by=self.user,
+        )
+        FileSystem.objects.create(
+            team=self.team,
+            path="Dashboards/Scene overview",
+            type="dashboard",
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/",
+            {"search": "flag scene tabs"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["path"], "unfiled/scene-tabs")
+        self.assertEqual(data["results"][0]["type"], "feature_flag")
+
     def test_search_hog_function_types(self):
         """
         Ensure the search functionality is working on the 'path' field.

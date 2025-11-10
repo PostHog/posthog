@@ -110,28 +110,24 @@ pub fn read_pairs(
         let entry_path = entry_path?;
 
         if set.is_match(&entry_path) {
-            info!(
-                "Skipping because it matches an ignored glob: {}",
-                entry_path.display()
-            );
+            info!("skip [ignored]: {}", entry_path.display());
             continue;
         }
 
-        info!("Processing file: {}", entry_path.display());
         let source = MinifiedSourceFile::load(&entry_path)?;
         let sourcemap_path = source.get_sourcemap_path(prefix)?;
 
         let Some(path) = sourcemap_path else {
-            warn!(
-                "No sourcemap file found for file {}, skipping",
-                entry_path.display()
-            );
+            warn!("skip [no sourcemap]: {}", entry_path.display());
             continue;
         };
 
+        info!("new pair: {}", entry_path.display());
         let sourcemap = SourceMapFile::load(&path).context(format!("reading {path:?}"))?;
         pairs.push(SourcePair { source, sourcemap });
     }
+
+    info!("found {} pairs", pairs.len());
 
     Ok(pairs)
 }

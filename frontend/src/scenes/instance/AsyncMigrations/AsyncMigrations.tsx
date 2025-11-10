@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconDatabase } from '@posthog/icons'
+import { IconDatabase, IconRefresh } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -13,7 +13,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconPlayCircle, IconRefresh, IconReplay } from 'lib/lemon-ui/icons'
+import { IconPlayCircle, IconReplay } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -281,7 +281,6 @@ export function AsyncMigrations(): JSX.Element {
                         </Link>
                         .
                     </p>
-                    <SceneDivider />
 
                     <LemonTabs sceneInset activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
 

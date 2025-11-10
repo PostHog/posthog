@@ -203,9 +203,7 @@ class Table(FieldOrTable):
         return asterisk
 
 
-class TableNode(
-    BaseModel,
-):
+class TableNode(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: Literal["root"] | str = "root"  # Default to root for ease of use
@@ -405,15 +403,19 @@ class SavedQuery(Table):
     query: str
     name: str
 
+    # Currently only storing metadata related to the managed viewset, but we can expand this in the future
+    # to store any arbitrary data on this that can then be used to check what a specific saved query is about
+    metadata: dict[str, Any] = {}
+
     # Note: redundancy for safety. This validation is used in the data model already
     def to_printed_clickhouse(self, context):
-        from posthog.warehouse.models import validate_saved_query_name
+        from products.data_warehouse.backend.models import validate_saved_query_name
 
         validate_saved_query_name(self.name)
         return self.name
 
     def to_printed_hogql(self):
-        from posthog.warehouse.models import validate_saved_query_name
+        from products.data_warehouse.backend.models import validate_saved_query_name
 
         validate_saved_query_name(self.name)
         return self.name

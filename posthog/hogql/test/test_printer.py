@@ -35,7 +35,8 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
-from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
+
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 
 
 class TestPrinter(BaseTest):

@@ -69,8 +69,8 @@ def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStats
             base_stats["step_counts"] = result[4]
             base_stats["step_sessions"] = [
                 [
-                    SessionData(person_id=person_id, session_id=session_id, event_uuid=event_uuid)
-                    for person_id, session_id, event_uuid in step_sessions
+                    SessionData(person_id=person_id, session_id=session_id, event_uuid=event_uuid, timestamp=timestamp)
+                    for person_id, session_id, event_uuid, timestamp in step_sessions
                 ]
                 for step_sessions in result[5]
             ]

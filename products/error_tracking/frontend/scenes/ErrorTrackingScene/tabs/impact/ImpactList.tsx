@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
+import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, Spinner } from '@posthog/lemon-ui'
 
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'

@@ -8,7 +8,8 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.shopify.settings import INCREMENTAL_SETTINGS
+from posthog.temporal.data_imports.sources.shopify.constants import ID, resolve_schema_name
+from posthog.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from posthog.temporal.data_imports.sources.shopify.utils import ShopifyGraphQLObject, safe_unwrap, unwrap
 
 from .constants import (
@@ -62,6 +63,8 @@ def _make_paginated_shopify_request(
     logger: FilteringBoundLogger,
     query: str | None = None,
 ):
+    endpoint_config = ENDPOINT_CONFIGS.get(graphql_object.name)
+
     @retry(
         retry=retry_if_exception_type(ShopifyRetryableError),
         stop=stop_after_attempt(5),
@@ -94,8 +97,13 @@ def _make_paginated_shopify_request(
     while has_next_page:
         logger.debug(f"Querying shopify endpoint {graphql_object.name} with vars: {vars}")
         payload = execute(vars)
-        data_iter = unwrap(payload, path=f"data.{graphql_object.name}.nodes")
-        yield data_iter
+        data = unwrap(payload, path=f"data.{graphql_object.name}.nodes")
+        if endpoint_config is not None:
+            if endpoint_config.incremental_field_resolver:
+                data = [endpoint_config.incremental_field_resolver(row) for row in data if row.get("discount")]
+            if endpoint_config.partition_key_resolver:
+                data = [endpoint_config.partition_key_resolver(row) for row in data if row.get("discount")]
+        yield data
         page_info = unwrap(payload, path=f"data.{graphql_object.name}.pageInfo")
         has_next_page = page_info.get("hasNextPage", False)
         if has_next_page:
@@ -113,25 +121,27 @@ def shopify_source(
     should_use_incremental_field: bool = False,
 ):
     api_url = SHOPIFY_API_URL.format(shopify_store_id, SHOPIFY_API_VERSION)
+    schema_name = resolve_schema_name(graphql_object_name)
 
     def get_rows():
         sess = requests.Session()
         sess.headers.update({"X-Shopify-Access-Token": shopify_access_token, "Content-Type": "application/json"})
-        graphql_object = SHOPIFY_GRAPHQL_OBJECTS.get(graphql_object_name)
+        graphql_object = SHOPIFY_GRAPHQL_OBJECTS.get(schema_name)
         if not graphql_object:
-            raise Exception(f"Shopify object does not exist: {graphql_object_name}")
+            raise Exception(f"Shopify object does not exist: {schema_name}")
 
-        logger.debug(f"Shopify: reading from resource {graphql_object_name}")
+        logger.debug(f"Shopify: reading from resource {schema_name}")
 
         if not should_use_incremental_field or (
             db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
         ):
-            logger.debug(f"Shopify: iterating all objects from source for {graphql_object_name}")
+            logger.debug(f"Shopify: iterating all objects from source for {schema_name}")
             yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger)
             return
 
-        incremental = INCREMENTAL_SETTINGS.get(graphql_object_name)
-        query_filter = incremental.query_filter if incremental else "created_at"
+        endpoint_config = ENDPOINT_CONFIGS.get(schema_name)
+        # query_filer is ignored if the key isn't present in the endpoint's available query filters
+        query_filter = endpoint_config.query_filter if endpoint_config else "created_at"
 
         # check for any objects less than the minimum object we already have
         if db_incremental_field_earliest_value is not None:
@@ -149,18 +159,19 @@ def shopify_source(
             query = f"{query_filter}:>'{db_incremental_field_last_value}'"
             yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger, query=query)
 
-    incremental = INCREMENTAL_SETTINGS.get(graphql_object_name)
-    partition_key = incremental.partition_keys[0] if incremental and incremental.partition_keys else "created_at"
-
+    endpoint_config = ENDPOINT_CONFIGS.get(schema_name)
+    if not endpoint_config:
+        raise ValueError(f"Endpoint {schema_name} has no config in shopify/settings.py")
     return SourceResponse(
         items=get_rows(),
-        primary_keys=["id"],
+        primary_keys=[ID],
+        # intentionally left as the input object name as the response name needs to match the input name
         name=graphql_object_name,
-        partition_count=1,  # this enables partitioning
-        partition_size=1,  # this enables partitioning
-        partition_mode="datetime",
-        partition_format="month",
-        partition_keys=[partition_key],
+        partition_count=endpoint_config.partition_count,
+        partition_size=endpoint_config.partition_size,
+        partition_mode=endpoint_config.partition_mode,
+        partition_format=endpoint_config.partition_format,
+        partition_keys=endpoint_config.partition_keys,
     )
 
 

@@ -20,7 +20,8 @@ from posthog.temporal.data_imports.sources.google_sheets.google_sheets import (
     google_sheets_client,
     google_sheets_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

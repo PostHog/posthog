@@ -1,8 +1,9 @@
 import asyncio
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
@@ -349,3 +350,83 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         assert mock_async_client.chat_postMessage.call_count == 3
         assert result.is_complete_success
         assert result.main_message_sent
+
+    @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
+    def test_async_delivery_retry_on_invalid_blocks_failure(
+        self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock
+    ) -> None:
+        from slack_sdk.errors import SlackApiError
+        from slack_sdk.web.async_slack_response import AsyncSlackResponse
+
+        mock_slack_integration = MagicMock()
+        MockSlackIntegration.return_value = mock_slack_integration
+
+        mock_async_client = AsyncMock()
+        mock_slack_integration.async_client = MagicMock(return_value=mock_async_client)
+
+        mock_response = {
+            "ok": False,
+            "error": "invalid_blocks",
+            "errors": ["downloading image failed [json-pointer:/blocks/0/image_url]"],
+        }
+        slack_error = SlackApiError(
+            "Error",
+            AsyncSlackResponse(
+                client=None, http_verb="POST", api_url="", req_args={}, data=mock_response, headers={}, status_code=200
+            ),
+        )
+
+        mock_async_client.chat_postMessage.side_effect = [slack_error, slack_error, slack_error]
+        assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
+
+        with pytest.raises(SlackApiError):
+            asyncio.run(
+                send_slack_message_with_integration_async(
+                    self.integration, self.subscription, assets, self.TOTAL_ASSET_COUNT
+                )
+            )
+
+        assert mock_async_client.chat_postMessage.call_count == 3
+        mock_sleep.assert_has_awaits([call(1), call(2)])
+
+    @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
+    def test_async_delivery_retry_on_invalid_blocks_success(
+        self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock
+    ) -> None:
+        from slack_sdk.errors import SlackApiError
+        from slack_sdk.web.async_slack_response import AsyncSlackResponse
+
+        mock_slack_integration = MagicMock()
+        MockSlackIntegration.return_value = mock_slack_integration
+
+        mock_async_client = AsyncMock()
+        mock_slack_integration.async_client = MagicMock(return_value=mock_async_client)
+
+        mock_response = {
+            "ok": False,
+            "error": "invalid_blocks",
+            "errors": ["downloading image failed [json-pointer:/blocks/0/image_url]"],
+        }
+        slack_error = SlackApiError(
+            "Error",
+            AsyncSlackResponse(
+                client=None, http_verb="POST", api_url="", req_args={}, data=mock_response, headers={}, status_code=200
+            ),
+        )
+
+        mock_async_client.chat_postMessage.side_effect = [
+            slack_error,
+            {"ts": "1.234"},
+            {"ts": "2.345"},
+        ]
+        assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
+
+        result = asyncio.run(
+            send_slack_message_with_integration_async(
+                self.integration, self.subscription, assets, self.TOTAL_ASSET_COUNT
+            )
+        )
+
+        assert mock_async_client.chat_postMessage.call_count == 3
+        assert result.is_complete_success
+        mock_sleep.assert_awaited_once_with(1)

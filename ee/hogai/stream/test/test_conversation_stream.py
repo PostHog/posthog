@@ -4,11 +4,12 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.conf import settings
+
 from temporalio.client import WorkflowExecutionStatus
 
 from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
 
-from posthog.constants import MAX_AI_TASK_QUEUE
 from posthog.temporal.ai.conversation import (
     AssistantConversationRunnerWorkflow,
     AssistantConversationRunnerWorkflowInputs,
@@ -90,7 +91,7 @@ class TestConversationStreamManager(BaseTest):
             self.assertEqual(call_args[0][1], workflow_inputs)
 
             # Check keyword arguments
-            self.assertEqual(call_args[1]["task_queue"], MAX_AI_TASK_QUEUE)
+            self.assertEqual(call_args[1]["task_queue"], settings.MAX_AI_TASK_QUEUE)
             self.assertIn("conversation-", call_args[1]["id"])
 
     @patch("ee.hogai.stream.conversation_stream.async_connect")

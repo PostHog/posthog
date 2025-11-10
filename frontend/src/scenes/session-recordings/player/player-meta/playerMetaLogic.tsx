@@ -133,7 +133,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         summarizeSession: () => ({}),
         setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
         setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
-        setPropertySearchQuery: (query: string) => ({ query }),
     }),
     reducers(() => ({
         summaryHasHadFeedback: [
@@ -162,20 +161,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 setIsPropertyPopoverOpen: (_, { isOpen }) => isOpen,
             },
         ],
-        propertySearchQuery: [
-            '',
-            {
-                setPropertySearchQuery: (_, { query }) => query,
-            },
-        ],
-    })),
-    listeners(({ actions }) => ({
-        setIsPropertyPopoverOpen: ({ isOpen }) => {
-            // Clear search query when popover is closed
-            if (!isOpen) {
-                actions.setPropertySearchQuery('')
-            }
-        },
     })),
     selectors(() => ({
         loading: [
@@ -382,70 +367,21 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         displayOverviewItems: [
             (s) => [s.allOverviewItems, s.pinnedProperties],
             (allOverviewItems, pinnedProperties) => {
-                // Filter to show only pinned properties
-                return allOverviewItems.filter((item) => {
+                // Filter to show only pinned properties and sort by pinned order
+                const pinnedItems = allOverviewItems.filter((item) => {
                     const key = item.type === 'property' ? item.property : item.label
                     return pinnedProperties.includes(String(key))
                 })
-            },
-        ],
-        filteredPropertiesWithInfo: [
-            (s) => [s.allOverviewItems, s.propertySearchQuery],
-            (allOverviewItems: OverviewItem[], propertySearchQuery: string) => {
-                // Extract all property keys from allOverviewItems
-                const allPropertyKeys = allOverviewItems
-                    .map((item) => (item.type === 'property' ? item.property : item.label))
-                    .filter((key): key is string => key !== undefined)
-                    .sort()
 
-                return allPropertyKeys
-                    .map((propertyKey) => {
-                        // Find the corresponding overview item to get the label
-                        // so we can check both the key and human-readable label for search
-                        const overviewItem = allOverviewItems.find(
-                            (item) => (item.type === 'property' ? item.property : item.label) === propertyKey
-                        )
-
-                        if (overviewItem) {
-                            return {
-                                propertyKey,
-                                propertyInfo: {
-                                    label: overviewItem.label,
-                                    originalKey: propertyKey,
-                                    type:
-                                        overviewItem.type === 'property'
-                                            ? TaxonomicFilterGroupType.EventProperties
-                                            : TaxonomicFilterGroupType.Replay,
-                                    propertyFilterType:
-                                        overviewItem.type === 'property'
-                                            ? PropertyFilterType.Event
-                                            : PropertyFilterType.Recording,
-                                },
-                            }
-                        }
-
-                        // Fallback for any missing items
-                        return {
-                            propertyKey,
-                            propertyInfo: {
-                                label: propertyKey,
-                                originalKey: propertyKey,
-                                type: TaxonomicFilterGroupType.Replay,
-                                propertyFilterType: PropertyFilterType.Recording,
-                            },
-                        }
-                    })
-                    .filter(({ propertyInfo }) => {
-                        if (!propertySearchQuery.trim()) {
-                            return true
-                        }
-
-                        const searchLower = propertySearchQuery.toLowerCase()
-                        return (
-                            propertyInfo.label.toLowerCase().includes(searchLower) ||
-                            propertyInfo.originalKey.toLowerCase().includes(searchLower)
-                        )
-                    })
+                // Sort by the order in pinnedProperties array
+                // without this pins jump around as they load in
+                return pinnedItems.sort((a, b) => {
+                    const aKey = a.type === 'property' ? a.property : a.label
+                    const bKey = b.type === 'property' ? b.property : b.label
+                    const aIndex = pinnedProperties.indexOf(String(aKey))
+                    const bIndex = pinnedProperties.indexOf(String(bKey))
+                    return aIndex - bIndex
+                })
             },
         ],
     })),

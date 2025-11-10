@@ -1,20 +1,18 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_stream_writer
 from langgraph.types import StreamWriter
-
-from posthog.schema import AssistantMessage, AssistantToolCallMessage
 
 from ee.hogai.utils.types.base import (
     AssistantActionUnion,
     AssistantDispatcherEvent,
     AssistantMessageUnion,
     MessageAction,
-    NodeStartAction,
+    NodePath,
+    UpdateAction,
 )
-
-if TYPE_CHECKING:
-    from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class AssistantDispatcher:
@@ -26,13 +24,14 @@ class AssistantDispatcher:
     The dispatcher does NOT update state - it just emits actions to the stream.
     """
 
-    _parent_tool_call_id: str | None = None
+    _node_path: tuple[NodePath, ...]
 
     def __init__(
         self,
         writer: StreamWriter | Callable[[Any], None],
-        node_name: "MaxNodeName",
-        parent_tool_call_id: str | None = None,
+        node_path: tuple[NodePath, ...],
+        node_name: str,
+        node_run_id: str,
     ):
         """
         Create a dispatcher for a specific node.
@@ -40,9 +39,10 @@ class AssistantDispatcher:
         Args:
             node_name: The name of the node dispatching actions (for attribution)
         """
-        self._node_name = node_name
         self._writer = writer
-        self._parent_tool_call_id = parent_tool_call_id
+        self._node_path = node_path
+        self._node_name = node_name
+        self._node_run_id = node_run_id
 
     def dispatch(self, action: AssistantActionUnion) -> None:
         """
@@ -56,7 +56,11 @@ class AssistantDispatcher:
             action: Action dict with "type" and "payload" keys
         """
         try:
-            self._writer(AssistantDispatcherEvent(action=action, node_name=self._node_name))
+            self._writer(
+                AssistantDispatcherEvent(
+                    action=action, node_path=self._node_path, node_name=self._node_name, node_run_id=self._node_run_id
+                )
+            )
         except Exception as e:
             # Log error but don't crash node execution
             # The dispatcher should be resilient to writer failures
@@ -69,34 +73,29 @@ class AssistantDispatcher:
         """
         Dispatch a message to the stream.
         """
-        if self._parent_tool_call_id:
-            # If the dispatcher is initialized with a parent tool call id, set the parent tool call id on the message
-            # This is to ensure that the message is associated with the correct tool call
-            # Don't set parent_tool_call_id on:
-            # 1. AssistantToolCallMessage with the same tool_call_id (to avoid self-reference)
-            # 2. AssistantMessage with tool_calls containing the same ID (to avoid cycles)
-            should_skip = False
-            if isinstance(message, AssistantToolCallMessage) and self._parent_tool_call_id == message.tool_call_id:
-                should_skip = True
-            elif isinstance(message, AssistantMessage) and message.tool_calls:
-                # Check if any tool call has the same ID as the parent
-                for tool_call in message.tool_calls:
-                    if tool_call.id == self._parent_tool_call_id:
-                        should_skip = True
-                        break
-
-            if not should_skip:
-                message.parent_tool_call_id = self._parent_tool_call_id
         self.dispatch(MessageAction(message=message))
 
-    def node_start(self) -> None:
-        """
-        Dispatch a node start action to the stream.
-        """
-        self.dispatch(NodeStartAction())
+    def update(self, content: str):
+        """Dispatch a transient update message to the stream that will be associated with a tool call in the UI."""
+        self.dispatch(UpdateAction(content=content))
 
-    def set_as_root(self) -> None:
-        """
-        Set the dispatcher as the root.
-        """
-        self._parent_tool_call_id = None
+
+def create_dispatcher_from_config(config: RunnableConfig, node_path: tuple[NodePath, ...]) -> AssistantDispatcher:
+    """Create a dispatcher from a RunnableConfig and node path"""
+    # Set writer from LangGraph context
+    try:
+        writer = get_stream_writer()
+    except RuntimeError:
+        # Not in streaming context (e.g., testing)
+        # Use noop writer
+        def noop(*_args, **_kwargs):
+            pass
+
+        writer = noop
+
+    metadata = config.get("metadata") or {}
+    node_name: str = metadata.get("langgraph_node") or ""
+    # `langgraph_checkpoint_ns` contains the nested path to the node, so it's more accurate for streaming.
+    node_run_id: str = metadata.get("langgraph_checkpoint_ns") or ""
+
+    return AssistantDispatcher(writer, node_path=node_path, node_run_id=node_run_id, node_name=node_name)

@@ -64,8 +64,6 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub historical_rerouting_threshold_days: i64,
 
-    pub historical_tokens_keys: Option<String>, // "<token>:<distinct_id or *>,<distinct_id or *>;<token>..."
-
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 

@@ -95,7 +95,10 @@ fn create_test_captured_event(
         now: format!("{timestamp}000"), // timestamp in milliseconds
         sent_at: None,
         token: "test_token".to_string(),
+        event: "test_event".to_string(),
+        timestamp: chrono::Utc::now(),
         is_cookieless_mode: false,
+        historical_migration: false,
     };
 
     Ok(captured_event)

@@ -1,4 +1,4 @@
-from posthog.warehouse.types import IncrementalFieldType
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 RESOURCE_SCHEMAS = {
     "ad": {

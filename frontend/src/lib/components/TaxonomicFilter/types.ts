@@ -170,6 +170,7 @@ export enum TaxonomicFilterGroupType {
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
     Resources = 'resources',
     ErrorTrackingProperties = 'error_tracking_properties',
+    ActivityLogProperties = 'activity_log_properties',
     // Max AI Context
     MaxAIContext = 'max_ai_context',
 }

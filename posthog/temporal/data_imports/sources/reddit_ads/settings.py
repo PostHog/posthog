@@ -3,7 +3,8 @@ from typing import Optional
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 
 @dataclass

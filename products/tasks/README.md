@@ -52,15 +52,15 @@ It's that easy. This will add the task to a temporal queue, and kick off a workf
 
 1. **Task Creation**: A task record is created in the database
 2. **Auto-Configuration**:
-    - Automatically finds and attaches the team's GitHub integration (if available)
-    - Auto-assigns the team's default workflow
-    - Places task in the first stage of the workflow
-    - Generates a unique task number and slug (e.g., `POS-123`)
+   - Automatically finds and attaches the team's GitHub integration (if available)
+   - Auto-assigns the team's default workflow
+   - Places task in the first stage of the workflow
+   - Generates a unique task number and slug (e.g., `POS-123`)
 3. **Validation**: Checks that a workflow is configured for the team
 4. **Workflow Trigger**: Starts a Temporal workflow in the background that:
-    - Validates the `tasks` feature flag for the user's organization
-    - Executes any automated agents configured for the task's stage
-    - Can create GitHub branches, generate code, and create PRs depending on what agents are available in the workflow
+   - Validates the `tasks` feature flag for the user's organization
+   - Executes any automated agents configured for the task's stage
+   - Can create GitHub branches, generate code, and create PRs depending on what agents are available in the workflow
 
 ## Best Practices
 

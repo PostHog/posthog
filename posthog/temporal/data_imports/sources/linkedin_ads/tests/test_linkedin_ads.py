@@ -14,7 +14,8 @@ from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
     linkedin_ads_client,
     linkedin_ads_source,
 )
-from posthog.warehouse.types import IncrementalFieldType
+
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 
 class TestLinkedinAdsHelperFunctions:

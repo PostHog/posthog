@@ -46,8 +46,9 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from posthog.warehouse.models.join import DataWarehouseJoin
-from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+
+from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 
 from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns, materialize
 

@@ -973,7 +973,6 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     // simple defaults - payload validation isn't the focus of these tests
     let enable_historical_rerouting = false;
     let historical_rerouting_threshold_days = 1_i64;
-    let historical_tokens_keys = None;
     let is_mirror_deploy = false; // TODO: remove after migration to 100% capture-rs backend
     let verbose_sample_percent = 0.0_f32;
 
@@ -991,7 +990,6 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             25 * 1024 * 1024,
             enable_historical_rerouting,
             historical_rerouting_threshold_days,
-            historical_tokens_keys,
             is_mirror_deploy,
             verbose_sample_percent,
             26_214_400, // 25MB default for AI endpoint
