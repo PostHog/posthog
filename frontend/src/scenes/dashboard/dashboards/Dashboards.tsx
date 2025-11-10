@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { SceneShortcut } from 'lib/components/SceneShortcuts/SceneShortcut'
+import { sceneShortcutLogic } from 'lib/components/SceneShortcuts/sceneShortcutLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
@@ -32,6 +34,7 @@ export function Dashboards(): JSX.Element {
     const { setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
+    const { shortcuts } = useValues(sceneShortcutLogic)
 
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
@@ -64,14 +67,19 @@ export function Dashboards(): JSX.Element {
                             resourceType={AccessControlResourceType.Dashboard}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <LemonButton
-                                size="small"
-                                data-attr="new-dashboard"
-                                onClick={showNewDashboardModal}
-                                type="primary"
+                            <SceneShortcut
+                                {...shortcuts[Scene.Dashboards]!.newDashboard}
+                                onAction={showNewDashboardModal}
                             >
-                                New dashboard
-                            </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    data-attr="new-dashboard"
+                                    onClick={showNewDashboardModal}
+                                    type="primary"
+                                >
+                                    New dashboard
+                                </LemonButton>
+                            </SceneShortcut>
                         </AccessControlAction>
                     </>
                 }

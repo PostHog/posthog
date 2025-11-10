@@ -53,12 +53,6 @@ export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
                 setOptionKeyHeld: (_, { held }) => held,
             },
         ],
-        commandKeyHeld: [
-            false,
-            {
-                setCommandKeyHeld: (_, { held }) => held,
-            },
-        ],
         actionPaletteOpen: [
             false,
             {
@@ -71,6 +65,9 @@ export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
         shortcuts: [
             (s) => [s.actionPaletteOpen],
             (actionPaletteOpen: boolean): SceneShortcuts => {
+                // Reserved shortcuts, please don't use them
+                // command+option+j = browser open dev tools
+
                 return {
                     app: {
                         toggleShortcutMenu: {
@@ -104,6 +101,13 @@ export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
                             keys: ['command', 'option', 'i'],
                             description: 'Toggle Info & actions panel',
                             type: 'toggle',
+                        },
+                    },
+                    [Scene.Dashboards]: {
+                        newDashboard: {
+                            keys: ['command', 'option', 'n'],
+                            description: 'New dashboard',
+                            sceneKey: Scene.Dashboards,
                         },
                     },
                     [Scene.Dashboard]: {
@@ -214,7 +218,6 @@ export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
                 }
                 if (event.ctrlKey || event.metaKey) {
                     pressedKeys.push('command')
-                    actions.setCommandKeyHeld(true)
                 }
                 if (event.altKey) {
                     pressedKeys.push('option')
@@ -250,6 +253,8 @@ export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
                     event.preventDefault()
                     event.stopPropagation()
                     matchingShortcut.action()
+                    // close action palette
+                    actions.setActionPaletteOpen(false)
                 }
             }
 
