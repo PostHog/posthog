@@ -8,14 +8,6 @@ import pytest
 
 from google.cloud import bigquery
 
-from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import BigQueryHeartbeatDetails
-
-
-@pytest.fixture
-def activity_environment(activity_environment):
-    activity_environment.heartbeat_class = BigQueryHeartbeatDetails
-    return activity_environment
-
 
 @pytest.fixture
 def bigquery_config() -> dict[str, str]:

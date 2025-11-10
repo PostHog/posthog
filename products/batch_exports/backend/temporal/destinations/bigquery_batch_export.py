@@ -35,7 +35,6 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.heartbeat import BatchExportRangeHeartbeatDetails
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -733,13 +732,6 @@ def get_bigquery_fields_from_record_schema(
         bq_schema.append(bigquery.SchemaField(name, bq_type, mode="REPEATED" if repeated else "NULLABLE"))
 
     return bq_schema
-
-
-@dataclasses.dataclass
-class BigQueryHeartbeatDetails(BatchExportRangeHeartbeatDetails):
-    """The BigQuery batch export details included in every heartbeat."""
-
-    pass
 
 
 @dataclasses.dataclass(kw_only=True)
