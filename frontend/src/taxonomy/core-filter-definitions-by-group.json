@@ -664,10 +664,6 @@
             "description": "A source file included in the exception.",
             "label": "Exception source"
         },
-        "$exception_stack_trace_raw": {
-            "description": "The exceptions stack trace, as a string.",
-            "label": "Exception raw stack trace"
-        },
         "$exception_type": {
             "description": "Exception categorized into types.",
             "examples": ["Error"],
@@ -1259,6 +1255,12 @@
             "examples": ["https://sentry.io/..."],
             "label": "Sentry URL"
         },
+        "$sess_rec_flush_size": {
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "label": "Estimated bytes flushed",
+            "type": "Numeric",
+            "used_for_debug": true
+        },
         "$session_entry__kx": {
             "description": "Klaviyo Tracking ID Captured at the start of the session and remains constant for the duration of the session.",
             "ignored_in_assistant": true,
@@ -1453,6 +1455,11 @@
             "ignored_in_assistant": true,
             "label": "Session recording recorder version server-side",
             "system": true,
+            "used_for_debug": true
+        },
+        "$session_recording_remote_config": {
+            "description": "The remote config for session recording received from the server (or loaded from storage).",
+            "label": "Session recording remote config received",
             "used_for_debug": true
         },
         "$session_recording_start_reason": {
@@ -2604,10 +2611,6 @@
             "description": "A source file included in the exception.",
             "label": "Exception source"
         },
-        "$exception_stack_trace_raw": {
-            "description": "The exceptions stack trace, as a string.",
-            "label": "Exception raw stack trace"
-        },
         "$exception_type": {
             "description": "Exception categorized into types.",
             "examples": ["Error"],
@@ -3491,6 +3494,12 @@
             "examples": ["https://sentry.io/..."],
             "label": "Sentry URL"
         },
+        "$sess_rec_flush_size": {
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "label": "Estimated bytes flushed",
+            "type": "Numeric",
+            "used_for_debug": true
+        },
         "$session_entry__kx": {
             "description": "Klaviyo Tracking ID Captured at the start of the session and remains constant for the duration of the session.",
             "ignored_in_assistant": true,
@@ -3685,6 +3694,11 @@
             "ignored_in_assistant": true,
             "label": "Session recording recorder version server-side",
             "system": true,
+            "used_for_debug": true
+        },
+        "$session_recording_remote_config": {
+            "description": "The remote config for session recording received from the server (or loaded from storage).",
+            "label": "Session recording remote config received",
             "used_for_debug": true
         },
         "$session_recording_start_reason": {

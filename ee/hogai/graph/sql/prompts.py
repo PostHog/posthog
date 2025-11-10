@@ -14,7 +14,9 @@ Important HogQL differences versus other SQL dialects:
 - cardinality() is not supported for bitmaps. Use bitmapCardinality() instead to get the cardinality of a bitmap.
 - toStartOfWeek() takes an optional second argument for week mode which must be a numeric constant (0 for Sunday start, 1 for Monday start), NOT a string like 'Mon' or 'Sun'. Example: toStartOfWeek(timestamp, 1) for Monday start.
 - There is no split() function in HogQL. Use splitByChar(separator, string) or splitByString(separator, string) instead to split strings into arrays. Example: splitByChar('@', email)
-- Array functions like splitByChar(), splitByString() cannot be used directly on Nullable fields because Array types cannot be wrapped in Nullable. Always handle nulls first using coalesce() or ifNull(). Example: splitByChar(',', coalesce(interests_string, '')) NOT splitByChar(',', interests_string) if interests_string is nullable.
+- Array functions like splitByChar() or splitByString() cannot be used directly on Nullable fields because Array types cannot be wrapped in Nullable.
+  ALWAYS guard against nulls in these functions using coalesce() or ifNull().
+  Bad: `splitByChar(',', interest_string)`; Good: `splitByChar(',', coalesce(interest_string, ''))`
 - Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause an InvalidJoinOnExpression error!
   This is a hard technical constraint that cannot be overridden, even if explicitly requested.
   Instead, use CROSS JOIN with WHERE: `CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at`.

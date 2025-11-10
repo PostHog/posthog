@@ -419,6 +419,7 @@ class UserViewSet(
         UserNoOrgMembershipDeletePermission,
         TimeSensitiveActionPermission,
     ]
+    time_sensitive_allow_if_only_fields = ["theme_mode"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True)

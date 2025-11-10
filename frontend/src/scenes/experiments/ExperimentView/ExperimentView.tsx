@@ -31,6 +31,7 @@ import {
     ResultsInsightInfoBanner,
     ResultsQuery,
 } from '../components/ResultsBreakdown'
+import { SummarizeExperimentButton } from '../components/SummarizeExperimentButton'
 import { CreateExperiment } from '../create/CreateExperiment'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
@@ -63,6 +64,7 @@ const MetricsTab = (): JSX.Element => {
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
         usesNewQueryRunner,
+        featureFlags,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
@@ -92,8 +94,15 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric &&
         firstPrimaryMetricResult
 
+    const isAiSummaryEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENT_AI_SUMMARY] === 'test'
+
     return (
         <>
+            {isAiSummaryEnabled && (
+                <div className="mt-1 mb-4 flex justify-start">
+                    <SummarizeExperimentButton />
+                </div>
+            )}
             {usesNewQueryRunner && (
                 <div className="w-full mb-4">
                     <Exposures />
@@ -243,8 +252,9 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
     if (
         !experimentLoading &&
         getExperimentStatus(experiment) === ProgressStatus.Draft &&
+        experiment.type === 'product' &&
         allPrimaryMetrics.length === 0 &&
-        featureFlags[FEATURE_FLAGS.EXPERIMENTS_CREATE_FORM] === 'test'
+        featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_CREATE_FORM] === 'test'
     ) {
         return <CreateExperiment draftExperiment={experiment} tabId={tabId} />
     }
@@ -375,20 +385,20 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                         </>
                     ) : (
                         <>
-                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={true} />
-                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={false} />
-                            <LegacySharedMetricModal experimentId={experimentId} isSecondary={true} />
-                            <LegacySharedMetricModal experimentId={experimentId} isSecondary={false} />
-                            <LegacyMetricModal experimentId={experimentId} isSecondary={true} />
-                            <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
+                            <LegacyMetricSourceModal isSecondary={true} />
+                            <LegacyMetricSourceModal isSecondary={false} />
+                            <LegacySharedMetricModal isSecondary={true} />
+                            <LegacySharedMetricModal isSecondary={false} />
+                            <LegacyMetricModal isSecondary={true} />
+                            <LegacyMetricModal isSecondary={false} />
                         </>
                     )}
 
-                    <DistributionModal experimentId={experimentId} />
-                    <ReleaseConditionsModal experimentId={experimentId} />
+                    <DistributionModal />
+                    <ReleaseConditionsModal />
 
-                    <StopExperimentModal experimentId={experimentId} />
-                    <EditConclusionModal experimentId={experimentId} />
+                    <StopExperimentModal />
+                    <EditConclusionModal />
 
                     <VariantDeltaTimeseries />
                 </>

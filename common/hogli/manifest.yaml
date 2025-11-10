@@ -371,7 +371,7 @@ quality:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues
     format:markdown:
-        cmd: pnpm prettier --write
+        cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
         description: Format Markdown files
 tools:
     tool:temporal-django-worker:

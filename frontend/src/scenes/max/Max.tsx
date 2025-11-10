@@ -2,8 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
 import { IconArrowLeft, IconChevronLeft, IconClockRewind, IconExternal, IconPlus, IconSidePanel } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -17,7 +16,6 @@ import { urls } from 'scenes/urls'
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SidePanelTab } from '~/types'
 
@@ -53,7 +51,6 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
         return (
             <SceneContent className="px-4 py-4">
                 <SceneTitleSection name={null} resourceType={{ type: 'chat' }} />
-                <SceneDivider />
                 <div className="flex flex-col items-center justify-center w-full grow">
                     <IconSidePanel className="text-3xl text-muted mb-2" />
                     <h3 className="text-xl font-bold mb-1">This chat is currently in the sidebar</h3>
@@ -240,7 +237,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                     ) : undefined
                 }
             />
-            <SceneDivider />
             {content}
         </SceneContent>
     )

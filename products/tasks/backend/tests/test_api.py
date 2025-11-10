@@ -1,3 +1,5 @@
+import json
+
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
@@ -9,6 +11,7 @@ from rest_framework.test import APIClient
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
+from posthog.storage import object_storage
 
 from products.tasks.backend.models import Task, TaskRun
 
@@ -252,8 +255,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
             task=task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            log="Test log output",
         )
+
+        # Add some logs to S3
+        run.append_log([{"type": "info", "message": "Test log output"}])
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -261,7 +266,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         data = response.json()
         self.assertEqual(data["id"], str(run.id))
         self.assertEqual(data["status"], "in_progress")
-        self.assertEqual(data["log"], "Test log output")
+        # Verify log_url is returned (S3 presigned URL)
+        self.assertIn("log_url", data)
+        self.assertIsNotNone(data["log_url"])
+        self.assertTrue(data["log_url"].startswith("http"))
 
     def test_list_runs_only_returns_task_runs(self):
         task1 = self.create_task("Task 1")
@@ -303,11 +311,21 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         run.refresh_from_db()
-        self.assertEqual(len(run.log), 2)
-        self.assertEqual(run.log[0]["type"], "info")
-        self.assertEqual(run.log[0]["message"], "Starting task")
-        self.assertEqual(run.log[1]["type"], "progress")
-        self.assertEqual(run.log[1]["message"], "Step 1 complete")
+
+        # Verify logs are stored in S3
+        assert run.log_storage_path is not None
+        self.assertTrue(run.has_s3_logs)
+
+        log_content = object_storage.read(run.log_storage_path)
+        assert log_content is not None
+
+        # Parse newline-delimited JSON
+        log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
+        self.assertEqual(len(log_entries), 2)
+        self.assertEqual(log_entries[0]["type"], "info")
+        self.assertEqual(log_entries[0]["message"], "Starting task")
+        self.assertEqual(log_entries[1]["type"], "progress")
+        self.assertEqual(log_entries[1]["message"], "Step 1 complete")
 
     def test_append_log_to_existing_entries(self):
         task = self.create_task()
@@ -315,9 +333,17 @@ class TestTaskRunAPI(BaseTaskAPITest):
             task=task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            log=[{"type": "info", "message": "Initial entry"}],
         )
 
+        # Add first batch
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
+            {"entries": [{"type": "info", "message": "Initial entry"}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Add second batch
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
             {"entries": [{"type": "success", "message": "Task completed"}]},
@@ -326,9 +352,19 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         run.refresh_from_db()
-        self.assertEqual(len(run.log), 2)
-        self.assertEqual(run.log[0]["message"], "Initial entry")
-        self.assertEqual(run.log[1]["message"], "Task completed")
+
+        # All logs should be stored in S3
+        assert run.log_storage_path is not None
+        self.assertTrue(run.has_s3_logs)
+
+        log_content = object_storage.read(run.log_storage_path)
+        assert log_content is not None
+
+        # Parse newline-delimited JSON
+        log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
+        self.assertEqual(len(log_entries), 2)
+        self.assertEqual(log_entries[0]["message"], "Initial entry")
+        self.assertEqual(log_entries[1]["message"], "Task completed")
 
     def test_append_log_empty_entries_fails(self):
         task = self.create_task()

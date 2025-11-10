@@ -8,6 +8,7 @@ import openai
 import structlog
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
+from openai.types.responses import Response as OpenAIResponse
 from prometheus_client import Histogram
 
 from posthog.temporal.ai.session_summary.state import generate_state_id_from_session_ids
@@ -16,6 +17,7 @@ from ee.hogai.session_summaries import ExceptionToRetry, SummaryValidationError
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.llm.call import call_llm, stream_llm
 from ee.hogai.session_summaries.session.output_data import (
+    SessionSummaryIssueTypes,
     SessionSummarySerializer,
     enrich_raw_session_summary_with_meta,
     load_raw_session_summary_from_llm_content,
@@ -59,8 +61,10 @@ TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
 )
 
 
-def _get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk) -> str:
+def get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk | OpenAIResponse) -> str:
     """Return text content from a ChatCompletion or streaming chunk."""
+    if isinstance(llm_response, OpenAIResponse):
+        return llm_response.output_text
     if not llm_response or not llm_response.choices:
         return ""  # If no choices generated yet
     if isinstance(llm_response, ChatCompletion):
@@ -82,7 +86,7 @@ def get_exception_event_ids_from_summary(session_summary: SessionSummarySerializ
         events = segment.get("events", [])
         for event in events:
             # Check if event has an exception (blocking or non-blocking)
-            if event.get("exception") and event.get("event_uuid"):
+            if event.get(SessionSummaryIssueTypes.EXCEPTION.value) and event.get("event_uuid"):
                 exception_event_ids.append(event["event_uuid"])
     return exception_event_ids
 
@@ -149,7 +153,7 @@ async def get_llm_session_group_patterns_extraction(
         model=model_to_use,
         trace_id=trace_id,
     )
-    raw_content = _get_raw_content(result)
+    raw_content = get_raw_content(result)
     if not raw_content:
         raise ValueError(
             f"No content consumed when calling LLM for session group patterns extraction, sessions {sessions_identifier}"
@@ -171,7 +175,7 @@ async def get_llm_session_group_patterns_assignment(
         model=model_to_use,
         trace_id=trace_id,
     )
-    raw_content = _get_raw_content(result)
+    raw_content = get_raw_content(result)
     if not raw_content:
         raise ValueError(
             f"No content consumed when calling LLM for session group patterns assignment, sessions {sessions_identifier}"
@@ -193,7 +197,7 @@ async def get_llm_session_group_patterns_combination(
         model=SESSION_SUMMARIES_SYNC_MODEL,
         trace_id=trace_id,
     )
-    raw_content = _get_raw_content(result)
+    raw_content = get_raw_content(result)
     if not raw_content:
         raise ValueError(
             f"No content consumed when calling LLM for session group patterns chunks combination, sessions {sessions_identifier}"
@@ -229,7 +233,7 @@ async def get_llm_single_session_summary(
             model=model_to_use,
             trace_id=trace_id,
         )
-        raw_content = _get_raw_content(result)
+        raw_content = get_raw_content(result)
         if not raw_content:
             raise ValueError(f"No content consumed when calling LLM for session summary, sessions {session_id}")
         session_summary = _convert_llm_content_to_session_summary(
@@ -301,7 +305,7 @@ async def stream_llm_single_session_summary(
         )
         async for chunk in stream:
             accumulated_usage += chunk.usage.prompt_tokens if chunk.usage else 0
-            raw_content = _get_raw_content(chunk)
+            raw_content = get_raw_content(chunk)
             if not raw_content:
                 # If no content provided yet (for example, first streaming response), skip the chunk
                 continue

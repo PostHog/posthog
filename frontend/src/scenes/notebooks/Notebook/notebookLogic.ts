@@ -16,7 +16,16 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SCRATCHPAD_NOTEBOOK, notebooksModel, openNotebook } from '~/models/notebooksModel'
-import { AccessControlLevel, AccessControlResourceType, ActivityScope, CommentType, SidePanelTab } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { isSavedInsightNode } from '~/queries/utils'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    CommentType,
+    InsightShortId,
+    SidePanelTab,
+} from '~/types'
 
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
@@ -130,6 +139,7 @@ export const notebookLogic = kea<notebookLogicType>([
             nodeType,
             knownStartingPosition,
         }),
+        addSavedInsightToNotebook: (insightShortId: InsightShortId) => ({ insightShortId }),
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTableOfContents: (tableOfContents: TableOfContentData) => ({ tableOfContents }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
@@ -477,6 +487,19 @@ export const notebookLogic = kea<notebookLogicType>([
                         AccessControlLevel.Editor
                     )),
         ],
+
+        insightShortIdsInNotebook: [
+            (s) => [s.content],
+            (content) => {
+                if (!content) {
+                    return []
+                }
+                const insightNodes = content?.content?.filter(
+                    (node) => node.type === NotebookNodeType.Query && isSavedInsightNode(node?.attrs?.query)
+                )
+                return insightNodes?.map((node) => node?.attrs?.query?.shortId)
+            },
+        ],
     }),
     listeners(({ values, actions, cache }) => ({
         insertAfterLastNode: async ({ content }) => {
@@ -517,6 +540,18 @@ export const notebookLogic = kea<notebookLogicType>([
                     values.editor?.insertContentAfterNode(insertionPosition, content)
                 }
             )
+        },
+        addSavedInsightToNotebook: async ({ insightShortId }) => {
+            actions.insertAfterLastNode({
+                type: NotebookNodeType.Query,
+                attrs: {
+                    query: {
+                        kind: NodeKind.SavedInsightNode,
+                        shortId: insightShortId,
+                    },
+                },
+            })
+            lemonToast.success('Insight added to notebook')
         },
         setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {
             if (

@@ -1,29 +1,15 @@
 from collections.abc import AsyncGenerator
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
-from posthog.schema import (
-    AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
-    AssistantMessage,
-    HumanMessage,
-    MaxBillingContext,
-    VisualizationMessage,
-)
+from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
 
 from posthog.models import Team, User
 
 from ee.hogai.assistant.base import BaseAssistant
-from ee.hogai.graph import (
-    AssistantGraph,
-    FunnelGeneratorNode,
-    RetentionGeneratorNode,
-    SQLGeneratorNode,
-    TrendsGeneratorNode,
-)
-from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.graph.insights.nodes import InsightSearchNode
-from ee.hogai.utils.state import GraphValueUpdateTuple, validate_value_update
+from ee.hogai.graph.graph import AssistantGraph
+from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
+from ee.hogai.utils.stream_processor import AssistantStreamProcessor
 from ee.hogai.utils.types import (
     AssistantMode,
     AssistantNodeName,
@@ -31,9 +17,35 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
-from ee.hogai.utils.types.base import AssistantResultUnion
-from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
+
+if TYPE_CHECKING:
+    from ee.hogai.utils.types.composed import MaxNodeName
+
+
+STREAMING_NODES: set["MaxNodeName"] = {
+    AssistantNodeName.ROOT,
+    AssistantNodeName.INKEEP_DOCS,
+    AssistantNodeName.MEMORY_ONBOARDING,
+    AssistantNodeName.MEMORY_INITIALIZER,
+    AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
+    AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
+    AssistantNodeName.DASHBOARD_CREATION,
+}
+
+
+VERBOSE_NODES: set["MaxNodeName"] = {
+    AssistantNodeName.TRENDS_GENERATOR,
+    AssistantNodeName.FUNNEL_GENERATOR,
+    AssistantNodeName.RETENTION_GENERATOR,
+    AssistantNodeName.SQL_GENERATOR,
+    AssistantNodeName.INSIGHTS_SEARCH,
+    AssistantNodeName.QUERY_EXECUTOR,
+    AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
+    AssistantNodeName.ROOT_TOOLS,
+    TaxonomyNodeName.TOOLS_NODE,
+    TaxonomyNodeName.TASK_EXECUTOR,
+}
 
 
 class MainAssistant(BaseAssistant):
@@ -69,29 +81,10 @@ class MainAssistant(BaseAssistant):
             trace_id=trace_id,
             billing_context=billing_context,
             initial_state=initial_state,
+            stream_processor=AssistantStreamProcessor(
+                verbose_nodes=VERBOSE_NODES, streaming_nodes=STREAMING_NODES, state_type=AssistantState
+            ),
         )
-
-    @property
-    def VISUALIZATION_NODES(self) -> dict[MaxNodeName, type[BaseAssistantNode]]:
-        return {
-            AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
-            AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
-            AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
-            AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
-            AssistantNodeName.INSIGHTS_SEARCH: InsightSearchNode,
-        }
-
-    @property
-    def STREAMING_NODES(self) -> set[MaxNodeName]:
-        return {
-            AssistantNodeName.ROOT,
-            AssistantNodeName.INKEEP_DOCS,
-            AssistantNodeName.MEMORY_ONBOARDING,
-            AssistantNodeName.MEMORY_INITIALIZER,
-            AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
-            AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
-            AssistantNodeName.DASHBOARD_CREATION,
-        }
 
     def get_initial_state(self) -> AssistantState:
         if self._latest_message:
@@ -142,13 +135,3 @@ class MainAssistant(BaseAssistant):
                 "is_new_conversation": self._is_new_conversation,
             },
         )
-
-    async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantResultUnion | None:
-        _, maybe_state_update = update
-        state_update = validate_value_update(maybe_state_update)
-        if intersected_nodes := state_update.keys() & self.VISUALIZATION_NODES.keys():
-            node_name: MaxNodeName = intersected_nodes.pop()
-            node_val = state_update[node_name]
-            if isinstance(node_val, PartialAssistantState) and node_val.intermediate_steps:
-                return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-        return await super()._aprocess_value_update(update)

@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
@@ -144,45 +144,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         tooltip: `The sync frequency will be offset from the anchor time. This will not apply to sync intervals one hour or less.`,
                         key: 'sync_time_of_day',
                         render: function RenderSyncTimeOfDayLocal(_, schema) {
-                            const utcTime = schema.sync_time_of_day || '00:00:00'
-                            const localTime = isProjectTime
-                                ? dayjs
-                                      .utc(`${dayjs().format('YYYY-MM-DD')}T${utcTime}`)
-                                      .local()
-                                      .tz(currentTeam?.timezone || 'UTC')
-                                      .format('HH:mm:00')
-                                : utcTime
-
-                            return (
-                                <LemonInput
-                                    type="time"
-                                    size="xsmall"
-                                    disabled={
-                                        !schema.should_sync ||
-                                        schema.sync_frequency === '5min' ||
-                                        schema.sync_frequency === '30min' ||
-                                        schema.sync_frequency === '1hour'
-                                    }
-                                    value={localTime.substring(0, 5)}
-                                    onChange={(value) => {
-                                        const newValue = `${value}:00`
-                                        const utcValue = isProjectTime
-                                            ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
-                                                  .tz(currentTeam?.timezone || 'UTC')
-                                                  .utc()
-                                                  .format('HH:mm:00')
-                                            : newValue
-                                        updateSchema({ ...schema, sync_time_of_day: utcValue })
-                                    }}
-                                    suffix={
-                                        <Tooltip
-                                            title={syncAnchorIntervalToHumanReadable(utcTime, schema.sync_frequency)}
-                                        >
-                                            {schema.should_sync && <IconInfo className="text-muted-alt" />}
-                                        </Tooltip>
-                                    }
-                                />
-                            )
+                            return <AnchorTime schema={schema} />
                         },
                     },
                     {
@@ -540,5 +502,85 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                 />
             )}
         </LemonModal>
+    )
+}
+
+const AnchorTime = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.Element => {
+    const { isProjectTime } = useValues(dataWarehouseSourceSettingsLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { updateSchema } = useActions(dataWarehouseSourceSettingsLogic)
+    const [isSyncTimeSet, setIsSyncTimeSet] = useState(!!schema.sync_time_of_day)
+
+    const utcTime = schema.sync_time_of_day || '00:00:00'
+    const localTime = isProjectTime
+        ? dayjs
+              .utc(`${dayjs().format('YYYY-MM-DD')}T${utcTime}`)
+              .local()
+              .tz(currentTeam?.timezone || 'UTC')
+              .format('HH:mm:00')
+        : utcTime
+
+    const disabledReasonForInput = useCallback((): string | undefined => {
+        if (!schema.should_sync && !isSyncTimeSet) {
+            return 'Enable syncing and anchor times to set anchor time'
+        }
+
+        if (!schema.should_sync) {
+            return 'Enable syncing to set anchor time'
+        }
+
+        if (!isSyncTimeSet) {
+            return 'Enable anchor times to set anchor time'
+        }
+
+        if (
+            schema.sync_frequency === '5min' ||
+            schema.sync_frequency === '30min' ||
+            schema.sync_frequency === '1hour'
+        ) {
+            return 'Anchor time does not apply to sync intervals one hour or less'
+        }
+
+        return undefined
+    }, [isSyncTimeSet, schema.should_sync, schema.sync_frequency])
+
+    return (
+        <div className="flex">
+            <LemonInput
+                type="time"
+                size="xsmall"
+                disabledReason={disabledReasonForInput()}
+                value={isSyncTimeSet ? localTime.substring(0, 5) : undefined}
+                onChange={(value) => {
+                    const newValue = `${value}:00`
+                    const utcValue = isProjectTime
+                        ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
+                              .tz(currentTeam?.timezone || 'UTC')
+                              .utc()
+                              .format('HH:mm:00')
+                        : newValue
+                    updateSchema({ ...schema, sync_time_of_day: utcValue })
+                }}
+                suffix={
+                    isSyncTimeSet ? (
+                        <Tooltip title={syncAnchorIntervalToHumanReadable(utcTime, schema.sync_frequency)}>
+                            {schema.should_sync && <IconInfo className="text-muted-alt" />}
+                        </Tooltip>
+                    ) : undefined
+                }
+            />
+            <LemonSwitch
+                className="ml-2"
+                checked={isSyncTimeSet}
+                disabledReason={!schema.should_sync && 'Enable syncing to set anchor time'}
+                onChange={(checked) => {
+                    setIsSyncTimeSet(checked)
+                    updateSchema({
+                        ...schema,
+                        sync_time_of_day: checked ? (isProjectTime ? localTime : utcTime) : null,
+                    })
+                }}
+            />
+        </div>
     )
 }

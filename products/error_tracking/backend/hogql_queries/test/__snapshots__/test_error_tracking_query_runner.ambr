@@ -4,6 +4,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -34,6 +36,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          count(DISTINCT e.uuid) AS occurrences,
          count(DISTINCT nullIf(e.`$session_id`, '')) AS sessions,
          count(DISTINCT e__person.id) AS users,
@@ -81,6 +85,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMin(tuple(e.uuid, toTimeZone(e.timestamp, 'UTC'), e.properties), toTimeZone(e.timestamp, 'UTC')) AS first_event,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
@@ -112,6 +118,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          count(DISTINCT e.uuid) AS occurrences,
          count(DISTINCT nullIf(e.`$session_id`, '')) AS sessions,
          count(DISTINCT e__person.id) AS users,
@@ -160,6 +168,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          count(DISTINCT e.uuid) AS occurrences,
          count(DISTINCT nullIf(e.`$session_id`, '')) AS sessions,
          count(DISTINCT e__person.id) AS users,
@@ -207,6 +217,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          count(DISTINCT e.uuid) AS occurrences,
          count(DISTINCT nullIf(e.`$session_id`, '')) AS sessions,
          count(DISTINCT e__person.id) AS users,
@@ -254,6 +266,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -301,6 +315,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -331,6 +347,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -361,6 +379,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -391,6 +411,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -421,6 +443,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -451,6 +475,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -481,6 +507,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -528,6 +556,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -558,6 +588,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          count(DISTINCT e.uuid) AS occurrences,
          count(DISTINCT nullIf(e.`$session_id`, '')) AS sessions,
          count(DISTINCT e__person.id) AS users,
@@ -605,6 +637,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -635,6 +669,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -665,6 +701,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -695,6 +733,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          count(DISTINCT e.uuid) AS occurrences,
          count(DISTINCT nullIf(e.`$session_id`, '')) AS sessions,
          count(DISTINCT e__person.id) AS users,
@@ -742,6 +782,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -779,6 +821,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -809,6 +853,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -856,6 +902,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          count(DISTINCT e.uuid) AS occurrences,
          count(DISTINCT nullIf(e.`$session_id`, '')) AS sessions,
          count(DISTINCT e__person.id) AS users,
@@ -907,6 +955,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          count(DISTINCT e.uuid) AS occurrences,
          count(DISTINCT nullIf(e.`$session_id`, '')) AS sessions,
          count(DISTINCT e__person.id) AS users,
@@ -958,12 +1008,16 @@
   SELECT per_issue_per_revenue_entity.id AS id,
          max(per_issue_per_revenue_entity.last_seen) AS last_seen,
          min(per_issue_per_revenue_entity.first_seen) AS first_seen,
+         max(per_issue_per_revenue_entity.function) AS function,
+         max(per_issue_per_revenue_entity.source) AS source,
          sum(per_issue_per_revenue_entity.latest_revenue) AS revenue,
          argMax(per_issue_per_revenue_entity.library, per_issue_per_revenue_entity.last_seen) AS library
   FROM
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
             max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
             min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(e__person__revenue_analytics.revenue, toTimeZone(e.timestamp, 'UTC')) AS latest_revenue,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
      FROM events AS e
@@ -1054,6 +1108,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -1084,6 +1140,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -1114,6 +1172,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -1144,6 +1204,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -1174,6 +1236,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -1204,6 +1268,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          count(DISTINCT e.uuid) AS occurrences,
          count(DISTINCT nullIf(e.`$session_id`, '')) AS sessions,
          count(DISTINCT e__person.id) AS users,
@@ -1251,6 +1317,8 @@
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          count(DISTINCT e.uuid) AS occurrences,
          count(DISTINCT nullIf(e.`$session_id`, '')) AS sessions,
          count(DISTINCT e__person.id) AS users,
