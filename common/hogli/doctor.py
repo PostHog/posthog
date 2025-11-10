@@ -108,7 +108,7 @@ class CleanupResult:
     "--area",
     multiple=True,
     type=click.Choice(
-        ["flox-logs", "docker", "python", "dagster", "node-artifacts", "rust", "pnpm-store"],
+        ["flox-logs", "docker", "python", "dagster", "node-artifacts", "rust", "pnpm-store", "git"],
         case_sensitive=False,
     ),
     help="Specific cleanup area(s) to run. Can be specified multiple times. Without this, all areas run.",
@@ -153,7 +153,6 @@ def doctor_disk(
             cleanup=_cleanup_flox_logs,
             confirmation_prompt="Clean up Flox logs older than 7 days?",
             dry_run_message="Would run: find .flox/log -name '*.log' -mtime +7 -delete",
-            skip_if_empty=False,
         ),
         CleanupCategory(
             id="docker",
@@ -223,6 +222,21 @@ def doctor_disk(
             include_in_total=False,
             skip_if_empty=False,
             dry_run_message="Would run: pnpm store prune",
+        ),
+        CleanupCategory(
+            id="git",
+            title="🧹 Git repository (.git)",
+            description=[
+                "Prunes stale remote branches, expires reflogs, and repacks objects.",
+                "Combines: git remote prune + reflog expire + gc --aggressive.",
+                "Can reclaim 25-40% of .git size (1-1.5GB in large repos).",
+            ],
+            estimate=_estimate_git,
+            cleanup=_cleanup_git,
+            confirmation_prompt="Run Git cleanup (prune + gc)?",
+            include_in_total=False,
+            skip_if_empty=False,
+            dry_run_message="Would run: git remote prune + reflog expire + gc --aggressive",
         ),
     ]
 
@@ -457,6 +471,48 @@ def _estimate_pnpm_store(repo_root: Path) -> CleanupEstimate:
     return CleanupEstimate(total_size=0.0, items=[], details=details)
 
 
+def _estimate_git(repo_root: Path) -> CleanupEstimate:
+    """Check .git directory size and estimate reclaimable space."""
+
+    # Handle git worktrees by finding the main .git directory
+    git_dir = repo_root / ".git"
+    if git_dir.is_file():
+        # It's a worktree, read the actual git dir path
+        try:
+            gitdir_content = git_dir.read_text().strip()
+            if gitdir_content.startswith("gitdir: "):
+                actual_git_path = Path(gitdir_content[8:])
+                # Go up to the main .git directory (worktrees/xxx -> .git)
+                git_dir = actual_git_path.parent.parent
+        except (OSError, ValueError):
+            pass
+
+    if not git_dir.exists() or not git_dir.is_dir():
+        return CleanupEstimate(
+            total_size=0.0,
+            details=["   No .git directory found."],
+            items=[],
+            available=False,
+        )
+
+    # Get current size
+    git_size = _get_dir_size(git_dir)
+
+    # Count packs and get object stats
+    pack_count = (
+        len(list((git_dir / "objects" / "pack").glob("*.pack"))) if (git_dir / "objects" / "pack").exists() else 0
+    )
+
+    details = [
+        f"   Current .git size: {_format_size(git_size)}",
+        f"   Pack files: {pack_count}",
+        "   Estimated reclaimable: ~30% (25-40% typical)",
+        "   Operations: remote prune + reflog expire + gc --aggressive",
+    ]
+
+    return CleanupEstimate(total_size=0.0, items=[], details=details)
+
+
 def _estimate_docker_usage(repo_root: Path) -> CleanupEstimate:
     """Summarise Docker disk usage via `docker system df`. Repo root unused (compat)."""
 
@@ -503,6 +559,38 @@ def _cleanup_flox_logs(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
         return CleanupStats(deleted_anything=True)
 
     return CleanupStats(deleted_anything=False)
+
+
+def _cleanup_git(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
+    """Execute git cleanup: prune remotes, expire reflogs, and run gc."""
+
+    click.echo()
+    success = True
+
+    # Step 1: Prune stale remote branches
+    click.echo("   Running git remote prune origin...")
+    result = subprocess.run(["git", "remote", "prune", "origin"], cwd=repo_root, check=False)
+    if result.returncode != 0:
+        success = False
+
+    # Step 2: Expire reflogs
+    click.echo("   Expiring reflogs...")
+    result = subprocess.run(["git", "reflog", "expire", "--expire=now", "--all"], cwd=repo_root, check=False)
+    if result.returncode != 0:
+        success = False
+
+    # Step 3: Run gc --aggressive (this can take 1-2 minutes)
+    click.echo("   Running git gc --aggressive (may take 1-2 minutes)...")
+    result = subprocess.run(["git", "gc", "--prune=now", "--aggressive"], cwd=repo_root, check=False)
+    if result.returncode != 0:
+        success = False
+
+    if success:
+        click.echo("   ✓ Git cleanup completed")
+    else:
+        click.echo("   ⚠️  Git cleanup completed with some errors")
+
+    return CleanupStats(deleted_anything=success)
 
 
 def _cleanup_pnpm_store(_: CleanupEstimate, __: Path) -> CleanupStats:
