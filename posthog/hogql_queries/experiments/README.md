@@ -114,20 +114,20 @@ The `stats_config` field is a JSON object with method-specific keys:
 
 ```json
 {
-    "bayesian": {
-        "ci_level": 0.95,
-        "difference_type": "RELATIVE",
-        "inverse": false,
-        "proper_prior": false,
-        "prior_type": "RELATIVE",
-        "prior_mean": 0.0,
-        "prior_variance": 1.0
-    },
-    "frequentist": {
-        "alpha": 0.05,
-        "test_type": "TWO_SIDED",
-        "difference_type": "RELATIVE"
-    }
+  "bayesian": {
+    "ci_level": 0.95,
+    "difference_type": "RELATIVE",
+    "inverse": false,
+    "proper_prior": false,
+    "prior_type": "RELATIVE",
+    "prior_mean": 0.0,
+    "prior_variance": 1.0
+  },
+  "frequentist": {
+    "alpha": 0.05,
+    "test_type": "TWO_SIDED",
+    "difference_type": "RELATIVE"
+  }
 }
 ```
 
