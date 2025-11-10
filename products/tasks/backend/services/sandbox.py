@@ -1,6 +1,10 @@
+import os
+import uuid
 import logging
 from enum import Enum
 from typing import Optional
+
+from django.conf import settings
 
 import modal
 from pydantic import BaseModel
@@ -53,9 +57,21 @@ class SandboxConfig(BaseModel):
     disk_size_gb: int = 64
 
 
-TEMPLATE_TO_IMAGE = {
-    SandboxTemplate.DEFAULT_BASE: modal.Image.from_registry("ghcr.io/posthog/posthog-sandbox-base:master"),
-}
+def _get_template_image(template: SandboxTemplate) -> modal.Image:
+    if template == SandboxTemplate.DEFAULT_BASE:
+        if settings.DEBUG:
+            dockerfile_path = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
+            )
+
+            if not os.path.exists(dockerfile_path):
+                raise FileNotFoundError(f"Dockerfile not found at {dockerfile_path}")
+
+            return modal.Image.from_dockerfile(dockerfile_path)
+        else:
+            return modal.Image.from_registry("ghcr.io/posthog/posthog-sandbox-base:master")
+
+    raise ValueError(f"Unknown template: {template}")
 
 
 class Sandbox:
@@ -85,12 +101,7 @@ class Sandbox:
         try:
             app = Sandbox._get_default_app()
 
-            image = TEMPLATE_TO_IMAGE.get(config.template)
-
-            if not image:
-                raise SandboxProvisionError(
-                    f"Unknown template for sandbox {config.name}", {"template": str(config.template), "config": config}
-                )
+            image = _get_template_image(config.template)
 
             if config.snapshot_id:
                 snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
@@ -105,13 +116,16 @@ class Sandbox:
                 secret = modal.Secret.from_dict(config.environment_variables)
                 secrets.append(secret)
 
+            sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
+
             create_kwargs = {
                 "app": app,
-                "name": config.name,
+                "name": sandbox_name,
                 "image": image,
                 "timeout": config.ttl_seconds,
                 "cpu": float(config.cpu_cores),
                 "memory": config.memory_gb * 1024,
+                "verbose": True,
             }
 
             if secrets:
@@ -234,10 +248,12 @@ class Sandbox:
         if "missing" in check_result.stdout:
             raise RuntimeError(f"Repository path {repo_path} does not exist. Clone the repository first.")
 
-        setup_command = f"cd {repo_path} && {self._get_setup_command(repo_path)}"
+        agent_setup_command = self._get_setup_command(repo_path)
+        setup_command = f"cd {repo_path} && {agent_setup_command}"
 
-        logger.info(f"Running code agent setup for {repository} in sandbox {self.id}")
-        return self.execute(setup_command, timeout_seconds=15 * 60)
+        result = self.execute(setup_command, timeout_seconds=15 * 60)
+
+        return result
 
     def is_git_clean(self, repository: str) -> tuple[bool, str]:
         if not self.is_running:
@@ -258,16 +274,29 @@ class Sandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        command = f"cd {repo_path} && {self._get_task_command(task_id, repo_path)}"
+        task_command = self._get_task_command(task_id, repo_path)
+        command = f"cd {repo_path} && {task_command}"
 
         logger.info(f"Executing task {task_id} in {repo_path} in sandbox {self.id}")
-        return self.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
+        logger.info(f"Task command: {task_command}")
+        logger.info(f"Full command: {command}")
+
+        result = self.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
+
+        logger.info(f"Task execution completed: exit_code={result.exit_code}")
+        logger.info(f"Task stdout length: {len(result.stdout)} chars")
+        logger.info(f"Task stderr length: {len(result.stderr)} chars")
+        if result.exit_code != 0:
+            logger.warning(f"Task stdout preview: {result.stdout[:500]}")
+            logger.warning(f"Task stderr preview: {result.stderr[:500]}")
+
+        return result
 
     def _get_task_command(self, task_id: str, repo_path: str) -> str:
         return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --repositoryPath {repo_path}"
 
     def _get_setup_command(self, repo_path: str) -> str:
-        return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"
+        return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 1"
 
     def create_snapshot(self) -> str:
         if not self.is_running:

@@ -85,7 +85,7 @@ class RepositoryCloneError(ProcessTaskTransientError):
     pass
 
 
-class RepositorySetupError(ProcessTaskTransientError):
+class RetryableRepositorySetupError(ProcessTaskTransientError):
     """Failed to setup repository (install dependencies, etc)."""
 
     pass

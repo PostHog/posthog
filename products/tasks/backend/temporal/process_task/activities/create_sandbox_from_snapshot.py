@@ -28,6 +28,7 @@ class CreateSandboxFromSnapshotInput:
     snapshot_id: str
     task_id: str
     distinct_id: str
+    team_id: int
     github_integration_id: int
 
 
@@ -122,6 +123,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
             "GITHUB_TOKEN": github_token,
             "POSTHOG_PERSONAL_API_KEY": api_key_value,
             "POSTHOG_API_URL": settings.SITE_URL,
+            "POSTHOG_PROJECT_ID": input.team_id,
         }
 
         config = SandboxConfig(

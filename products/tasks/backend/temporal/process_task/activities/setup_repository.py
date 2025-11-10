@@ -5,7 +5,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.services.sandbox import Sandbox
-from products.tasks.backend.temporal.exceptions import RepositorySetupError
+from products.tasks.backend.temporal.exceptions import RetryableRepositorySetupError
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 
@@ -33,13 +33,13 @@ def setup_repository(input: SetupRepositoryInput) -> str:
         try:
             result = sandbox.setup_repository(input.repository)
         except Exception as e:
-            raise RepositorySetupError(
+            raise RetryableRepositorySetupError(
                 f"Failed to setup repository {input.repository}",
                 {"repository": input.repository, "sandbox_id": input.sandbox_id, "error": str(e)},
             )
 
         if result.exit_code != 0:
-            raise RepositorySetupError(
+            raise RetryableRepositorySetupError(
                 f"Repository setup failed with exit code {result.exit_code}",
                 {"repository": input.repository, "exit_code": result.exit_code, "stderr": result.stderr[:500]},
             )
@@ -47,7 +47,7 @@ def setup_repository(input: SetupRepositoryInput) -> str:
         is_clean, status_output = sandbox.is_git_clean(input.repository)
 
         if not is_clean:
-            raise RepositorySetupError(
+            raise RetryableRepositorySetupError(
                 "Repository setup left uncommitted changes. Cannot snapshot with modified git state.",
                 {
                     "repository": input.repository,

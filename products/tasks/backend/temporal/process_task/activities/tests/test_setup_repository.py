@@ -6,7 +6,7 @@ from unittest.mock import patch
 from asgiref.sync import async_to_sync
 
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
-from products.tasks.backend.temporal.exceptions import RepositorySetupError, SandboxNotFoundError
+from products.tasks.backend.temporal.exceptions import RetryableRepositorySetupError, SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.clone_repository import (
     CloneRepositoryInput,
     clone_repository,
@@ -96,7 +96,7 @@ class TestSetupRepositoryActivity:
                 distinct_id="test-user-id",
             )
 
-            with pytest.raises(RepositorySetupError):
+            with pytest.raises(RetryableRepositorySetupError):
                 async_to_sync(activity_environment.run)(setup_repository, setup_input)
         finally:
             if sandbox:
@@ -151,7 +151,7 @@ class TestSetupRepositoryActivity:
                     distinct_id="test-user-id",
                 )
 
-                with pytest.raises(RepositorySetupError) as exc_info:
+                with pytest.raises(RetryableRepositorySetupError) as exc_info:
                     async_to_sync(activity_environment.run)(setup_repository, setup_input)
 
                 assert "uncommitted changes" in str(exc_info.value).lower()

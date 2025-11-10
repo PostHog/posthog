@@ -58,14 +58,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
 # Install additional language package managers
 RUN npm install -g yarn pnpm typescript ts-node nodemon
 
-# Install PostHog CLI
-RUN npm install -g @posthog/cli
-
 ###
 # Agent SDK
 ###
-
-RUN npm install -g @anthropic-ai/claude-code
 
 # Set up /scripts as a Node.js project and install @posthog/agent
 RUN mkdir -p /scripts && \
@@ -75,14 +70,14 @@ RUN mkdir -p /scripts && \
 
 # Download agent runner script from GitHub
 RUN cd /scripts && \
-    curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/products/tasks/scripts/runAgent.mjs \
+    curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/array/modal/products/tasks/scripts/runAgent.mjs \
     -o runAgent.mjs && \
     chmod +x runAgent.mjs
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
 ENV IS_SANDBOX=1
 
-ENV PYTHONPATH="/tmp/workspace:$PYTHONPATH"
+ENV PYTHONPATH="/tmp/workspace"
 
 WORKDIR /tmp/workspace
 

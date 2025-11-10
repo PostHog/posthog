@@ -188,8 +188,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             setup_repository,
             setup_repo_input,
-            start_to_close_timeout=timedelta(minutes=60),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
     async def _snapshot_sandbox(self, sandbox_id: str) -> str:
@@ -217,7 +217,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-    async def _setup_snapshot_with_repository(self) -> str:
+    async def _setup_snapshot_with_repository(self, setup_repository: bool = True) -> str:
         setup_sandbox_id = None
         setup_personal_api_key_id = None
 
@@ -225,14 +225,30 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             setup_output = await self._get_sandbox_for_setup()
             setup_sandbox_id = setup_output.sandbox_id
             setup_personal_api_key_id = setup_output.personal_api_key_id
+            setup_failed = False
 
             await self._clone_repository_in_sandbox(setup_sandbox_id)
 
-            await self._setup_repository_in_sandbox(setup_sandbox_id)
+            if setup_repository:
+                try:
+                    await self._setup_repository_in_sandbox(setup_sandbox_id)
+                except Exception as e:
+                    logger.warning(
+                        f"Repository setup failed for {self.task_details.repository}: {e}. "
+                        f"Will create snapshot without setup. Tasks will need to handle setup themselves."
+                    )
+                    await self._track_workflow_event(
+                        "repository_setup_failed_using_base_snapshot",
+                        {
+                            "task_id": self.task_details.task_id,
+                            "repository": self.task_details.repository,
+                            "error": str(e)[:500],
+                        },
+                    )
+
+                    setup_failed = True
 
             snapshot_id = await self._snapshot_sandbox(setup_sandbox_id)
-
-            return snapshot_id
 
         finally:
             if setup_personal_api_key_id:
@@ -240,10 +256,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if setup_sandbox_id:
                 await self._cleanup_sandbox(setup_sandbox_id)
 
+        if setup_failed:
+            return await self._setup_snapshot_with_repository(setup_repository=False)
+        else:
+            return snapshot_id
+
     async def _create_sandbox_from_snapshot(self, snapshot_id: str) -> CreateSandboxFromSnapshotOutput:
         create_sandbox_input = CreateSandboxFromSnapshotInput(
             snapshot_id=snapshot_id,
             task_id=self.task_details.task_id,
+            team_id=self.task_details.team_id,
             distinct_id=self.task_details.distinct_id,
             github_integration_id=self.task_details.github_integration_id,
         )
