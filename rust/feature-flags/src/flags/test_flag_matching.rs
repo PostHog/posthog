@@ -5633,7 +5633,7 @@ mod tests {
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache,
             None,
@@ -5710,7 +5710,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache,
             None,

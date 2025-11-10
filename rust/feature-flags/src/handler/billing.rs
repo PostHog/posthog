@@ -72,10 +72,7 @@ pub async fn record_usage(
 /// Survey targeting flags (those starting with "survey-targeting-") and disabled flags are free
 /// and don't count toward billing.
 fn contains_billable_flags(filtered_flags: &FeatureFlagList) -> bool {
-    filtered_flags
-        .flags
-        .iter()
-        .any(|flag| is_billable_flag(flag))
+    filtered_flags.flags.iter().any(is_billable_flag)
 }
 
 /// Determines if a flag is billable based on its key and active status.
