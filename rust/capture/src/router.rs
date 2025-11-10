@@ -81,6 +81,30 @@ async fn index() -> &'static str {
     "capture"
 }
 
+pub fn apply_request_timeout_middleware<S>(
+    router: Router<S>,
+    request_timeout_seconds: Option<u64>,
+) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    if let Some(request_timeout_seconds) = request_timeout_seconds {
+        let timeout_duration = StdDuration::from_secs(request_timeout_seconds);
+
+        return router.layer(axum::middleware::from_fn(
+            move |req: axum::extract::Request, next: axum::middleware::Next| async move {
+                match tokio::time::timeout(timeout_duration, next.run(req)).await {
+                    Ok(response) => response,
+                    Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response(),
+                }
+            },
+        ));
+    }
+
+    // no timeout configured
+    router
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn router<
     TZ: TimeSource + Send + Sync + 'static,
@@ -272,17 +296,8 @@ pub fn router<
     // add this prior to timeout middleware to ensure healthchecks are sensitive to load
     router = router.merge(status_router);
 
-    if let Some(request_timeout_seconds) = request_timeout_seconds {
-        let timeout_duration = StdDuration::from_secs(request_timeout_seconds);
-        router = router.layer(axum::middleware::from_fn(
-            move |req: axum::extract::Request, next: axum::middleware::Next| async move {
-                match tokio::time::timeout(timeout_duration, next.run(req)).await {
-                    Ok(response) => response,
-                    Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response(),
-                }
-            },
-        ));
-    }
+    // apply request timeout middleware if request_timeout_seconds is set
+    router = apply_request_timeout_middleware(router, request_timeout_seconds);
 
     let router = router
         .layer(TraceLayer::new_for_http())
@@ -304,45 +319,14 @@ pub fn router<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::StatusCode;
-    use axum_test_helper::TestClient;
-    use common_redis::MockRedisClient;
-    use health::HealthRegistry;
-    use limiters::token_dropper::TokenDropper;
-    use std::sync::Arc;
+
+    use std::collections::HashMap;
     use std::time::Duration as StdDuration;
 
-    use crate::limiters::CaptureQuotaLimiter;
-    use crate::sinks::Event;
-    use crate::time::TimeSource;
-
-    #[derive(Clone)]
-    struct TestSink;
-
-    #[async_trait::async_trait]
-    impl Event for TestSink {
-        async fn send(
-            &self,
-            _event: crate::v0_request::ProcessedEvent,
-        ) -> Result<(), crate::api::CaptureError> {
-            Ok(())
-        }
-
-        async fn send_batch(
-            &self,
-            _events: Vec<crate::v0_request::ProcessedEvent>,
-        ) -> Result<(), crate::api::CaptureError> {
-            Ok(())
-        }
-    }
-
-    struct TestTimeSource;
-
-    impl TimeSource for TestTimeSource {
-        fn current_time(&self) -> chrono::DateTime<chrono::Utc> {
-            chrono::Utc::now()
-        }
-    }
+    use axum::http::StatusCode;
+    use axum_test_helper::TestClient;
+    use bytes::Bytes;
+    use serde_json::json;
 
     async fn slow_handler() -> &'static str {
         // Sleep for 2 seconds to ensure timeout with 1 second timeout
@@ -354,106 +338,27 @@ mod tests {
         "fast response"
     }
 
-    fn create_test_router_base(timeout_seconds: Option<u64>) -> Router {
-        let timesource = TestTimeSource;
-        let liveness = HealthRegistry::new("timeout_tests");
-        let sink = TestSink;
-        let redis: Arc<MockRedisClient> = Arc::new(MockRedisClient::default());
+    async fn indefinite_work_handler(body: Bytes) -> &'static str {
+        loop {
+            let _unused =
+                serde_json::from_slice::<Vec<HashMap<String, String>>>(body.as_ref()).unwrap();
+            tokio::task::yield_now().await;
+        }
 
-        // Create a minimal config for the quota limiter
-        let cfg = crate::config::Config {
-            print_sink: false,
-            address: std::net::SocketAddr::from(([127, 0, 0, 1], 3000)),
-            redis_url: "redis://localhost:6379/".to_string(),
-            overflow_enabled: false,
-            overflow_preserve_partition_locality: false,
-            overflow_per_second_limit: std::num::NonZeroU32::new(100).unwrap(),
-            overflow_burst_limit: std::num::NonZeroU32::new(1000).unwrap(),
-            ingestion_force_overflow_by_token_distinct_id: None,
-            drop_events_by_token_distinct_id: None,
-            enable_historical_rerouting: false,
-            historical_rerouting_threshold_days: 1,
-            kafka: crate::config::KafkaConfig {
-                kafka_producer_linger_ms: 20,
-                kafka_producer_queue_mib: 400,
-                kafka_message_timeout_ms: 20000,
-                kafka_producer_message_max_bytes: 1000000,
-                kafka_compression_codec: "none".to_string(),
-                kafka_hosts: "localhost:9092".to_string(),
-                kafka_topic: "events".to_string(),
-                kafka_overflow_topic: "events_overflow".to_string(),
-                kafka_historical_topic: "events_historical".to_string(),
-                kafka_client_ingestion_warning_topic: "events".to_string(),
-                kafka_exceptions_topic: "exceptions".to_string(),
-                kafka_heatmaps_topic: "heatmaps".to_string(),
-                kafka_replay_overflow_topic: "replay_overflow".to_string(),
-                kafka_tls: false,
-                kafka_client_id: "test".to_string(),
-                kafka_producer_max_retries: 2,
-                kafka_producer_acks: "all".to_string(),
-                kafka_topic_metadata_refresh_interval_ms: 20000,
-                kafka_metadata_max_age_ms: 60000,
-            },
-            otel_url: None,
-            otel_sampling_rate: 1.0,
-            otel_service_name: "capture".to_string(),
-            export_prometheus: false,
-            redis_key_prefix: None,
-            capture_mode: CaptureMode::Events,
-            concurrency_limit: None,
-            s3_fallback_enabled: false,
-            s3_fallback_bucket: None,
-            s3_fallback_endpoint: None,
-            s3_fallback_prefix: String::new(),
-            healthcheck_strategy: health::HealthStrategy::All,
-            is_mirror_deploy: false,
-            log_level: tracing::Level::INFO,
-            verbose_sample_percent: 0.0,
-            ai_max_sum_of_parts_bytes: 26_214_400,
-            request_timeout_seconds: timeout_seconds,
-        };
-
-        let quota_limiter =
-            CaptureQuotaLimiter::new(&cfg, redis.clone(), StdDuration::from_secs(60));
-        let token_dropper = TokenDropper::default();
-
-        router(
-            timesource,
-            liveness,
-            sink,
-            redis,
-            quota_limiter,
-            token_dropper,
-            false, // metrics
-            CaptureMode::Events,
-            None,        // concurrency_limit
-            1024 * 1024, // event_size_limit
-            false,       // enable_historical_rerouting
-            1,           // historical_rerouting_threshold_days
-            false,       // is_mirror_deploy
-            0.0,         // verbose_sample_percent
-            26_214_400,  // ai_max_sum_of_parts_bytes
-            timeout_seconds,
-        )
+        #[allow(unreachable_code)]
+        "done parsing large body"
     }
 
     #[tokio::test]
     async fn test_timeout_returns_408() {
         // Use a 1 second timeout - the slow handler sleeps for 2 seconds, so it should timeout
         // Create router with test route included before timeout middleware is applied
-        let router = create_test_router_base(Some(1)).route("/slow", get(slow_handler));
-        let timeout_duration = StdDuration::from_secs(1);
-        let router = router.layer(axum::middleware::from_fn(
-            move |req: axum::extract::Request, next: axum::middleware::Next| async move {
-                match tokio::time::timeout(timeout_duration, next.run(req)).await {
-                    Ok(response) => response,
-                    Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response(),
-                }
-            },
-        ));
-        let client = TestClient::new(router);
+        let router = Router::new().route("/slow", get(slow_handler));
+        let router = apply_request_timeout_middleware(router, Some(1));
 
+        let client = TestClient::new(router);
         let response = client.get("/slow").send().await;
+
         assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
         let body = response.text().await;
         assert_eq!(body, "Request timeout");
@@ -462,19 +367,12 @@ mod tests {
     #[tokio::test]
     async fn test_normal_request_completes_within_timeout() {
         // Use a longer timeout (1 second) so normal requests complete
-        let router = create_test_router_base(Some(1)).route("/fast", get(fast_handler));
-        let timeout_duration = StdDuration::from_secs(1);
-        let router = router.layer(axum::middleware::from_fn(
-            move |req: axum::extract::Request, next: axum::middleware::Next| async move {
-                match tokio::time::timeout(timeout_duration, next.run(req)).await {
-                    Ok(response) => response,
-                    Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response(),
-                }
-            },
-        ));
-        let client = TestClient::new(router);
+        let router = Router::new().route("/fast", get(fast_handler));
+        let router = apply_request_timeout_middleware(router, Some(1));
 
+        let client = TestClient::new(router);
         let response = client.get("/fast").send().await;
+
         assert_eq!(response.status(), StatusCode::OK);
         let body = response.text().await;
         assert_eq!(body, "fast response");
@@ -483,20 +381,56 @@ mod tests {
     #[tokio::test]
     async fn test_timeout_configuration_works() {
         // Test with 1 second timeout - should timeout on slow handler (which sleeps 2 seconds)
-        let router = create_test_router_base(Some(1)).route("/slow", get(slow_handler));
-        let timeout_duration = StdDuration::from_secs(1);
-        let router = router.layer(axum::middleware::from_fn(
-            move |req: axum::extract::Request, next: axum::middleware::Next| async move {
-                match tokio::time::timeout(timeout_duration, next.run(req)).await {
-                    Ok(response) => response,
-                    Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response(),
-                }
-            },
-        ));
-        let client = TestClient::new(router);
+        let router = Router::new().route("/slow", get(slow_handler));
+        let router = apply_request_timeout_middleware(router, Some(1));
 
+        let client = TestClient::new(router);
         let start = std::time::Instant::now();
         let response = client.get("/slow").send().await;
+        let elapsed = start.elapsed();
+
+        assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+        // Should timeout around 1 second (within 1.5 seconds, accounting for test overhead)
+        assert!(elapsed >= StdDuration::from_millis(900)); // At least 900ms
+        assert!(elapsed < StdDuration::from_millis(1500)); // But less than 1.5s
+    }
+
+    #[tokio::test]
+    async fn test_no_timeout_when_none_specified() {
+        // Test with 1 second timeout - should timeout on slow handler (which sleeps 2 seconds)
+        let router = Router::new().route("/slow", get(slow_handler));
+        let router = apply_request_timeout_middleware(router, None);
+
+        let client = TestClient::new(router);
+        let start = std::time::Instant::now();
+        let response = client.get("/slow").send().await;
+        let elapsed = start.elapsed();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        // Should complete within 2 seconds since no timeout is specified
+        assert!(elapsed >= StdDuration::from_millis(2000)); // At least 2 seconds
+    }
+
+    #[tokio::test]
+    async fn test_timeout_on_long_running_handler_payload() {
+        // Test with 1 second timeout - should timeout parsing huge request body
+        let router = Router::new().route("/long_running", post(indefinite_work_handler));
+        let router = apply_request_timeout_middleware(router, Some(1));
+
+        let client = TestClient::new(router);
+
+        let mut data = vec![];
+        for _ in 1..=1000 {
+            let mut obj = HashMap::new();
+            for i in 1..=100 {
+                obj.insert(format!("key_{i}"), format!("value_{i}"));
+            }
+            data.push(obj);
+        }
+        let payload = Bytes::from(json!(data).to_string());
+
+        let start = std::time::Instant::now();
+        let response = client.post("/long_running").body(payload).send().await;
         let elapsed = start.elapsed();
 
         assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
