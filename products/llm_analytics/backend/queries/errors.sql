@@ -6,6 +6,7 @@ WITH extracted_errors AS (
     SELECT
         distinct_id,
         timestamp,
+        event,
         JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
         JSONExtractRaw(properties, '$ai_session_id') as ai_session_id,
         CASE
@@ -32,6 +33,7 @@ ids_normalized AS (
     SELECT
         distinct_id,
         timestamp,
+        event,
         ai_trace_id,
         ai_session_id,
         replaceRegexpAll(raw_error, '[0-9]{{9,}}', '<ID>') as error_text
@@ -42,6 +44,7 @@ uuids_normalized AS (
     SELECT
         distinct_id,
         timestamp,
+        event,
         ai_trace_id,
         ai_session_id,
         replaceRegexpAll(error_text, '(req_[a-zA-Z0-9]+|[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}})', '<ID>') as error_text
@@ -52,6 +55,7 @@ timestamps_normalized AS (
     SELECT
         distinct_id,
         timestamp,
+        event,
         ai_trace_id,
         ai_session_id,
         replaceRegexpAll(error_text, '[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}T[0-9]{{2}}:[0-9]{{2}}:[0-9]{{2}}.[0-9]+Z?', '<TIMESTAMP>') as error_text
@@ -62,6 +66,7 @@ paths_normalized AS (
     SELECT
         distinct_id,
         timestamp,
+        event,
         ai_trace_id,
         ai_session_id,
         replaceRegexpAll(error_text, 'projects/[0-9a-z-]+(/[a-z]+/[0-9a-z-]+)+', 'projects/<PATH>') as error_text
@@ -72,6 +77,7 @@ response_ids_normalized AS (
     SELECT
         distinct_id,
         timestamp,
+        event,
         ai_trace_id,
         ai_session_id,
         replaceRegexpAll(error_text, '"responseId":"[a-zA-Z0-9_-]+"', '"responseId":"<RESPONSE_ID>"') as error_text
@@ -82,6 +88,7 @@ tool_call_ids_normalized AS (
     SELECT
         distinct_id,
         timestamp,
+        event,
         ai_trace_id,
         ai_session_id,
         replaceRegexpAll(error_text, 'tool_call_id=[''"][a-zA-Z0-9_-]+[''"]', 'tool_call_id=''<TOOL_CALL_ID>''') as error_text
@@ -92,6 +99,7 @@ token_counts_normalized AS (
     SELECT
         distinct_id,
         timestamp,
+        event,
         ai_trace_id,
         ai_session_id,
         replaceRegexpAll(error_text, '"tokenCount":[0-9]+', '"tokenCount":<TOKEN_COUNT>') as error_text
@@ -102,6 +110,7 @@ all_numbers_normalized AS (
     SELECT
         distinct_id,
         timestamp,
+        event,
         ai_trace_id,
         ai_session_id,
         replaceRegexpAll(error_text, '[0-9]+', '<N>') as normalized_error
@@ -110,7 +119,9 @@ all_numbers_normalized AS (
 SELECT
     normalized_error as error,
     countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
-    count() as generations,
+    countIf(event = '$ai_generation') as generations,
+    countIf(event = '$ai_span') as spans,
+    countIf(event = '$ai_embedding') as embeddings,
     countDistinctIf(ai_session_id, notEmpty(ai_session_id)) as sessions,
     uniq(distinct_id) as users,
     uniq(toDate(timestamp)) as days_seen,

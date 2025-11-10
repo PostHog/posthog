@@ -126,6 +126,20 @@ export function LLMAnalyticsErrors(): JSX.Element {
                             </Tooltip>
                         ),
                     },
+                    spans: {
+                        renderTitle: () => (
+                            <Tooltip title="Number of spans with this error">
+                                {renderSortableColumnTitle('spans', 'Spans')}
+                            </Tooltip>
+                        ),
+                    },
+                    embeddings: {
+                        renderTitle: () => (
+                            <Tooltip title="Number of embeddings with this error">
+                                {renderSortableColumnTitle('embeddings', 'Embeddings')}
+                            </Tooltip>
+                        ),
+                    },
                     sessions: {
                         renderTitle: () => (
                             <Tooltip title="Number of unique sessions with this error">
