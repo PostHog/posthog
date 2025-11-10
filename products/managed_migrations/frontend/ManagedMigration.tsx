@@ -410,6 +410,7 @@ export function ManagedMigrations(): JSX.Element {
                                                 type="secondary"
                                                 size="small"
                                                 onClick={() => pauseMigration(migration.id)}
+                                                loading={migrationsLoading}
                                             >
                                                 Pause
                                             </LemonButton>
