@@ -1,25 +1,9 @@
-# If a file is set here, then PRs will require that team's approval to get that code merged
+# If a file is set here, then PRs will require that team's approval to get that code merged.
 
 # ClickHouse team owns Clickhouse migrations
 
 posthog/clickhouse/migrations/** @PostHog/clickhouse
 
-# HogQL team owns HogQL changes
+# HogQL team owns HogQL changes 
 
 posthog/hogql/** @PostHog/hogql
-
-# Platform (the `/flags` and `/decide` endpoints + associated utils)
-
-rust/feature-flags/ @PostHog/team-feature-flags
-posthog/api/decide.py @PostHog/team-feature-flags
-posthog/models/feature_flag/flag_matching.py @PostHog/team-feature-flags
-
-# Common Rust crates used by the `/flags` service (the flags team wants to know about changes to these modules since they affect flag deployments)
-
-rust/common/types @PostHog/team-feature-flags
-rust/common/database @PostHog/team-feature-flags
-rust/common/redis @PostHog/team-feature-flags
-rust/common/cookieless @PostHog/team-feature-flags
-rust/common/compression @PostHog/team-feature-flags
-rust/common/geoip @PostHog/team-feature-flags
-rust/common/hypercache @PostHog/team-feature-flags
