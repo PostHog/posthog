@@ -108,7 +108,7 @@ class CleanupResult:
     "--area",
     multiple=True,
     type=click.Choice(
-        ["flox-logs", "docker", "python", "dagster", "node-artifacts", "rust", "node-modules"],
+        ["flox-logs", "docker", "python", "dagster", "node-artifacts", "rust", "pnpm-store"],
         case_sensitive=False,
     ),
     help="Specific cleanup area(s) to run. Can be specified multiple times. Without this, all areas run.",
@@ -210,18 +210,18 @@ def doctor_disk(
             confirmation_prompt="Clean up Rust target directories?",
         ),
         CleanupCategory(
-            id="node_modules",
-            title="⚠️  node_modules (pnpm workspace)",
+            id="pnpm_store",
+            title="📦 pnpm store prune",
             description=[
-                "Deletes pnpm-managed node_modules directories across the workspace.",
-                "You'll need to run 'pnpm install' afterwards to restore dependencies.",
+                "Removes unreferenced packages from the global pnpm store.",
+                "Safe alternative to deleting node_modules - no reinstall needed.",
             ],
-            estimate=_estimate_node_modules,
-            cleanup=_cleanup_items,
-            confirmation_prompt="Clean up node_modules directories?",
-            default_confirm=False,
-            dry_run_message=("Would delete node_modules directories (requires 'pnpm install' afterwards)."),
-            post_cleanup_message="   ⚠️  Remember to run: pnpm install",
+            estimate=_estimate_pnpm_store,
+            cleanup=_cleanup_pnpm_store,
+            confirmation_prompt="Prune unused packages from pnpm store?",
+            include_in_total=False,
+            skip_if_empty=False,
+            dry_run_message="Would run: pnpm store prune",
         ),
     ]
 
@@ -434,21 +434,26 @@ def _estimate_rust_targets(repo_root: Path) -> CleanupEstimate:
     return CleanupEstimate(total_size=total, items=items, details=details)
 
 
-def _estimate_node_modules(repo_root: Path) -> CleanupEstimate:
-    """Gather pnpm workspace node_modules directories."""
+def _estimate_pnpm_store(repo_root: Path) -> CleanupEstimate:
+    """Check pnpm store - cleanup happens via pnpm store prune."""
 
-    items = _collect_node_modules(repo_root)
-    total = sum(item.size for item in items)
+    try:
+        subprocess.run(["pnpm", "--version"], capture_output=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return CleanupEstimate(
+            total_size=0.0,
+            items=[],
+            details=["   pnpm not available; skipping."],
+            available=False,
+        )
 
-    if items:
-        details = [
-            f"   Found {len(items)} node_modules director{'ies' if len(items) != 1 else 'y'} managed by pnpm.",
-        ]
-        details.extend(_describe_items(items, repo_root, "   Sample directories:"))
-    else:
-        details = ["   No node_modules directories detected."]
+    details = [
+        "   Runs: pnpm store prune",
+        "   Removes unreferenced packages from global store.",
+        "   Safe operation - no reinstall needed.",
+    ]
 
-    return CleanupEstimate(total_size=total, items=items, details=details)
+    return CleanupEstimate(total_size=0.0, items=[], details=details)
 
 
 def _estimate_docker_usage(repo_root: Path) -> CleanupEstimate:
@@ -496,6 +501,19 @@ def _cleanup_flox_logs(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
     if result.returncode == 0:
         return CleanupStats(deleted_anything=True)
 
+    return CleanupStats(deleted_anything=False)
+
+
+def _cleanup_pnpm_store(_: CleanupEstimate, __: Path) -> CleanupStats:
+    """Execute pnpm store prune command."""
+
+    click.echo()
+    result = subprocess.run(["pnpm", "store", "prune"], check=False)
+    if result.returncode == 0:
+        click.echo("   ✓ pnpm store pruned")
+        return CleanupStats(deleted_anything=True)
+
+    click.echo("   ⚠️  pnpm store prune failed")
     return CleanupStats(deleted_anything=False)
 
 
@@ -610,33 +628,6 @@ def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
             continue
         seen.add(resolved)
         items.append(CleanupItem(target_dir, size, is_dir=True))
-
-    return items
-
-
-def _collect_node_modules(repo_root: Path) -> list[CleanupItem]:
-    """Collect top-level pnpm node_modules directories (skipping nested duplicates)."""
-
-    items: list[CleanupItem] = []
-    seen: set[Path] = set()
-
-    for package_json in repo_root.rglob("package.json"):
-        if "node_modules" in package_json.parts or ".git" in package_json.parts:
-            continue
-        node_modules_dir = package_json.parent / "node_modules"
-        if not node_modules_dir.exists():
-            continue
-        try:
-            resolved = node_modules_dir.resolve()
-        except (FileNotFoundError, PermissionError, RuntimeError):
-            continue
-        if resolved in seen or not node_modules_dir.is_dir():
-            continue
-        size = _get_dir_size(node_modules_dir)
-        if size <= 0:
-            continue
-        seen.add(resolved)
-        items.append(CleanupItem(node_modules_dir, size, is_dir=True))
 
     return items
 
