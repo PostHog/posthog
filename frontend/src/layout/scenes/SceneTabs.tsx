@@ -7,7 +7,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useEffect, useRef, useState } from 'react'
 
-import { IconPlus, IconX } from '@posthog/icons'
+import { IconPlus, IconSearch, IconX } from '@posthog/icons'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -21,6 +21,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { newTabSceneLogic } from '~/scenes/new-tab/newTabSceneLogic'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -37,6 +38,13 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile, isLayoutPanelVisible } = useValues(panelLayoutLogic)
+
+    // Find the active tab to get its ID for the newTabSceneLogic
+    const activeTab = tabs.find((tab) => tab.active)
+    const activeTabId = activeTab?.id
+
+    // Get the focus action from the newTabSceneLogic for the active tab
+    const { focusSearchInput } = useActions(newTabSceneLogic({ tabId: activeTabId }))
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
@@ -98,6 +106,24 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 </ButtonPrimitive>
             )}
 
+            {/* Open new tab on current page */}
+            <Link
+                to={urls.newTab()}
+                onClick={(e) => {
+                    // If we're already on the new tab scene, just focus the search input
+                    if (router.values.location.pathname.includes(urls.newTab())) {
+                        e.preventDefault()
+                        focusSearchInput()
+                    }
+                }}
+                buttonProps={{
+                    iconOnly: true,
+                    className: 'z-20 rounded-lg text-tertiary hover:text-primary',
+                }}
+            >
+                <IconSearch />
+            </Link>
+
             {/* Line between tabs and main content */}
             <div
                 className={cn(
@@ -120,7 +146,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 >
                     <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
                         <div
-                            className={cn('scene-tab-row grid min-w-0 pl-[5px] lg:pl-5 gap-1 items-center h-[36px]')}
+                            className={cn('scene-tab-row grid min-w-0 pl-1.5 gap-1 items-center')}
                             style={{ gridTemplateColumns }}
                         >
                             {tabs.map((tab, index) => {

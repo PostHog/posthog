@@ -61,6 +61,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     const inputRef = useRef<HTMLInputElement>(null)
     const [focusedTagIndex, setFocusedTagIndex] = useState<number | null>(null)
     const [expandedTags, setExpandedTags] = useState(false)
+    const [isFocused, setIsFocused] = useState(false)
 
     useImperativeHandle(
         ref,
@@ -264,7 +265,8 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         variant: 'default',
                         size: 'lg',
                     }),
-                    'flex gap-1 focus-within:border-secondary items-center h-8 rounded-lg'
+                    'flex gap-1 focus-within:border-secondary items-center h-8 rounded-lg',
+                    isFocused && 'animate-input-focus-pulse'
                 )}
             >
                 <DropdownMenu
@@ -276,7 +278,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     <DropdownMenuTrigger asChild>
                         <ButtonPrimitive
                             variant="outline"
-                            className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
+                            className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary hover:border-secondary data-[state=open]:border-secondary ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
                             iconOnly
                             size="sm"
                             tooltip={
@@ -285,6 +287,8 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                                 </>
                             }
                             tooltipPlacement="bottom"
+                            tooltipCloseDelayMs={0}
+                            tabIndex={-1}
                         >
                             /
                         </ButtonPrimitive>
@@ -352,12 +356,15 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                             className={`text-primary ${focusedTagIndex === index ? 'ring-2 ring-accent' : ''}`}
                             size="sm"
                             variant="outline"
-                            onClick={() => {
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
                                 selectCommand(command)
                                 setShowDropdown(false)
                                 setExpandedTags(false)
                                 setFocusedTagIndex(null)
                             }}
+                            tabIndex={-1}
                         >
                             {command.displayName}
                             <IconX className="size-3 ml-1 text-tertiary" />
@@ -386,6 +393,12 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     autoFocus
                     autoComplete="off"
                     className="pl-1 w-full border-none flex-1 h-full min-h-full rounded-r-lg"
+                    onFocus={() => {
+                        setIsFocused(true)
+                    }}
+                    onBlur={() => {
+                        setIsFocused(false)
+                    }}
                     size="lg"
                     suffix={
                         (inputValue !== '' || selectedCommands.length > 0) && (
