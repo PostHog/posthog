@@ -1,0 +1,257 @@
+#!/usr/bin/env bash
+
+set -e
+
+# Automatically restart without asking.
+# this gets around needrestart command halting for user input
+export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}"
+
+POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
+export POSTHOG_SECRET
+
+ENCRYPTION_SALT_KEYS=$(openssl rand -hex 16)
+export ENCRYPTION_SALT_KEYS
+
+# Talk to the user
+echo "Welcome to the single instance PostHog installer 🦔"
+echo ""
+echo "⚠️  You really need 4gb or more of memory to run this stack ⚠️"
+echo ""
+echo "Power user or aspiring power user?"
+echo "Check out our docs on deploying PostHog! https://posthog.com/docs/self-host/deploy/hobby"
+echo ""
+
+if [ -n "$1" ]
+then
+export POSTHOG_APP_TAG=$1
+else
+echo "What version of PostHog would you like to install? (We default to 'latest')"
+echo "You can check out available versions here: https://hub.docker.com/r/posthog/posthog/tags"
+read -r POSTHOG_APP_TAG_READ
+if [ -z "$POSTHOG_APP_TAG_READ" ]
+then
+    echo "Using default and installing $POSTHOG_APP_TAG"
+else
+    export POSTHOG_APP_TAG=$POSTHOG_APP_TAG_READ
+    echo "Using provided tag: $POSTHOG_APP_TAG"
+fi
+fi
+echo ""
+if [ -n "$2" ]
+then
+export DOMAIN=$2
+else
+echo "Let's get the exact domain PostHog will be installed on"
+echo "Make sure that you have a Host A DNS record pointing to this instance!"
+echo "This will be used for TLS 🔐"
+echo "ie: test.posthog.net (NOT an IP address)"
+read -r DOMAIN
+export DOMAIN=$DOMAIN
+fi
+echo "Ok we'll set up certs for https://$DOMAIN"
+echo ""
+echo "We will need sudo access so the next question is for you to give us superuser access"
+echo "Please enter your sudo password now:"
+sudo echo ""
+echo "Thanks! 🙏"
+echo ""
+echo "Ok! We'll take it from here 🚀"
+
+echo "Making sure any stack that might exist is stopped"
+sudo -E docker-compose -f docker-compose.yml stop &> /dev/null || true
+
+# send log of this install for continued support!
+curl -o /dev/null -L --header "Content-Type: application/json" -d "{
+    \"api_key\": \"sTMFPsFhdP1Ssg\",
+    \"distinct_id\": \"${DOMAIN}\",
+    \"properties\": {\"domain\": \"${DOMAIN}\"},
+    \"type\": \"capture\",
+    \"event\": \"magic_curl_install_start\"
+}" https://us.i.posthog.com/batch/ &> /dev/null
+
+# update yum cache and install dependencies
+echo "Updating yum caches and installing dependencies"
+# Install EPEL (Extra Packages for Enterprise Linux) to get brotli
+sudo yum install -y epel-release
+# Install git
+echo "Installing PostHog 🦔 from Github"
+sudo yum install -y git
+
+# try to clone - if folder is already there pull latest for that branch
+git clone https://github.com/PostHog/posthog.git &> /dev/null || true
+cd posthog
+
+if [[ "$POSTHOG_APP_TAG" = "latest-release" ]]
+then
+    git fetch --tags
+    latestReleaseTag=$(git describe --tags "$(git rev-list --tags --max-count=1)")
+    echo "Checking out latest PostHog release: $latestReleaseTag"
+    echo "Warning PostHog don't create tagged releases anymore. It's way better to use 'latest' than 'latest-release'"
+    git checkout "$latestReleaseTag"
+elif [[ "$POSTHOG_APP_TAG" = "latest" ]]
+then
+    echo "Fetching latest changes from origin"
+    git fetch origin
+    current_branch=$(git branch --show-current)
+    if [ -n "$current_branch" ]; then
+        echo "Updating branch '$current_branch' to latest from origin"
+        git reset --hard "origin/$current_branch"
+    else
+        echo "On detached HEAD: $(git rev-parse --short HEAD)"
+    fi
+    echo "Now on commit: $(git rev-parse --short HEAD)"
+elif [[ "$POSTHOG_APP_TAG" =~ ^[0-9a-f]{40}$ ]]
+then
+    echo "Checking out specific commit hash: $POSTHOG_APP_TAG"
+    git checkout "$POSTHOG_APP_TAG"
+else
+    releaseTag="${POSTHOG_APP_TAG/release-/""}"
+    git fetch --tags
+    echo "Checking out PostHog release: $releaseTag"
+    git checkout "$releaseTag"
+fi
+
+cd ..
+
+if [ -n "$3" ]
+then
+export TLS_BLOCK="acme_ca https://acme-staging-v02.api.letsencrypt.org/directory"
+fi
+
+if [ "$REGISTRY_URL" == "" ]
+then
+export REGISTRY_URL="posthog/posthog"
+fi
+
+
+
+# Write .env file
+cat > .env <<EOF
+POSTHOG_SECRET=$POSTHOG_SECRET
+ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS
+DOMAIN=$DOMAIN
+TLS_BLOCK=$TLS_BLOCK
+REGISTRY_URL=$REGISTRY_URL
+CADDY_TLS_BLOCK=$TLS_BLOCK
+CADDY_HOST="$DOMAIN, http://, https://"
+POSTHOG_APP_TAG=$POSTHOG_APP_TAG
+SESSION_RECORDING_V2_METADATA_SWITCHOVER=$(date -Iseconds)
+EOF
+
+# Download GeoLite2-City.mmdb if it doesn't exist
+echo "Downloading GeoIP database file"
+sudo yum install -y curl ca-certificates brotli
+mkdir -p ./share &&
+if [ ! -f ./share/GeoLite2-City.mmdb ]; then
+    curl -L 'https://mmdbcdn.posthog.net/' --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb &&
+    echo '{\"date\": \"'"$(date +%Y-%m-%d)"'\"}' > ./share/GeoLite2-City.json;
+    chmod 644 ./share/GeoLite2-City.mmdb &&
+    chmod 644 ./share/GeoLite2-City.json
+fi
+
+# write entrypoint
+# NOTE: this is duplicated in bin/upgrade-hobby, so if you change it here,
+# change it there too.
+rm -rf compose
+mkdir -p compose
+cat > compose/start <<EOF
+#!/bin/bash
+./compose/wait
+./bin/migrate
+./bin/docker-server
+EOF
+chmod +x compose/start
+
+cat > compose/temporal-django-worker <<EOF
+#!/bin/bash
+./bin/temporal-django-worker
+EOF
+chmod +x compose/temporal-django-worker
+
+# write wait script
+cat > compose/wait <<EOF
+#!/usr/bin/env python3
+
+import socket
+import time
+
+def loop():
+    print("Waiting for ClickHouse and Postgres to be ready")
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect(('clickhouse', 9000))
+        print("Clickhouse is ready")
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect(('db', 5432))
+        print("Postgres is ready")
+    except ConnectionRefusedError as e:
+        time.sleep(5)
+        loop()
+
+loop()
+EOF
+chmod +x compose/wait
+
+# setup docker
+# Check if Docker is already installed
+if ! command -v docker &> /dev/null; then
+    echo "Docker is not installed. Setting up Docker."
+
+    # Setup Docker
+    sudo yum install -y yum-utils
+    sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+    sudo yum install -y docker-ce docker-ce-cli containerd.io
+    sudo systemctl start docker
+    sudo systemctl enable docker
+else
+    echo "Docker is already installed. Skipping installation."
+fi
+
+# setup docker-compose
+echo "Setting up Docker Compose"
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.33.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || true
+sudo chmod +x /usr/local/bin/docker-compose
+
+# enable docker without sudo
+sudo usermod -aG docker "${USER}" || true
+echo "NOTE: You will need to log out and log back in for 'docker' commands to work without 'sudo'."
+
+# start up the stack
+echo "Configuring Docker Compose...."
+rm -f docker-compose.yml
+cp posthog/docker-compose.base.yml docker-compose.base.yml
+cp posthog/docker-compose.hobby.yml docker-compose.yml
+echo "Starting the stack!"
+sudo -E docker-compose -f docker-compose.yml up -d --no-build --pull always
+
+echo "We will need to wait ~5-10 minutes for things to settle down, migrations to finish, and TLS certs to be issued"
+echo ""
+echo "⏳ Waiting for PostHog web to boot (this will take a few minutes)"
+if bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost/_health)" != "200" ]]; do sleep 5; done'; then
+    echo "⌛️ PostHog looks up!"
+    echo ""
+    echo "🎉🎉🎉  Done! 🎉🎉🎉"
+    # send log of this install for continued support!
+    curl -o /dev/null -L --header "Content-Type: application/json" -d "{
+        \"api_key\": \"sTMFPsFhdP1Ssg\",
+        \"distinct_id\": \"${DOMAIN}\",
+        \"properties\": {\"domain\": \"${DOMAIN}\"},
+        \"type\": \"capture\",
+        \"event\": \"magic_curl_install_complete\"
+    }" https://us.i.posthog.com/batch/ &> /dev/null
+else
+    echo "Failed to detect PostHog web boot. Please check the logs with 'docker-compose logs' for more details."
+fi
+
+echo ""
+echo "To stop the stack run 'docker-compose stop'"
+echo "To start the stack again run 'docker-compose start'"
+echo "If you have any issues at all delete everything in this directory and run the curl command again"
+echo ""
+# shellcheck disable=SC2016 # we don't want to expand this expression
+echo 'To upgrade: run /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/upgrade-hobby)"'
+echo ""
+echo "PostHog will be up at the location you provided!"
+echo "https://${DOMAIN}"
+echo ""
+echo "It's dangerous to go alone! Take this: 🦔"
