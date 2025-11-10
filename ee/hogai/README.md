@@ -129,7 +129,7 @@ For a _lot_ of great detail on prompting, check out the [GPT-4.1 prompting guide
 
 PostHog AI can now read from frontend context multiple query types like trends, funnels, retention, and HogQL queries. To add support for new query types, you need to extend both the QueryExecutor and the Root node.
 
-NOTE: this won't extend query types generation. For that, talk to the Max AI team.
+NOTE: this won't extend query types generation. For that, talk to the PostHog AI team.
 
 ### Adding a new query type
 
