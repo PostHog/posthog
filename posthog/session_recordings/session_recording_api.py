@@ -651,7 +651,7 @@ class SessionRecordingViewSet(
                 "Must specify at least one event or action filter, or event properties filter",
             )
 
-        results, _, timings = ReplayFiltersEventsSubQuery(query=query, team=self.team).get_event_ids_for_session()
+        results, _, timings, _ = ReplayFiltersEventsSubQuery(query=query, team=self.team).get_event_ids_for_session()
 
         response = JsonResponse(
             data=MatchingEventsResponse(

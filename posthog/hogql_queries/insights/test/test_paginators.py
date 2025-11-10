@@ -230,6 +230,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         paginator = HogQLCursorPaginator(limit=10, after=cursor, order_field="start_time", order_direction="DESC")
 
         self.assertIsNotNone(paginator.cursor_data)
+        assert paginator.cursor_data is not None  # Type narrowing for mypy
         self.assertEqual(paginator.cursor_data["order_value"], "2025-01-06 12:00:00")
         self.assertEqual(paginator.cursor_data["session_id"], "session_123")
 
@@ -258,6 +259,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         cursor = paginator.get_next_cursor()
 
         self.assertIsNotNone(cursor)
+        assert cursor is not None  # Type narrowing for mypy
         decoded = json.loads(base64.b64decode(cursor).decode("utf-8"))
         self.assertEqual(decoded["session_id"], "s5")
         self.assertEqual(decoded["order_value"], "2025-01-06 06:00:00")
@@ -286,6 +288,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         paginator.response.results = [*paginator.results, ("extra",)]
 
         cursor = paginator.get_next_cursor()
+        assert cursor is not None  # Type narrowing for mypy
         decoded = json.loads(base64.b64decode(cursor).decode("utf-8"))
         self.assertEqual(decoded["session_id"], "s3")
         self.assertEqual(decoded["order_value"], "2025-01-06 08:00:00")
@@ -299,6 +302,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         paginator2.response.results = [*paginator2.results, ("extra",)]
 
         cursor2 = paginator2.get_next_cursor()
+        assert cursor2 is not None  # Type narrowing for mypy
         decoded2 = json.loads(base64.b64decode(cursor2).decode("utf-8"))
         self.assertEqual(decoded2["session_id"], "s3")
         self.assertEqual(decoded2["order_value"], 2)  # console_error_count is at index 13
@@ -325,11 +329,11 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         paginator = HogQLCursorPaginator(limit=10, after=cursor, order_field="start_time", order_direction="DESC")
 
         query = cast(SelectQuery, parse_select("SELECT session_id, start_time FROM events"))
-        paginated_query = paginator.paginate(query)
+        paginated_query = cast(SelectQuery, paginator.paginate(query))
 
         # Check that WHERE clause was added
         self.assertIsNotNone(paginated_query.where)
-        # Check that it's a comparison operation (tuple comparison)
+        assert paginated_query.where is not None  # Type narrowing for mypy
         self.assertEqual(paginated_query.where.op.name, "Lt")  # Less than for DESC
 
     def test_where_clause_generation_asc(self):
@@ -341,11 +345,11 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         paginator = HogQLCursorPaginator(limit=10, after=cursor, order_field="start_time", order_direction="ASC")
 
         query = cast(SelectQuery, parse_select("SELECT session_id, start_time FROM events"))
-        paginated_query = paginator.paginate(query)
+        paginated_query = cast(SelectQuery, paginator.paginate(query))
 
         # Check that WHERE clause was added
         self.assertIsNotNone(paginated_query.where)
-        # Check that it's a comparison operation with Gt (greater than) for ASC
+        assert paginated_query.where is not None  # Type narrowing for mypy
         self.assertEqual(paginated_query.where.op.name, "Gt")  # Greater than for ASC
 
     def test_where_clause_combines_with_existing(self):
@@ -357,10 +361,11 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         paginator = HogQLCursorPaginator(limit=10, after=cursor, order_field="start_time", order_direction="DESC")
 
         query = cast(SelectQuery, parse_select("SELECT session_id, start_time FROM events WHERE team_id = 1"))
-        paginated_query = paginator.paginate(query)
+        paginated_query = cast(SelectQuery, paginator.paginate(query))
 
         # Check that WHERE clause is now an AND combining both conditions
         self.assertIsNotNone(paginated_query.where)
+        assert paginated_query.where is not None  # Type narrowing for mypy
         self.assertEqual(paginated_query.where.type, "And")
 
     def test_limit_plus_one_for_has_more_detection(self):
@@ -368,9 +373,10 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         paginator = HogQLCursorPaginator(limit=10, order_field="start_time", order_direction="DESC")
 
         query = cast(SelectQuery, parse_select("SELECT session_id FROM events"))
-        paginated_query = paginator.paginate(query)
+        paginated_query = cast(SelectQuery, paginator.paginate(query))
 
         # Check that limit is set to limit+1
+        assert paginated_query.limit is not None  # Type narrowing for mypy
         self.assertEqual(paginated_query.limit.value, 11)
 
     def test_has_more_detection(self):
