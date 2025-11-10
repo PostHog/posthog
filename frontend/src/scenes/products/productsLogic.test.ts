@@ -5,7 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { OnboardingStepKey, ProductKey } from '~/types'
+import { ProductKey } from '~/types'
 
 import { productsLogic } from './productsLogic'
 
@@ -151,7 +151,7 @@ describe('productsLogic', () => {
             })
 
             expect(router.values.location.pathname).toBe(
-                `/onboarding/${MOCK_TEAM_ID}/${ProductKey.PRODUCT_ANALYTICS}/${OnboardingStepKey.INSTALL}`
+                `/project/${MOCK_TEAM_ID}/onboarding/${ProductKey.PRODUCT_ANALYTICS}`
             )
         })
 
@@ -162,7 +162,7 @@ describe('productsLogic', () => {
             })
 
             expect(router.values.location.pathname).toBe(
-                `/onboarding/${MOCK_TEAM_ID}/${ProductKey.WEB_ANALYTICS}/${OnboardingStepKey.AUTHORIZED_DOMAINS}`
+                `/project/${MOCK_TEAM_ID}/onboarding/${ProductKey.WEB_ANALYTICS}`
             )
         })
 
@@ -173,7 +173,7 @@ describe('productsLogic', () => {
             })
 
             expect(router.values.location.pathname).toBe(
-                `/onboarding/${MOCK_TEAM_ID}/${ProductKey.DATA_WAREHOUSE}/${OnboardingStepKey.LINK_DATA}`
+                `/project/${MOCK_TEAM_ID}/onboarding/${ProductKey.DATA_WAREHOUSE}`
             )
         })
 

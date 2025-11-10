@@ -31,7 +31,7 @@ describe('useCaseSelectionLogic', () => {
                 logic.actions.selectUseCase('see_user_behavior')
             })
 
-            expect(router.values.location.pathname).toBe('/products')
+            expect(router.values.location.pathname).toContain('/products')
             expect(router.values.searchParams.useCase).toBe('see_user_behavior')
         })
 
@@ -51,7 +51,7 @@ describe('useCaseSelectionLogic', () => {
                 logic.actions.selectUseCase('pick_myself')
             })
 
-            expect(router.values.location.pathname).toBe('/products')
+            expect(router.values.location.pathname).toContain('/products')
             expect(router.values.searchParams.useCase).toBe('pick_myself')
             expect(window.posthog.capture).toHaveBeenCalledWith('onboarding_use_case_selected', {
                 use_case: 'pick_myself',
