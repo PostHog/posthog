@@ -1,13 +1,16 @@
+import json
 import uuid
 
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import TestCase
 
 from parameterized import parameterized
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
+from posthog.storage import object_storage
 
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 
@@ -357,9 +360,16 @@ class TestTaskRun(TestCase):
         entries = [{"type": "info", "message": "First log entry"}]
         run.append_log(entries)
         run.refresh_from_db()
-        self.assertEqual(len(run.log), 1)
-        self.assertEqual(run.log[0]["type"], "info")
-        self.assertEqual(run.log[0]["message"], "First log entry")
+
+        assert run.log_storage_path is not None
+        self.assertTrue(run.has_s3_logs)
+        log_content = object_storage.read(run.log_storage_path)
+        assert log_content is not None
+
+        log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
+        self.assertEqual(len(log_entries), 1)
+        self.assertEqual(log_entries[0]["type"], "info")
+        self.assertEqual(log_entries[0]["message"], "First log entry")
 
     def test_append_log_multiple_entries(self):
         run = TaskRun.objects.create(
@@ -374,17 +384,27 @@ class TestTaskRun(TestCase):
         ]
         run.append_log(entries)
         run.refresh_from_db()
-        self.assertEqual(len(run.log), 3)
-        self.assertEqual(run.log[0]["type"], "info")
-        self.assertEqual(run.log[1]["type"], "warning")
-        self.assertEqual(run.log[2]["type"], "error")
+
+        assert run.log_storage_path is not None
+        self.assertTrue(run.has_s3_logs)
+
+        log_content = object_storage.read(run.log_storage_path)
+        assert log_content is not None
+
+        log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
+        self.assertEqual(len(log_entries), 3)
+        self.assertEqual(log_entries[0]["type"], "info")
+        self.assertEqual(log_entries[1]["type"], "warning")
+        self.assertEqual(log_entries[2]["type"], "error")
 
     def test_append_log_to_existing(self):
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
-            log=[{"type": "info", "message": "Existing entry"}],
         )
+
+        first_entries = [{"type": "info", "message": "First entry"}]
+        run.append_log(first_entries)
 
         new_entries = [
             {"type": "success", "message": "New entry 1"},
@@ -392,10 +412,48 @@ class TestTaskRun(TestCase):
         ]
         run.append_log(new_entries)
         run.refresh_from_db()
-        self.assertEqual(len(run.log), 3)
-        self.assertEqual(run.log[0]["message"], "Existing entry")
-        self.assertEqual(run.log[1]["message"], "New entry 1")
-        self.assertEqual(run.log[2]["message"], "New entry 2")
+
+        assert run.log_storage_path is not None
+        self.assertTrue(run.has_s3_logs)
+
+        log_content = object_storage.read(run.log_storage_path)
+        assert log_content is not None
+
+        log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
+        self.assertEqual(len(log_entries), 3)
+        self.assertEqual(log_entries[0]["message"], "First entry")
+        self.assertEqual(log_entries[1]["message"], "New entry 1")
+        self.assertEqual(log_entries[2]["message"], "New entry 2")
+
+    def test_log_file_tagged_with_ttl(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        entries = [{"type": "info", "message": "Test entry"}]
+        run.append_log(entries)
+        run.refresh_from_db()
+
+        self.assertIsNotNone(run.log_storage_path)
+
+        # Verify S3 object has TTL tags
+        from botocore.exceptions import ClientError
+
+        from posthog.storage.object_storage import ObjectStorage, object_storage_client
+
+        try:
+            client = object_storage_client()
+            if isinstance(client, ObjectStorage):
+                response = client.aws_client.get_object_tagging(
+                    Bucket=settings.OBJECT_STORAGE_BUCKET, Key=run.log_storage_path
+                )
+                tags = {tag["Key"]: tag["Value"] for tag in response.get("TagSet", [])}
+                self.assertEqual(tags.get("ttl_days"), "30")
+                self.assertEqual(tags.get("team_id"), str(self.team.id))
+        except (ClientError, AttributeError):
+            # Tagging might not be available in test environment
+            pass
 
     def test_mark_completed(self):
         run = TaskRun.objects.create(

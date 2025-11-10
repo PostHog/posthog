@@ -162,7 +162,6 @@ export const FEATURE_FLAGS = {
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
     PERSON_BATCH_EXPORTS: 'person-batch-exports', // owner: @tomasfarias
-    SESSIONS_BATCH_EXPORTS: 'sessions-batch-exports', // owner: @tomasfarias
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     ARTIFICIAL_HOG: 'artificial-hog', // owner: #team-posthog-ai
     SIDEBAR_ANALYTICS_PRIORITIZATION: 'sidebar-analytics-prioritization', // owner: @lricoy #team-web-analytics
@@ -208,6 +207,7 @@ export const FEATURE_FLAGS = {
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     WORKFLOWS: 'messaging', // owner @haven #team-workflows
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
+    WORKFLOWS_SCHEDULED_TRIGGERS: 'workflows-scheduled-triggers', // owner: #team-workflows
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     ENVIRONMENTS_ROLLBACK: 'environments-rollback', // owner: @yasen-posthog #team-platform-features
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach

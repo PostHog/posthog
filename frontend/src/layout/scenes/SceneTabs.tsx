@@ -34,10 +34,9 @@ export interface SceneTabsProps {
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { tabs } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
-    const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
-    const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
+    const { isLayoutNavbarVisibleForMobile, isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
@@ -53,6 +52,8 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
         unpinnedColumns = `repeat(${unpinnedCount}, minmax(40px, 250px))`
     }
     const gridTemplateColumns = [pinnedColumns, unpinnedColumns].filter(Boolean).join(' ') || '250px'
+
+    const showRoundedCorner = !isLayoutPanelVisible
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -82,26 +83,34 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     return (
         <div
             className={cn(
-                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 border-b border-primary relative',
+                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 relative',
                 className
             )}
         >
-            {/* rounded corner on the left to make scene curve into tab line */}
+            {/* Mobile button to show/hide the layout navbar */}
             {mobileLayout && (
                 <ButtonPrimitive
                     onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
                     iconOnly
-                    className="ml-1"
+                    className="ml-1 z-20 rounded-lg"
                 >
                     {isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
                 </ButtonPrimitive>
             )}
 
-            {/* rounded corner on the left to make scene curve into tab line */}
-            {!isLayoutPanelVisible && (
-                <div className="absolute left-0 -bottom-1 size-2 bg-surface-tertiary">
-                    <div className="relative -bottom-1 size-2 border-l border-t border-primary rounded-tl bg-[var(--scene-layout-background)]" />
-                </div>
+            {/* Line between tabs and main content */}
+            <div
+                className={cn(
+                    'border-b border-primary h-px w-full absolute bottom-[-1px] left-0 lg:left-[10px] right-0',
+                    !showRoundedCorner && 'left-0 lg:left-0'
+                )}
+            />
+
+            {/* Rounded corner on the left edge of the tabs to curve the line above into the navbar right border */}
+            {showRoundedCorner && (
+                <>
+                    <div className="hidden lg:block absolute bottom-[-11px] left-[-1px] w-[11px] h-[11px] z-10 rounded-tl-lg border-l border-t border-primary" />
+                </>
             )}
 
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
@@ -111,7 +120,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 >
                     <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
                         <div
-                            className="scene-tab-row grid min-w-0 pl-2 gap-1 items-center h-[36px]"
+                            className={cn('scene-tab-row grid min-w-0 pl-[5px] lg:pl-5 gap-1 items-center h-[36px]')}
                             style={{ gridTemplateColumns }}
                         >
                             {tabs.map((tab, index) => {

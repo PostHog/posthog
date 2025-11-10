@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { normalizeMode } from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 
@@ -171,11 +172,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
                     const response = await api.recordings.getSnapshots(props.sessionRecordingId, params, headers)
 
-                    const useDecompressionWorker =
-                        values.featureFlags[FEATURE_FLAGS.REPLAY_DECOMPRESSION_WORKER] === 'test'
+                    const featureFlagValue = values.featureFlags[FEATURE_FLAGS.REPLAY_DECOMPRESSION_WORKER]
+                    const decompressionMode = normalizeMode(
+                        typeof featureFlagValue === 'string' ? featureFlagValue : undefined
+                    )
                     // sorting is very cheap for already sorted lists
                     const parsedSnapshots = (
-                        await parseEncodedSnapshots(response, props.sessionRecordingId, useDecompressionWorker, posthog)
+                        await parseEncodedSnapshots(response, props.sessionRecordingId, decompressionMode, posthog)
                     ).sort((a, b) => a.timestamp - b.timestamp)
                     // we store the data in the cache because we want to avoid copying this data as much as possible
                     // and kea's immutability means we were copying all the data on every snapshot call

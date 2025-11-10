@@ -385,6 +385,21 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    def validate_filters(self, filters):
+        if filters is None:
+            return filters
+
+        if not isinstance(filters, list):
+            raise serializers.ValidationError("'filters' should be an array of filters")
+
+        for filter in filters:
+            if isinstance(filter, dict) and any(key in filter for key in ("data_interval_start", "data_interval_end")):
+                raise serializers.ValidationError(
+                    "'data_interval_start' and 'data_interval_end' are run attributes and not 'filters'."
+                    " Trigger a backfill if you wish to manually control which periods to batch export."
+                )
+        return filters
+
     # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
         destination_type = destination_attrs["type"]
@@ -513,23 +528,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 send_feature_flag_events=False,
             ):
                 raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
-
-        if validated_data.get("model", "events") == "sessions":
-            team = Team.objects.get(id=team_id)
-
-            if not posthoganalytics.feature_enabled(
-                "sessions-batch-exports",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={
-                    "organization": {
-                        "id": str(team.organization.id),
-                        "created_at": team.organization.created_at,
-                    }
-                },
-                send_feature_flag_events=False,
-            ):
-                raise PermissionDenied("Sessions batch exports are not enabled for this team.")
 
         hogql_query = None
         if hogql_query := validated_data.pop("hogql_query", None):

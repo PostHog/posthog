@@ -54,6 +54,13 @@ jobs:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@v4
+              with:
+                  clean: false
+            - name: Clean up data directories with container permissions
+              run: |
+                  # Use docker to clean up files created by containers
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
@@ -114,6 +121,13 @@ jobs:
 
         steps:
             - uses: actions/checkout@v4
+              with:
+                  clean: false
+            - name: Clean up data directories with container permissions
+              run: |
+                  # Use docker to clean up files created by containers
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -156,6 +170,7 @@ jobs:
               uses: actions/checkout@v4
               with:
                   ref: master
+                  clean: false
 
             - name: Install python dependencies for master
               run: |
@@ -179,6 +194,8 @@ jobs:
             # Now we can consider this PR's migrations
             - name: Checkout this PR
               uses: actions/checkout@v4
+              with:
+                  clean: false
 
             - name: Install python dependencies for this PR
               run: |
@@ -550,6 +567,12 @@ jobs:
                   ref: ${{ github.event.pull_request.head.ref }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
                   token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_PAT || github.token }}
+                  clean: false
+            - name: Clean up data directories with container permissions
+              run: |
+                  # Use docker to clean up files created by containers
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
 
             - name: 'Safeguard: ensure no stray Python modules at product root'
               run: |
@@ -891,6 +914,12 @@ jobs:
               uses: actions/checkout@v4
               with:
                   fetch-depth: 1
+                  clean: false
+            - name: Clean up data directories with container permissions
+              run: |
+                  # Use docker to clean up files created by containers
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
 
             - name: Start stack with Docker Compose
               run: |
