@@ -1417,22 +1417,21 @@ class ExperimentQueryBuilder:
                 SELECT
                     exposures.entity_id AS entity_id,
                     exposures.variant AS variant,
-                    if(
-                        start_events.start_timestamp IS NOT NULL
-                        AND completion_events.completion_timestamp IS NOT NULL
+                    MAX(if(
+                        completion_events.completion_timestamp IS NOT NULL
                         AND completion_events.completion_timestamp >= start_events.start_timestamp + {retention_window_start_interval}
                         AND completion_events.completion_timestamp < start_events.start_timestamp + {retention_window_end_interval},
                         1,
                         0
-                    ) AS value
+                    )) AS value
                 FROM exposures
-                LEFT JOIN start_events
+                INNER JOIN start_events
                     ON exposures.entity_id = start_events.entity_id
                     AND {start_conversion_window_predicate}
                 LEFT JOIN completion_events
                     ON exposures.entity_id = completion_events.entity_id
                     AND {completion_retention_window_predicate}
-                WHERE start_events.entity_id IS NOT NULL
+                GROUP BY exposures.entity_id, exposures.variant
             )
         """
 
@@ -1564,7 +1563,7 @@ class ExperimentQueryBuilder:
             return parse_expr(
                 """
                 start_events.start_timestamp >= exposures.first_exposure_time
-                AND start_events.start_timestamp < exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})
+                AND start_events.start_timestamp <= exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})
                 """,
                 placeholders={
                     "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),

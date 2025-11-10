@@ -141,7 +141,10 @@ class ExperimentQueryRunner(QueryRunner):
     def _should_use_new_query_builder(self) -> bool:
         """
         Determines whether to use the new CTE-based query builder.
+        Retention metrics always use the new query builder since the old one doesn't support them.
         """
+        if isinstance(self.metric, ExperimentRetentionMetric):
+            return True
         return self.use_new_query_builder is True
 
     def _get_metrics_aggregated_per_entity_query(
