@@ -207,7 +207,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         ],
 
         errorsSort: [
-            { column: 'generations', direction: 'DESC' } as { column: string; direction: 'ASC' | 'DESC' },
+            { column: 'traces', direction: 'DESC' } as { column: string; direction: 'ASC' | 'DESC' },
             {
                 setErrorsSort: (_, { column, direction }) => ({ column, direction }),
             },
