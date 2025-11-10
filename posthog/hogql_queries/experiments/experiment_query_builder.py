@@ -569,6 +569,7 @@ class ExperimentQueryBuilder:
                                 )
                             )
                         # Combine conditions with AND
+                        condition_expr: ast.Expr
                         if len(join_conditions) == 1:
                             condition_expr = join_conditions[0]
                         else:
