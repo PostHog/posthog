@@ -249,8 +249,15 @@ function NativeEmailTemplaterForm({
     mode: EmailEditorMode
     onSaveAsTemplate?: () => void
 }): JSX.Element {
-    const { unlayerEditorProjectId, logicProps, appliedTemplate, templates, templatesLoading, mergeTags } =
-        useValues(emailTemplaterLogic)
+    const {
+        unlayerEditorProjectId,
+        logicProps,
+        appliedTemplate,
+        templates,
+        templatesLoading,
+        mergeTags,
+        isEmailEditorReady,
+    } = useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -317,7 +324,8 @@ function NativeEmailTemplaterForm({
                                 <LemonSelect
                                     size="xsmall"
                                     placeholder="Choose template"
-                                    loading={templatesLoading}
+                                    loading={templatesLoading && !isEmailEditorReady}
+                                    disabledReason={!isEmailEditorReady ? 'Loading email editor...' : undefined}
                                     value={appliedTemplate?.id ?? null}
                                     options={[
                                         {
