@@ -25,7 +25,14 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
             insightVizDataLogic(props),
             ['querySource', 'dateRange', 'retentionFilter'],
             retentionLogic(props),
-            ['hasValidBreakdown', 'results', 'selectedBreakdownValue', 'retentionMeans', 'breakdownDisplayNames'],
+            [
+                'hasValidBreakdown',
+                'results',
+                'filteredResults',
+                'selectedBreakdownValue',
+                'retentionMeans',
+                'breakdownDisplayNames',
+            ],
             teamLogic,
             ['timezone'],
         ],
@@ -50,6 +57,73 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                             : cohortRetention.label,
                         data: cohortRetention.values.map((value) => value.percentage),
                         index: datasetIndex,
+                    }
+                })
+            },
+        ],
+
+        intervalViewSeries: [
+            (s) => [s.filteredResults, s.retentionFilter, s.hasValidBreakdown, s.breakdownDisplayNames],
+            (filteredResults, retentionFilter, hasValidBreakdown, breakdownDisplayNames): RetentionTrendPayload[] => {
+                const selectedInterval = retentionFilter?.selectedInterval ?? null
+                if (selectedInterval === null) {
+                    return []
+                }
+
+                const { period } = retentionFilter || {}
+                const formatCohortLabel = (cohort: ProcessedRetentionPayload): string => {
+                    if (cohort.date) {
+                        return period === 'Hour' ? cohort.date.format('MMM D, h A') : cohort.date.format('MMM D')
+                    }
+                    return cohort.label
+                }
+
+                const getDisplayLabel = (breakdownValue: string | number | boolean | null | undefined): string => {
+                    const key = String(breakdownValue ?? '')
+                    const displayValue = breakdownDisplayNames[key] ?? key
+                    return typeof displayValue === 'boolean' ? String(displayValue) : (displayValue as string)
+                }
+
+                const groupsByBreakdown = new Map<
+                    string,
+                    {
+                        data: number[]
+                        labels: string[]
+                        days: string[]
+                        breakdownValue?: string | number | boolean | null
+                    }
+                >()
+
+                filteredResults.forEach((cohort) => {
+                    const value = cohort.values[selectedInterval]
+                    if (!value) {
+                        return
+                    }
+
+                    const breakdownKey = hasValidBreakdown ? String(cohort.breakdown_value ?? '') : 'all'
+                    if (!groupsByBreakdown.has(breakdownKey)) {
+                        groupsByBreakdown.set(breakdownKey, {
+                            data: [],
+                            labels: [],
+                            days: [],
+                            breakdownValue: cohort.breakdown_value,
+                        })
+                    }
+
+                    const group = groupsByBreakdown.get(breakdownKey)!
+                    group.data.push(value.percentage)
+                    group.labels.push(formatCohortLabel(cohort))
+                    group.days.push(value.cellDate.toISOString())
+                })
+
+                return Array.from(groupsByBreakdown.values()).map((group, index) => {
+                    return {
+                        count: group.data.length,
+                        data: group.data,
+                        days: group.days,
+                        labels: group.labels,
+                        breakdown_value: hasValidBreakdown ? getDisplayLabel(group.breakdownValue) : undefined,
+                        index,
                     }
                 })
             },
@@ -118,6 +192,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 s.retentionFilter,
                 s.shouldShowMeanPerBreakdown,
                 s.breakdownDisplayNames,
+                s.intervalViewSeries,
             ],
             (
                 hasValidBreakdown: boolean,
@@ -126,8 +201,15 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 retentionMeans: Record<string, MeanRetentionValue>,
                 retentionFilter: any,
                 shouldShowMeanPerBreakdown: boolean,
-                breakdownDisplayNames: Record<string, string>
+                breakdownDisplayNames: Record<string, string>,
+                intervalViewSeries: RetentionTrendPayload[]
             ): RetentionTrendPayload[] => {
+                // If an interval is selected, show the interval view
+                const selectedInterval = retentionFilter?.selectedInterval ?? null
+                if (selectedInterval !== null) {
+                    return intervalViewSeries
+                }
+
                 if (shouldShowMeanPerBreakdown) {
                     // Generate series from the mean retention data for each breakdown
                     if (!retentionMeans || Object.keys(retentionMeans).length === 0) {

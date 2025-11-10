@@ -354,8 +354,10 @@ jobs:
 
                   if [ $EXIT_CODE -ne 0 ]; then
                     # Check if we should retry with snapshot update
-                    if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -q "Screenshot comparison failed" /tmp/playwright-output-attempt-1.log 2>/dev/null; then
-                      echo "Screenshot comparison failed - retrying with --update-snapshots"
+                    # Look for either "Screenshot comparison failed" or "snapshot doesn't exist" error messages
+                    # Use case-insensitive match to catch variations like "Snapshot does not exist"
+                    if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -qEi "(Screenshot comparison failed|snapshot does(n't| not) exist)" /tmp/playwright-output-attempt-1.log 2>/dev/null; then
+                      echo "Screenshot-related failure detected - retrying with --update-snapshots"
 
                       # Preserve attempt 1 artifacts
                       echo "Preserving attempt 1 artifacts..."
@@ -382,9 +384,10 @@ jobs:
 
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
+            # Run even if tests failed, as long as snapshots may have been updated
             - name: Create screenshot patch
               id: create-patch
-              if: needs.detect-snapshot-mode.outputs.mode == 'update' && success() && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.detect-snapshot-mode.outputs.mode == 'update' && (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               run: |
                   # Verify we're in a git repository before running git commands
                   if ! git rev-parse --git-dir > /dev/null 2>&1; then
