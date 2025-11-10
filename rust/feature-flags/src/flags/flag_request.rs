@@ -481,9 +481,12 @@ mod tests {
         let flag_service = FlagService::new(
             redis_client.clone(),
             redis_client.clone(),
+            None, // No dedicated flags Redis in tests
+            None,
             pg_client.clone(),
             DEFAULT_CACHE_TTL_SECONDS,
             DEFAULT_CACHE_TTL_SECONDS,
+            crate::config::DEFAULT_TEST_CONFIG.clone(),
         );
 
         match flag_service.verify_token(&token).await {
@@ -510,9 +513,12 @@ mod tests {
         let flag_service = FlagService::new(
             redis_reader_client.clone(),
             redis_writer_client.clone(),
+            None, // No dedicated flags Redis in tests
+            None,
             pg_client.clone(),
             DEFAULT_CACHE_TTL_SECONDS,
             DEFAULT_CACHE_TTL_SECONDS,
+            crate::config::DEFAULT_TEST_CONFIG.clone(),
         );
         assert!(matches!(
             flag_service.verify_token(&result).await,

@@ -201,6 +201,10 @@ services:
         depends_on:
             - redis
             - db
+        environment:
+            # Mode 2: Dual-write warming phase for developers
+            FLAGS_REDIS_URL: 'redis://redis:6379/1'
+            FLAGS_REDIS_ENABLED: 'false' # Warming but not reading yet
 
     livestream:
         extends:
