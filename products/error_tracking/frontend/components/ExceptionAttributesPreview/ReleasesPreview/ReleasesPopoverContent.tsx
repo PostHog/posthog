@@ -55,7 +55,7 @@ function GitFooter({ git }: { git: ReleaseGitMetadata }): JSX.Element {
                     <PropertyDisplay
                         icon={IconCommit}
                         tooltip="Copy commit SHA"
-                        onClick={() => copyToClipboard(commit_id, 'full commit SHA')}
+                        onClick={() => copyToClipboard(commit_id!, 'full commit SHA')}
                     >
                         {commitDisplay(commit_id)}
                     </PropertyDisplay>
@@ -64,7 +64,7 @@ function GitFooter({ git }: { git: ReleaseGitMetadata }): JSX.Element {
                     <PropertyDisplay
                         icon={IconGitBranch}
                         tooltip="Copy branch name"
-                        onClick={() => copyToClipboard(branch, 'branch name')}
+                        onClick={() => copyToClipboard(branch!, 'branch name')}
                     >
                         {branch}
                     </PropertyDisplay>
@@ -73,7 +73,7 @@ function GitFooter({ git }: { git: ReleaseGitMetadata }): JSX.Element {
                     <PropertyDisplay
                         icon={IconGitRepository}
                         tooltip="Copy remote URL"
-                        onClick={() => copyToClipboard(remote_url, 'remote url')}
+                        onClick={() => copyToClipboard(remote_url!, 'remote url')}
                     >
                         {`${parsedRemoteUrl.owner}/${parsedRemoteUrl.repository}`}
                     </PropertyDisplay>
