@@ -76,6 +76,7 @@ import {
     isInsightActorsQuery,
     isMarketingAnalyticsTableQuery,
     isRevenueExampleEventsQuery,
+    isSessionsQuery,
     taxonomicEventFilterToHogQL,
     taxonomicGroupFilterToHogQL,
     taxonomicPersonFilterToHogQL,
@@ -626,7 +627,7 @@ export function DataTable({
             />
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
-            <EventName key="event-name" query={query.source as EventsQuery} setQuery={setQuerySource} />
+            <EventName key="event-name" query={query.source as EventsQuery | SessionsQuery} setQuery={setQuerySource} />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.personsSearch) ? (
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
@@ -639,7 +640,9 @@ export function DataTable({
                 groupTypeLabel={context?.groupTypeLabel}
             />
         ) : null,
-        showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
+        showPropertyFilter &&
+        sourceFeatures.has(QueryFeature.eventPropertyFilters) &&
+        !isSessionsQuery(query.source) ? (
             <EventPropertyFilters
                 key="event-property"
                 query={query.source as EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery}

@@ -825,6 +825,14 @@ export interface SessionsQuery extends DataNode<SessionsQueryResponse> {
     after?: string
     /** Columns to order by */
     orderBy?: string[]
+    /** Filter sessions by event name - sessions that contain this event */
+    event?: string | null
+    /**
+     * Filter sessions by action - sessions that contain events matching this action
+     */
+    actionId?: integer
+    /** Event property filters - only applies when event or actionId is set */
+    eventProperties?: AnyPropertyFilter[]
 }
 
 /**

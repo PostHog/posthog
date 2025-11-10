@@ -25819,6 +25819,10 @@
         "SessionsQuery": {
             "additionalProperties": false,
             "properties": {
+                "actionId": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Filter sessions by action - sessions that contain events matching this action"
+                },
                 "after": {
                     "description": "Only fetch sessions that started after this timestamp",
                     "type": "string"
@@ -25826,6 +25830,17 @@
                 "before": {
                     "description": "Only fetch sessions that started before this timestamp",
                     "type": "string"
+                },
+                "event": {
+                    "description": "Filter sessions by event name - sessions that contain this event",
+                    "type": ["string", "null"]
+                },
+                "eventProperties": {
+                    "description": "Event property filters - only applies when event or actionId is set",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",

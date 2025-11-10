@@ -14472,8 +14472,38 @@ class SessionsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    actionId: Optional[int] = Field(
+        default=None, description="Filter sessions by action - sessions that contain events matching this action"
+    )
     after: Optional[str] = Field(default=None, description="Only fetch sessions that started after this timestamp")
     before: Optional[str] = Field(default=None, description="Only fetch sessions that started before this timestamp")
+    event: Optional[str] = Field(
+        default=None, description="Filter sessions by event name - sessions that contain this event"
+    )
+    eventProperties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Event property filters - only applies when event or actionId is set")
     filterTestAccounts: Optional[bool] = Field(default=None, description="Filter test accounts")
     fixedProperties: Optional[
         list[

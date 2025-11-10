@@ -7,12 +7,12 @@ from posthog.schema import CachedSessionsQueryResponse, DashboardFilter, Session
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
-from posthog.hogql.property import has_aggregation, map_virtual_properties, property_to_expr
+from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
 
 from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models import Person
+from posthog.models import Action, Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
 from posthog.utils import relative_date_parse
 
@@ -72,11 +72,14 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     where_exprs = [parse_expr(expr, timings=self.timings) for expr in where_input]
                 if self.query.properties:
                     with self.timings.measure("properties"):
-                        where_exprs.extend(property_to_expr(property, self.team) for property in self.query.properties)
+                        where_exprs.extend(
+                            property_to_expr(property, self.team, scope="session") for property in self.query.properties
+                        )
                 if self.query.fixedProperties:
                     with self.timings.measure("fixed_properties"):
                         where_exprs.extend(
-                            property_to_expr(property, self.team) for property in self.query.fixedProperties
+                            property_to_expr(property, self.team, scope="session")
+                            for property in self.query.fixedProperties
                         )
                 if self.query.personId:
                     with self.timings.measure("person_id"):
@@ -99,6 +102,54 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     with self.timings.measure("test_account_filters"):
                         for prop in self.team.test_account_filters or []:
                             where_exprs.append(property_to_expr(prop, self.team))
+
+                # Filter sessions by events
+                if self.query.event or self.query.actionId:
+                    with self.timings.measure("event_filter"):
+                        # Build the events subquery conditions
+                        event_where_exprs = []
+
+                        if self.query.event:
+                            event_where_exprs.append(
+                                parse_expr(
+                                    "event = {event}",
+                                    {"event": ast.Constant(value=self.query.event)},
+                                    timings=self.timings,
+                                )
+                            )
+                        elif self.query.actionId:
+                            try:
+                                action = Action.objects.get(
+                                    pk=self.query.actionId, team__project_id=self.team.project_id
+                                )
+                            except Action.DoesNotExist:
+                                raise Exception("Action does not exist")
+                            if not action.steps:
+                                raise Exception("Action does not have any match groups")
+                            event_where_exprs.append(action_to_expr(action))
+
+                        # Add event property filters if specified
+                        if self.query.eventProperties:
+                            event_where_exprs.extend(
+                                property_to_expr(property, self.team) for property in self.query.eventProperties
+                            )
+
+                        # Build subquery: session_id IN (SELECT DISTINCT $session_id FROM events WHERE ...)
+                        # We also need to filter events by the session date range
+                        events_subquery = ast.SelectQuery(
+                            select=[ast.Field(chain=["$session_id"])],
+                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                            where=ast.And(exprs=event_where_exprs) if len(event_where_exprs) > 0 else None,
+                            distinct=True,
+                        )
+
+                        where_exprs.append(
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["session_id"]),
+                                right=events_subquery,
+                                op=ast.CompareOperationOp.In,
+                            )
+                        )
 
             with self.timings.measure("timestamps"):
                 # prevent accidentally future sessions from being visible by default
