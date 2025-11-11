@@ -81,12 +81,15 @@ export function applyRecordingPropertyFilter(
     }
 
     // Determine property filter type
-    const isPersonProperty =
-        propertyKey.startsWith('$geoip_') ||
-        ['$browser', '$os', '$device_type', '$initial_device_type'].includes(propertyKey) ||
-        !propertyKey.startsWith('$')
-
-    const filterType = isPersonProperty ? PropertyFilterType.Person : PropertyFilterType.Session
+    // For recordings: $browser, $os, $device_type, etc are Event properties
+    // $geoip_* and custom properties (no $) are Person properties
+    // Everything else with $ is Session property
+    const filterType =
+        propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
+            ? PropertyFilterType.Person
+            : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
+              ? PropertyFilterType.Event
+              : PropertyFilterType.Session
 
     // Create property filter object
     const filter = {
@@ -98,7 +101,7 @@ export function applyRecordingPropertyFilter(
 
     // Clone the current filter group structure and add to the first nested group
     const currentGroup = filters.filter_group
-    const newGroup = {
+    const newGroup: UniversalFiltersGroup = {
         ...currentGroup,
         values: currentGroup.values.map((nestedGroup, index) => {
             // Add to the first nested group (index 0)
@@ -106,7 +109,7 @@ export function applyRecordingPropertyFilter(
                 return {
                     ...nestedGroup,
                     values: [...nestedGroup.values, filter],
-                }
+                } as UniversalFiltersGroup
             }
             return nestedGroup
         }),

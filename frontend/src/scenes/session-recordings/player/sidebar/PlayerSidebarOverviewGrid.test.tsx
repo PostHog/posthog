@@ -1,133 +1,170 @@
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, type RecordingUniversalFilters } from '~/types'
 
-import { handleFilterByProperty } from './PlayerSidebarOverviewGrid'
+import { applyRecordingPropertyFilter } from '../../utils'
 
 describe('PlayerSidebarOverviewGrid', () => {
-    describe('handleFilterByProperty', () => {
-        it('creates person property filter for $browser', () => {
+    describe('applyRecordingPropertyFilter', () => {
+        it('creates Event property filter for $browser', () => {
             const mockSetFilters = jest.fn()
+            const mockSetIsFiltersExpanded = jest.fn()
+            const filters: RecordingUniversalFilters = {
+                duration: [],
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [],
+                        },
+                    ],
+                },
+            }
 
-            handleFilterByProperty('$browser', 'Chrome', mockSetFilters)
+            applyRecordingPropertyFilter('$browser', 'Chrome', filters, mockSetFilters, mockSetIsFiltersExpanded)
 
             expect(mockSetFilters).toHaveBeenCalledWith({
-                person_properties: [
-                    {
-                        type: PropertyFilterType.Person,
-                        key: '$browser',
-                        value: 'Chrome',
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$browser',
+                                    value: 'Chrome',
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                },
             })
         })
 
-        it('creates person property filter for $geoip_ properties', () => {
+        it('creates Person property filter for $geoip_ properties', () => {
             const mockSetFilters = jest.fn()
+            const mockSetIsFiltersExpanded = jest.fn()
+            const filters: RecordingUniversalFilters = {
+                duration: [],
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [] }],
+                },
+            }
 
-            handleFilterByProperty('$geoip_country_code', 'US', mockSetFilters)
+            applyRecordingPropertyFilter('$geoip_country_code', 'US', filters, mockSetFilters, mockSetIsFiltersExpanded)
 
-            expect(mockSetFilters).toHaveBeenCalledWith({
-                person_properties: [
-                    {
-                        type: PropertyFilterType.Person,
-                        key: '$geoip_country_code',
-                        value: 'US',
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
+            const call = mockSetFilters.mock.calls[0][0]
+            expect(call.filter_group.values[0].values[0]).toMatchObject({
+                type: PropertyFilterType.Person,
+                key: '$geoip_country_code',
+                value: 'US',
+                operator: PropertyOperator.Exact,
             })
         })
 
-        it('creates person property filter for custom properties (no $ prefix)', () => {
+        it('creates Person property filter for custom properties (no $ prefix)', () => {
             const mockSetFilters = jest.fn()
+            const mockSetIsFiltersExpanded = jest.fn()
+            const filters: RecordingUniversalFilters = {
+                duration: [],
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [] }],
+                },
+            }
 
-            handleFilterByProperty('custom_property', 'value', mockSetFilters)
+            applyRecordingPropertyFilter('custom_property', 'value', filters, mockSetFilters, mockSetIsFiltersExpanded)
 
-            expect(mockSetFilters).toHaveBeenCalledWith({
-                person_properties: [
-                    {
-                        type: PropertyFilterType.Person,
-                        key: 'custom_property',
-                        value: 'value',
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
+            const call = mockSetFilters.mock.calls[0][0]
+            expect(call.filter_group.values[0].values[0]).toMatchObject({
+                type: PropertyFilterType.Person,
+                key: 'custom_property',
+                value: 'value',
+                operator: PropertyOperator.Exact,
             })
         })
 
-        it('creates event property filter for session properties', () => {
+        it('creates Session property filter for session properties', () => {
             const mockSetFilters = jest.fn()
+            const mockSetIsFiltersExpanded = jest.fn()
+            const filters: RecordingUniversalFilters = {
+                duration: [],
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [] }],
+                },
+            }
 
-            handleFilterByProperty('$session_duration', '300', mockSetFilters)
+            applyRecordingPropertyFilter('$session_duration', '300', filters, mockSetFilters, mockSetIsFiltersExpanded)
 
-            expect(mockSetFilters).toHaveBeenCalledWith({
-                session_properties: [
-                    {
-                        type: PropertyFilterType.Event,
-                        key: '$session_duration',
-                        value: '300',
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
+            const call = mockSetFilters.mock.calls[0][0]
+            expect(call.filter_group.values[0].values[0]).toMatchObject({
+                type: PropertyFilterType.Session,
+                key: '$session_duration',
+                value: '300',
+                operator: PropertyOperator.Exact,
             })
         })
 
         it('returns early when propertyValue is undefined', () => {
             const mockSetFilters = jest.fn()
+            const mockSetIsFiltersExpanded = jest.fn()
+            const filters: RecordingUniversalFilters = {
+                duration: [],
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [] }],
+                },
+            }
 
-            handleFilterByProperty('$browser', undefined, mockSetFilters)
+            applyRecordingPropertyFilter('$browser', undefined, filters, mockSetFilters, mockSetIsFiltersExpanded)
 
             expect(mockSetFilters).not.toHaveBeenCalled()
         })
 
-        it('accepts empty string as valid filter value', () => {
+        it('creates Event property filter for $os', () => {
             const mockSetFilters = jest.fn()
+            const mockSetIsFiltersExpanded = jest.fn()
+            const filters: RecordingUniversalFilters = {
+                duration: [],
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [] }],
+                },
+            }
 
-            handleFilterByProperty('$browser', '', mockSetFilters)
+            applyRecordingPropertyFilter('$os', 'Mac OS X', filters, mockSetFilters, mockSetIsFiltersExpanded)
 
-            expect(mockSetFilters).toHaveBeenCalledWith({
-                person_properties: [
-                    {
-                        type: PropertyFilterType.Person,
-                        key: '$browser',
-                        value: '',
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
+            const call = mockSetFilters.mock.calls[0][0]
+            expect(call.filter_group.values[0].values[0]).toMatchObject({
+                type: PropertyFilterType.Event,
+                key: '$os',
+                value: 'Mac OS X',
+                operator: PropertyOperator.Exact,
             })
         })
 
-        it('creates person property filter for $os', () => {
+        it('creates Event property filter for $device_type', () => {
             const mockSetFilters = jest.fn()
+            const mockSetIsFiltersExpanded = jest.fn()
+            const filters: RecordingUniversalFilters = {
+                duration: [],
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [] }],
+                },
+            }
 
-            handleFilterByProperty('$os', 'Mac OS X', mockSetFilters)
+            applyRecordingPropertyFilter('$device_type', 'Desktop', filters, mockSetFilters, mockSetIsFiltersExpanded)
 
-            expect(mockSetFilters).toHaveBeenCalledWith({
-                person_properties: [
-                    {
-                        type: PropertyFilterType.Person,
-                        key: '$os',
-                        value: 'Mac OS X',
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            })
-        })
-
-        it('creates person property filter for $device_type', () => {
-            const mockSetFilters = jest.fn()
-
-            handleFilterByProperty('$device_type', 'Desktop', mockSetFilters)
-
-            expect(mockSetFilters).toHaveBeenCalledWith({
-                person_properties: [
-                    {
-                        type: PropertyFilterType.Person,
-                        key: '$device_type',
-                        value: 'Desktop',
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
+            const call = mockSetFilters.mock.calls[0][0]
+            expect(call.filter_group.values[0].values[0]).toMatchObject({
+                type: PropertyFilterType.Event,
+                key: '$device_type',
+                value: 'Desktop',
+                operator: PropertyOperator.Exact,
             })
         })
     })
