@@ -21,7 +21,10 @@ inputs:
         description: 'Repository name (owner/repo)'
         required: true
     commit-sha:
-        description: 'Commit SHA'
+        description: 'Commit SHA that was tested'
+        required: true
+    branch-name:
+        description: 'Branch name'
         required: true
     github-token:
         description: 'GitHub token for authentication'
@@ -66,9 +69,48 @@ runs:
               git config user.name "github-actions[bot]"
               git config user.email "github-actions[bot]@users.noreply.github.com"
 
+        - name: Verify branch hasn't advanced
+          id: verify
+          shell: bash
+          run: |
+              # Check if the remote branch HEAD still matches the commit we tested
+              TESTED_SHA="${{ inputs.commit-sha }}"
+              CURRENT_SHA=$(git ls-remote origin "refs/heads/${{ inputs.branch-name }}" | cut -f1)
+
+              if [ "$TESTED_SHA" != "$CURRENT_SHA" ]; then
+                echo "branch-advanced=true" >> $GITHUB_OUTPUT
+                echo "current-sha=$CURRENT_SHA" >> $GITHUB_OUTPUT
+                echo "⚠️  Branch has advanced during workflow execution"
+                echo "   Tested:  $TESTED_SHA"
+                echo "   Current: $CURRENT_SHA"
+                echo "   Skipping snapshot commit - new workflow run will handle it"
+              else
+                echo "branch-advanced=false" >> $GITHUB_OUTPUT
+                echo "✓ Branch HEAD matches tested commit - proceeding with snapshot commit"
+              fi
+
+        - name: Post skip comment
+          if: steps.verify.outputs.branch-advanced == 'true'
+          shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.github-token }}
+          run: |
+              TESTED_SHA="${{ inputs.commit-sha }}"
+              CURRENT_SHA="${{ steps.verify.outputs.current-sha }}"
+              gh pr comment ${{ inputs.pr-number }} --body "⏭️ Skipped snapshot commit because branch advanced to \`${CURRENT_SHA:0:7}\` while workflow was testing \`${TESTED_SHA:0:7}\`.
+
+              The new commit will trigger its own snapshot update workflow.
+
+              **If you expected this workflow to succeed:** This can happen due to concurrent commits. To get a fresh workflow run, either:
+              - Merge master into your branch, or
+              - Push an empty commit: \`git commit --allow-empty -m 'trigger CI' && git push\`"
+
         - name: Count and commit changes
           id: commit
+          if: steps.verify.outputs.branch-advanced == 'false'
           shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.github-token }}
           run: |
               CHANGES_JSON=$(.github/scripts/count-snapshot-changes.sh ${{ inputs.snapshot-path }})
               echo "changes=$CHANGES_JSON" >> $GITHUB_OUTPUT
@@ -76,14 +118,17 @@ runs:
 
               TOTAL=$(echo "$CHANGES_JSON" | jq -r '.total')
               if [ "$TOTAL" -gt 0 ]; then
+                # Disable auto-merge BEFORE committing
+                # This ensures auto-merge is disabled even if workflow gets cancelled after push
+                gh pr merge --disable-auto ${{ inputs.pr-number }} || echo "Auto-merge was not enabled"
+                echo "Auto-merge disabled - snapshot changes require human review"
+
+                # Now commit and push
                 git add ${{ inputs.snapshot-path }} -A
                 git commit -m "${{ inputs.commit-message }}"
-                # Pull before push to avoid race condition when multiple workflows commit simultaneously
-                # Only fetch current branch to avoid verbose output from fetching all branches
-                CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-                git fetch origin "$CURRENT_BRANCH" --quiet
-                git rebase origin/"$CURRENT_BRANCH" --autostash
-                git push --quiet
+                # Push directly - SHA verification already ensured we're up to date
+                BRANCH_NAME="${{ inputs.branch-name }}"
+                git push origin HEAD:"$BRANCH_NAME" --quiet
                 SNAPSHOT_SHA=$(git rev-parse HEAD)
                 echo "committed=true" >> $GITHUB_OUTPUT
                 echo "snapshot-sha=$SNAPSHOT_SHA" >> $GITHUB_OUTPUT
@@ -91,15 +136,6 @@ runs:
                 echo "No snapshot changes to commit"
                 echo "committed=false" >> $GITHUB_OUTPUT
               fi
-
-        - name: Disable auto-merge
-          if: steps.commit.outputs.committed == 'true'
-          shell: bash
-          env:
-              GH_TOKEN: ${{ inputs.github-token }}
-          run: |
-              gh pr merge --disable-auto ${{ inputs.pr-number }} || echo "Auto-merge was not enabled"
-              echo "Snapshot changes require human review"
 
         - name: Post snapshot comment
           if: steps.commit.outputs.committed == 'true'

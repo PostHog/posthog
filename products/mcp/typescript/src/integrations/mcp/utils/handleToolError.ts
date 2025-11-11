@@ -42,6 +42,7 @@ export class MCPToolError extends Error {
  * @param tool - Tool that caused the error.
  * @param distinctId - User's distinct ID for tracking.
  * @param sessionId - Session UUID for tracking.
+ *
  * @returns A structured error message.
  */
 export function handleToolError(
@@ -62,7 +63,8 @@ export function handleToolError(
     const properties: Record<string, any> = {
         team: 'growth',
         tool: mcpError.tool,
-        $exception_fingerprint: `${mcpError.tool}-${mcpError.message}`,
+        is_mcp_tool_error: error instanceof MCPToolError,
+        $exception_fingerprint: mcpError.tool,
     }
 
     if (sessionUuid) {

@@ -188,7 +188,7 @@ export function getAdditionalProperties(
 ): Record<string, unknown> {
     return Object.fromEntries(
         Object.entries(properties).filter(([key]) => {
-            return !isPostHogProperty(key, isCloudOrDev)
+            return key === 'version' || !isPostHogProperty(key, isCloudOrDev)
         })
     )
 }
