@@ -418,6 +418,7 @@ class AssistantNodeName(StrEnum):
 
 class AssistantGraphName(StrEnum):
     ASSISTANT = "assistant_graph"
+    AGENT_EXECUTOR = "agent_executor_graph"
     INSIGHTS = "insights_graph"
     TAXONOMY = "taxonomy_graph"
     DEEP_RESEARCH = "deep_research_graph"

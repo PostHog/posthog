@@ -30,6 +30,11 @@ class MathGroupTypeIndex(float, Enum):
     NUMBER_4 = 4
 
 
+class AgentMode(StrEnum):
+    PRODUCT_ANALYTICS = "product_analytics"
+    NOOP = "noop"
+
+
 class AggregationAxisFormat(StrEnum):
     NUMERIC = "numeric"
     DURATION = "duration"
@@ -1140,6 +1145,7 @@ class FirstEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    distinct_id: str
     properties: str
     timestamp: str
     uuid: str
@@ -1149,6 +1155,7 @@ class LastEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    distinct_id: str
     properties: str
     timestamp: str
     uuid: str
