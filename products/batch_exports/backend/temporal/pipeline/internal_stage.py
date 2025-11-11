@@ -56,7 +56,8 @@ def _get_s3_endpoint_url() -> str:
     localhost URL rather than the hostname of the container.
     """
     if settings.DEBUG or settings.TEST:
-        return "http://localhost:19000"
+        # Use configured local object storage endpoint (SeaweedFS in dev by default)
+        return settings.OBJECT_STORAGE_ENDPOINT
     return settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
 
 
@@ -325,7 +326,7 @@ def _get_clickhouse_s3_staging_folder_url(
     region = settings.BATCH_EXPORT_OBJECT_STORAGE_REGION
     # in these environments this will be a URL for MinIO
     if settings.DEBUG or settings.TEST:
-        base_url = f"{settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT}/{bucket}/"
+        base_url = f"{settings.OBJECT_STORAGE_ENDPOINT}/{bucket}/"
     else:
         base_url = f"https://{bucket}.s3.{region}.amazonaws.com/"
 
