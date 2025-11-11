@@ -952,6 +952,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         properties,
         variantErrors,
         experiment,
+        experimentLoading,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -1127,27 +1128,30 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 </div>
                             </div>
 
-                            {experiment && (
-                                <div className="mt-4">
-                                    <Label intent="menu">Linked experiment</Label>
-                                    <div className="flex gap-1 items-center">
-                                        <CopyToClipboardInline
-                                            iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
-                                            className="font-normal text-sm"
-                                            description="experiment name"
-                                        >
-                                            {experiment.name}
-                                        </CopyToClipboardInline>
-                                        <Link
-                                            target="_blank"
-                                            className="font-semibold"
-                                            to={urls.experiment(experiment.id)}
-                                        >
-                                            <IconOpenInNew fontSize="18" />
-                                        </Link>
+                            {!experimentLoading &&
+                                experiment &&
+                                featureFlag.experiment_set &&
+                                featureFlag.experiment_set.length > 0 && (
+                                    <div className="mt-4">
+                                        <Label intent="menu">Linked experiment</Label>
+                                        <div className="flex gap-1 items-center">
+                                            <CopyToClipboardInline
+                                                iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
+                                                className="font-normal text-sm"
+                                                description="experiment name"
+                                            >
+                                                {experiment.name}
+                                            </CopyToClipboardInline>
+                                            <Link
+                                                target="_blank"
+                                                className="font-semibold"
+                                                to={urls.experiment(featureFlag.experiment_set[0])}
+                                            >
+                                                <IconOpenInNew fontSize="18" />
+                                            </Link>
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                )}
                         </div>
 
                         {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
