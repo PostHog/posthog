@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-11-07 10:03:43 UTC
+// Generated at: 2025-11-11 10:03:37 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -17,11 +17,11 @@ export type CanonicalProvider =
     | 'baseten-fp8'
     | 'cerebras'
     | 'cerebras-fp16'
-    | 'cerebras-fp8'
     | 'chutes'
     | 'chutes-bf16'
     | 'chutes-fp8'
     | 'cirrascale'
+    | 'clarifai-fp4'
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
@@ -64,6 +64,7 @@ export type CanonicalProvider =
     | 'modelrun'
     | 'moonshotai'
     | 'moonshotai-fp8'
+    | 'moonshotai-int4'
     | 'moonshotai-turbo'
     | 'morph'
     | 'ncompass'
@@ -88,6 +89,8 @@ export type CanonicalProvider =
     | 'parasail-bf16'
     | 'parasail-fp4'
     | 'parasail-fp8'
+    | 'parasail-int4'
+    | 'parasail-int8'
     | 'perplexity'
     | 'phala'
     | 'relace-fp8'
@@ -98,8 +101,6 @@ export type CanonicalProvider =
     | 'siliconflow-fp8'
     | 'stealth'
     | 'switchpoint'
-    | 'targon-bf16'
-    | 'targon-fp8'
     | 'together'
     | 'together-fp16'
     | 'together-fp8'

@@ -214,6 +214,7 @@ export function ManagedMigration(): JSX.Element {
 
 export function ManagedMigrations(): JSX.Element {
     const { managedMigrationId, migrations, migrationsLoading } = useValues(managedMigrationLogic)
+    const { pauseMigration, resumeMigration } = useActions(managedMigrationLogic)
 
     const calculateProgress = (migration: ManagedMigration): { progress: number; completed: number; total: number } => {
         if (migration.state?.parts && Array.isArray(migration.state.parts)) {
@@ -398,6 +399,36 @@ export function ManagedMigrations(): JSX.Element {
                                 title: 'Status Message',
                                 dataIndex: 'status_message',
                                 render: (_: any, migration: ManagedMigration) => migration.status_message || '-',
+                            },
+                            {
+                                title: 'Actions',
+                                key: 'actions',
+                                render: (_: any, migration: ManagedMigration) => {
+                                    if (migration.status === 'running') {
+                                        return (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                onClick={() => pauseMigration(migration.id)}
+                                                loading={migrationsLoading}
+                                            >
+                                                Pause
+                                            </LemonButton>
+                                        )
+                                    } else if (migration.status === 'paused') {
+                                        return (
+                                            <LemonButton
+                                                type="primary"
+                                                size="small"
+                                                onClick={() => resumeMigration(migration.id)}
+                                                loading={migrationsLoading}
+                                            >
+                                                Resume
+                                            </LemonButton>
+                                        )
+                                    }
+                                    return null
+                                },
                             },
                         ]}
                         emptyState="No migrations found. Create a new migration to get started."

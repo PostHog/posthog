@@ -36,10 +36,6 @@ class MockAssistantNode(BaseAssistantNode[AssistantState, PartialAssistantState]
         self.arun_called = False
         self.messages_dispatched = []
 
-    @property
-    def node_name(self) -> str:
-        return AssistantNodeName.ROOT
-
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         self.arun_called = True
 
@@ -187,7 +183,6 @@ class TestDispatcherIntegration(BaseTest):
 
         with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
             await node(state, config)
-
         # Verify all events have the correct node_run_id
         for event in dispatched_events:
             self.assertEqual(event.node_run_id, checkpoint_ns)
@@ -196,10 +191,6 @@ class TestDispatcherIntegration(BaseTest):
         """Test that errors in dispatcher don't crash node execution."""
 
         class FailingDispatcherNode(BaseAssistantNode[AssistantState, PartialAssistantState]):
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
             async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
                 # Try to dispatch - if writer fails, should handle gracefully
                 self.dispatcher.update("Test")
@@ -223,10 +214,6 @@ class TestDispatcherIntegration(BaseTest):
         """Test that messages in PartialState are dispatched via NODE_END."""
 
         class NodeReturningMessages(BaseAssistantNode[AssistantState, PartialAssistantState]):
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
             async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
                 # Return messages in state
                 return PartialAssistantState(
@@ -262,10 +249,6 @@ class TestDispatcherIntegration(BaseTest):
         """Test that node can return None state without errors."""
 
         class NoneStateNode(BaseAssistantNode[AssistantState, PartialAssistantState]):
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
             async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
                 # Dispatch a message but return None state
                 self.dispatcher.update("Test")
@@ -288,6 +271,7 @@ class TestDispatcherIntegration(BaseTest):
             NodePath(name=AssistantGraphName.ASSISTANT),
             NodePath(name=AssistantNodeName.ROOT, message_id="msg_123", tool_call_id="tc_123"),
             NodePath(name=AssistantGraphName.INSIGHTS),
+            NodePath(name=AssistantNodeName.TRENDS_GENERATOR),
         )
 
         node = MockAssistantNode(self.mock_team, self.mock_user, node_path=parent_path)
@@ -310,7 +294,7 @@ class TestDispatcherIntegration(BaseTest):
             self.assertIsNotNone(event.node_path)
             assert event.node_path is not None
             self.assertEqual(event.node_path, parent_path)
-            self.assertEqual(len(event.node_path), 3)
+            self.assertEqual(len(event.node_path), 4)
             self.assertEqual(event.node_path[1].message_id, "msg_123")
             self.assertEqual(event.node_path[1].tool_call_id, "tc_123")
 
