@@ -1,5 +1,6 @@
 import json
 import base64
+from datetime import datetime
 from typing import Any, Union, cast
 
 from posthog.schema import HogQLQueryResponse
