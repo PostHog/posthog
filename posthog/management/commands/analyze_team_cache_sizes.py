@@ -54,8 +54,8 @@ class Command(BaseCommand):
         self.stdout.write(f"\nAnalyzing {len(teams)} teams (out of {total_teams} total)...")
 
         sizes = []
-        field_usage = {}
-        field_sizes = {}
+        field_usage: dict[str, int] = {}
+        field_sizes: dict[str, list[float]] = {}
 
         for team in teams:
             # Load the metadata as it would be cached

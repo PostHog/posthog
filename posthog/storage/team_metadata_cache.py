@@ -383,7 +383,7 @@ def get_cache_stats() -> dict[str, Any]:
         }
 
         # Sample size statistics
-        sample_sizes = []
+        sample_sizes: list[int] = []
         sample_limit = 100  # Sample first 100 entries for size stats
 
         for key in redis_client.scan_iter(match=pattern, count=1000):
