@@ -208,12 +208,13 @@ class TeamDigest(BaseModel):
             "report": {
                 "new_dashboards": self.dashboards.model_dump(),
                 "new_event_definitions": self.event_definitions.model_dump(),
-                "new_external_data_sources": self.external_data_sources.model_dump(),
                 "new_experiments_launched": self.experiments_launched.model_dump(),
                 "new_experiments_completed": self.experiments_completed.model_dump(),
-                "interesting_saved_filters": [f.render_payload() for f in self.filters.root],
-                "new_surveys_launched": self.surveys_launched.model_dump(),
+                "new_external_data_sources": self.external_data_sources.model_dump(),
                 "new_feature_flags": self.feature_flags.model_dump(),
+                "interesting_saved_filters": [f.render_payload() for f in self.filters.root],
+                "expiring_recordings": self.recordings.model_dump(),
+                "new_surveys_launched": self.surveys_launched.model_dump(),
             },
         }
 
