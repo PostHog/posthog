@@ -16,10 +16,10 @@ Typical ranges (based on preliminary analysis):
 - Per team: 10-30 KB compressed in Redis
 - Compression ratio: 2-4:1 from raw JSON
 
-To get accurate estimates for YOUR data, run:
+To get accurate estimates for your data, run:
     python manage.py analyze_team_cache_sizes
 
-This will sample your actual teams and provide percentile-based memory projections.
+to will sample the cache and provide percentile-based memory projections.
 
 Configuration:
 - Redis TTL: 7 days (configurable via TEAM_METADATA_CACHE_TTL env var)
