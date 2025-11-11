@@ -1,6 +1,6 @@
 import dagster
 
-from dags.llma import metrics_daily
+from dags.llma.daily_metrics import metrics_daily
 
 from . import resources
 
