@@ -29,8 +29,8 @@ struct TestClients {
 }
 
 async fn setup_integration_clients() -> anyhow::Result<TestClients> {
-    env::set_var("AWS_ACCESS_KEY_ID", "object_storage_root_user");
-    env::set_var("AWS_SECRET_ACCESS_KEY", "object_storage_root_password");
+    env::set_var("AWS_ACCESS_KEY_ID", "any");
+    env::set_var("AWS_SECRET_ACCESS_KEY", "any");
 
     let mut config = HyperCacheConfig::new(
         "integration_test".to_string(),
@@ -56,6 +56,13 @@ async fn setup_integration_clients() -> anyhow::Result<TestClients> {
     }
 
     let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
+
+    // Ensure bucket exists (SeaweedFS won't have 'posthog' by default)
+    let _ = s3_client
+        .create_bucket()
+        .bucket(config.s3_bucket.clone())
+        .send()
+        .await;
 
     let redis_client_for_cache = RedisClient::new("redis://localhost:6379".to_string()).await?;
     let hypercache =

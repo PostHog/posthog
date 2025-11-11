@@ -302,8 +302,8 @@ mod tests {
             .await;
 
         // Use environment variables for test configuration
-        env::set_var("AWS_ACCESS_KEY_ID", "object_storage_root_user");
-        env::set_var("AWS_SECRET_ACCESS_KEY", "object_storage_root_password");
+        env::set_var("AWS_ACCESS_KEY_ID", "any");
+        env::set_var("AWS_SECRET_ACCESS_KEY", "any");
 
         S3Sink::new(
             "capture".to_string(),

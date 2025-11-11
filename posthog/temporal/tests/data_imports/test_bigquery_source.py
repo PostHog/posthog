@@ -213,8 +213,8 @@ def minio_client(bucket_name):
     session = boto3.Session()
     minio_client = session.client(
         "s3",
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
+        aws_access_key_id="any",
+        aws_secret_access_key="any",
         endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
     )
     _ = minio_client.create_bucket(Bucket=bucket_name)

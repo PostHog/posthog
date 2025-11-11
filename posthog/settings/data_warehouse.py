@@ -5,7 +5,7 @@ from posthog.settings.base_variables import DEBUG
 from posthog.settings.utils import get_from_env, str_to_bool
 
 AIRBYTE_BUCKET_REGION = os.getenv("AIRBYTE_BUCKET_REGION", "us-east-1")
-AIRBYTE_BUCKET_KEY = os.getenv("AIRBYTE_BUCKET_KEY", "object_storage_root_user")
+AIRBYTE_BUCKET_KEY = os.getenv("AIRBYTE_BUCKET_KEY", "any")
 AIRBYTE_BUCKET_SECRET = os.getenv("AIRBYTE_BUCKET_SECRET", "any")
 AIRBYTE_BUCKET_DOMAIN = os.getenv("AIRBYTE_BUCKET_DOMAIN", "seaweedfs:8333")
 
