@@ -93,12 +93,15 @@ where
 
         return router.layer(axum::middleware::from_fn(
             move |req: axum::extract::Request, next: axum::middleware::Next| async move {
+                let start = std::time::Instant::now();
                 match tokio::time::timeout(timeout_duration, next.run(req)).await {
                     Ok(response) => response,
                     Err(_) => {
+                        let elapsed = start.elapsed();
                         metrics::counter!("capture_request_timeouts_total").increment(1);
                         tracing::warn!(
                             timeout_seconds = request_timeout_seconds,
+                            elapsed_seconds = elapsed.as_secs_f64(),
                             "Request timed out"
                         );
                         (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response()
