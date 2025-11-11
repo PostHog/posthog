@@ -111,22 +111,18 @@ class WebAnalyticsFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgent
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.WEB_ANALYTICS_FILTER
 
+    def _filter_properties_by_type(self, property_group: str) -> list[tuple[str, str]]:
+        """Extract properties from CORE_FILTER_DEFINITIONS_BY_GROUP for a given property group."""
+        return [
+            (prop_name, prop["type"])
+            for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP.get(property_group, {}).items()
+            if prop.get("type") is not None
+        ]
+
     def _get_system_prompt(self) -> ChatPromptTemplate:
-        event_properties = [
-            (prop_name, prop["type"])
-            for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP.get("event_properties", {}).items()
-            if prop.get("type") is not None
-        ]
-        session_properties = [
-            (prop_name, prop["type"])
-            for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP.get("session_properties", {}).items()
-            if prop.get("type") is not None
-        ]
-        person_properties = [
-            (prop_name, prop["type"])
-            for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP.get("person_properties", {}).items()
-            if prop.get("type") is not None
-        ]
+        event_properties = self._filter_properties_by_type("event_properties")
+        session_properties = self._filter_properties_by_type("session_properties")
+        person_properties = self._filter_properties_by_type("person_properties")
 
         all_messages = [
             PRODUCT_DESCRIPTION_PROMPT,
