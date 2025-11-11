@@ -249,3 +249,80 @@ class SingleSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
         if self.extra_summary_context:
             return f"Summary for session {self.session_id} with extra context {self.extra_summary_context}"
         return f"Summary for session {self.session_id}"
+
+
+class GroupSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
+    """
+    Stores LLM-generated summaries for groups of session replays.
+    Each summary represents pattern analysis across multiple sessions.
+
+    Usage examples:
+
+    # Create a new group summary
+    from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
+    summary = GroupSessionSummary.objects.create(
+        team_id=team_id,
+        session_ids=["session1", "session2", "session3"],
+        summary=enriched_patterns.model_dump(),  # EnrichedSessionGroupSummaryPatternsList
+        extra_summary_context={"focus_area": "checkout flow"},
+        run_metadata={"model_used": "claude-3-5-sonnet", "visual_confirmation": False},
+        created_by=user,
+    )
+
+    # Get a summary by UUID and team
+    summary = GroupSessionSummary.objects.get(id=summary_uuid, team_id=team_id)
+
+    # Get all group summaries for a team
+    summaries = GroupSessionSummary.objects.filter(team_id=team_id)
+
+    # Get recent summaries ordered by creation date
+    recent_summaries = GroupSessionSummary.objects.filter(team_id=team_id).order_by("-created_at")[:10]
+
+    # Check if a summary exists
+    exists = GroupSessionSummary.objects.filter(id=summary_uuid, team_id=team_id).exists()
+
+    # Update a summary (generally you'd create a new one instead)
+    summary.summary = updated_patterns.model_dump()
+    summary.save()
+
+    # Delete old summaries (for cleanup jobs)
+    old_date = timezone.now() - timedelta(days=365)
+    GroupSessionSummary.objects.filter(team_id=team_id, created_at__lt=old_date).delete()
+    """
+
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+
+    # List of session IDs that were analyzed together in this group
+    session_ids = ArrayField(
+        models.CharField(max_length=10000),
+        help_text="List of session replay IDs included in this group summary",
+    )
+
+    # Summary content - format may evolve
+    summary = models.JSONField(
+        help_text="Group summary in JSON format (currently EnrichedSessionGroupSummaryPatternsList schema)"
+    )
+
+    # Context and metadata (stored for reference, not used for matching/caching)
+    extra_summary_context = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Additional context passed to the summary (ExtraSummaryContext schema)",
+    )
+    run_metadata = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Summary run metadata (SessionSummaryRunMeta schema)",
+    )
+
+    # TODO: Implement background job to delete summaries older than 1 year
+
+    class Meta:
+        db_table = "ee_group_session_summary"
+        indexes = [
+            models.Index(fields=["team", "id"]),
+        ]
+
+    def __str__(self):
+        session_count = len(self.session_ids) if self.session_ids else 0
+        return f"Group summary for {session_count} sessions (team {self.team_id})"
