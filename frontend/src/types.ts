@@ -4798,7 +4798,12 @@ export interface DataWarehouseSavedQuery {
     upstream_dependency_count?: number
     downstream_dependency_count?: number
     created_at?: string
-    run_history?: Array<{ status: 'Completed' | 'Failed'; timestamp?: string }>
+    run_history?: DataWarehouseSavedQueryRunHistory[]
+}
+
+export interface DataWarehouseSavedQueryRunHistory {
+    status: 'Completed' | 'Failed'
+    timestamp?: string
 }
 
 export interface DataWarehouseSavedQueryDraft {

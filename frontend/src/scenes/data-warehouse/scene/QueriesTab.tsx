@@ -49,9 +49,7 @@ function RunHistoryDisplay({
                         placement="top"
                     >
                         <div
-                            className={`w-4 h-4 rounded-sm ${
-                                run.status === 'Completed' ? 'bg-success' : 'bg-danger'
-                            }`}
+                            className={`w-4 h-4 rounded-sm ${run.status === 'Completed' ? 'bg-success' : 'bg-danger'}`}
                         />
                     </Tooltip>
                 )
@@ -84,12 +82,7 @@ export function QueriesTab(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex gap-2 justify-between items-center">
-                <LemonInput
-                    type="search"
-                    placeholder="Search views..."
-                    onChange={setSearchTerm}
-                    value={searchTerm}
-                />
+                <LemonInput type="search" placeholder="Search views..." onChange={setSearchTerm} value={searchTerm} />
             </div>
 
             {/* Materialized Views Section */}
@@ -120,11 +113,7 @@ export function QueriesTab(): JSX.Element {
                                 key: 'last_run_at',
                                 render: (_, view) => {
                                     return view.last_run_at ? (
-                                        <TZLabel
-                                            time={view.last_run_at}
-                                            formatDate="MMM DD, YYYY"
-                                            formatTime="HH:mm"
-                                        />
+                                        <TZLabel time={view.last_run_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
                                     ) : (
                                         'Never'
                                     )
@@ -162,7 +151,10 @@ export function QueriesTab(): JSX.Element {
                                 key: 'upstream_count',
                                 tooltip: 'Number of immediate upstream dependencies',
                                 render: (_, view) => (
-                                    <DependencyCount count={view.upstream_dependency_count} loading={dependenciesMapLoading} />
+                                    <DependencyCount
+                                        count={view.upstream_dependency_count}
+                                        loading={dependenciesMapLoading}
+                                    />
                                 ),
                             },
                             {
@@ -170,7 +162,10 @@ export function QueriesTab(): JSX.Element {
                                 key: 'downstream_count',
                                 tooltip: 'Number of immediate downstream dependencies',
                                 render: (_, view) => (
-                                    <DependencyCount count={view.downstream_dependency_count} loading={dependenciesMapLoading} />
+                                    <DependencyCount
+                                        count={view.downstream_dependency_count}
+                                        loading={dependenciesMapLoading}
+                                    />
                                 ),
                             },
                             {
@@ -195,7 +190,12 @@ export function QueriesTab(): JSX.Element {
                         pagination={{
                             pageSize: 10,
                             currentPage: materializedViewsCurrentPage,
-                            onChangePage: setMaterializedViewsPage,
+                            onForward: () => {
+                                setMaterializedViewsPage(materializedViewsCurrentPage + 1)
+                            },
+                            onBackward: () => {
+                                setMaterializedViewsPage(materializedViewsCurrentPage - 1)
+                            },
                         }}
                     />
                 </div>
@@ -228,11 +228,7 @@ export function QueriesTab(): JSX.Element {
                                 key: 'created_at',
                                 render: (_, view) =>
                                     view.created_at ? (
-                                        <TZLabel
-                                            time={view.created_at}
-                                            formatDate="MMM DD, YYYY"
-                                            formatTime="HH:mm"
-                                        />
+                                        <TZLabel time={view.created_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
                                     ) : (
                                         '-'
                                     ),
@@ -242,7 +238,10 @@ export function QueriesTab(): JSX.Element {
                                 key: 'upstream_count',
                                 tooltip: 'Number of immediate upstream dependencies',
                                 render: (_, view) => (
-                                    <DependencyCount count={view.upstream_dependency_count} loading={dependenciesMapLoading} />
+                                    <DependencyCount
+                                        count={view.upstream_dependency_count}
+                                        loading={dependenciesMapLoading}
+                                    />
                                 ),
                             },
                             {
@@ -250,7 +249,10 @@ export function QueriesTab(): JSX.Element {
                                 key: 'downstream_count',
                                 tooltip: 'Number of immediate downstream dependencies',
                                 render: (_, view) => (
-                                    <DependencyCount count={view.downstream_dependency_count} loading={dependenciesMapLoading} />
+                                    <DependencyCount
+                                        count={view.downstream_dependency_count}
+                                        loading={dependenciesMapLoading}
+                                    />
                                 ),
                             },
                             {
@@ -272,7 +274,12 @@ export function QueriesTab(): JSX.Element {
                         pagination={{
                             pageSize: 10,
                             currentPage: viewsCurrentPage,
-                            onChangePage: setViewsPage,
+                            onForward: () => {
+                                setViewsPage(viewsCurrentPage + 1)
+                            },
+                            onBackward: () => {
+                                setViewsPage(viewsCurrentPage - 1)
+                            },
                         }}
                     />
                 </div>
@@ -283,9 +290,7 @@ export function QueriesTab(): JSX.Element {
                 <div className="text-center py-12">
                     <h3 className="text-xl font-semibold mb-2">No views found</h3>
                     {searchTerm ? (
-                        <p className="text-muted">
-                            No views match your search. Try adjusting your search term.
-                        </p>
+                        <p className="text-muted">No views match your search. Try adjusting your search term.</p>
                     ) : (
                         <p className="text-muted">
                             Create your first view to transform and organize your data warehouse tables.

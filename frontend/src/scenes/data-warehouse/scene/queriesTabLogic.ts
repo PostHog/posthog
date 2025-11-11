@@ -4,9 +4,9 @@ import { loaders } from 'kea-loaders'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { DataWarehouseSavedQuery } from '~/types'
+import { DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { queriesTabLogicType } from './queriesTabLogicType'
@@ -84,7 +84,7 @@ export const queriesTabLogic = kea<queriesTabLogicType>([
             },
         ],
         runHistoryMap: [
-            {} as Record<string, Array<{ status: string; timestamp: string }>>,
+            {} as Record<string, DataWarehouseSavedQueryRunHistory[]>,
             {
                 loadRunHistoryForViews: async ({ viewIds }) => {
                     // Filter out views we've already loaded
