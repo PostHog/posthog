@@ -19,6 +19,37 @@ const STATUS_TAG_SETTINGS: Record<string, LemonTagType> = {
     Modified: 'warning',
 }
 
+function RunHistoryDisplay({
+    runHistory,
+}: {
+    runHistory?: Array<{ status: 'Completed' | 'Failed'; timestamp?: string }>
+}): JSX.Element {
+    if (!runHistory || runHistory.length === 0) {
+        return <span className="text-muted">-</span>
+    }
+
+    // Show up to 5 most recent runs
+    const displayRuns = runHistory.slice(0, 5)
+
+    return (
+        <div className="flex gap-1">
+            {displayRuns.map((run, index) => (
+                <Tooltip
+                    key={index}
+                    title={`${run.status}${run.timestamp ? ` at ${run.timestamp}` : ''}`}
+                    placement="top"
+                >
+                    <div
+                        className={`w-4 h-4 rounded-sm ${
+                            run.status === 'Completed' ? 'bg-success' : 'bg-danger'
+                        }`}
+                    />
+                </Tooltip>
+            ))}
+        </div>
+    )
+}
+
 export function QueriesTab(): JSX.Element {
     const { filteredViews, filteredMaterializedViews, viewsLoading, searchTerm } = useValues(queriesTabLogic)
     const { setSearchTerm, deleteView, runMaterialization } = useActions(queriesTabLogic)
@@ -90,6 +121,12 @@ export function QueriesTab(): JSX.Element {
                                         tagContent
                                     )
                                 },
+                            },
+                            {
+                                title: 'Run history',
+                                key: 'run_history',
+                                tooltip: 'Recent run status (up to 5 most recent)',
+                                render: (_, view) => <RunHistoryDisplay runHistory={view.run_history} />,
                             },
                             {
                                 title: 'Upstream',
