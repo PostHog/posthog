@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { ReactNode } from 'react'
 
+import { IconFilter } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 interface OverviewItemBase {
@@ -40,6 +41,8 @@ export function OverviewGridItem({
     icon,
     fadeLabel,
     itemKeyTooltip,
+    onFilterClick,
+    showFilter,
 }: {
     children?: ReactNode
     description: ReactNode
@@ -47,16 +50,30 @@ export function OverviewGridItem({
     icon?: ReactNode
     fadeLabel?: boolean
     itemKeyTooltip?: ReactNode
+    onFilterClick?: () => void
+    showFilter?: boolean
 }): JSX.Element {
     return (
-        <div className="flex flex-1 w-full justify-between items-center deprecated-space-x-4">
+        <div className="group flex flex-1 w-full justify-between items-center deprecated-space-x-4">
             <div className={clsx('text-sm', fadeLabel && 'font-light')}>
                 <Tooltip title={itemKeyTooltip}>
                     {icon} {label}
                 </Tooltip>
             </div>
             <Tooltip title={description}>
-                <div className="overflow-x-auto">{children}</div>
+                <div className="overflow-x-auto flex items-center deprecated-space-x-2">
+                    {children}
+                    {showFilter && onFilterClick && (
+                        <IconFilter
+                            data-testid="filter-button"
+                            className="cursor-pointer text-secondary hover:text-primary transition-colors text-sm opacity-0 group-hover:opacity-100"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                onFilterClick()
+                            }}
+                        />
+                    )}
+                </div>
             </Tooltip>
         </div>
     )
