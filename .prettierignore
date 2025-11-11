@@ -26,3 +26,7 @@ cli/tests/_cases/**/*
 frontend/src/products.tsx
 frontend/src/layout.html
 **/fixtures/**
+products/mcp/schema/*.json
+products/mcp/python/**
+products/mcp/**/generated.ts
+products/mcp/typescript/worker-configuration.d.ts
