@@ -138,6 +138,9 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                 ...(isEventsQuery(query.source) ? [TaxonomicFilterGroupType.HogQLExpression] : []),
             ]
 
+    const showPersistedColumnReorder =
+        isEventsQuery(query.source) || isGroupsQuery(query.source) || isSessionsQuery(query.source)
+
     return (
         <LemonModal
             isOpen={modalVisible}
@@ -220,24 +223,23 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                         </div>
                     </div>
                 </div>
-                {(isEventsQuery(query.source) || isGroupsQuery(query.source) || isSessionsQuery(query.source)) &&
-                    query.showPersistentColumnConfigurator && (
-                        <LemonCheckbox
-                            label={
-                                context?.type === 'groups'
-                                    ? 'Save as default columns for this group type'
-                                    : context?.type === 'event_definition'
-                                      ? 'Save as default columns for this event type'
-                                      : 'Save as default for all project members'
-                            }
-                            className="mt-2"
-                            data-attr="events-table-save-columns-as-default-toggle"
-                            bordered
-                            checked={saveAsDefault}
-                            onChange={toggleSaveAsDefault}
-                            disabledReason={restrictionReason}
-                        />
-                    )}
+                {showPersistedColumnReorder && query.showPersistentColumnConfigurator && (
+                    <LemonCheckbox
+                        label={
+                            context?.type === 'groups'
+                                ? 'Save as default columns for this group type'
+                                : context?.type === 'event_definition'
+                                  ? 'Save as default columns for this event type'
+                                  : 'Save as default for all project members'
+                        }
+                        className="mt-2"
+                        data-attr="events-table-save-columns-as-default-toggle"
+                        bordered
+                        checked={saveAsDefault}
+                        onChange={toggleSaveAsDefault}
+                        disabledReason={restrictionReason}
+                    />
+                )}
             </div>
         </LemonModal>
     )
