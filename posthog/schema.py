@@ -290,6 +290,7 @@ class AssistantTool(StrEnum):
     EXECUTE_SQL = "execute_sql"
     SWITCH_MODE = "switch_mode"
     SUMMARIZE_SESSIONS = "summarize_sessions"
+    CREATE_INSIGHT = "create_insight"
 
 
 class AssistantToolCall(BaseModel):
