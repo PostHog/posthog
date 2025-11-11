@@ -68,7 +68,7 @@ pub struct Config {
     #[envconfig(default = "100000000")] // 100MB - in prod, we should use closer to 1-10GB
     pub symbol_store_cache_max_bytes: usize,
 
-    #[envconfig(default = "http://127.0.0.1:19000")] // minio
+    #[envconfig(default = "http://127.0.0.1:8333")] // SeaweedFS S3
     pub object_storage_endpoint: String,
 
     #[envconfig(default = "symbol_sets")]
@@ -77,10 +77,10 @@ pub struct Config {
     #[envconfig(default = "us-east-1")]
     pub object_storage_region: String,
 
-    #[envconfig(default = "object_storage_root_user")]
+    #[envconfig(default = "any")]
     pub object_storage_access_key_id: String,
 
-    #[envconfig(default = "object_storage_root_password")]
+    #[envconfig(default = "any")]
     pub object_storage_secret_access_key: String,
 
     #[envconfig(default = "false")] // Enable for MinIO compatibility
