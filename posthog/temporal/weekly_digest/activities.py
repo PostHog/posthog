@@ -558,6 +558,9 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         await MessagingRecord.objects.abulk_update(messaging_record_batch, ["sent_at"])
                         messaging_record_batch = []
 
+        if len(messaging_record_batch) > 0:
+            await MessagingRecord.objects.abulk_update(messaging_record_batch, ["sent_at"])
+
         if ph_client:
             ph_client.shutdown()
 
