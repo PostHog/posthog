@@ -7,8 +7,8 @@ Daily aggregation pipelines for LLM analytics metrics.
 ```text
 dags/llma/
 ├── README.md
-├── config.py                          # Configuration for all LLMA pipelines
 ├── daily_metrics/
+│   ├── config.py                     # Configuration for daily metrics pipeline
 │   ├── metrics_daily.py              # Daily aggregation asset and schedule
 │   └── sql/
 │       ├── event_counts.sql          # Count metrics for AI events

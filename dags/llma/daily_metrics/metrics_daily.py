@@ -17,7 +17,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 
 from dags.common import JobOwners, dagster_tags
-from dags.llma.config import AI_EVENT_TYPES, config
+from dags.llma.daily_metrics.config import AI_EVENT_TYPES, config
 
 # Partition definition for daily aggregations
 partition_def = DailyPartitionsDefinition(start_date=config.partition_start_date)
