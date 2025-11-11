@@ -6,7 +6,6 @@ from langchain_core.messages import AIMessageChunk
 from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
-    AssistantToolCallMessage,
     AssistantUpdateEvent,
     FailureMessage,
     MultiVisualizationMessage,
@@ -175,10 +174,11 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         if not node_path:
             return False
         # The first path is always the top-level graph.
-        # The second path is always the top-level node.
-        # If the path is longer than 2, it's a MaxTool or nested graphs.
-        if len(node_path) > 2 and next((path for path in node_path[1:] if path.name in AssistantGraphName), None):
-            return True
+        if len(node_path) > 2:
+            # The second path can is a top-level node.
+            # But we have to check the next node to see if it's a nested node or graph.
+            return find_subgraph(node_path[2:])
+
         return False
 
     def _handle_root_message(
@@ -224,12 +224,7 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         ):
             return message
 
-        if isinstance(message, AssistantToolCallMessage):
-            # No need to yield tool call messages not at the root level
-            return None
-
-        # Should not reach here
-        raise ValueError(f"Unhandled special message type: {type(message).__name__}")
+        return None
 
     def _handle_message_stream(
         self, event: AssistantDispatcherEvent, message: AIMessageChunk
@@ -272,3 +267,7 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
             ):
                 results.extend(new_event)
         return results
+
+
+def find_subgraph(node_path: tuple[NodePath, ...]) -> bool:
+    return bool(next((path for path in node_path if path.name in AssistantGraphName), None))

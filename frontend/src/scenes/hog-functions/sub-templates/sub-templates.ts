@@ -296,7 +296,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: [
                         { type: 'header', text: { type: 'plain_text', text: '🔴 {event.properties.name}' } },
                         { type: 'section', text: { type: 'plain_text', text: 'New issue created' } },
-                        { type: 'section', text: { type: 'mrkdwn', text: '```{event.properties.description}```' } },
+                        {
+                            type: 'section',
+                            text: { type: 'mrkdwn', text: '```{substring(event.properties.description, 1, 150)}```' },
+                        },
                         {
                             type: 'context',
                             elements: [
@@ -414,7 +417,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: [
                         { type: 'header', text: { type: 'plain_text', text: '🔄 {event.properties.name}' } },
                         { type: 'section', text: { type: 'plain_text', text: 'Issue reopened' } },
-                        { type: 'section', text: { type: 'mrkdwn', text: '```{event.properties.description}```' } },
+                        {
+                            type: 'section',
+                            text: { type: 'mrkdwn', text: '```{substring(event.properties.description, 1, 150)}```' },
+                        },
                         {
                             type: 'context',
                             elements: [

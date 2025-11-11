@@ -40,7 +40,6 @@ from ee.hogai.graph.taxonomy.format import (
     format_property_values,
 )
 from ee.hogai.utils.types.base import AssistantState, BaseStateWithTasks, TaskArtifact, TaskResult
-from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
 from .tools import (
@@ -50,7 +49,6 @@ from .tools import (
     retrieve_event_properties,
     retrieve_event_property_values,
 )
-from .types import TaxonomyNodeName
 
 
 class TaxonomyToolNotFoundError(Exception):
@@ -121,10 +119,6 @@ class TaxonomyTaskExecutorNode(
     """
     Task executor node specifically for taxonomy operations.
     """
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return TaxonomyNodeName.TASK_EXECUTOR
 
     async def _aget_input_tuples(self, tool_calls: list[AssistantToolCall]) -> list[TaskExecutionInputTuple]:
         taxonomy_toolkit = TaxonomyAgentToolkit(self._team, self._user)

@@ -343,6 +343,10 @@
             "required": ["columns", "hogql", "limit", "offset", "results"],
             "type": "object"
         },
+        "AgentMode": {
+            "enum": ["product_analytics", "noop"],
+            "type": "string"
+        },
         "AggregationAxisFormat": {
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled", "currency"],
             "type": "string"
@@ -11127,6 +11131,9 @@
                 "first_event": {
                     "additionalProperties": false,
                     "properties": {
+                        "distinct_id": {
+                            "type": "string"
+                        },
                         "properties": {
                             "type": "string"
                         },
@@ -11137,7 +11144,7 @@
                             "type": "string"
                         }
                     },
-                    "required": ["uuid", "timestamp", "properties"],
+                    "required": ["uuid", "distinct_id", "timestamp", "properties"],
                     "type": "object"
                 },
                 "first_seen": {
@@ -11153,6 +11160,9 @@
                 "last_event": {
                     "additionalProperties": false,
                     "properties": {
+                        "distinct_id": {
+                            "type": "string"
+                        },
                         "properties": {
                             "type": "string"
                         },
@@ -11163,7 +11173,7 @@
                             "type": "string"
                         }
                     },
-                    "required": ["uuid", "timestamp", "properties"],
+                    "required": ["uuid", "distinct_id", "timestamp", "properties"],
                     "type": "object"
                 },
                 "last_seen": {

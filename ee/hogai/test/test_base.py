@@ -5,17 +5,12 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AssistantMessage, HumanMessage
 
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, PartialAssistantState
-from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
 
 class DummyNode(AssistantNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         return None
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.ROOT
 
 
 class TestAssistantBase(BaseTest):

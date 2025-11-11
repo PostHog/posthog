@@ -81,4 +81,15 @@
     &.ScrollableShadows--top::before {
         opacity: 1;
     }
+
+    &.ScrollableShadows--hide-scrollbars {
+        .ScrollableShadows__inner {
+            /* Hide the scrollbar */
+            scrollbar-width: none;
+
+            &::-webkit-scrollbar {
+                display: none;
+            }
+        }
+    }
 }
