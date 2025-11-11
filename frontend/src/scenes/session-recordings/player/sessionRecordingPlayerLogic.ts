@@ -72,7 +72,6 @@ export interface PlayerTimeTracking {
     watchTime: number
     bufferTime: number
     firstPlayTime: number | undefined
-    firstPlayStartTime: number | undefined
 }
 
 export interface RecordingViewedSummaryAnalytics {
@@ -214,41 +213,15 @@ const updatePlayerTimeTracking = (
 
     const newLastTimestamp = ['paused', 'ended', 'errored'].includes(newState) ? null : now
 
-    let newFirstPlayStartTime = current.firstPlayStartTime
-    let newFirstPlayTime = current.firstPlayTime
-
-    if (newState === 'playing' && current.firstPlayStartTime === undefined && current.firstPlayTime === undefined) {
-        newFirstPlayStartTime = now
-    } else if (['paused', 'ended', 'errored'].includes(newState)) {
-        newFirstPlayStartTime = undefined
-    } else if (
-        newState === 'buffering' &&
-        current.firstPlayTime === undefined &&
-        current.firstPlayStartTime !== undefined
-    ) {
-        // If we go back to buffering before completing the 1-second threshold, reset tracking
-        if (now - current.firstPlayStartTime < 1000) {
-            newFirstPlayStartTime = undefined
-        }
-    }
-
-    if (
-        current.firstPlayTime === undefined &&
-        current.firstPlayStartTime !== undefined &&
-        newState === 'playing' &&
-        now - current.firstPlayStartTime >= 1000 &&
-        openTime !== undefined
-    ) {
-        newFirstPlayTime = current.firstPlayStartTime - openTime
-    }
+    const canRecordTimeToFirstPlay =
+        current.firstPlayTime === undefined && openTime !== undefined && newState === 'playing'
 
     return {
         state: newState,
         lastTimestamp: newLastTimestamp,
         watchTime: newWatchTime,
         bufferTime: newBufferTime,
-        firstPlayTime: newFirstPlayTime,
-        firstPlayStartTime: newFirstPlayStartTime,
+        firstPlayTime: canRecordTimeToFirstPlay ? now - openTime : current.firstPlayTime,
     }
 }
 
@@ -622,7 +595,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 watchTime: 0,
                 bufferTime: 0,
                 firstPlayTime: undefined,
-                firstPlayStartTime: undefined,
             } as PlayerTimeTracking,
             {
                 setPlayerTimeTrackingState: (state, { tracking }) => {

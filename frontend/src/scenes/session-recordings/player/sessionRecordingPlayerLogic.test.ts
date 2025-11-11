@@ -445,22 +445,6 @@ describe('sessionRecordingPlayerLogic', () => {
             })
 
             describe('time_to_first_play_ms tracking', () => {
-                it.each([
-                    ['pause', () => logic.actions.setPause()],
-                    ['buffer', () => logic.actions.startBuffer()],
-                ])('resets tracking when %s interrupts before 1 second', (_, interrupt) => {
-                    startPlaying()
-                    jest.advanceTimersByTime(500)
-
-                    expect(logic.values.playingTimeTracking.firstPlayStartTime).toBe(0)
-
-                    interrupt()
-                    jest.runOnlyPendingTimers()
-
-                    expect(logic.values.playingTimeTracking.firstPlayStartTime).toBeUndefined()
-                    expect(logic.values.playingTimeTracking.firstPlayTime).toBeUndefined()
-                })
-
                 it('preserves firstPlayTime after buffer interrupts post-threshold', () => {
                     startPlaying()
                     jest.advanceTimersByTime(1000)
@@ -469,22 +453,6 @@ describe('sessionRecordingPlayerLogic', () => {
                     expect(logic.values.playingTimeTracking.firstPlayTime).toBe(0)
 
                     logic.actions.startBuffer()
-                    jest.runOnlyPendingTimers()
-
-                    expect(logic.values.playingTimeTracking.firstPlayTime).toBe(0)
-                })
-
-                it('does not set firstPlayTime before 1 second', () => {
-                    startPlaying()
-                    jest.advanceTimersByTime(500)
-
-                    expect(logic.values.playingTimeTracking.firstPlayTime).toBeUndefined()
-                    expect(logic.values.playingTimeTracking.firstPlayStartTime).toBe(0)
-                })
-
-                it('sets firstPlayTime after 1 second', () => {
-                    startPlaying()
-                    jest.advanceTimersByTime(1000)
                     jest.runOnlyPendingTimers()
 
                     expect(logic.values.playingTimeTracking.firstPlayTime).toBe(0)
@@ -506,14 +474,12 @@ describe('sessionRecordingPlayerLogic', () => {
                 })
 
                 it('retries tracking after early interruption', () => {
-                    startPlaying()
                     jest.advanceTimersByTime(500)
-                    logic.actions.setPause()
 
+                    logic.actions.setPause()
                     expect(logic.values.playingTimeTracking.firstPlayTime).toBeUndefined()
 
-                    logic.actions.setPlay()
-                    jest.advanceTimersByTime(1000)
+                    startPlaying()
                     jest.runOnlyPendingTimers()
 
                     expect(logic.values.playingTimeTracking.firstPlayTime).toBe(500)
