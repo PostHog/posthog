@@ -5,9 +5,11 @@ import { LemonButton, LemonCollapse, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { Breadcrumb } from '~/types'
 
 import { SessionDetailsModal } from './SessionDetailsModal'
 
@@ -1435,6 +1437,13 @@ export function SessionGroupSummary(): JSX.Element {
         setSelectedEvent(null)
     }
 
+    const backBreadcrumb: Breadcrumb = {
+        key: Scene.SessionGroupSummariesTable,
+        name: 'Session summaries',
+        path: urls.sessionSummaries(),
+        iconType: 'insight/hog',
+    }
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -1447,6 +1456,7 @@ export function SessionGroupSummary(): JSX.Element {
                         Export
                     </LemonButton>
                 }
+                forceBackTo={backBreadcrumb}
             />
             <div className="flex flex-wrap items-center gap-3 text-sm text-muted mb-2">
                 <span>{totalSessions} sessions analyzed</span>
