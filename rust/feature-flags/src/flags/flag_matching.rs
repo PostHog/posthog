@@ -187,6 +187,7 @@ pub struct FeatureFlagMatcher {
 }
 
 impl FeatureFlagMatcher {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         distinct_id: String,
         device_id: Option<String>,
