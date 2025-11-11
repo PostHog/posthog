@@ -67,7 +67,8 @@
                                                                                                                                                                                                                                                                            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -118,7 +119,8 @@
                                                                                                                                                                                                                                                                            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -207,7 +209,8 @@
                                                                                                                                                                                                                                                                                                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -265,7 +268,8 @@
                                                                                                                                                                                                                                                                                                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -368,7 +372,8 @@
                                                                                                                                                                                                                                                                            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -419,7 +424,8 @@
                                                                                                                                                                                                                                                                            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -470,7 +476,8 @@
                                                                                                                                                                                                                                                                            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -521,7 +528,8 @@
                                                                                                                                                                                                                                                                            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -575,7 +583,8 @@
                                                                                                                                                                                                                                                                            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -629,7 +638,8 @@
                                                                                                                                                                                                                                                                            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -765,7 +775,8 @@
                                                                                                                                                                                                                                                                            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
