@@ -78,7 +78,9 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         """
         with self.timings.measure("get_usage_metrics"):
             return list(
-                GroupUsageMetric.objects.filter(team=self.team).only("name", "format", "interval", "display", "filters")
+                GroupUsageMetric.objects.filter(team=self.team).only(
+                    "id", "name", "format", "interval", "display", "filters"
+                )
             )
 
     def _get_metric_query(self, metric: GroupUsageMetric) -> ast.SelectQuery | ast.SelectSetQuery | None:
