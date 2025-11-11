@@ -770,3 +770,252 @@ class TestEdgeCases(APIBaseTest):
         self.assertIn("[+] AVAILABLE TOOLS: 10", data["text"])
         # Should not have interactive marker
         self.assertNotIn("<<<TOOLS_EXPANDABLE|", data["text"])
+
+
+class TestCachingBehavior(APIBaseTest):
+    """Test caching behavior of text repr API."""
+
+    def test_caching_identical_requests(self):
+        """Should cache and return cached result for identical requests."""
+        from django.core.cache import cache
+
+        request_data = {
+            "event_type": "$ai_generation",
+            "data": {
+                "id": "gen_cache_test",
+                "event": "$ai_generation",
+                "properties": {
+                    "$ai_input": "Test input for caching",
+                },
+            },
+            "options": {"truncated": True},
+        }
+
+        # First request - should generate and cache
+        response1 = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request_data,
+            format="json",
+        )
+
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        first_text = response1.data["text"]
+        first_metadata = response1.data["metadata"]
+
+        # Verify result was cached by checking cache directly
+        from products.llm_analytics.backend.api.text_repr import LLMAnalyticsTextReprViewSet
+
+        viewset = LLMAnalyticsTextReprViewSet()
+        viewset.team_id = self.team.id
+        cache_key = viewset._get_cache_key("$ai_generation", "gen_cache_test", {"truncated": True})
+        cached_result = cache.get(cache_key)
+        self.assertIsNotNone(cached_result)
+        self.assertEqual(cached_result["text"], first_text)
+
+        # Second identical request - should use cache and return same result
+        response2 = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request_data,
+            format="json",
+        )
+
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        self.assertEqual(response2.data["text"], first_text)
+        self.assertEqual(response2.data["metadata"]["char_count"], first_metadata["char_count"])
+
+    def test_cache_key_differs_by_options(self):
+        """Should use different cache keys for different options."""
+        from django.core.cache import cache
+
+        base_request = {
+            "event_type": "$ai_generation",
+            "data": {
+                "id": "gen_options_test",
+                "event": "$ai_generation",
+                "properties": {
+                    "$ai_input": "a" * 5000,  # Long enough to trigger truncation
+                },
+            },
+        }
+
+        # Request with truncated=True
+        request1 = {**base_request, "options": {"truncated": True}}
+        response1 = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request1,
+            format="json",
+        )
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        text_with_truncation = response1.data["text"]
+
+        # Request with truncated=False - should NOT use cache from request1
+        request2 = {**base_request, "options": {"truncated": False}}
+        response2 = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request2,
+            format="json",
+        )
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        text_without_truncation = response2.data["text"]
+
+        # Results should be different (truncation affects output)
+        self.assertNotEqual(text_with_truncation, text_without_truncation)
+
+        # Verify both are cached with different keys
+        from products.llm_analytics.backend.api.text_repr import LLMAnalyticsTextReprViewSet
+
+        viewset = LLMAnalyticsTextReprViewSet()
+        viewset.team_id = self.team.id
+
+        cache_key1 = viewset._get_cache_key("$ai_generation", "gen_options_test", {"truncated": True})
+        cache_key2 = viewset._get_cache_key("$ai_generation", "gen_options_test", {"truncated": False})
+
+        self.assertNotEqual(cache_key1, cache_key2)
+        self.assertIsNotNone(cache.get(cache_key1))
+        self.assertIsNotNone(cache.get(cache_key2))
+
+    def test_cache_key_differs_by_event_id(self):
+        """Should use different cache keys for different event IDs."""
+        from django.core.cache import cache
+
+        # First event
+        request1 = {
+            "event_type": "$ai_generation",
+            "data": {
+                "id": "gen_id_test_1",
+                "event": "$ai_generation",
+                "properties": {"$ai_input": "Test"},
+            },
+        }
+
+        response1 = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request1,
+            format="json",
+        )
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+
+        # Different event ID - should NOT use cache
+        request2 = {
+            "event_type": "$ai_generation",
+            "data": {
+                "id": "gen_id_test_2",  # Different ID
+                "event": "$ai_generation",
+                "properties": {"$ai_input": "Test"},
+            },
+        }
+
+        response2 = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request2,
+            format="json",
+        )
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+
+        # Verify different cache keys were used
+        from products.llm_analytics.backend.api.text_repr import LLMAnalyticsTextReprViewSet
+
+        viewset = LLMAnalyticsTextReprViewSet()
+        viewset.team_id = self.team.id
+
+        cache_key1 = viewset._get_cache_key("$ai_generation", "gen_id_test_1", {})
+        cache_key2 = viewset._get_cache_key("$ai_generation", "gen_id_test_2", {})
+
+        self.assertNotEqual(cache_key1, cache_key2)
+        self.assertIsNotNone(cache.get(cache_key1))
+        self.assertIsNotNone(cache.get(cache_key2))
+
+    def test_cache_isolation_by_team(self):
+        """Should isolate cache by team."""
+        from posthog.models import Team
+
+        # Create another team in same org
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+
+        request_data = {
+            "event_type": "$ai_generation",
+            "data": {
+                "id": "gen_team_test",
+                "event": "$ai_generation",
+                "properties": {"$ai_input": "Test"},
+            },
+        }
+
+        # Request from first team
+        response1 = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request_data,
+            format="json",
+        )
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+
+        # Verify cache key includes team ID
+        from products.llm_analytics.backend.api.text_repr import LLMAnalyticsTextReprViewSet
+
+        viewset1 = LLMAnalyticsTextReprViewSet()
+        viewset1.team_id = self.team.id
+        cache_key1 = viewset1._get_cache_key("$ai_generation", "gen_team_test", {})
+
+        viewset2 = LLMAnalyticsTextReprViewSet()
+        viewset2.team_id = other_team.id
+        cache_key2 = viewset2._get_cache_key("$ai_generation", "gen_team_test", {})
+
+        # Cache keys should be different due to different team IDs
+        self.assertNotEqual(cache_key1, cache_key2)
+        self.assertIn(str(self.team.id), cache_key1)
+        self.assertIn(str(other_team.id), cache_key2)
+
+    def test_cache_respects_trace_id(self):
+        """Should cache traces separately by trace ID."""
+        from django.core.cache import cache
+
+        # First trace
+        request1 = {
+            "event_type": "$ai_trace",
+            "data": {
+                "trace": {
+                    "id": "trace_cache_1",
+                    "properties": {"$ai_span_name": "test"},
+                },
+                "hierarchy": [],
+            },
+        }
+
+        response1 = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request1,
+            format="json",
+        )
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+
+        # Different trace ID - should NOT use cache
+        request2 = {
+            "event_type": "$ai_trace",
+            "data": {
+                "trace": {
+                    "id": "trace_cache_2",  # Different trace ID
+                    "properties": {"$ai_span_name": "test"},
+                },
+                "hierarchy": [],
+            },
+        }
+
+        response2 = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request2,
+            format="json",
+        )
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+
+        # Verify different cache keys were used
+        from products.llm_analytics.backend.api.text_repr import LLMAnalyticsTextReprViewSet
+
+        viewset = LLMAnalyticsTextReprViewSet()
+        viewset.team_id = self.team.id
+
+        cache_key1 = viewset._get_cache_key("$ai_trace", "trace_cache_1", {})
+        cache_key2 = viewset._get_cache_key("$ai_trace", "trace_cache_2", {})
+
+        self.assertNotEqual(cache_key1, cache_key2)
+        self.assertIsNotNone(cache.get(cache_key1))
+        self.assertIsNotNone(cache.get(cache_key2))
