@@ -41,13 +41,11 @@ def update_team_metadata_cache_task(team_id: int) -> None:
         logger.info(
             "Successfully updated team metadata cache",
             team_id=team_id,
-            team_api_token=team.api_token,
         )
     else:
         logger.error(
             "Failed to update team metadata cache",
             team_id=team_id,
-            team_api_token=team.api_token,
         )
 
 
@@ -69,8 +67,8 @@ def sync_all_team_metadata_cache() -> None:
     # Process teams in batches to avoid memory issues
     batch_size = 100
 
-    # Get total count for logging
-    total_count = Team.objects.count()
+    # Get approximate count for logging - use only('id') to reduce overhead
+    total_count = Team.objects.only("id").count()
     logger.info(f"Total teams to sync: {total_count}")
 
     # Process in batches using iterator for memory efficiency
@@ -88,7 +86,6 @@ def sync_all_team_metadata_cache() -> None:
                 logger.warning(
                     "Failed to sync team metadata cache",
                     team_id=team.id,
-                    team_api_token=team.api_token,
                 )
 
         except Exception as e:
@@ -131,7 +128,7 @@ def update_team_metadata_cache_batch(self: shared_task, team_ids: list[int]) -> 
     logger.info(f"Starting batch update of {len(team_ids)} team metadata caches")
 
     successful_updates = 0
-    failed_updates = 0
+    failed_ids = []  # Track failures immediately during initial run
 
     for team_id in team_ids:
         try:
@@ -141,20 +138,20 @@ def update_team_metadata_cache_batch(self: shared_task, team_ids: list[int]) -> 
             if success:
                 successful_updates += 1
             else:
-                failed_updates += 1
+                failed_ids.append(team_id)  # Track failure immediately
                 logger.warning(
                     "Failed to update team metadata cache in batch",
                     team_id=team_id,
                 )
 
         except Team.DoesNotExist:
-            failed_updates += 1
+            failed_ids.append(team_id)  # Track failure immediately
             logger.warning(
                 "Team not found for batch metadata cache update",
                 team_id=team_id,
             )
         except Exception as e:
-            failed_updates += 1
+            failed_ids.append(team_id)  # Track failure immediately
             logger.exception(
                 "Error in batch team metadata cache update",
                 team_id=team_id,
@@ -165,31 +162,16 @@ def update_team_metadata_cache_batch(self: shared_task, team_ids: list[int]) -> 
         "Completed batch update of team metadata caches",
         total=len(team_ids),
         successful=successful_updates,
-        failed=failed_updates,
+        failed=len(failed_ids),
     )
 
     # Retry if there were failures
-    if failed_updates > 0 and self.request.retries < self.max_retries:
-        # Get the IDs that failed for retry - more efficient bulk query
-        failed_ids = []
-        teams_to_check = Team.objects.filter(id__in=team_ids).only("id", "api_token")
-
-        for team in teams_to_check:
-            try:
-                from posthog.storage.team_metadata_cache import get_team_metadata
-
-                if get_team_metadata(team) is None:
-                    failed_ids.append(team.id)
-            except Exception as e:
-                logger.warning(f"Error checking cache for team {team.id}: {e}")
-                failed_ids.append(team.id)
-
-        if failed_ids:
-            logger.info(
-                f"Retrying {len(failed_ids)} failed team metadata cache updates",
-                retry_count=self.request.retries + 1,
-            )
-            raise self.retry(args=[failed_ids], countdown=60)  # Retry after 1 minute
+    if failed_ids and self.request.retries < self.max_retries:
+        logger.info(
+            f"Retrying {len(failed_ids)} failed team metadata cache updates",
+            retry_count=self.request.retries + 1,
+        )
+        raise self.retry(args=[failed_ids], countdown=60)  # Retry after 1 minute
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -241,9 +223,22 @@ def sync_team_metadata_cache_intelligent() -> None:
 @receiver(post_save, sender=Team)
 def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
     """Update team metadata cache when a Team is saved."""
+
+    def enqueue_task():
+        try:
+            update_team_metadata_cache_task.delay(instance.id)
+        except Exception as e:
+            logger.exception(
+                "Failed to enqueue cache update task",
+                team_id=instance.id,
+                error=str(e),
+            )
+            # Optionally: fall back to synchronous update (uncomment if desired)
+            # update_team_metadata_cache(instance)
+
     # Use transaction.on_commit to ensure the database changes are committed
     # before we update the cache
-    transaction.on_commit(lambda: update_team_metadata_cache_task.delay(instance.id))
+    transaction.on_commit(enqueue_task)
 
 
 @receiver(pre_delete, sender=Team)

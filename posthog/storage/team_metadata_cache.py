@@ -17,6 +17,10 @@ from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyTy
 
 logger = logging.getLogger(__name__)
 
+# Cache TTL constants (in seconds)
+TEAM_METADATA_CACHE_TTL = 60 * 60 * 24 * 7  # 7 days
+TEAM_METADATA_CACHE_MISS_TTL = 60 * 60 * 24  # 1 day
+
 # List of fields to cache - full team object with 38 core fields
 TEAM_METADATA_FIELDS = [
     "id",
@@ -75,12 +79,19 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
             # Get the team based on the key type using HyperCache helper
             team = HyperCache.team_from_key(team_key)
 
-            # Ensure related objects are loaded - check if we need to refetch
-            if not hasattr(team, "_state") or not team._state.fields_cache.get("organization"):
-                team = Team.objects.select_related("organization", "project").get(id=team.id)
-            elif not hasattr(team, "_state") or not team._state.fields_cache.get("project"):
-                # If only project is missing, fetch it
-                team = Team.objects.select_related("organization", "project").get(id=team.id)
+            # Ensure related objects are loaded - more reliable approach
+            if isinstance(team, Team):
+                try:
+                    # Check if relations are accessible without causing a query
+                    _ = team.organization.name
+                    _ = team.project.name
+                except (
+                    AttributeError,
+                    Team.organization.RelatedObjectDoesNotExist,
+                    Team.project.RelatedObjectDoesNotExist,
+                ):
+                    # Relations not loaded or don't exist, refetch
+                    team = Team.objects.select_related("organization", "project").get(id=team.id)
 
             # Build the metadata dictionary with all specified fields
             metadata = {}
@@ -126,8 +137,8 @@ team_metadata_hypercache = HyperCache(
     value="full_metadata.json",
     token_based=True,  # Use team API token as primary key
     load_fn=_load_team_metadata,
-    cache_ttl=60 * 60 * 24 * 7,  # 7 days TTL
-    cache_miss_ttl=60 * 60 * 24,  # 1 day for missing teams
+    cache_ttl=TEAM_METADATA_CACHE_TTL,
+    cache_miss_ttl=TEAM_METADATA_CACHE_MISS_TTL,
 )
 
 
@@ -201,6 +212,8 @@ def get_teams_needing_refresh(
     Returns:
         List of Team objects that need cache refresh
     """
+    import re
+
     from django.utils import timezone
 
     teams_to_refresh = []
@@ -230,26 +243,34 @@ def get_teams_needing_refresh(
         ttl_threshold_seconds = ttl_threshold_hours * 3600
         expiring_soon = []
 
+        # Use regex for more robust parsing
+        token_pattern = r"cache:team_metadata:team_tokens/([^/]+)/full_metadata\.json"
+        id_pattern = r"cache:team_metadata:teams/(\d+)/full_metadata\.json"
+
         for key in cache_keys:
             ttl = redis_client.ttl(key)
             if 0 < ttl < ttl_threshold_seconds:
                 # Extract team ID or token from the key
                 key_str = key.decode("utf-8") if isinstance(key, bytes) else key
-                # Key format: cache:team_metadata:team_tokens/{token}/full_metadata.json
-                # or cache:team_metadata:teams/{id}/full_metadata.json
-                if "team_tokens" in key_str:
-                    token = key_str.split("/")[1]
+
+                # Try to match token pattern first
+                match = re.search(token_pattern, key_str)
+                if match:
+                    token = match.group(1)
                     try:
                         team = Team.objects.get(api_token=token)
                         expiring_soon.append(team.id)
                     except Team.DoesNotExist:
                         pass
-                elif "teams" in key_str:
-                    team_id = key_str.split("/")[1]
-                    try:
-                        expiring_soon.append(int(team_id))
-                    except (ValueError, IndexError):
-                        pass
+                else:
+                    # Try to match ID pattern
+                    match = re.search(id_pattern, key_str)
+                    if match:
+                        team_id = match.group(1)
+                        try:
+                            expiring_soon.append(int(team_id))
+                        except ValueError:
+                            pass
 
         # Add teams with expiring caches
         remaining_slots = batch_size - len(teams_to_refresh)
@@ -338,11 +359,11 @@ def get_cache_stats() -> dict[str, Any]:
 
             if ttl < 0:
                 ttl_buckets["expired"] += 1
-            elif ttl < 3600:
+            elif ttl <= 3600:
                 ttl_buckets["expires_1h"] += 1
-            elif ttl < 86400:
+            elif ttl <= 86400:
                 ttl_buckets["expires_24h"] += 1
-            elif ttl < 604800:
+            elif ttl <= 604800:
                 ttl_buckets["expires_7d"] += 1
             else:
                 ttl_buckets["expires_later"] += 1
