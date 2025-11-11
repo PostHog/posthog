@@ -29,9 +29,18 @@ def get_schemas(
 ) -> dict[str, list[tuple[str, str]]]:
     schema_list = collections.defaultdict(list)
 
+    region: str | None = None
+    if (
+        config.use_custom_region
+        and config.use_custom_region.enabled
+        and config.use_custom_region.region is not None
+        and config.use_custom_region.region != ""
+    ):
+        region = config.use_custom_region.region
+
     with bigquery_client(
         config.key_file.project_id,
-        config.location,
+        region,
         config.key_file.private_key,
         config.key_file.private_key_id,
         config.key_file.client_email,
