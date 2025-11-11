@@ -131,14 +131,57 @@ jobs:
                       mypy-cache-${{ runner.os }}-3.12-
 
             - name: Check static typing
-              shell: bash -e {0}
+              id: mypy-check
+              shell: bash
               run: |
-                  mypy --version && mypy --cache-fine-grained . | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
+                  set +e
+                  filter_output=$(mypy --version && mypy --cache-fine-grained . | mypy-baseline filter 2>&1)
+                  filter_exit_code=$?
+                  echo "$filter_output"
+                  set -e
+
+                  # Check if ONLY violations were resolved (no new ones added)
+                  if echo "$filter_output" | grep -q "Your changes resolved existing violations"; then
+                      if echo "$filter_output" | grep -q "New baseline violations introduced"; then
+                          # Both resolved AND added new violations - fail
+                          echo "resolved_and_added=true" >> $GITHUB_OUTPUT
+                          echo "Violations were resolved but new ones were also added"
+                          exit 1
+                      else
+                          # Only resolved violations, no new ones - success, allow auto-sync
+                          echo "only_resolved=true" >> $GITHUB_OUTPUT
+                          echo "Only resolved violations - will auto-sync baseline"
+                          exit 0
+                      fi
+                  fi
+
+                  # Either no changes or new violations were added
+                  if [ $filter_exit_code -ne 0 ]; then
+                      echo "run 'pnpm run mypy-baseline-sync' to update the baseline"
+                      exit 1
+                  fi
 
             - name: Check if "schema.py" is up to date
               shell: bash
               run: |
                   npm run schema:build:python && git diff --exit-code
+
+            - name: Sync mypy baseline when violations are resolved
+              if: steps.mypy-check.outputs.only_resolved == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              shell: bash
+              run: |
+                  echo "Syncing mypy baseline - violations were resolved without adding new ones"
+                  mypy --cache-fine-grained . | mypy-baseline sync
+
+            - name: Commit updated mypy baseline
+              if: steps.mypy-check.outputs.only_resolved == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
+              with:
+                  add: 'mypy-baseline.txt'
+                  message: 'Update mypy baseline - resolved violations'
+                  pull: --rebase --autostash
+                  default_author: github_actions
+                  github_token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Check hogli manifest completeness
               shell: bash
