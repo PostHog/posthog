@@ -54,11 +54,11 @@ class TestErrorNormalization(ClickhouseTestMixin, APIBaseTest):
         query = base_query.replace(
             """SELECT
     normalized_error as error,
-    countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
+    countDistinctIf(ai_trace_id, isNotNull(ai_trace_id) AND ai_trace_id != '') as traces,
     countIf(event = '$ai_generation') as generations,
     countIf(event = '$ai_span') as spans,
     countIf(event = '$ai_embedding') as embeddings,
-    countDistinctIf(ai_session_id, notEmpty(ai_session_id)) as sessions,
+    countDistinctIf(ai_session_id, isNotNull(ai_session_id) AND ai_session_id != '') as sessions,
     uniq(distinct_id) as users,
     uniq(toDate(timestamp)) as days_seen,
     min(timestamp) as first_seen,
@@ -80,7 +80,9 @@ ORDER BY occurrences DESC""",
             team=self.team,
         )
 
-        return [(row[0], row[1]) for row in result.results]
+        # Return error and generations count (index 2, not 1 which is traces)
+        # Query returns: (error, traces, generations, spans, embeddings, sessions, users, days_seen, first_seen, last_seen)
+        return [(row[0], row[2]) for row in result.results]
 
     @parameterized.expand(
         [
