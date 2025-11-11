@@ -170,7 +170,15 @@ impl Library {
             return Library::PosthogFlutter;
         }
 
+        // If it's an unrecognized posthog-* SDK, return Other
+        // This prevents custom SDKs like "posthog-custom/1.0 Chrome/..." from being
+        // misclassified as browsers
+        if user_agent.starts_with("posthog-") {
+            return Library::Other;
+        }
+
         // Web browsers - check for browser signatures (posthog-js)
+        // Only apply if we haven't matched a PostHog SDK above
         if user_agent.contains("Mozilla/")
             || user_agent.contains("Chrome/")
             || user_agent.contains("Safari/")
@@ -337,6 +345,14 @@ mod tests {
     #[test]
     fn test_sdk_type_other_unrecognized() {
         let headers = make_headers_with_user_agent("some-random-client/1.0");
+        assert_eq!(Library::from_headers(&headers), Library::Other);
+    }
+
+    #[test]
+    fn test_sdk_type_other_unrecognized_posthog_sdk_with_browser_strings() {
+        // Test that unknown posthog-* SDKs aren't misclassified as browsers
+        // even if they contain browser user-agent strings
+        let headers = make_headers_with_user_agent("posthog-custom/1.0 Chrome/91.0 Safari/537.36");
         assert_eq!(Library::from_headers(&headers), Library::Other);
     }
 
