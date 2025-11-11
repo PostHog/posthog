@@ -1,8 +1,12 @@
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import MessageCategory
+
+from products.workflows.backend.services.customerio_import_service import CustomerIOImportService
 
 
 class MessageCategorySerializer(serializers.ModelSerializer):
@@ -43,6 +47,12 @@ class MessageCategorySerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+class CustomerIOImportSerializer(serializers.Serializer):
+    """Serializer for Customer.io import request"""
+
+    app_api_key = serializers.CharField(required=True, help_text="Customer.io App API Key")
+
+
 class MessageCategoryViewSet(
     TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
@@ -57,3 +67,27 @@ class MessageCategoryViewSet(
         return queryset.filter(
             deleted=False,
         )
+
+    @action(detail=False, methods=["post"])
+    def import_from_customerio(self, request):
+        """
+        Import subscription topics and preferences from Customer.io
+        """
+        serializer = CustomerIOImportSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        api_key = serializer.validated_data["app_api_key"]
+
+        # Create import service and run import synchronously for now
+        # In production, this should be moved to an async task (e.g., Celery)
+        import_service = CustomerIOImportService(team=self.team, api_key=api_key, user=request.user)
+
+        # Run the import process
+        result = import_service.import_all()
+
+        # Check if import failed
+        if result["status"] == "failed":
+            return Response({"error": "Import failed", "details": result}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(result, status=status.HTTP_200_OK)
