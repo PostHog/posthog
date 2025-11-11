@@ -1,21 +1,22 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+
 import {
-    validateEnvironmentVariables,
+    type CreatedResources,
+    TEST_ORG_ID,
+    TEST_PROJECT_ID,
+    cleanupResources,
     createTestClient,
     createTestContext,
-    setActiveProjectAndOrg,
-    cleanupResources,
-    TEST_PROJECT_ID,
-    TEST_ORG_ID,
-    type CreatedResources,
-    parseToolResponse,
     generateUniqueKey,
+    parseToolResponse,
+    setActiveProjectAndOrg,
+    validateEnvironmentVariables,
 } from '@/shared/test-utils'
 import createFeatureFlagTool from '@/tools/featureFlags/create'
-import updateFeatureFlagTool from '@/tools/featureFlags/update'
 import deleteFeatureFlagTool from '@/tools/featureFlags/delete'
 import getAllFeatureFlagsTool from '@/tools/featureFlags/getAll'
 import getFeatureFlagDefinitionTool from '@/tools/featureFlags/getDefinition'
+import updateFeatureFlagTool from '@/tools/featureFlags/update'
 import type { Context } from '@/tools/types'
 
 describe('Feature Flags', { concurrent: false }, () => {
@@ -53,7 +54,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             const result = await createTool.handler(context, params)
 
             const flagData = parseToolResponse(result)
-            expect(flagData.id).toBeDefined()
+            expect(flagData.id).toBeTruthy()
             expect(flagData.key).toBe(params.key)
             expect(flagData.name).toBe(params.name)
             expect(flagData.active).toBe(params.active)
@@ -75,7 +76,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             const result = await createTool.handler(context, params)
             const flagData = parseToolResponse(result)
 
-            expect(flagData.id).toBeDefined()
+            expect(flagData.id).toBeTruthy()
             expect(flagData.key).toBe(params.key)
             expect(flagData.name).toBe(params.name)
 
@@ -109,7 +110,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             const result = await createTool.handler(context, params)
             const flagData = parseToolResponse(result)
 
-            expect(flagData.id).toBeDefined()
+            expect(flagData.id).toBeTruthy()
             expect(flagData.key).toBe(params.key)
             expect(flagData.name).toBe(params.name)
 
@@ -186,7 +187,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             const updateResult = await updateTool.handler(context, updateParams)
             const updatedFlag = parseToolResponse(updateResult)
 
-            expect(updatedFlag.id).toBeDefined()
+            expect(updatedFlag.id).toBeTruthy()
             expect(updatedFlag.key).toBe(createParams.key)
         })
     })
@@ -223,7 +224,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             // Verify our test flags are in the list
             for (const testFlag of testFlags) {
                 const found = allFlags.find((f: any) => f.id === testFlag.id)
-                expect(found).toBeDefined()
+                expect(found).toBeTruthy()
                 expect(found.key).toBe(testFlag.key)
             }
         })
@@ -276,9 +277,7 @@ describe('Feature Flags', { concurrent: false }, () => {
 
             const result = await getDefinitionTool.handler(context, { flagKey: nonExistentKey })
 
-            expect(result.content[0].text).toBe(
-                `Error: Flag with key "${nonExistentKey}" not found.`
-            )
+            expect(result.content[0].text).toBe(`Error: Flag with key "${nonExistentKey}" not found.`)
         })
     })
 
@@ -301,7 +300,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             // Delete the flag
             const deleteResult = await deleteTool.handler(context, { flagKey: createParams.key })
 
-            expect(deleteResult.content).toBeDefined()
+            expect(deleteResult.content).toBeTruthy()
             expect(deleteResult.content[0].type).toBe('text')
             const deleteResponse = parseToolResponse(deleteResult)
             expect(deleteResponse.success).toBe(true)
@@ -312,9 +311,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             const getResult = await getDefinitionTool.handler(context, {
                 flagKey: createParams.key,
             })
-            expect(getResult.content[0].text).toBe(
-                `Error: Flag with key "${createParams.key}" not found.`
-            )
+            expect(getResult.content[0].text).toBe(`Error: Flag with key "${createParams.key}" not found.`)
         })
 
         it('should handle deletion of non-existent flag', async () => {

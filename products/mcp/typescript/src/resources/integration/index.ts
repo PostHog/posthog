@@ -1,15 +1,16 @@
 import { type McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { type Unzipped, strFromU8, unzipSync } from 'fflate'
+
 import type { Context } from '@/tools/types'
+
 import {
-    FRAMEWORK_DOCS,
     EXAMPLES_MARKDOWN_URL,
+    FRAMEWORK_DOCS,
     FRAMEWORK_MARKDOWN_FILES,
-    isSupportedFramework,
     getSupportedFrameworks,
     getSupportedFrameworksList,
+    isSupportedFramework,
 } from './framework-mappings'
-import { unzipSync, strFromU8, type Unzipped } from 'fflate'
-
 // Import workflow markdown files
 import workflowBegin from './workflow-guides/1.0-event-setup-begin.md'
 import workflowEdit from './workflow-guides/1.1-event-setup-edit.md'
@@ -35,8 +36,7 @@ export enum ResourceUri {
 /**
  * Message appended to workflow resources to indicate the next step
  */
-export const WORKFLOW_NEXT_STEP_MESSAGE =
-    'Upon completion, access the following resource to continue:'
+export const WORKFLOW_NEXT_STEP_MESSAGE = 'Upon completion, access the following resource to continue:'
 
 /**
  * URL to the identify() documentation
@@ -67,7 +67,6 @@ async function fetchExamplesMarkdown(): Promise<Unzipped> {
         return cachedExamplesMarkdown
     }
 
-    console.log('Fetching PostHog examples markdown...')
     const response = await fetch(EXAMPLES_MARKDOWN_URL)
 
     if (!response.ok) {
@@ -77,7 +76,6 @@ async function fetchExamplesMarkdown(): Promise<Unzipped> {
     const arrayBuffer = await response.arrayBuffer()
     const uint8Array = new Uint8Array(arrayBuffer)
     cachedExamplesMarkdown = unzipSync(uint8Array)
-    console.log('Examples markdown cached successfully')
 
     return cachedExamplesMarkdown
 }
@@ -107,7 +105,8 @@ const workflowSequence = [
 /**
  * Registers all PostHog integration resources with the MCP server
  */
-export function registerIntegrationResources(server: McpServer, _context: Context) {
+// oxlint-disable-next-line @typescript-eslint/no-unused-vars
+export function registerIntegrationResources(server: McpServer, _context: Context): void {
     // Fetch examples markdown at startup
     fetchExamplesMarkdown().catch((error) => {
         console.error('Failed to fetch examples markdown:', error)
@@ -216,10 +215,7 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
                 const frameworks = getSupportedFrameworks()
                 return {
                     resources: frameworks.map((framework) => ({
-                        uri: ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace(
-                            '{framework}',
-                            framework
-                        ),
+                        uri: ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace('{framework}', framework),
                         name: `PostHog ${framework} example project`,
                         description: `Example project code for ${framework}`,
                         mimeType: 'text/markdown',
