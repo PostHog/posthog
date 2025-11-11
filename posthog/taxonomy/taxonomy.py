@@ -382,6 +382,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "Numeric",
             "used_for_debug": True,
         },
+        "$sdk_debug_replay_flushed_size": {
+            "label": "Estimated bytes flushed",
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
         "$session_recording_remote_config": {
             "label": "Session recording remote config received",
             "description": "The remote config for session recording received from the server (or loaded from storage).",
@@ -437,6 +443,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["100"],
             "system": True,
             "ignored_in_assistant": True,
+            "used_for_debug": True,
+        },
+        "sdk_debug_extensions_init_method": {
+            "label": "PostHog.js extensions init method",
+            "description": "The method used to initialize PostHog.js extensions.",
+            "examples": ["deferred", "synchronous"],
+            "used_for_debug": True,
+        },
+        "sdk_debug_extensions_init_time_ms": {
+            "label": "PostHog.js extensions init time (ms)",
+            "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
+            "examples": ["150"],
             "used_for_debug": True,
         },
         "$sdk_debug_retry_queue_size": {

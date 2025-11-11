@@ -49,16 +49,10 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.state import prepare_reasoning_progress_message
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AssistantNodeName
-from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class SessionSummarizationNode(AssistantNode):
     logger = structlog.get_logger(__name__)
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.SESSION_SUMMARIZATION
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

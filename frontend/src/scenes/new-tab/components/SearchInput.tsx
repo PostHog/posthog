@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
 import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
@@ -18,6 +19,7 @@ import { TextInputPrimitive, textInputVariants } from 'lib/ui/TextInputPrimitive
 import { cn } from 'lib/utils/css-classes'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 
 export interface SearchInputCommand<T = string> {
     value: T
@@ -61,6 +63,8 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     const inputRef = useRef<HTMLInputElement>(null)
     const [focusedTagIndex, setFocusedTagIndex] = useState<number | null>(null)
     const [expandedTags, setExpandedTags] = useState(false)
+    const [isFocused, setIsFocused] = useState(false)
+    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
 
     useImperativeHandle(
         ref,
@@ -264,7 +268,8 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         variant: 'default',
                         size: 'lg',
                     }),
-                    'flex gap-1 focus-within:border-secondary items-center h-8 rounded-lg'
+                    'flex gap-1 focus-within:border-secondary items-center h-8 rounded-lg',
+                    isFocused && 'animate-input-focus-pulse'
                 )}
             >
                 <DropdownMenu
@@ -273,22 +278,31 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         setShowDropdown(open)
                     }}
                 >
-                    <DropdownMenuTrigger asChild>
-                        <ButtonPrimitive
-                            variant="outline"
-                            className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
-                            iconOnly
-                            size="sm"
-                            tooltip={
-                                <>
-                                    Click to show commands/filters, or type <KeyboardShortcut forwardslash />
-                                </>
-                            }
-                            tooltipPlacement="bottom"
-                        >
-                            /
-                        </ButtonPrimitive>
-                    </DropdownMenuTrigger>
+                    <div className="relative">
+                        <DropdownMenuTrigger asChild>
+                            <ButtonPrimitive
+                                variant="outline"
+                                className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary hover:border-secondary data-[state=open]:border-secondary ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
+                                iconOnly
+                                size="sm"
+                                tooltip={
+                                    <>
+                                        Click to show commands/filters, or type <KeyboardShortcut forwardslash />
+                                    </>
+                                }
+                                tooltipPlacement="bottom"
+                                tooltipCloseDelayMs={0}
+                                tabIndex={-1}
+                            >
+                                /
+                            </ButtonPrimitive>
+                        </DropdownMenuTrigger>
+
+                        {/* Mobile layout: show a small dot on the top right of the dropdown button if there are selected commands */}
+                        {isMobileLayout && (selectedCommands.length === 1 || expandedTags) && (
+                            <div className="absolute -top-0.5 -right-0.5 size-2 bg-accent rounded-full pointer-events-none" />
+                        )}
+                    </div>
 
                     <DropdownMenuContent
                         align="start"
@@ -345,19 +359,24 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 </DropdownMenu>
 
                 {/* Selected inline tags */}
-                {selectedCommands.length === 0 ? null : selectedCommands.length === 1 || expandedTags ? (
+                {/* for mobile we hide this and show the dot on the top right of the dropdown button above */}
+                {selectedCommands.length === 0 || isMobileLayout ? null : selectedCommands.length === 1 ||
+                  expandedTags ? (
                     selectedCommands.map((command, index) => (
                         <ButtonPrimitive
                             key={command.value as string}
                             className={`text-primary ${focusedTagIndex === index ? 'ring-2 ring-accent' : ''}`}
                             size="sm"
                             variant="outline"
-                            onClick={() => {
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
                                 selectCommand(command)
                                 setShowDropdown(false)
                                 setExpandedTags(false)
                                 setFocusedTagIndex(null)
                             }}
+                            tabIndex={-1}
                         >
                             {command.displayName}
                             <IconX className="size-3 ml-1 text-tertiary" />
@@ -386,6 +405,12 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     autoFocus
                     autoComplete="off"
                     className="pl-1 w-full border-none flex-1 h-full min-h-full rounded-r-lg"
+                    onFocus={() => {
+                        setIsFocused(true)
+                    }}
+                    onBlur={() => {
+                        setIsFocused(false)
+                    }}
                     size="lg"
                     suffix={
                         (inputValue !== '' || selectedCommands.length > 0) && (
