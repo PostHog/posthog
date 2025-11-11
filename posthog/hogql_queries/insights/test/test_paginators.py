@@ -223,6 +223,8 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
 
     def test_cursor_encoding_decoding(self):
         """Test that cursor is properly encoded and decoded"""
+        from datetime import datetime
+
         cursor_data = {"order_value": "2025-01-06 12:00:00", "session_id": "session_123"}
         json_str = json.dumps(cursor_data)
         cursor = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
@@ -231,7 +233,8 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
 
         self.assertIsNotNone(paginator.cursor_data)
         assert paginator.cursor_data is not None  # Type narrowing for mypy
-        self.assertEqual(paginator.cursor_data["order_value"], "2025-01-06 12:00:00")
+        # The cursor decoder automatically parses datetime strings back to datetime objects
+        self.assertEqual(paginator.cursor_data["order_value"], datetime(2025, 1, 6, 12, 0))
         self.assertEqual(paginator.cursor_data["session_id"], "session_123")
 
     def test_invalid_cursor_raises_error(self):
