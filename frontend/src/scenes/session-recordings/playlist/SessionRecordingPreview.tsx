@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { memo } from 'react'
 
-import { IconBug, IconCursorClick, IconHourglass, IconKeyboard, IconLive } from '@posthog/icons'
+import { IconBug, IconCursorClick, IconEllipsis, IconHourglass, IconKeyboard, IconLive } from '@posthog/icons'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -16,6 +16,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -318,24 +319,41 @@ export const SessionRecordingPreview = memo(
                                 </div>
                             </div>
 
-                            {filters.order === 'console_error_count' ? (
-                                <ErrorCount
-                                    iconClassNames={iconClassNames}
-                                    errorCount={recording.console_error_count}
+                            <div className="flex items-center gap-1">
+                                {filters.order === 'console_error_count' ? (
+                                    <ErrorCount
+                                        iconClassNames={iconClassNames}
+                                        errorCount={recording.console_error_count}
+                                    />
+                                ) : filters.order === 'recording_ttl' ? (
+                                    <RecordingExpiry
+                                        iconClassNames={iconClassNames}
+                                        recordingTtl={recording.recording_ttl}
+                                    />
+                                ) : (
+                                    <RecordingDuration
+                                        recordingDuration={durationToShow(
+                                            recording,
+                                            filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
+                                        )}
+                                    />
+                                )}
+
+                                <SettingsMenu
+                                    highlightWhenActive={false}
+                                    items={[
+                                        {
+                                            label: 'View recording details',
+                                            onClick: () => {
+                                                // TODO: Show overview in popover
+                                            },
+                                        },
+                                    ]}
+                                    icon={<IconEllipsis className="rotate-90" />}
+                                    label=""
+                                    size="xsmall"
                                 />
-                            ) : filters.order === 'recording_ttl' ? (
-                                <RecordingExpiry
-                                    iconClassNames={iconClassNames}
-                                    recordingTtl={recording.recording_ttl}
-                                />
-                            ) : (
-                                <RecordingDuration
-                                    recordingDuration={durationToShow(
-                                        recording,
-                                        filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
-                                    )}
-                                />
-                            )}
+                            </div>
                         </div>
 
                         <FirstURL startUrl={recording.start_url} />
