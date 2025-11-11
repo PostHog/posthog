@@ -369,7 +369,8 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(paginated_query.where)
         assert paginated_query.where is not None  # Type narrowing for mypy
         self.assertIsInstance(paginated_query.where, And)
-        self.assertEqual(len(paginated_query.where.exprs), 2)  # Should combine 2 conditions
+        where_clause = cast(And, paginated_query.where)
+        self.assertEqual(len(where_clause.exprs), 2)  # Should combine 2 conditions
 
     def test_limit_plus_one_for_has_more_detection(self):
         """Test that paginator fetches limit+1 to detect has_more"""
