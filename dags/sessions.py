@@ -20,7 +20,7 @@ from posthog.models.raw_sessions.sessions_v3 import (
 )
 
 from dags.common import dagster_tags
-from dags.common.common import JobOwners
+from dags.common.common import JobOwners, metabase_debug_query_url
 
 # This is the number of days to backfill in one SQL operation
 MAX_PARTITIONS_PER_RUN = 10
@@ -74,6 +74,7 @@ def sessions_v3_backfill(context: AssetExecutionContext) -> None:
         f"Running backfill for {partition_range_str} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
     )
     context.log.info(backfill_sql)
+    context.log.info(metabase_debug_query_url(context.run_id))
 
     cluster = get_cluster()
     tags = dagster_tags(context)
@@ -107,6 +108,7 @@ def sessions_v3_backfill_replay(context: AssetExecutionContext) -> None:
         f"Running backfill for {partition_range_str} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
     )
     context.log.info(backfill_sql)
+    context.log.info(metabase_debug_query_url(context.run_id))
 
     cluster = get_cluster()
     tags = dagster_tags(context)
