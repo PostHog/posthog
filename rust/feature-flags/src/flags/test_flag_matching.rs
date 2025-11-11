@@ -4810,6 +4810,224 @@ mod tests {
         assert_eq!(match_result.variant, None);
     }
 
+    fn build_device_bucketing_flag(team_id: TeamId) -> FeatureFlag {
+        FeatureFlag {
+            id: 1,
+            team_id,
+            name: Some("device flag".to_string()),
+            key: "device-flag".to_string(),
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(50.0),
+                    variant: None,
+                }],
+                ..FlagFilters::default()
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(true),
+            version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
+            bucketing_identifier: Some("device_id".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_device_id_bucketing_uses_device_identifier() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let flag = build_device_bucketing_flag(team.id);
+
+        // device-high hashes to ~0.27 (< 0.5), so rollout should match regardless of distinct_id
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "distinct-alpha".to_string(),
+            Some("device-high".to_string()),
+            team.id,
+            team.project_id(),
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let high_device_result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(
+            high_device_result.matches,
+            "device-high hash should fall inside rollout"
+        );
+
+        // Changing distinct_id with the same device_id should not change the outcome
+        let router = context.create_postgres_router();
+        let mut matcher_same_device = FeatureFlagMatcher::new(
+            "distinct-beta".to_string(),
+            Some("device-high".to_string()),
+            team.id,
+            team.project_id(),
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        matcher_same_device
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let same_device_result = matcher_same_device.get_match(&flag, None, None).unwrap();
+        assert_eq!(
+            high_device_result.matches,
+            same_device_result.matches,
+            "device hashing should ignore distinct_id changes"
+        );
+
+        // device-low hashes to ~0.74 (> 0.5), so rollout should not match
+        let router = context.create_postgres_router();
+        let mut matcher_low = FeatureFlagMatcher::new(
+            "distinct-gamma".to_string(),
+            Some("device-low".to_string()),
+            team.id,
+            team.project_id(),
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+        matcher_low
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let low_device_result = matcher_low.get_match(&flag, None, None).unwrap();
+        assert!(
+            !low_device_result.matches,
+            "device-low hash should fall outside rollout"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_device_id_bucketing_falls_back_to_distinct_id_when_missing_device() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let flag = build_device_bucketing_flag(team.id);
+
+        // Without a device_id, the matcher should fall back to the distinct_id hash.
+        // distinct-foo hashes to ~0.32 (< 0.5) so it should match.
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "distinct-foo".to_string(),
+            None,
+            team.id,
+            team.project_id(),
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let match_from_distinct = matcher.get_match(&flag, None, None).unwrap();
+        assert!(
+            match_from_distinct.matches,
+            "fallback distinct hash should fall inside rollout"
+        );
+
+        // distinct-high hashes to ~0.94 (> 0.5) so it should not match.
+        let router = context.create_postgres_router();
+        let mut matcher_high = FeatureFlagMatcher::new(
+            "distinct-high".to_string(),
+            None,
+            team.id,
+            team.project_id(),
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+        matcher_high
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let high_distinct_result = matcher_high.get_match(&flag, None, None).unwrap();
+        assert!(
+            !high_distinct_result.matches,
+            "fallback distinct hash should fall outside rollout"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_distinct_id_bucketing_ignores_device_id() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let mut flag = build_device_bucketing_flag(team.id);
+        flag.bucketing_identifier = Some("distinct_id".to_string());
+
+        // distinct-high hashes to > 50%, so rollout should be false even though device-high would match.
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "distinct-high".to_string(),
+            Some("device-high".to_string()),
+            team.id,
+            team.project_id(),
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let high_distinct_result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(
+            !high_distinct_result.matches,
+            "distinct-id bucketing should ignore device_id input"
+        );
+
+        // distinct-foo hashes to < 50%, so rollout should be true regardless of device_id.
+        let router = context.create_postgres_router();
+        let mut matcher_low = FeatureFlagMatcher::new(
+            "distinct-foo".to_string(),
+            Some("device-low".to_string()),
+            team.id,
+            team.project_id(),
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+        matcher_low
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let low_distinct_result = matcher_low.get_match(&flag, None, None).unwrap();
+        assert!(
+            low_distinct_result.matches,
+            "distinct-id bucketing should follow the distinct hash even when device_id exists"
+        );
+    }
+
     #[tokio::test]
     async fn test_partial_property_overrides_fallback_behavior() {
         let context = TestContext::new(None).await;
