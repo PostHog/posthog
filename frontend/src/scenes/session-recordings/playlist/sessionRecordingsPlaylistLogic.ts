@@ -825,8 +825,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         // Prepend the recording to the list so it's visible
                         actions.prependRecording(response.results[0])
                     } else {
-                        // Recording doesn't match current filters
-                        lemonToast.error('This recording does not match the current filters')
+                        lemonToast.error('Recording not found')
                         actions.setSelectedRecordingId(null)
                         return
                     }
