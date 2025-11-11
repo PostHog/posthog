@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""Entry point for the PostHog developer CLI."""
+
+from pathlib import Path
+import sys
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+COMMON_DIR = REPO_ROOT / "common"
+
+# Add both REPO_ROOT (for posthog, ee, etc.) and common/ (for hogli as top-level package)
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+if str(COMMON_DIR) not in sys.path:
+    sys.path.insert(0, str(COMMON_DIR))
+
+try:
+    from hogli.core.cli import cli  # noqa: E402  (import after path modification)
+except ModuleNotFoundError as exc:  # pragma: no cover - depends on environment state
+    missing = exc.name
+    if missing == "click":
+        sys.stderr.write(
+            "Click is not installed. Activate the Flox environment or run `uv sync` to install Python dependencies.\n"
+        )
+        sys.exit(1)
+    raise
+
+if __name__ == "__main__":
+    cli()

@@ -17,7 +17,8 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import RedditAdsSourceConfig
 from posthog.temporal.data_imports.sources.reddit_ads.reddit_ads import reddit_ads_source
 from posthog.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

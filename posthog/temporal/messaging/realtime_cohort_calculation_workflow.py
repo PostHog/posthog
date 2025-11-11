@@ -12,6 +12,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
 from posthog.models.action import Action
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -56,18 +57,22 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         if not isinstance(inputs.min_matches, int) or inputs.min_matches < 0:
             raise ValueError(f"Invalid min_matches value: {inputs.min_matches}")
 
-        # Only get actions that are not deleted and have bytecode
-        # Only fetch the fields we need for efficiency
-        queryset = Action.objects.filter(deleted=False, bytecode__isnull=False).only("id", "team_id")
+        @database_sync_to_async
+        def get_actions():
+            # Only get actions that are not deleted and have bytecode
+            # Only fetch the fields we need for efficiency
+            queryset = Action.objects.filter(deleted=False, bytecode__isnull=False).only("id", "team_id")
 
-        # Apply pagination
-        queryset = (
-            queryset.order_by("id")[inputs.offset : inputs.offset + inputs.limit]
-            if inputs.limit
-            else queryset[inputs.offset :]
-        )
+            # Apply pagination
+            queryset = (
+                queryset.order_by("id")[inputs.offset : inputs.offset + inputs.limit]
+                if inputs.limit
+                else queryset[inputs.offset :]
+            )
 
-        actions: list[Action] = list(queryset)
+            return list(queryset)
+
+        actions: list[Action] = await get_actions()
 
         actions_count = 0
 
@@ -103,14 +108,32 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     END as status
                 FROM
                 (
-                    SELECT team_id, person_id -- TODO: Pending to do person merging in this step, but let's ignore that for now
-                    FROM prefiltered_events
-                    WHERE
-                        team_id = %(team_id)s
-                        AND condition = toString(%(action_id)s)
-                        AND date >= now() - toIntervalDay(%(days)s)
-                    GROUP BY team_id, person_id
-                    HAVING count() >= %(min_matches)s -- TODO: We could test the performance of uniq here (instead of count) to deduplicate if needed.
+                    SELECT
+                        team_id,
+                        person_id
+                    FROM
+                    (
+                        SELECT team_id, distinct_id
+                        FROM prefiltered_events
+                        WHERE
+                            team_id = %(team_id)s
+                            AND condition = toString(%(action_id)s)
+                            AND date >= now() - toIntervalDay(%(days)s)
+                    ) AS pfe
+                    INNER JOIN
+                    (
+                        SELECT
+                            distinct_id,
+                            argMax(person_id, version) as person_id
+                        FROM person_distinct_id2
+                        WHERE team_id = %(team_id)s
+                        GROUP BY distinct_id
+                        HAVING argMax(is_deleted, version) = 0
+                    ) AS pdi2 ON pdi2.distinct_id = pfe.distinct_id
+                    GROUP BY
+                        team_id,
+                        person_id
+                    HAVING count() >= %(min_matches)s
                 ) bcm
                 FULL OUTER JOIN
                 (
@@ -123,7 +146,8 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     HAVING status = 'entered'
                 ) cmc ON bcm.team_id = cmc.team_id AND bcm.person_id = cmc.person_id
                 WHERE status != 'unchanged'
-                SETTINGS join_use_nulls = 1;
+                SETTINGS join_use_nulls = 1
+                FORMAT JSONEachRow
             """
 
             try:
@@ -135,7 +159,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 ):
                     async with get_client(team_id=action.team_id) as client:
                         async for row in client.stream_query_as_jsonl(
-                            query + " FORMAT JSONEachRow",
+                            query,
                             query_parameters={
                                 "team_id": action.team_id,
                                 "action_id": action.id,

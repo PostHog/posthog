@@ -43,6 +43,7 @@ pub async fn validate_secret_api_token(state: &AppState, token: &str) -> Result<
         state.redis_reader.clone(),
         state.redis_writer.clone(),
         token,
+        Some(state.config.team_cache_ttl_seconds),
         || async move {
             Team::from_pg_by_secret_token(pg_reader, &token_str)
                 .await
@@ -208,7 +209,7 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
                 }
             }
 
-            // Validate organization access (MANDATORY)
+            // Validate organization access (MANDATORY for teams with organization_id)
             // Personal API keys can only access teams in organizations where the user is a member,
             // unless explicitly scoped to specific organizations via scoped_organizations
             let user_id: i32 = row.get("user_id");
@@ -216,50 +217,56 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
             let scoped_organizations: Option<Vec<String>> =
                 row.try_get("scoped_organizations").ok();
 
-            // Get the team's organization_id (guaranteed to be present)
-            let team_organization_id = team
-                .organization_id
-                .expect("organization_id should always be present");
-            let team_organization_id_str = team_organization_id.to_string();
+            // Handle teams with or without organization_id
+            if let Some(team_organization_id) = team.organization_id {
+                let team_organization_id_str = team_organization_id.to_string();
 
-            // Check organization access:
-            // - If scoped_organizations has entries: team's org must be in the list
-            // - Otherwise (NULL or empty): user must be a member of the team's org
-            let has_org_access = match scoped_organizations.as_ref() {
-                Some(orgs) if !orgs.is_empty() => orgs.contains(&team_organization_id_str),
-                _ => {
-                    // Check if user is a member of the team's organization
-                    let is_member: bool = sqlx::query_scalar(
-                        "SELECT EXISTS(SELECT 1 FROM posthog_organizationmembership WHERE user_id = $1 AND organization_id = $2)"
-                    )
-                    .bind(user_id)
-                    .bind(team_organization_id)
-                    .fetch_one(&mut *conn)
-                    .await?;
-                    is_member
+                // Check organization access:
+                // - If scoped_organizations has entries: team's org must be in the list
+                // - Otherwise (NULL or empty): user must be a member of the team's org
+                let has_org_access = match scoped_organizations.as_ref() {
+                    Some(orgs) if !orgs.is_empty() => orgs.contains(&team_organization_id_str),
+                    _ => {
+                        // Check if user is a member of the team's organization
+                        let is_member: bool = sqlx::query_scalar(
+                            "SELECT EXISTS(SELECT 1 FROM posthog_organizationmembership WHERE user_id = $1 AND organization_id = $2)"
+                        )
+                        .bind(user_id)
+                        .bind(team_organization_id)
+                        .fetch_one(&mut *conn)
+                        .await?;
+                        is_member
+                    }
+                };
+
+                if !has_org_access {
+                    warn!(
+                        user_organization_id = %user_organization_id,
+                        team_organization_id = %team_organization_id_str,
+                        scoped_organizations = ?scoped_organizations,
+                        "Personal API key does not have access to this organization"
+                    );
+                    return Err(FlagError::PersonalApiKeyInvalid(
+                        "Authorization header".to_string(),
+                    ));
                 }
-            };
-
-            if !has_org_access {
-                warn!(
+            } else {
+                // Legacy team without organization_id - skip organization validation
+                debug!(
+                    team_id = team.id,
                     user_organization_id = %user_organization_id,
-                    team_organization_id = %team_organization_id_str,
-                    scoped_organizations = ?scoped_organizations,
-                    "Personal API key does not have access to this organization"
+                    "Team has no organization_id, skipping organization validation (legacy team)"
                 );
-                return Err(FlagError::PersonalApiKeyInvalid(
-                    "Authorization header".to_string(),
-                ));
             }
 
             debug!(
                 user_id = user_id,
                 team_id = team.id,
                 user_organization_id = %user_organization_id,
-                team_organization_id = %team_organization_id_str,
+                team_organization_id = ?team.organization_id,
                 scoped_teams = ?scoped_teams,
                 scoped_organizations = ?scoped_organizations,
-                "Personal API key validated successfully with org membership check"
+                "Personal API key validated successfully"
             );
 
             return Ok(());

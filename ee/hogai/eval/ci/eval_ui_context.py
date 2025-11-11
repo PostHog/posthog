@@ -15,7 +15,7 @@ from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph import AssistantGraph
+from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
@@ -29,14 +29,7 @@ def call_root_with_ui_context(demo_org_team_user):
     graph = (
         AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-        .add_root(
-            {
-                "insights": AssistantNodeName.END,
-                "docs": AssistantNodeName.END,
-                "root": AssistantNodeName.END,
-                "end": AssistantNodeName.END,
-            }
-        )
+        .add_root(lambda state: AssistantNodeName.END)
         # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
         .compile(checkpointer=DjangoCheckpointer())
     )

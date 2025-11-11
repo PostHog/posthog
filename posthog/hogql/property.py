@@ -48,8 +48,9 @@ from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
 from posthog.utils import get_from_dict_or_attr
-from posthog.warehouse.models import DataWarehouseJoin
-from posthog.warehouse.models.util import get_view_or_table_by_name
+
+from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.data_warehouse.backend.models.util import get_view_or_table_by_name
 
 GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
 
@@ -426,6 +427,7 @@ def property_to_expr(
         or property.type == "feature"
         or property.type == "person"
         or property.type == "group"
+        or property.type == "behavioral"
         or property.type == "data_warehouse"
         or property.type == "data_warehouse_person_property"
         or property.type == "session"
@@ -690,7 +692,7 @@ def property_to_expr(
             right=ast.Constant(value=cohort.pk),
         )
 
-    # TODO: Add support for these types: "recording", "behavioral"
+    # TODO: Add support for these types: "recording"
 
     raise NotImplementedError(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"

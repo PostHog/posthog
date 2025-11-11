@@ -158,8 +158,7 @@ function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria |
 }
 
 export function Exposures(): JSX.Element {
-    const { experimentId, exposures, exposuresLoading, exposureCriteria, isExperimentDraft } =
-        useValues(experimentLogic)
+    const { exposures, exposuresLoading, exposureCriteria, isExperimentDraft } = useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(modalsLogic)
     const colors = useChartColors()
 
@@ -354,7 +353,7 @@ export function Exposures(): JSX.Element {
                                         {variants.map(({ variant, percentage }) => (
                                             <div key={variant} className="flex items-center gap-2">
                                                 <div className="metric-cell">
-                                                    <VariantTag experimentId={experimentId} variantKey={variant} />
+                                                    <VariantTag variantKey={variant} />
                                                 </div>
                                                 <span className="metric-cell">{percentage.toFixed(1)}%</span>
                                             </div>
@@ -447,12 +446,7 @@ export function Exposures(): JSX.Element {
                                                             if (series.isTotal) {
                                                                 return <span className="font-semibold">Total</span>
                                                             }
-                                                            return (
-                                                                <VariantTag
-                                                                    experimentId={experimentId}
-                                                                    variantKey={series.variant}
-                                                                />
-                                                            )
+                                                            return <VariantTag variantKey={series.variant} />
                                                         },
                                                     },
                                                     {

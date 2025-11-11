@@ -77,14 +77,13 @@ describe('CreateExperiment Integration', () => {
 
         it('validates and prevents submission with empty fields', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setExperiment({ ...NEW_EXPERIMENT, name: '', description: '' })
-                logic.actions.submitExperiment()
+                logic.actions.setExperiment({ ...NEW_EXPERIMENT, name: '' })
+                logic.actions.saveExperiment()
             })
-                .toDispatchActions(['submitExperiment', 'submitExperimentFailure'])
+                .toDispatchActions(['saveExperiment', 'saveExperimentFailure'])
                 .toMatchValues({
                     experimentErrors: expect.objectContaining({
                         name: 'Name is required',
-                        description: 'Hypothesis is required',
                     }),
                 })
         })
@@ -117,10 +116,11 @@ describe('CreateExperiment Integration', () => {
                     ...NEW_EXPERIMENT,
                     name: 'Test Experiment',
                     description: 'Test hypothesis',
+                    feature_flag_key: 'test-experiment',
                 })
-                logic.actions.submitExperiment()
+                logic.actions.saveExperiment()
             })
-                .toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
                 .toFinishAllListeners()
 
             expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
@@ -129,7 +129,7 @@ describe('CreateExperiment Integration', () => {
         it('clears errors after successful submission', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({ ...NEW_EXPERIMENT, name: '', description: '' })
-                logic.actions.submitExperiment()
+                logic.actions.saveExperiment()
             }).toMatchValues({
                 experimentErrors: expect.objectContaining({
                     name: 'Name is required',
@@ -141,10 +141,11 @@ describe('CreateExperiment Integration', () => {
                     ...NEW_EXPERIMENT,
                     name: 'Valid Name',
                     description: 'Valid Description',
+                    feature_flag_key: 'valid-experiment',
                 })
-                logic.actions.submitExperiment()
+                logic.actions.saveExperiment()
             })
-                .toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
                 .toMatchValues({
                     experimentErrors: {},
                 })

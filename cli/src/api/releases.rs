@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::{
+    api::client::ClientError,
     invocation_context::context,
     utils::{files::content_hash, git::GitInfo},
 };
@@ -37,35 +38,23 @@ struct CreateReleaseRequest {
 }
 
 impl Release {
-    pub fn lookup(project: &str, version: &str) -> Result<Option<Self>> {
+    pub fn lookup(project: &str, version: &str) -> Result<Option<Self>, ClientError> {
         let hash_id = content_hash([project, version]);
-        let context = context();
-        let token = &context.token;
+        let client = &context().client;
 
-        let url = format!(
-            "{}/api/environments/{}/error_tracking/releases/hash/{hash_id}",
-            token.get_host(),
-            token.env_id,
-        );
+        let path = format!("error_tracking/releases/hash/{hash_id}");
+        let response = client.send_get(&path, |req| req);
 
-        let response = context
-            .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", token.token))
-            .header("Content-Type", "application/json")
-            .send()?;
-
-        if response.status().as_u16() == 404 {
-            warn!("Release {} of project {} not found", version, project);
-            return Ok(None);
-        }
-
-        if response.status().is_success() {
-            info!("Found release {} of project {}", version, project);
-            Ok(Some(response.json()?))
+        if let Err(err) = response {
+            if let ClientError::ApiError(404, _, _) = err {
+                warn!("release {} of project {} not found", version, project);
+                return Ok(None);
+            }
+            warn!("failed to get release from hash: {}", err);
+            Err(err)
         } else {
-            response.error_for_status()?;
-            Ok(None) // unreachable
+            info!("found release {} of project {}", version, project);
+            Ok(Some(response.unwrap().json()?))
         }
     }
 }
@@ -157,7 +146,6 @@ impl ReleaseBuilder {
 
         let hash_id = content_hash([project.as_bytes(), version.as_bytes()]);
 
-        let token = &context().token;
         let request = CreateReleaseRequest {
             metadata,
             hash_id,
@@ -165,31 +153,17 @@ impl ReleaseBuilder {
             project,
         };
 
-        let url = format!(
-            "{}/api/environments/{}/error_tracking/releases",
-            token.get_host(),
-            token.env_id
-        );
-
         let client = &context().client;
 
         let response = client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", token.token))
-            .header("Content-Type", "application/json")
-            .json(&request)
-            .send()?;
+            .send_post("error_tracking/releases", |req| req.json(&request))
+            .context("Failed to create release")?;
 
-        if response.status().is_success() {
-            let response = response.json::<Release>()?;
-            info!(
-                "Release {} of {} created successfully! {}",
-                request.version, request.project, response.id
-            );
-            Ok(response)
-        } else {
-            let e = response.text()?;
-            Err(anyhow::anyhow!("Failed to create release: {e}"))
-        }
+        let response = response.json::<Release>()?;
+        info!(
+            "Release {} of {} created successfully! {}",
+            request.version, request.project, response.id
+        );
+        Ok(response)
     }
 }

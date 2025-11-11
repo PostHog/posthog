@@ -33,6 +33,7 @@ impl FromStr for JobState {
 // The chunk of data needed to enqueue a job
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
 pub struct JobInit {
+    pub id: Option<Uuid>,
     pub team_id: i32,
     pub queue_name: String,
     pub priority: i16,

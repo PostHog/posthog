@@ -1,22 +1,18 @@
 use std::{future::ready, sync::Arc};
 
-use crate::api::errors::AuthenticationErrorResponse;
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
     http::{Method, StatusCode},
-    response::{IntoResponse, Response},
     routing::{any, get},
-    Json, Router,
+    Router,
 };
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
 use health::HealthRegistry;
-use metrics::counter;
 use tower::limit::ConcurrencyLimitLayer;
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
     trace::TraceLayer,
@@ -24,8 +20,9 @@ use tower_http::{
 
 use crate::{
     api::{
-        endpoint, flag_definitions, flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
-        flags_rate_limiter::FlagsRateLimiter,
+        endpoint, flag_definitions,
+        flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
+        flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
     },
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdCollection},
@@ -37,8 +34,13 @@ use crate::{
 
 #[derive(Clone)]
 pub struct State {
+    // Shared Redis for non-critical path (analytics counters, billing limits)
     pub redis_reader: Arc<dyn RedisClient + Send + Sync>,
     pub redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    // Dedicated Redis for flags cache (critical path isolation)
+    // None if not configured (falls back to shared Redis)
+    pub dedicated_redis_reader: Option<Arc<dyn RedisClient + Send + Sync>>,
+    pub dedicated_redis_writer: Option<Arc<dyn RedisClient + Send + Sync>>,
     pub database_pools: Arc<DatabasePools>,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
@@ -49,12 +51,15 @@ pub struct State {
     pub flag_definitions_limiter: FlagDefinitionsRateLimiter,
     pub config: Config,
     pub flags_rate_limiter: FlagsRateLimiter,
+    pub ip_rate_limiter: IpRateLimiter,
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn router<RR, RW>(
+pub fn router<RR, RW, DRR, DRW>(
     redis_reader: Arc<RR>,
     redis_writer: Arc<RW>,
+    dedicated_redis_reader: Option<Arc<DRR>>,
+    dedicated_redis_writer: Option<Arc<DRW>>,
     database_pools: Arc<DatabasePools>,
     cohort_cache: Arc<CohortCacheManager>,
     geoip: Arc<GeoIpClient>,
@@ -67,6 +72,8 @@ pub fn router<RR, RW>(
 where
     RR: RedisClient + Send + Sync + 'static,
     RW: RedisClient + Send + Sync + 'static,
+    DRR: RedisClient + Send + Sync + 'static,
+    DRW: RedisClient + Send + Sync + 'static,
 {
     // Initialize flag definitions rate limiter with default and custom team rates
     let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
@@ -77,22 +84,48 @@ where
     )
     .expect("Failed to initialize flag definitions rate limiter");
 
-    // Initialize rate limiter with configuration
+    // Initialize token-based rate limiter with configuration
     let flags_rate_limiter = FlagsRateLimiter::new(
         *config.flags_rate_limit_enabled,
+        *config.flags_rate_limit_log_only,
         config.flags_bucket_replenish_rate,
         config.flags_bucket_capacity,
     )
     .unwrap_or_else(|e| {
         panic!(
-            "Invalid rate limit configuration: {e}. \
+            "Invalid token-based rate limit configuration: {e}. \
              Check FLAGS_BUCKET_REPLENISH_RATE (must be > 0) and FLAGS_BUCKET_CAPACITY (must be > 0)"
         )
     });
 
+    // Initialize IP-based rate limiter with configuration
+    let ip_rate_limiter = IpRateLimiter::new(
+        *config.flags_ip_rate_limit_enabled,
+        *config.flags_ip_rate_limit_log_only,
+        config.flags_ip_replenish_rate,
+        config.flags_ip_burst_size,
+    )
+    .unwrap_or_else(|e| {
+        panic!(
+            "Invalid IP-based rate limit configuration: {e}. \
+             Check FLAGS_IP_REPLENISH_RATE (must be > 0) and FLAGS_IP_BURST_SIZE (must be > 0)"
+        )
+    });
+
+    // Clone database_pools for readiness check before moving into State
+    let db_pools_for_readiness = database_pools.clone();
+
+    // Convert generic Arc types to trait objects for State
+    let dedicated_redis_reader_trait: Option<Arc<dyn RedisClient + Send + Sync>> =
+        dedicated_redis_reader.map(|arc| -> Arc<dyn RedisClient + Send + Sync> { arc });
+    let dedicated_redis_writer_trait: Option<Arc<dyn RedisClient + Send + Sync>> =
+        dedicated_redis_writer.map(|arc| -> Arc<dyn RedisClient + Send + Sync> { arc });
+
     let state = State {
         redis_reader,
         redis_writer,
+        dedicated_redis_reader: dedicated_redis_reader_trait,
+        dedicated_redis_writer: dedicated_redis_writer_trait,
         database_pools,
         cohort_cache_manager: cohort_cache,
         geoip,
@@ -103,6 +136,7 @@ where
         flag_definitions_limiter,
         config: config.clone(),
         flags_rate_limiter,
+        ip_rate_limiter,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -116,12 +150,15 @@ where
     // liveness/readiness checks
     let status_router = Router::new()
         .route("/", get(index))
-        .route("/_readiness", get(index))
+        .route(
+            "/_readiness",
+            get(move || readiness(db_pools_for_readiness.clone())),
+        )
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
     // flags endpoint
-    // Build flags router with optional IP rate limiting
-    let mut flags_router = Router::new()
+    // IP rate limiting is now handled in the endpoint handler for better control and log-only mode support
+    let flags_router = Router::new()
         .route("/flags", any(endpoint::flags))
         .route("/flags/", any(endpoint::flags))
         .route(
@@ -135,38 +172,6 @@ where
         .route("/decide", any(endpoint::flags))
         .route("/decide/", any(endpoint::flags))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
-
-    // Apply IP-based rate limiting if enabled
-    // This provides defense-in-depth against DDoS with rotating fake tokens
-    if *config.flags_ip_rate_limit_enabled {
-        let governor_conf = if config.flags_ip_replenish_rate >= 1.0 {
-            // For rates >= 1, use per_second
-            Arc::new(
-                GovernorConfigBuilder::default()
-                    .per_second(config.flags_ip_replenish_rate as u64)
-                    .burst_size(config.flags_ip_burst_size)
-                    .error_handler(rate_limit_error_response)
-                    .finish()
-                    .expect("Invalid IP rate limit configuration"),
-            )
-        } else {
-            // For fractional rates < 1, use per_millisecond
-            // e.g., 0.1/sec = 1 per 10 seconds = 1 per 10000ms
-            let period_ms = (1000.0 / config.flags_ip_replenish_rate) as u64;
-            Arc::new(
-                GovernorConfigBuilder::default()
-                    .per_millisecond(period_ms)
-                    .burst_size(config.flags_ip_burst_size)
-                    .error_handler(rate_limit_error_response)
-                    .finish()
-                    .expect("Invalid IP rate limit configuration"),
-            )
-        };
-
-        flags_router = flags_router.layer(GovernorLayer {
-            config: governor_conf,
-        });
-    }
 
     let router = Router::new()
         .merge(status_router)
@@ -188,24 +193,42 @@ where
     }
 }
 
-pub async fn index() -> &'static str {
-    "feature flags"
+pub async fn readiness(
+    database_pools: Arc<DatabasePools>,
+) -> Result<&'static str, (StatusCode, String)> {
+    // Check all pools and collect errors
+    let pools = [
+        ("non_persons_reader", &database_pools.non_persons_reader),
+        ("non_persons_writer", &database_pools.non_persons_writer),
+        ("persons_reader", &database_pools.persons_reader),
+        ("persons_writer", &database_pools.persons_writer),
+    ];
+
+    for (name, pool) in pools {
+        let mut conn = pool.acquire().await.map_err(|e| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("{name} pool unavailable: {e}"),
+            )
+        })?;
+
+        // If test_before_acquire is false, explicitly test the connection
+        if !database_pools.test_before_acquire {
+            sqlx::query("SELECT 1")
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        format!("{name} connection test failed: {e}"),
+                    )
+                })?;
+        }
+    }
+
+    Ok("ready")
 }
 
-/// Custom error handler for IP-based rate limiting.
-/// Returns the same JSON format as token-based rate limiting for consistency.
-fn rate_limit_error_response(_err: tower_governor::GovernorError) -> Response {
-    // Track IP-based rate limit violations
-    // Note: We don't include the IP address in labels to avoid high cardinality
-    // in metrics (an attacker could create millions of unique IPs)
-    counter!("flags_ip_rate_limit_exceeded_total").increment(1);
-
-    let error_response = AuthenticationErrorResponse {
-        error_type: "validation_error".to_string(),
-        code: "rate_limit_exceeded".to_string(),
-        detail: "Rate limit exceeded".to_string(),
-        attr: None,
-    };
-
-    (StatusCode::TOO_MANY_REQUESTS, Json(error_response)).into_response()
+pub async fn index() -> &'static str {
+    "feature flags"
 }

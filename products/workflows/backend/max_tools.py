@@ -36,7 +36,6 @@ class TemplateOutput(BaseModel):
 class CreateMessageTemplateTool(MaxTool):
     name: str = "create_message_template"
     description: str = "Create a message template from a prompt, optionally using a URL to inform the content."
-    thinking_message: str = "Creating your template"
     args_schema: type[BaseModel] = CreateTemplateArgs
 
     def _run_impl(self, instructions: str) -> tuple[str, str]:

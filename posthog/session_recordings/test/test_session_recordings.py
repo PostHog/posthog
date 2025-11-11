@@ -940,7 +940,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"results": [event_id]}
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["uuid"] == event_id
+        assert "timestamp" in results[0]
 
     def test_get_matching_events(self) -> None:
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
@@ -990,8 +993,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        # TODO: right now we don't care about the order of events in the response
-        assert sorted(response.json()["results"]) == sorted([event_id_one, event_id_three, event_id_two])
+        results = response.json()["results"]
+        assert len(results) == 3
+        result_uuids = sorted([r["uuid"] for r in results])
+        expected_uuids = sorted([event_id_one, event_id_three, event_id_two])
+        assert result_uuids == expected_uuids
+        # Verify all results have timestamps
+        for result in results:
+            assert "timestamp" in result
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_400_when_invalid_list_query(self) -> None:

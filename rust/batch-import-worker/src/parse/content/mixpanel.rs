@@ -104,7 +104,10 @@ impl MixpanelEvent {
                     now: Utc::now().to_rfc3339(),
                     sent_at: None,
                     token,
+                    event: raw_event.event.clone(),
+                    timestamp,
                     is_cookieless_mode: false,
+                    historical_migration: true,
                 };
 
                 Ok(Some(InternallyCapturedEvent { team_id, inner }))
@@ -286,6 +289,67 @@ mod tests {
         assert_eq!(
             data.properties.get("analytics_source"),
             Some(&json!("mixpanel"))
+        );
+    }
+
+    #[test]
+    fn test_mixpanel_event_has_historical_migration_and_now_fields() {
+        let test_job_id = Uuid::now_v7();
+        let before_test = Utc::now();
+
+        let mx_event = MixpanelEvent {
+            event: "test_event".to_string(),
+            properties: MixpanelProperties {
+                timestamp: 1697379000,
+                distinct_id: Some("user123".to_string()),
+                other: HashMap::new(),
+            },
+        };
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            job_id: test_job_id,
+            identify_cache: std::sync::Arc::new(crate::cache::MockIdentifyCache::new()),
+            group_cache: std::sync::Arc::new(crate::cache::MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: false,
+        };
+
+        let parser =
+            MixpanelEvent::parse_fn(context, false, Duration::seconds(0), identity_transform);
+        let result = parser(mx_event).unwrap().unwrap();
+
+        let after_test = Utc::now();
+
+        assert!(
+            result.inner.historical_migration,
+            "historical_migration field must be true for batch import events"
+        );
+
+        assert!(
+            !result.inner.now.is_empty(),
+            "now field must be set for events"
+        );
+
+        let now_timestamp = chrono::DateTime::parse_from_rfc3339(&result.inner.now)
+            .expect("now should be valid RFC3339 timestamp")
+            .with_timezone(&Utc);
+        assert!(
+            now_timestamp >= before_test && now_timestamp <= after_test,
+            "now timestamp should be current (between test start and end)"
+        );
+
+        let serialized = serde_json::to_value(&result.inner).unwrap();
+        assert_eq!(
+            serialized["historical_migration"],
+            json!(true),
+            "historical_migration must be in serialized output"
+        );
+        assert!(
+            serialized["now"].is_string(),
+            "now must be a string in serialized output"
         );
     }
 }

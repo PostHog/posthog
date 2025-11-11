@@ -8,40 +8,31 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import type { Experiment, FeatureFlagType } from '~/types'
 
-import { featureFlagEligibleForExperiment } from '../utils'
-import { createExperimentLogic } from './createExperimentLogic'
 import type { variantsPanelLogicType } from './variantsPanelLogicType'
 
 export const variantsPanelLogic = kea<variantsPanelLogicType>({
-    path: ['scenes', 'experiments', 'create', 'panels', 'variantsPanelLogic'],
+    key: (props) => props.experiment?.id || 'new',
+    path: (key) => ['scenes', 'experiments', 'create', 'panels', 'variantsPanelLogic', key],
     props: {
         experiment: {} as Experiment,
+        disabled: false as boolean,
     } as {
         experiment: Experiment
+        disabled: boolean
     },
     connect: {
-        values: [
-            featureFlagsLogic,
-            ['featureFlags'],
-            experimentsLogic,
-            ['experiments'],
-            createExperimentLogic,
-            ['experiment'],
-        ],
-        actions: [createExperimentLogic, ['setExperimentValue', 'setFeatureFlagConfig']],
+        values: [featureFlagsLogic, ['featureFlags'], experimentsLogic, ['experiments']],
+        actions: [],
     },
     actions: {
-        validateFeatureFlagKey: (key: string) => ({ key }),
-        setFeatureFlagKeyError: (error: string | null) => ({ error }),
-        searchFeatureFlags: (search: string) => ({ search }),
-        resetFeatureFlagsSearch: true,
-        loadAllEligibleFeatureFlags: true,
-        generateFeatureFlagKey: (name: string) => ({ name }),
         setMode: (mode: 'create' | 'link') => ({ mode }),
+        validateFeatureFlagKey: (key: string) => ({ key }),
+        clearFeatureFlagKeyValidation: true,
+
         setFeatureFlagKeyDirty: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
     },
-    reducers: {
+    reducers: ({ props }) => ({
         featureFlagKeyError: [
             null as string | null,
             {
@@ -49,9 +40,16 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
             },
         ],
         mode: [
-            'create' as 'create' | 'link',
+            // if disabled, we've default to 'link' mode
+            (props.disabled ? 'link' : 'create') as 'create' | 'link',
             {
-                setMode: (_: any, { mode }: { mode: 'create' | 'link' }) => mode,
+                setMode: (state: 'create' | 'link', { mode }: { mode: 'create' | 'link' }) => {
+                    // Prevent mode changes when editing
+                    if (props.disabled) {
+                        return state
+                    }
+                    return mode
+                },
             },
         ],
         featureFlagKeyDirty: [
@@ -62,25 +60,25 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
             },
         ],
         linkedFeatureFlag: [
-            null as FeatureFlagType | null,
+            // Initialize from experiment.feature_flag when disabled
+            (props.disabled && props.experiment.feature_flag
+                ? props.experiment.feature_flag
+                : null) as FeatureFlagType | null,
             {
                 setLinkedFeatureFlag: (_, { flag }) => flag,
             },
         ],
-    },
+    }),
     loaders: ({ values }) => ({
         featureFlagKeyValidation: [
             null as { valid: boolean; error: string | null } | null,
             {
-                validateFeatureFlagKey: async ({ key }, breakpoint) => {
+                validateFeatureFlagKey: async ({ key }) => {
                     // First do client-side validation
                     const clientError = validateFeatureFlagKey(key)
                     if (clientError) {
                         return { valid: false, error: clientError }
                     }
-
-                    // Debounce API call
-                    await breakpoint(300)
 
                     // Check if key already exists in our unavailable keys set
                     if (values.unavailableFeatureFlagKeys.has(key)) {
@@ -99,79 +97,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
 
                     return { valid: true, error: null }
                 },
-            },
-        ],
-        availableFeatureFlags: [
-            [] as FeatureFlagType[],
-            {
-                loadAllEligibleFeatureFlags: async () => {
-                    // Load all feature flags without search filter
-                    const response = await api.get(
-                        `api/projects/@current/feature_flags/?${toParams({
-                            limit: 100,
-                            deleted: false,
-                        })}`
-                    )
-
-                    // Filter for eligible feature flags
-                    const eligibleFlags = response.results.filter((flag: FeatureFlagType) => {
-                        try {
-                            return featureFlagEligibleForExperiment(flag)
-                        } catch {
-                            return false
-                        }
-                    })
-
-                    return eligibleFlags
-                },
-                searchFeatureFlags: async ({ search }) => {
-                    const response = await api.get(
-                        `api/projects/@current/feature_flags/?${toParams({
-                            search: search || undefined,
-                            limit: 100,
-                            deleted: false,
-                        })}`
-                    )
-
-                    // Filter for eligible feature flags
-                    const eligibleFlags = response.results.filter((flag: FeatureFlagType) => {
-                        try {
-                            return featureFlagEligibleForExperiment(flag)
-                        } catch {
-                            return false
-                        }
-                    })
-
-                    return eligibleFlags
-                },
-                resetFeatureFlagsSearch: () => [],
-            },
-        ],
-        generatedKey: [
-            null as string | null,
-            {
-                generateFeatureFlagKey: async ({ name }) => {
-                    if (!name) {
-                        return null
-                    }
-
-                    const baseKey = name
-                        .toLowerCase()
-                        .replace(/[^a-z0-9-_]+/g, '-')
-                        .replace(/-+$/, '')
-                        .replace(/^-+/, '')
-
-                    let key = baseKey
-                    let counter = 1
-
-                    // Check against unavailable keys
-                    while (values.unavailableFeatureFlagKeys.has(key)) {
-                        key = `${baseKey}-${counter}`
-                        counter++
-                    }
-
-                    return key
-                },
+                clearFeatureFlagKeyValidation: () => null,
             },
         ],
     }),
@@ -186,37 +112,24 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                 ])
             },
         ],
-        featureFlagKey: [(s) => [s.experiment], (experiment: Experiment): string => experiment.feature_flag_key || ''],
     },
-    listeners: ({ values, actions }) => ({
-        [createExperimentLogic.actionTypes.setExperimentValue]: ({ name, value }) => {
-            if (name === 'name' && values.mode === 'create' && !values.featureFlagKeyDirty) {
-                actions.generateFeatureFlagKey(value)
-            }
-        },
-        generateFeatureFlagKeySuccess: ({ generatedKey }) => {
-            if (generatedKey) {
-                actions.setFeatureFlagConfig({ feature_flag_key: generatedKey })
-                actions.validateFeatureFlagKey(generatedKey)
-            }
-        },
+    listeners: ({ props, actions }) => ({
         setMode: ({ mode }) => {
-            // When switching from link to create, validate the current key to show it's taken
-            // Note: We use values.experiment (from createExperimentLogic connection) instead of props.experiment
-            // because props are captured at mount time and don't update when the parent logic changes state
-            if (mode === 'create' && values.experiment.feature_flag_key) {
-                actions.validateFeatureFlagKey(values.experiment.feature_flag_key)
+            if (mode === 'link') {
+                // When switching to link mode, clear validation
+                // In link mode, we're using an existing flag, so the key validation doesn't apply
+                actions.clearFeatureFlagKeyValidation()
+            } else if (mode === 'create' && props.experiment.feature_flag_key) {
+                // When switching from link to create, validate the current key to show it's taken
+                // Note: We use values.experiment (from createExperimentLogic connection) instead of props.experiment
+                // because props are captured at mount time and don't update when the parent logic changes state
+                actions.validateFeatureFlagKey(props.experiment.feature_flag_key)
             }
-
-            // When switching to link mode, restore the linked flag's key/variants to experiment state
-            if (mode === 'link' && values.linkedFeatureFlag) {
-                actions.setFeatureFlagConfig({
-                    feature_flag_key: values.linkedFeatureFlag.key,
-                    parameters: {
-                        feature_flag_variants: values.linkedFeatureFlag.filters?.multivariate?.variants || [],
-                    },
-                })
-            }
+        },
+        setLinkedFeatureFlag: () => {
+            // When selecting a linked flag, clear validation
+            // The linked flag's key already exists (that's the point!), so validation doesn't apply
+            actions.clearFeatureFlagKeyValidation()
         },
     }),
 })

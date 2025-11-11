@@ -32,7 +32,8 @@ pub struct InjectArgs {
     pub project: Option<String>,
 
     /// The version of the project - this can be a version number, semantic version, or a git commit hash. Required
-    /// to have the uploaded chunks associated with a specific release.
+    /// to have the uploaded chunks associated with a specific release. We will try to auto-derive this from git information
+    /// if not provided.
     #[arg(long)]
     pub version: Option<String>,
 }
@@ -54,12 +55,11 @@ pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool) -> Re
         )
     })?;
 
-    info!("Processing directory: {}", directory.display());
+    info!("injecting directory: {}", directory.display());
     let mut pairs = read_pairs(&directory, ignore, matcher, public_path_prefix)?;
     if pairs.is_empty() {
-        bail!("No source files found");
+        bail!("no source files found");
     }
-    info!("Found {} pairs", pairs.len());
 
     let created_release_id = get_release_for_pairs(&directory, project, version, &pairs)?
         .as_ref()
@@ -71,7 +71,7 @@ pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool) -> Re
     for pair in &pairs {
         pair.save()?;
     }
-    info!("Finished processing directory");
+    info!("injecting done");
     Ok(())
 }
 

@@ -24,7 +24,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare_interval_length
-from posthog.hogql_queries.utils.timestamp_utils import format_label_date
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
 from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
 
@@ -216,12 +216,21 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         )
 
     @cached_property
+    def _earliest_timestamp(self) -> datetime | None:
+        if self.query.dateRange and self.query.dateRange.date_from == "all":
+            # Get earliest timestamp across all series in this insight
+            return get_earliest_timestamp_from_series(team=self.team, series=list(self.query.series or []))
+
+        return None
+
+    @cached_property
     def query_date_range(self):
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
             interval=self.query.interval,
             now=datetime.now(),
+            earliest_timestamp_fallback=self._earliest_timestamp,
         )
 
     @cached_property

@@ -37,7 +37,7 @@ export function StaffUsersTab(): JSX.Element {
             render: function ProfilePictureRender(_, user) {
                 return (
                     <>
-                        {user.first_name}
+                        <span className="ph-no-capture">{user.first_name}</span>
                         {user.uuid === myself?.uuid && <LemonTag className="uppercase ml-1">Me</LemonTag>}
                     </>
                 )
@@ -47,6 +47,7 @@ export function StaffUsersTab(): JSX.Element {
             key: 'email',
             title: 'Email',
             dataIndex: 'email',
+            render: (_, user) => <span className="ph-no-capture">{user.email}</span>,
         },
         {
             key: 'actions',

@@ -123,7 +123,8 @@ describe('postgres parity', () => {
             },
         ])
         const clickHouseDistinctIds = await clickhouse.fetchDistinctIdValues(person)
-        expect(clickHouseDistinctIds).toEqual(['distinct1', 'distinct2'])
+        expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['distinct1', 'distinct2']))
+        expect(clickHouseDistinctIds).toHaveLength(2)
 
         const postgresPersons = await fetchPersons(hub.db.postgres)
         expect(postgresPersons).toEqual([
@@ -150,7 +151,8 @@ describe('postgres parity', () => {
             },
         ])
         const postgresDistinctIds = await fetchDistinctIdValues(hub.db.postgres, person)
-        expect(postgresDistinctIds).toEqual(['distinct1', 'distinct2'])
+        expect(postgresDistinctIds).toEqual(expect.arrayContaining(['distinct1', 'distinct2']))
+        expect(postgresDistinctIds).toHaveLength(2)
 
         const newClickHouseDistinctIdValues = await clickhouse.fetchDistinctIds(person)
         expect(newClickHouseDistinctIdValues).toMatchObject([

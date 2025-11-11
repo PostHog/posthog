@@ -30,6 +30,7 @@ export type OrganizationUpdatePayload = Partial<
         | 'default_experiment_stats_method'
         | 'allow_publicly_shared_resources'
         | 'default_role_id'
+        | 'default_anonymize_ips'
     >
 >
 

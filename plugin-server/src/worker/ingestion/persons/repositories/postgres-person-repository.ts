@@ -24,7 +24,11 @@ import { PostgresRouter, PostgresUse, TransactionClient } from '../../../../util
 import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from '../../../../utils/db/utils'
 import { logger } from '../../../../utils/logger'
 import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '../../../../utils/utils'
-import { oversizedPersonPropertiesTrimmedCounter, personPropertiesSizeViolationCounter } from '../metrics'
+import {
+    oversizedPersonPropertiesTrimmedCounter,
+    personJsonFieldSizeHistogram,
+    personPropertiesSizeViolationCounter,
+} from '../metrics'
 import { canTrimProperty } from '../person-property-utils'
 import { PersonUpdate } from '../person-update-batch'
 import { InternalPersonWithDistinctId, PersonPropertiesSizeViolationError, PersonRepository } from './person-repository'
@@ -339,11 +343,33 @@ export class PostgresPersonRepository
 
             const valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
 
+            // Sanitize and measure JSON field sizes
+            const sanitizedProperties = sanitizeJsonbValue(properties)
+            const sanitizedPropertiesLastUpdatedAt = sanitizeJsonbValue(propertiesLastUpdatedAt)
+            const sanitizedPropertiesLastOperation = sanitizeJsonbValue(propertiesLastOperation)
+
+            // Record JSON field sizes (using string length as approximation)
+            if (typeof sanitizedProperties === 'string') {
+                personJsonFieldSizeHistogram
+                    .labels({ operation: 'createPerson', field: 'properties' })
+                    .observe(sanitizedProperties.length)
+            }
+            if (typeof sanitizedPropertiesLastUpdatedAt === 'string') {
+                personJsonFieldSizeHistogram
+                    .labels({ operation: 'createPerson', field: 'properties_last_updated_at' })
+                    .observe(sanitizedPropertiesLastUpdatedAt.length)
+            }
+            if (typeof sanitizedPropertiesLastOperation === 'string') {
+                personJsonFieldSizeHistogram
+                    .labels({ operation: 'createPerson', field: 'properties_last_operation' })
+                    .observe(sanitizedPropertiesLastOperation.length)
+            }
+
             const baseParams = [
                 createdAt.toISO(),
-                sanitizeJsonbValue(properties),
-                sanitizeJsonbValue(propertiesLastUpdatedAt),
-                sanitizeJsonbValue(propertiesLastOperation),
+                sanitizedProperties,
+                sanitizedPropertiesLastUpdatedAt,
+                sanitizedPropertiesLastOperation,
                 teamId,
                 isUserId,
                 isIdentified,
@@ -357,26 +383,32 @@ export class PostgresPersonRepository
             const distinctIdVersionStartIndex = columns.length + 1
             const distinctIdStartIndex = distinctIdVersionStartIndex + distinctIds.length
 
+            const distinctIdsCTE =
+                distinctIds.length > 0
+                    ? `, distinct_ids AS (
+                            INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                            VALUES ${distinctIds
+                                .map(
+                                    // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
+                                    // `addDistinctId`
+                                    (_, index) => `(
+                                $${distinctIdStartIndex + index},
+                                (SELECT id FROM inserted_person),
+                                $${teamIdParamIndex},
+                                $${distinctIdVersionStartIndex + index}
+                            )`
+                                )
+                                .join(', ')}
+                        )`
+                    : ''
+
             const query =
                 `WITH inserted_person AS (
                         INSERT INTO posthog_person (${columns.join(', ')})
                         VALUES (${valuePlaceholders})
                         RETURNING *
                     )` +
-                distinctIds
-                    .map(
-                        // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
-                        // `addDistinctId`
-                        (_, index) => `, distinct_id_${index} AS (
-                            INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
-                            VALUES (
-                                $${distinctIdStartIndex + index},
-                                (SELECT id FROM inserted_person),
-                                $${teamIdParamIndex},
-                                $${distinctIdVersionStartIndex + index})
-                            )`
-                    )
-                    .join('') +
+                distinctIdsCTE +
                 ` SELECT * FROM inserted_person;`
 
             const { rows } = await this.postgres.query<RawPerson>(
@@ -747,7 +779,8 @@ export class PostgresPersonRepository
             delete update['version']
         }
 
-        const updateValues = Object.values(unparsePersonPartial(update))
+        const unparsedUpdate = unparsePersonPartial(update)
+        const updateValues = Object.values(unparsedUpdate)
 
         // short circuit if there are no updates to be made
         if (updateValues.length === 0) {
@@ -755,6 +788,20 @@ export class PostgresPersonRepository
         }
 
         const values = [...updateValues, person.id].map(sanitizeJsonbValue)
+
+        // Measure JSON field sizes after sanitization (using already sanitized values)
+        const updateKeys = Object.keys(unparsedUpdate)
+        for (let i = 0; i < updateKeys.length; i++) {
+            const key = updateKeys[i]
+            if (key === 'properties' || key === 'properties_last_updated_at' || key === 'properties_last_operation') {
+                const sanitizedValue = values[i] // Already sanitized in the map above
+                if (typeof sanitizedValue === 'string') {
+                    personJsonFieldSizeHistogram
+                        .labels({ operation: 'updatePerson', field: key })
+                        .observe(sanitizedValue.length)
+                }
+            }
+        }
 
         const calculatePropertiesSize = this.options.calculatePropertiesSize
 

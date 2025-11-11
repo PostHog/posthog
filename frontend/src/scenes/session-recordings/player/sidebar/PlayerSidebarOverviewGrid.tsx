@@ -14,9 +14,7 @@ import { PlayerSidebarEditPinnedPropertiesPopover } from './PlayerSidebarEditPin
 
 export function PlayerSidebarOverviewGrid(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { displayOverviewItems, loading, sessionPerson, isPropertyPopoverOpen } = useValues(
-        playerMetaLogic(logicProps)
-    )
+    const { displayOverviewItems, loading, isPropertyPopoverOpen } = useValues(playerMetaLogic(logicProps))
     const { setIsPropertyPopoverOpen } = useActions(playerMetaLogic(logicProps))
 
     return (
@@ -31,18 +29,8 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                         <Popover
                             visible={isPropertyPopoverOpen}
                             onClickOutside={() => setIsPropertyPopoverOpen(false)}
-                            overlay={
-                                sessionPerson?.distinct_ids?.[0] || sessionPerson?.id ? (
-                                    <PlayerSidebarEditPinnedPropertiesPopover
-                                        distinctId={sessionPerson?.distinct_ids?.[0]}
-                                        personId={sessionPerson?.id}
-                                        onClose={() => setIsPropertyPopoverOpen(false)}
-                                    />
-                                ) : null
-                            }
-                            placement="left-start"
-                            fallbackPlacements={['bottom', 'top', 'right-end']}
-                            showArrow
+                            overlay={<PlayerSidebarEditPinnedPropertiesPopover />}
+                            placement="bottom"
                         >
                             <LemonButton
                                 icon={<IconGear />}

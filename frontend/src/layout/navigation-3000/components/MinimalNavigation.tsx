@@ -15,7 +15,7 @@ export function MinimalNavigation(): JSX.Element {
 
     return (
         <nav className="flex items-center gap-2 p-2 border-b">
-            <LemonButton noPadding icon={<IconLogomark className="text-3xl mx-2" />} to={urls.projectHomepage()} />
+            <LemonButton noPadding icon={<IconLogomark className="text-3xl mx-2" />} to={urls.projectRoot()} />
             <div className="flex items-center justify-end gap-2 flex-1">
                 {(currentOrganization?.teams?.length ?? 0 > 1) ? (
                     <ProjectMenu

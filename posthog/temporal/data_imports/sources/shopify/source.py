@@ -13,13 +13,14 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import ShopifySourceConfig
 from posthog.temporal.data_imports.sources.shopify.constants import SHOPIFY_GRAPHQL_OBJECTS
-from posthog.temporal.data_imports.sources.shopify.settings import INCREMENTAL_SETTINGS
+from posthog.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from posthog.temporal.data_imports.sources.shopify.shopify import (
     ShopifyPermissionError,
     shopify_source,
     validate_credentials as validate_shopify_credentials,
 )
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -81,15 +82,16 @@ The simplest setup for permissions is to only allow **read** permissions for the
 
     def get_schemas(self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         schemas = []
-        for object_name in SHOPIFY_GRAPHQL_OBJECTS:
-            incremental = INCREMENTAL_SETTINGS.get(object_name)
-            incremental_fields = incremental.fields if incremental else []
+        for obj in SHOPIFY_GRAPHQL_OBJECTS.values():
+            endpoint_config = ENDPOINT_CONFIGS.get(obj.name)
+            if not endpoint_config:
+                raise ValueError(f"No endpoint config found for {obj.name}")
             schemas.append(
                 SourceSchema(
-                    name=object_name,
-                    supports_incremental=len(incremental_fields) > 0,
-                    supports_append=len(incremental_fields) > 0,
-                    incremental_fields=incremental_fields,
+                    name=obj.display_name or obj.name,
+                    supports_incremental=len(endpoint_config.fields) > 0,
+                    supports_append=len(endpoint_config.fields) > 0,
+                    incremental_fields=endpoint_config.fields,
                 )
             )
         return schemas

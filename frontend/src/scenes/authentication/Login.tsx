@@ -9,6 +9,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
@@ -61,6 +62,7 @@ export const scene: SceneExport = {
 
 export function Login(): JSX.Element {
     const { precheck, resendEmailMFA, clearGeneralError } = useActions(loginLogic)
+    const { openSupportForm } = useActions(supportLogic)
     const {
         precheckResponse,
         precheckResponseLoading,
@@ -99,13 +101,33 @@ export function Login(): JSX.Element {
                 <h2>{isEmailVerificationSent ? 'Check your email' : 'Log in'}</h2>
                 {generalError && (
                     <LemonBanner type={generalError.code === 'email_verification_sent' ? 'warning' : 'error'}>
-                        {generalError.detail || ERROR_MESSAGES[generalError.code] || (
-                            <>
-                                Could not complete your login.
-                                <br />
-                                Please try again.
-                            </>
-                        )}
+                        <>
+                            {generalError.detail || ERROR_MESSAGES[generalError.code] || (
+                                <>
+                                    Could not complete your login.
+                                    <br />
+                                    Please try again.
+                                </>
+                            )}
+                            {preflight?.cloud && (
+                                <>
+                                    {' '}
+                                    <Link
+                                        data-attr="login-error-contact-support"
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            openSupportForm({
+                                                kind: 'support',
+                                                target_area: 'login',
+                                                email: login.email,
+                                            })
+                                        }}
+                                    >
+                                        Need help?
+                                    </Link>
+                                </>
+                            )}
+                        </>
                     </LemonBanner>
                 )}
                 {isEmailVerificationSent ? (

@@ -8,11 +8,7 @@ from posthog.models import Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from ee.hogai.session_summaries.session.output_data import IntermediateSessionSummarySerializer
-from ee.hogai.session_summaries.session.summarize_session import (
-    ExtraSummaryContext,
-    PatternsPrompt,
-    SessionSummaryPrompt,
-)
+from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext, PatternsPrompt
 from ee.hogai.session_summaries.session_group.patterns import RawSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.utils import load_custom_template
 
@@ -27,38 +23,6 @@ def remove_excessive_content_from_session_summary_for_llm(
             f"Caught invalid session summary when removing excessive content for group summaries ({session_summary.errors}): {session_summary_dict}"
         )
     return session_summary
-
-
-def generate_session_group_summary_prompt(
-    session_summaries: list[str],
-    extra_summary_context: ExtraSummaryContext | None,
-) -> SessionSummaryPrompt:
-    if extra_summary_context is None:
-        extra_summary_context = ExtraSummaryContext()
-    combined_session_summaries = "\n\n".join(session_summaries)
-    # Render all templates
-    template_dir = Path(__file__).parent / "templates" / "session-group-summary"
-    system_prompt = load_custom_template(
-        template_dir,
-        "system-prompt.djt",
-        {
-            "FOCUS_AREA": extra_summary_context.focus_area,
-        },
-    )
-    summary_example = load_custom_template(template_dir, f"example.md")
-    summary_prompt = load_custom_template(
-        template_dir,
-        "prompt.djt",
-        {
-            "SESSION_SUMMARIES": combined_session_summaries,
-            "SUMMARY_EXAMPLE": summary_example,
-            "FOCUS_AREA": extra_summary_context.focus_area,
-        },
-    )
-    return SessionSummaryPrompt(
-        summary_prompt=summary_prompt,
-        system_prompt=system_prompt,
-    )
 
 
 def generate_session_group_patterns_extraction_prompt(

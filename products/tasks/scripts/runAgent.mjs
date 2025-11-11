@@ -19,6 +19,7 @@ export async function runAgent(taskId, repositoryPath, posthogApiUrl, posthogApi
         workingDirectory: repositoryPath,
         posthogApiUrl,
         posthogApiKey,
+        debug: true,
         onEvent: (event) => {
             if (event.type !== 'token') {
                 console.info(JSON.stringify({ type: 'event', data: event }))
@@ -30,6 +31,7 @@ export async function runAgent(taskId, repositoryPath, posthogApiUrl, posthogApi
         const options = {
             repositoryPath,
             permissionMode: PermissionMode.BYPASS,
+            isCloudMode: true,
         }
 
         if (maxTurns) {
@@ -43,6 +45,8 @@ export async function runAgent(taskId, repositoryPath, posthogApiUrl, posthogApi
         await agent.runTask(taskId, {
             repositoryPath,
             permissionMode: PermissionMode.BYPASS,
+            isCloudMode: true,
+            createPR: true,
             autoProgress: true,
         })
     }

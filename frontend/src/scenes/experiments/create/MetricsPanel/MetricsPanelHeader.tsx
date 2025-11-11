@@ -1,12 +1,21 @@
+import clsx from 'clsx'
+
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { Experiment } from '~/types'
+import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { Experiment } from '~/types'
 
-export const MetricsPanelHeader = ({ experiment }: { experiment: Experiment }): JSX.Element => {
-    const primaryMetrics = experiment.metrics || []
-    const secondaryMetrics = experiment.metrics_secondary || []
+export const MetricsPanelHeader = ({
+    experiment,
+    sharedMetrics,
+}: {
+    experiment: Experiment
+    sharedMetrics: { primary: ExperimentMetric[]; secondary: ExperimentMetric[] }
+}): JSX.Element => {
+    const primaryMetrics = [...(experiment.metrics || []), ...sharedMetrics.primary]
+    const secondaryMetrics = [...(experiment.metrics_secondary || []), ...sharedMetrics.secondary]
 
     const primaryCount = primaryMetrics.length
     const secondaryCount = secondaryMetrics.length
@@ -18,16 +27,14 @@ export const MetricsPanelHeader = ({ experiment }: { experiment: Experiment }): 
     // Build summary
     const summaryParts: string[] = []
 
-    if (primaryCount === 0) {
-        summaryParts.push('No metrics configured')
-    } else if (primaryCount === 1) {
-        summaryParts.push('1 primary metric')
+    if (primaryCount > 0) {
+        summaryParts.push(`${primaryCount} primary metric${primaryCount > 1 ? 's' : ''}`)
     } else {
-        summaryParts.push(`${primaryCount} primary metrics`)
+        summaryParts.push('No primary metrics configured')
     }
 
     if (secondaryCount > 0) {
-        summaryParts.push(`${secondaryCount} secondary`)
+        summaryParts.push(`${secondaryCount} secondary metric${secondaryCount > 1 ? 's' : ''}`)
     }
 
     const summaryText = summaryParts.join(' • ')
@@ -42,7 +49,7 @@ export const MetricsPanelHeader = ({ experiment }: { experiment: Experiment }): 
                 )}
                 <span className="font-semibold shrink-0">Metrics</span>
                 <span className="text-muted shrink-0">•</span>
-                <span className="text-sm text-muted truncate">{summaryText}</span>
+                <span className={clsx('text-sm truncate', isValid ? 'text-muted' : 'text-warning')}>{summaryText}</span>
             </div>
         </Tooltip>
     )

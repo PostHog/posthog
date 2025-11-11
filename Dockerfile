@@ -226,6 +226,7 @@ RUN apt-get update && \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "libssl-dev=3.0.17-1~deb12u2" \
     "libssl3=3.0.17-1~deb12u2" \
+    "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*
 
@@ -311,7 +312,9 @@ ENV PATH=/python-runtime/bin:$PATH \
 
 # Install Playwright Chromium browser for video export (as root for system deps)
 USER root
-RUN /python-runtime/bin/python -m playwright install --with-deps chromium
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN /python-runtime/bin/python -m playwright install --with-deps chromium && \
+    chown -R posthog:posthog /ms-playwright
 USER posthog
 
 # Validate video export dependencies
@@ -344,7 +347,8 @@ ENV NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium \
     CHROME_PATH=/usr/lib/chromium/ \
     CHROMEDRIVER_BIN=/usr/bin/chromedriver \
-    BUILD_LIBRDKAFKA=0
+    BUILD_LIBRDKAFKA=0 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Expose container port and run entry point script.
 EXPOSE 8000

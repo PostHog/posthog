@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -e
+
+# Wrapper script for syncing/migrating object storage between MinIO and SeaweedFS (Hobby)
+# Runs inside the plugins container with compose network service names.
+
+# All available services
+ALL_SERVICES=(
+    "query-cache"
+    "session-recordings"
+    "session-recordings-lts"
+    "media-uploads"
+    "exports"
+    "source-maps"
+)
+
+SERVICE=""
+MODE="sync"   # default to bidirectional sync; use --mode migrate to one-way
+EXTRA_ARGS=()
+
+# Parse args (supports: <service>, --mode, --dry-run, --force, --workers, --resume, --revert, --conflict)
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --mode)
+            MODE="$2"; shift 2 ;;
+        --dry-run|--force|--resume|--revert)
+            EXTRA_ARGS+=("$1"); shift ;;
+        --workers|--conflict|--service)
+            EXTRA_ARGS+=("$1" "$2"); shift 2 ;;
+        -n)
+            EXTRA_ARGS+=("--dry-run"); shift ;;
+        query-cache|session-recordings|session-recordings-lts|media-uploads|exports|source-maps)
+            SERVICE="$1"; shift ;;
+        *)
+            echo "Unknown arg: $1"; exit 1 ;;
+    esac
+done
+
+# Build env for endpoints: MinIO (objectstorage) -> source; SeaweedFS -> destination
+# We pass these to the script; it will detect via env.
+ENV_ARGS=(
+    -e OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000
+    -e OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
+    -e OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
+    -e SESSION_RECORDING_V2_S3_ENDPOINT=http://seaweedfs:8333
+    -e SESSION_RECORDING_V2_S3_ACCESS_KEY_ID=any
+    -e SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY=any
+)
+
+run_service() {
+    local service="$1"
+    echo "🔄 ${MODE^^}: $service (MinIO ⇄ SeaweedFS)"
+    docker-compose run --rm \
+        "${ENV_ARGS[@]}" \
+        plugins \
+        node plugin-server/bin/migrate-minio-to-seaweedfs.js --service "$service" --mode "$MODE" "${EXTRA_ARGS[@]}"
+    echo ""
+}
+
+if [ -z "$SERVICE" ]; then
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "🔄 $MODE all services between MinIO and SeaweedFS (Hobby)"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo ""
+    for s in "${ALL_SERVICES[@]}"; do
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        run_service "$s"
+    done
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "✨ Completed: $MODE all services"
+    echo "═══════════════════════════════════════════════════════════════"
+else
+    run_service "$SERVICE"
+    echo "✨ Done!"
+fi
+
+echo ""
+echo "Usage:"
+echo "  $0                     # Sync all services"
+echo "  $0 --mode migrate      # One-way migrate all services (MinIO → SeaweedFS)"
+echo "  $0 exports -n          # Dry run exports only"

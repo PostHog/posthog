@@ -51,6 +51,9 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                                 )}
                             </code>
                         </pre>
+                        {exceptionEvent?.uuid && (
+                            <div className="text-muted text-xs mb-2">Exception ID: {exceptionEvent.uuid}</div>
+                        )}
                         Please help us resolve the issue by sending a screenshot of this message.
                         <LemonButton
                             type="primary"

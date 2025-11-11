@@ -71,15 +71,14 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
 
             chunk = merge_message_chunk(chunk, new_chunk)
             notebook_update_message = await self._llm_chunk_to_notebook_update_message(chunk, context)
-            await self._write_message(notebook_update_message)
+            self.dispatcher.message(notebook_update_message)
 
         if not notebook_update_message:
             raise ValueError("No notebook update message found.")
 
         # Mark completion and emit a final update.
         notebook_update_message.id = str(uuid4())
-        # writer(self._message_to_langgraph_update(notebook_update_message, node_name))
-        await self._write_message(notebook_update_message)
+        self.dispatcher.message(notebook_update_message)
 
         return self.notebook
 

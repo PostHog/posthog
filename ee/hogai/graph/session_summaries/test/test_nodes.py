@@ -1,4 +1,3 @@
-import json
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -19,6 +18,7 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 from langchain_core.agents import AgentAction
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
 from posthog.schema import (
     AssistantToolCallMessage,
@@ -39,6 +39,7 @@ from posthog.temporal.ai.session_summary.summarize_session_group import SessionS
 from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
 
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
+from ee.hogai.session_summaries.constants import MAX_SESSIONS_TO_SUMMARIZE
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
@@ -140,7 +141,9 @@ class TestSessionSummarizationNode(BaseTest):
 
         # Convert MaxRecordingUniversalFilters to RecordingsQuery
         recordings_query = self.node._session_search._convert_max_filters_to_recordings_query(mock_filters)
-        result = self.node._session_search._get_session_ids_with_filters(recordings_query)
+        result = self.node._session_search._get_session_ids_with_filters(
+            replay_filters=recordings_query, limit=MAX_SESSIONS_TO_SUMMARIZE
+        )
 
         self.assertIsNone(result)
 
@@ -153,7 +156,9 @@ class TestSessionSummarizationNode(BaseTest):
 
         # First convert MaxRecordingUniversalFilters to RecordingsQuery
         recordings_query = self.node._session_search._convert_max_filters_to_recordings_query(mock_filters)
-        result = self.node._session_search._get_session_ids_with_filters(recordings_query)
+        result = self.node._session_search._get_session_ids_with_filters(
+            replay_filters=recordings_query, limit=MAX_SESSIONS_TO_SUMMARIZE
+        )
 
         self.assertEqual(result, ["session-1"])
 
@@ -163,6 +168,62 @@ class TestSessionSummarizationNode(BaseTest):
         query_param = call_args[1]["query"]
         self.assertIsNotNone(query_param.having_predicates)
         self.assertEqual(len(query_param.having_predicates), 2)
+
+    @parameterized.expand(
+        [
+            ("valid_limit", 5, 5),
+            ("none_limit", None, MAX_SESSIONS_TO_SUMMARIZE),
+            ("negative_limit", -1, MAX_SESSIONS_TO_SUMMARIZE),
+            ("too_large_limit", MAX_SESSIONS_TO_SUMMARIZE + 1, MAX_SESSIONS_TO_SUMMARIZE),
+        ]
+    )
+    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
+    @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
+    @patch("products.replay.backend.max_tools.SearchSessionRecordingsTool")
+    @patch("ee.hogai.graph.session_summaries.nodes._SessionSearch._generate_filter_query")
+    def test_session_summarization_limit_applied(
+        self,
+        _name: str,
+        input_limit: int | None,
+        expected_limit: int,
+        mock_generate_filter_query: MagicMock,
+        mock_search_tool_class: MagicMock,
+        mock_db_sync: MagicMock,
+        mock_query_runner_class: MagicMock,
+    ) -> None:
+        """Test that session_summarization_limit is correctly applied to DB queries."""
+        conversation = Conversation.objects.create(team=self.team, user=self.user)
+        # Mock _generate_filter_query to avoid LLM call
+        mock_generate_filter_query.return_value = "filtered query for test"
+        # Mock SearchSessionRecordingsTool
+        mock_filters = self._create_mock_filters()
+        mock_tool_instance = MagicMock()
+        mock_tool_instance._invoke_graph = AsyncMock(return_value={"output": mock_filters})
+        mock_search_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
+        # Mock query runner to return empty results
+        mock_query_runner = self._create_mock_query_runner([])
+        mock_query_runner_class.return_value = mock_query_runner
+        mock_db_sync.side_effect = self._create_mock_db_sync_to_async()
+        # Create state with the test limit
+        state = AssistantState(
+            messages=[HumanMessage(content="Test")],
+            session_summarization_query="test query",
+            root_tool_call_id="test_tool_call_id",
+            should_use_current_filters=False,
+            session_summarization_limit=input_limit,
+        )
+        async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
+        # Verify _get_session_ids_with_filters was called with the expected limit
+        # The mock_db_sync wraps the call, so we check what it wrapped
+        self.assertTrue(mock_db_sync.called)
+        # Get the function that was wrapped
+        wrapped_func = mock_db_sync.call_args[0][0]
+        self.assertEqual(wrapped_func.__name__, "_get_session_ids_with_filters")
+        # Get the actual call arguments from the async wrapper execution
+        # We need to check the query_runner was instantiated with limit in the query
+        query_runner_call_args = mock_query_runner_class.call_args
+        query = query_runner_call_args[1]["query"]
+        self.assertEqual(query.limit, expected_limit)
 
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
     @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
@@ -193,7 +254,8 @@ class TestSessionSummarizationNode(BaseTest):
                 "intermediate_steps": [[mock_action, None]],
             }
         )
-        mock_search_tool_class.return_value = mock_tool_instance
+        # Mock create_tool_class as an AsyncMock that returns the tool instance
+        mock_search_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
         mock_db_sync.side_effect = self._create_mock_db_sync_to_async()
         state = self._create_test_state(query="ambiguous query", should_use_current_filters=False)
         result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
@@ -208,19 +270,64 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertIsNone(result.session_summarization_query)
         self.assertIsNone(result.root_tool_call_id)
 
+    @staticmethod
+    def _session_template(session_id: str) -> dict[str, Any]:
+        return {
+            "segments": [
+                {
+                    "index": 0,
+                    "name": f"{session_id}, Segment 1",
+                    "meta": {"duration": 1, "events_count": 2, "events_percentage": 0.5},
+                }
+            ],
+            "key_actions": [
+                {
+                    "segment_index": 0,
+                    "events": [
+                        {
+                            "description": "User did something",
+                            "abandonment": False,
+                            "confusion": False,
+                            "exception": None,
+                            "milliseconds_since_start": 0,
+                            "event": "$autocapture",
+                            "event_type": "click",
+                            "session_id": session_id,
+                            "event_uuid": "10000000-0000-0000-0000-000000000001",
+                        }
+                    ],
+                }
+            ],
+            "segment_outcomes": [
+                {
+                    "segment_index": 0,
+                    "summary": "User succeeded",
+                    "success": True,
+                }
+            ],
+            "session_outcome": {
+                "description": "Everything is ok",
+                "success": True,
+            },
+        }
+
     @patch("ee.hogai.graph.session_summaries.nodes.execute_summarize_session")
     def test_summarize_sessions_individually(self, mock_execute_summarize: MagicMock) -> None:
         """Test that individual session summarization aggregates results correctly."""
-        session_ids = ["session-1", "session-2", "session-3"]
+        session_ids = [
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000002",
+            "00000000-0000-0000-0000-000000000003",
+        ]
 
         async def mock_summarize_side_effect(*args: Any, **kwargs: Any) -> dict[str, Any]:
             session_id = kwargs.get("session_id")
-            if session_id == "session-1":
-                return {"session_id": "session-1", "summary": "Summary 1"}
-            elif session_id == "session-2":
-                return {"session_id": "session-2", "summary": "Summary 2"}
-            elif session_id == "session-3":
-                return {"session_id": "session-3", "summary": "Summary 3"}
+            if session_id == session_ids[0]:
+                return self._session_template(session_ids[0])
+            elif session_id == session_ids[1]:
+                return self._session_template(session_ids[1])
+            elif session_id == session_ids[2]:
+                return self._session_template(session_ids[2])
             return {}
 
         mock_execute_summarize.side_effect = mock_summarize_side_effect
@@ -229,14 +336,8 @@ class TestSessionSummarizationNode(BaseTest):
         summarizer = self.node._session_summarizer
         result = async_to_sync(summarizer._summarize_sessions_individually)(session_ids)
 
-        # Verify summaries are returned as stringified JSON
-        expected_result = json.dumps(
-            [
-                {"session_id": "session-1", "summary": "Summary 1"},
-                {"session_id": "session-2", "summary": "Summary 2"},
-                {"session_id": "session-3", "summary": "Summary 3"},
-            ]
-        )
+        # Verify summaries are returned as stringified session summaries
+        expected_result = """# Session `00000000-0000-0000-0000-000000000001`\nSuccess. Everything is ok.\n\n## Segment #0\n00000000-0000-0000-0000-000000000001, Segment 1. User spent 1s, performing 2 events.\n\n### What the user did \n- User did something at 00:00:00, as "$autocapture" (click) event (event_uuid: `10000000-0000-0000-0000-000000000001`).\n\n### Segment outcome\nSuccess. User succeeded.\n\n# Session `00000000-0000-0000-0000-000000000002`\nSuccess. Everything is ok.\n\n## Segment #0\n00000000-0000-0000-0000-000000000002, Segment 1. User spent 1s, performing 2 events.\n\n### What the user did \n- User did something at 00:00:00, as "$autocapture" (click) event (event_uuid: `10000000-0000-0000-0000-000000000001`).\n\n### Segment outcome\nSuccess. User succeeded.\n\n# Session `00000000-0000-0000-0000-000000000003`\nSuccess. Everything is ok.\n\n## Segment #0\n00000000-0000-0000-0000-000000000003, Segment 1. User spent 1s, performing 2 events.\n\n### What the user did \n- User did something at 00:00:00, as "$autocapture" (click) event (event_uuid: `10000000-0000-0000-0000-000000000001`).\n\n### Segment outcome\nSuccess. User succeeded."""
         self.assertEqual(result, expected_result)
         self.assertEqual(mock_execute_summarize.call_count, 3)
 
@@ -323,7 +424,7 @@ class TestSessionSummarizationNode(BaseTest):
         mock_filters = self._create_mock_filters()
         mock_tool_instance = MagicMock()
         mock_tool_instance._invoke_graph = AsyncMock(return_value={"output": mock_filters})
-        mock_search_tool_class.return_value = mock_tool_instance
+        mock_search_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
 
         # Mock empty session results
         mock_query_runner_class.return_value = self._create_mock_query_runner([])
@@ -361,6 +462,10 @@ class TestSessionSummarizationNode(BaseTest):
     ) -> None:
         """Test arun chooses individual summarization when session count is below threshold."""
         conversation = Conversation.objects.create(team=self.team, user=self.user)
+        session_ids = [
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000002",
+        ]
 
         # Mock _generate_filter_query to avoid LLM call
         mock_generate_filter_query.return_value = "filtered query for test"
@@ -369,24 +474,23 @@ class TestSessionSummarizationNode(BaseTest):
         mock_filters = self._create_mock_filters()
         mock_tool_instance = MagicMock()
         mock_tool_instance._invoke_graph = AsyncMock(return_value={"output": mock_filters})
-        mock_search_tool_class.return_value = mock_tool_instance
+        mock_search_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
 
         # Return 2 sessions (below threshold of 5)
         mock_query_runner_class.return_value = self._create_mock_query_runner(
             [
-                {"session_id": "session-1"},
-                {"session_id": "session-2"},
+                {"session_id": session_ids[0]},
+                {"session_id": session_ids[1]},
             ]
         )
-
         mock_db_sync.side_effect = self._create_mock_db_sync_to_async()
 
         async def mock_summarize_side_effect(*args: Any, **kwargs: Any) -> dict[str, Any]:
             session_id = kwargs.get("session_id")
-            if session_id == "session-1":
-                return {"session_id": "session-1", "summary": "Summary 1"}
-            elif session_id == "session-2":
-                return {"session_id": "session-2", "summary": "Summary 2"}
+            if session_id == session_ids[0]:
+                return self._session_template(session_ids[0])
+            elif session_id == session_ids[1]:
+                return self._session_template(session_ids[1])
             return {}
 
         mock_execute_summarize.side_effect = mock_summarize_side_effect
@@ -402,10 +506,8 @@ class TestSessionSummarizationNode(BaseTest):
         message = result.messages[0]
         self.assertIsInstance(message, AssistantToolCallMessage)
         assert isinstance(message, AssistantToolCallMessage)
-        # Now expects JSON format for individual summaries
-        expected_content = json.dumps(
-            [{"session_id": "session-1", "summary": "Summary 1"}, {"session_id": "session-2", "summary": "Summary 2"}]
-        )
+        # Now expects stringified session summaries
+        expected_content = """# Session `00000000-0000-0000-0000-000000000001`\nSuccess. Everything is ok.\n\n## Segment #0\n00000000-0000-0000-0000-000000000001, Segment 1. User spent 1s, performing 2 events.\n\n### What the user did \n- User did something at 00:00:00, as "$autocapture" (click) event (event_uuid: `10000000-0000-0000-0000-000000000001`).\n\n### Segment outcome\nSuccess. User succeeded.\n\n# Session `00000000-0000-0000-0000-000000000002`\nSuccess. Everything is ok.\n\n## Segment #0\n00000000-0000-0000-0000-000000000002, Segment 1. User spent 1s, performing 2 events.\n\n### What the user did \n- User did something at 00:00:00, as "$autocapture" (click) event (event_uuid: `10000000-0000-0000-0000-000000000001`).\n\n### Segment outcome\nSuccess. User succeeded."""
         self.assertEqual(message.content, expected_content)
         # Verify execute_summarize was called for individual summaries
         self.assertEqual(mock_execute_summarize.call_count, 2)
@@ -493,7 +595,7 @@ class TestSessionSummarizationNode(BaseTest):
         mock_filters = self._create_mock_filters()
         mock_tool_instance = MagicMock()
         mock_tool_instance._invoke_graph = AsyncMock(return_value={"output": mock_filters})
-        mock_search_tool_class.return_value = mock_tool_instance
+        mock_search_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
 
         # Mock empty session results
         mock_query_runner_class.return_value = self._create_mock_query_runner([])
@@ -507,7 +609,7 @@ class TestSessionSummarizationNode(BaseTest):
         mock_generate_filter_query.assert_called_once_with(
             "test query", {"configurable": {"thread_id": str(conversation.id)}}
         )
-        mock_search_tool_class.assert_called_once()
+        mock_search_tool_class.create_tool_class.assert_called_once()
         mock_tool_instance._invoke_graph.assert_called_once()
 
         # Should return "No sessions were found" message
@@ -699,7 +801,9 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         recordings_query = self.node._session_search._convert_current_filters_to_recordings_query(custom_filters)
 
         # Use the node's method to get session IDs
-        session_ids = self.node._session_search._get_session_ids_with_filters(recordings_query)
+        session_ids = self.node._session_search._get_session_ids_with_filters(
+            replay_filters=recordings_query, limit=MAX_SESSIONS_TO_SUMMARIZE
+        )
 
         # All 4 sessions should match since they all have:
         # - $os: "Mac OS X" in person properties
@@ -733,7 +837,9 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         recordings_query = self.node._session_search._convert_current_filters_to_recordings_query(custom_filters)
 
         # Use the node's method to get session IDs
-        session_ids = self.node._session_search._get_session_ids_with_filters(recordings_query)
+        session_ids = self.node._session_search._get_session_ids_with_filters(
+            replay_filters=recordings_query, limit=MAX_SESSIONS_TO_SUMMARIZE
+        )
 
         # Only 3 sessions should match since they have active_seconds > 7:
         # - session_id_1: 7 seconds (excluded, not > 7)
@@ -768,7 +874,9 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         recordings_query = self.node._session_search._convert_max_filters_to_recordings_query(generated_filters)
 
         # Use the node's method to get session IDs
-        session_ids = self.node._session_search._get_session_ids_with_filters(recordings_query)
+        session_ids = self.node._session_search._get_session_ids_with_filters(
+            replay_filters=recordings_query, limit=MAX_SESSIONS_TO_SUMMARIZE
+        )
 
         # Only 2 sessions should match since they have active_seconds > 8:
         # - session_id_1: 7 seconds (excluded)
@@ -800,7 +908,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         recordings_query = self.node._session_search._convert_current_filters_to_recordings_query(custom_filters)
 
         # Get session IDs with explicit limit of 1
-        session_ids = self.node._session_search._get_session_ids_with_filters(recordings_query, limit=1)
+        session_ids = self.node._session_search._get_session_ids_with_filters(replay_filters=recordings_query, limit=1)
 
         # Should only return 1 session despite 4 matching
         self.assertIsNotNone(session_ids)

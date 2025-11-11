@@ -98,9 +98,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
                 }
 
-                if (featureFlags[FEATURE_FLAGS.DISCUSSIONS]) {
-                    tabs.push(SidePanelTab.Discussion)
-                }
+                tabs.push(SidePanelTab.Discussion)
 
                 if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
                     tabs.push(SidePanelTab.AccessControl)

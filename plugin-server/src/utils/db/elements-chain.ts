@@ -1,16 +1,15 @@
-import RE2 from 're2'
-
 import { Element } from '../../types'
 import { captureException } from '../posthog'
+import { createTrackedRE2 } from '../tracked-re2'
 import { escapeQuotes } from './utils'
 
 // Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
-const splitChainRegex = new RE2(/(?:[^\s;"]|"(?:\\.|[^"])*")+/g)
+const splitChainRegex = createTrackedRE2(/(?:[^\s;"]|"(?:[^"\\]|\\.)*")+/g, undefined, 'elements-chain:split')
 // Below splits the tag/classes from attributes
 // Needs a regex because classes can have : too
-const splitClassAttributes = new RE2(/(.*?)($|:([a-zA-Z\-_0-9]*=.*))/g)
-const parseAttributesRegex = new RE2(/((.*?)="(.*?[^\\])")/gm)
-const newLine = new RE2(/\\n/g)
+const splitClassAttributes = createTrackedRE2(/(.*?)($|:([a-zA-Z\-_0-9]*=.*))/g, undefined, 'elements-chain:splitClass')
+const parseAttributesRegex = createTrackedRE2(/((.*?)="(.*?[^\\])")/gm, undefined, 'elements-chain:parseAttributes')
+const newLine = createTrackedRE2(/\\n/g, undefined, 'elements-chain:newLine')
 
 export function elementsToString(elements: Element[]): string {
     const ret = elements.map((element) => {

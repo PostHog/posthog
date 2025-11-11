@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from posthog.schema import AssistantHogQLQuery, HumanMessage, VisualizationMessage
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -18,7 +18,7 @@ from ee.hogai.eval.base import MaxPrivateEval
 from ee.hogai.eval.offline.conftest import EvaluationContext, capture_score, get_eval_context
 from ee.hogai.eval.schema import DatasetInput
 from ee.hogai.eval.scorers.sql import SQLSemanticsCorrectness, SQLSyntaxCorrectness
-from ee.hogai.graph import AssistantGraph
+from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.warehouse import serialize_database_schema
@@ -36,7 +36,7 @@ class EvalMetadata(TypedDict):
 
 
 async def serialize_database(team: Team):
-    database = await database_sync_to_async(create_hogql_database)(team=team)
+    database = await database_sync_to_async(Database.create_for)(team=team)
     context = HogQLContext(team=team, database=database, enable_select_queries=True)
     return await serialize_database_schema(database, context)
 

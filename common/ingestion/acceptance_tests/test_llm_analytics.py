@@ -69,8 +69,10 @@ class TestLLMAnalytics:
         # Step 2: Prepare test event data
         logger.info("Step 2: Preparing $ai_generation event")
         distinct_id = f"test_user_{uuid.uuid4().hex[:8]}"
+        event_uuid = str(uuid.uuid4())
 
         event_data = {
+            "uuid": event_uuid,
             "event": "$ai_generation",
             "distinct_id": distinct_id,
             "timestamp": "2024-01-15T10:30:00Z",
@@ -235,8 +237,10 @@ class TestLLMAnalytics:
 
         logger.info("Step 2: Preparing $ai_generation event with separate properties")
         distinct_id = f"test_user_{uuid.uuid4().hex[:8]}"
+        event_uuid = str(uuid.uuid4())
 
         event_data = {
+            "uuid": event_uuid,
             "event": "$ai_generation",
             "distinct_id": distinct_id,
             "timestamp": "2024-01-15T10:30:00Z",
@@ -444,6 +448,7 @@ class TestLLMAnalytics:
             logger.info(f"Sending {event_type} event")
 
             event_data = {
+                "uuid": str(uuid.uuid4()),
                 "event": event_type,
                 "distinct_id": distinct_id,
                 "$set": {"test_user": True, "event_type_test": event_type},
@@ -506,6 +511,7 @@ class TestLLMAnalytics:
         logger.info("Sending event with application/json blob")
         distinct_id_json = f"{base_distinct_id}_json"
         event_data_json = {
+            "uuid": str(uuid.uuid4()),
             "event": "$ai_generation",
             "distinct_id": distinct_id_json,
             "$set": {"test_user": True, "content_type_test": "json"},
@@ -538,6 +544,7 @@ class TestLLMAnalytics:
         logger.info("Sending event with text/plain blob")
         distinct_id_text = f"{base_distinct_id}_text"
         event_data_text = {
+            "uuid": str(uuid.uuid4()),
             "event": "$ai_generation",
             "distinct_id": distinct_id_text,
             "$set": {"test_user": True, "content_type_test": "text"},
@@ -570,6 +577,7 @@ class TestLLMAnalytics:
         logger.info("Sending event with application/octet-stream blob")
         distinct_id_binary = f"{base_distinct_id}_binary"
         event_data_binary = {
+            "uuid": str(uuid.uuid4()),
             "event": "$ai_generation",
             "distinct_id": distinct_id_binary,
             "$set": {"test_user": True, "content_type_test": "binary"},
@@ -639,6 +647,7 @@ class TestLLMAnalytics:
         client = function_test_client
 
         event_data = {
+            "uuid": str(uuid.uuid4()),
             "event": "$ai_generation",
             "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
         }
@@ -680,8 +689,10 @@ class TestLLMAnalytics:
 
         logger.info("Step 2: Preparing $ai_generation event")
         distinct_id = f"test_user_{uuid.uuid4().hex[:8]}"
+        event_uuid = str(uuid.uuid4())
 
         event_data = {
+            "uuid": event_uuid,
             "event": "$ai_generation",
             "distinct_id": distinct_id,
             "timestamp": "2024-01-15T10:30:00Z",

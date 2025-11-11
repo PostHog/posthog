@@ -3,7 +3,7 @@ from posthog.hogql.ast import ArrayType, BooleanType, FloatType, IntegerType, St
 from ..core import HogQLFunctionMeta
 from ..typegen import generate_json_path_signatures
 
-# json
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "isValidJSON": HogQLFunctionMeta("isValidJSON", 1, 1, signatures=[((StringType(),), IntegerType())]),
     "JSONHas": HogQLFunctionMeta(

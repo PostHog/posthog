@@ -21,7 +21,8 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
     stripe_source,
     validate_credentials as validate_stripe_credentials,
 )
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

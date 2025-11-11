@@ -25,6 +25,7 @@ from posthog.models.integration import (
     DatabricksIntegrationError,
     EmailIntegration,
     GitHubIntegration,
+    GitLabIntegration,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     Integration,
@@ -39,7 +40,7 @@ from posthog.models.integration import (
 class NativeEmailIntegrationSerializer(serializers.Serializer):
     email = serializers.EmailField()
     name = serializers.CharField()
-    provider = serializers.ChoiceField(choices=["ses", "mailjet", "maildev"] if settings.DEBUG else ["ses", "mailjet"])
+    provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
@@ -87,6 +88,17 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 raise ValidationError("An installation_id must be provided")
 
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
+            return instance
+
+        elif validated_data["kind"] == "gitlab":
+            config = validated_data.get("config", {})
+            hostname = config.get("hostname")
+            project_id = config.get("project_id")
+            project_access_token = config.get("project_access_token")
+
+            instance = GitLabIntegration.create_integration(
+                hostname, project_id, project_access_token, team_id, request.user
+            )
             return instance
 
         elif validated_data["kind"] == "twilio":
