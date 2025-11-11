@@ -41,13 +41,9 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.saved_query_service import (
-    delete_saved_query_schedule,
     pause_saved_query_schedule,
     recreate_model_paths,
-    saved_query_workflow_exists,
-    sync_saved_query_workflow,
     trigger_saved_query_schedule,
-    unpause_saved_query_schedule,
 )
 from products.data_warehouse.backend.models import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -195,7 +191,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         with transaction.atomic():
             view.save()
             try:
-                DataWarehouseModelPath.objects.create_from_saved_query(view)
+                view.setup_model_paths()
             except Exception:
                 # For now, do not fail saved query creation if we cannot model-ize it.
                 # Later, after bugs and errors have been ironed out, we may tie these two
@@ -305,7 +301,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 view.save()
 
             try:
-                DataWarehouseModelPath.objects.update_from_saved_query(view)
+                view.setup_model_paths()
             except Exception:
                 logger.exception("Failed to update model path when updating view %s", view.name)
 
@@ -339,10 +335,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 recreate_model_paths(view)
 
         if was_sync_frequency_updated:
-            schedule_exists = saved_query_workflow_exists(str(instance.id))
-            if schedule_exists and before_update and before_update.sync_frequency_interval is None:
-                unpause_saved_query_schedule(str(instance.id))
-            sync_saved_query_workflow(view, create=not schedule_exists)
+            view.enable_materialization(
+                unpause=before_update is not None and before_update.sync_frequency_interval is None
+            )
 
         return view
 
@@ -496,16 +491,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
             )
 
-        delete_saved_query_schedule(str(instance.id))
-
         for join in DataWarehouseJoin.objects.filter(
             Q(team_id=instance.team_id) & (Q(source_table_name=instance.name) | Q(joining_table_name=instance.name))
         ).exclude(deleted=True):
             join.soft_delete()
 
-        if instance.table is not None:
-            instance.table.soft_delete()
-
+        instance.revert_materialization()
         instance.soft_delete()
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
