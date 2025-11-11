@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import ActorsQuery, PersonPropertyFilter, PropertyOperator
 
-from posthog.hogql.ast import CompareOperation, Constant, SelectQuery
+from posthog.hogql.ast import And, CompareOperation, Constant, SelectQuery
 from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
     LimitContext,
@@ -272,7 +272,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
             "distinct_id": 2,
             "start_time": 3,
             "duration": 5,
-            "console_error_count": 13,
+            "console_error_count": 14,
         }
 
         # Test with start_time ordering
@@ -368,7 +368,8 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         # Check that WHERE clause is now an AND combining both conditions
         self.assertIsNotNone(paginated_query.where)
         assert paginated_query.where is not None  # Type narrowing for mypy
-        self.assertEqual(paginated_query.where.type, "And")
+        self.assertIsInstance(paginated_query.where, And)
+        self.assertEqual(len(paginated_query.where.exprs), 2)  # Should combine 2 conditions
 
     def test_limit_plus_one_for_has_more_detection(self):
         """Test that paginator fetches limit+1 to detect has_more"""
