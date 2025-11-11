@@ -701,9 +701,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             except ValueError:
                 continue
 
-        return response.Response(
-            {"upstream_count": len(upstream_ids), "downstream_count": len(downstream_ids)}
-        )
+        return response.Response({"upstream_count": len(upstream_ids), "downstream_count": len(downstream_ids)})
 
     @action(methods=["GET"], detail=True)
     def run_history(self, request: request.Request, *args, **kwargs) -> response.Response:

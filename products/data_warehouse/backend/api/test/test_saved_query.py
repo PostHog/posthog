@@ -1118,7 +1118,6 @@ class TestSavedQuery(APIBaseTest):
                 response.json()["detail"], "Cannot revert materialization of a query from a managed viewset."
             )
 
-
     def test_dependencies_no_dependencies(self):
         """Test dependencies endpoint returns zero counts for a view with no dependencies"""
         response = self.client.post(
