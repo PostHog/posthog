@@ -21,10 +21,16 @@ class CustomerIOImportService:
         self.progress = {
             "status": "initializing",
             "topics_found": 0,
-            "categories_created": 0,  # Changed from workflows_created for clarity
+            "categories_created": 0,
             "customers_processed": 0,
             "preferences_updated": 0,
+            "current_category": None,
+            "current_category_index": 0,
+            "total_categories": 0,
+            "current_batch": 0,
+            "customers_in_current_batch": 0,
             "errors": [],
+            "details": "",
         }
 
     def import_all(self) -> dict[str, Any]:
@@ -121,78 +127,182 @@ class CustomerIOImportService:
         import logging
         logger = logging.getLogger(__name__)
         
-        # Get list of topic IDs from our mapping
-        topic_ids = []
+        # Get list of topic IDs and their names from our mapping
+        topics_to_process = []
         for key in self.topic_mapping.keys():
             # Extract numeric IDs (skip the "topic_N" format duplicates)
             if not key.startswith("topic_"):
-                topic_ids.append(key)
+                topics_to_process.append({
+                    "id": key,
+                    "category_id": self.topic_mapping[key],
+                    "name": f"Topic {key}"  # We can enhance this later with actual names
+                })
         
-        logger.info(f"Starting customer preference import for topics: {topic_ids}")
+        self.progress["total_categories"] = len(topics_to_process)
+        logger.info(f"Starting customer preference import for {len(topics_to_process)} topics")
         
-        # Get all opted-out customers per topic
-        logger.info("Calling get_opted_out_customers_for_topics...")
-        logger.info(f"Client exists: {self.client is not None}")
-        logger.info(f"Client type: {type(self.client)}")
-        
-        try:
-            logger.info("About to call client.get_opted_out_customers_for_topics")
-            opt_outs_by_topic = self.client.get_opted_out_customers_for_topics(topic_ids)
-            logger.info(f"Call completed. Received opt-outs data: {[(t, len(emails)) for t, emails in opt_outs_by_topic.items()]}")
-        except Exception as e:
-            logger.error(f"Failed to fetch opt-outs: {e}")
-            logger.exception("Full traceback:")
-            self.progress["errors"].append(f"Failed to fetch opt-outs: {str(e)}")
-            return
-        
-        # Track unique customers processed
+        # Track unique customers across all topics
         unique_customers = set()
         
-        # Process opt-outs for each topic
-        logger.info("Starting to process opt-outs by topic...")
-        for topic_id, opted_out_emails in opt_outs_by_topic.items():
-            # Get the PostHog category ID for this topic
-            category_id = self.topic_mapping.get(str(topic_id))
-            if not category_id:
-                logger.warning(f"Could not find mapping for topic {topic_id}")
-                continue
+        # Process each topic/category one by one
+        for idx, topic_info in enumerate(topics_to_process):
+            topic_id = topic_info["id"]
+            category_id = topic_info["category_id"]
             
-            logger.info(f"Processing {len(opted_out_emails)} opt-outs for topic {topic_id} -> category {category_id}")
+            self.progress["current_category_index"] = idx + 1
+            self.progress["current_category"] = f"Topic {topic_id}"
+            self.progress["status"] = f"processing_category_{idx + 1}_of_{len(topics_to_process)}"
+            self.progress["details"] = f"Processing topic {topic_id} ({idx + 1}/{len(topics_to_process)})"
             
-            # Process each opted-out customer
-            processed_in_topic = 0
-            for email in opted_out_emails:
+            logger.info(f"Processing topic {topic_id} ({idx + 1}/{len(topics_to_process)})")
+            
+            # Process this topic in batches
+            self._import_topic_preferences_in_batches(
+                topic_id, 
+                category_id, 
+                unique_customers,
+                batch_size=500  
+            )
+        
+        self.progress["customers_processed"] = len(unique_customers)
+        self.progress["status"] = "completed"
+        self.progress["details"] = f"Import completed. Processed {len(unique_customers)} unique customers."
+        logger.info(f"Completed preference import. Processed {len(unique_customers)} unique customers")
+    
+    def _import_topic_preferences_in_batches(
+        self, 
+        topic_id: str, 
+        category_id: str, 
+        unique_customers: set,
+        batch_size: int = 500
+    ) -> None:
+        """Import preferences for a single topic in batches for better progress tracking"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        start = None
+        batch_num = 0
+        topic_total = 0
+        
+        while True:
+            batch_num += 1
+            self.progress["current_batch"] = batch_num
+            self.progress["details"] = f"Topic {topic_id}: Fetching batch {batch_num}"
+            
+            try:
+                # Fetch a batch of opted-out customers for this topic
+                logger.info(f"Topic {topic_id}: Fetching batch {batch_num}")
+                response = self.client.search_customers_opted_out_of_topic(
+                    topic_id, 
+                    limit=batch_size, 
+                    start=start
+                )
+                
+                identifiers = response.get("identifiers", [])
+                if not identifiers:
+                    logger.info(f"Topic {topic_id}: No more customers")
+                    break
+                
+                self.progress["customers_in_current_batch"] = len(identifiers)
+                self.progress["details"] = f"Topic {topic_id}: Processing {len(identifiers)} customers in batch {batch_num}"
+                
+                # Collect batch data for bulk operations
+                emails_to_process = []
+                for customer_info in identifiers:
+                    email = customer_info.get("email")
+                    if email:
+                        emails_to_process.append(email)
+                        unique_customers.add(email)
+                
+                if emails_to_process:
+                    # Bulk fetch/create preferences
+                    self._bulk_update_preferences(emails_to_process, category_id)
+                    
+                    batch_processed = len(emails_to_process)
+                    self.progress["preferences_updated"] += batch_processed
+                    topic_total += batch_processed
+                    
+                    logger.info(f"Topic {topic_id}: Batch {batch_num} complete. Processed {batch_processed} customers")
+                
+                # Check for next page
+                next_cursor = response.get("next")
+                if not next_cursor or next_cursor == "":
+                    break
+                start = next_cursor
+                
+                # Small delay to avoid hitting rate limits
+                import time
+                time.sleep(0.1)
+                
+            except Exception as e:
+                logger.error(f"Error fetching batch {batch_num} for topic {topic_id}: {e}")
+                self.progress["errors"].append(f"Batch error: {str(e)[:200]}")
+                break
+        
+        logger.info(f"Topic {topic_id} complete: Processed {topic_total} opt-outs")
+        self.progress["details"] = f"Topic {topic_id} complete: {topic_total} opt-outs processed"
+    
+    def _bulk_update_preferences(self, emails: list[str], category_id: str) -> None:
+        """Bulk update preferences for multiple emails"""
+        import logging
+        from django.db import transaction
+        logger = logging.getLogger(__name__)
+        
+        try:
+            with transaction.atomic():
+                # Fetch existing preferences
+                existing_prefs = {
+                    pref.identifier: pref
+                    for pref in MessageRecipientPreference.objects.filter(
+                        team_id=self.team.id,
+                        identifier__in=emails
+                    )
+                }
+                
+                # Prepare records to create and update
+                to_create = []
+                to_update = []
+                
+                for email in emails:
+                    if email in existing_prefs:
+                        # Update existing preference
+                        pref = existing_prefs[email]
+                        pref.preferences[str(category_id)] = PreferenceStatus.OPTED_OUT.value
+                        to_update.append(pref)
+                    else:
+                        # Create new preference
+                        to_create.append(
+                            MessageRecipientPreference(
+                                team_id=self.team.id,
+                                identifier=email,
+                                preferences={str(category_id): PreferenceStatus.OPTED_OUT.value}
+                            )
+                        )
+                
+                # Bulk create new preferences
+                if to_create:
+                    MessageRecipientPreference.objects.bulk_create(to_create, batch_size=500)
+                
+                # Bulk update existing preferences
+                if to_update:
+                    MessageRecipientPreference.objects.bulk_update(
+                        to_update, ['preferences', 'updated_at'], batch_size=500
+                    )
+                
+                logger.info(f"Bulk updated {len(emails)} preferences (created: {len(to_create)}, updated: {len(to_update)})")
+                
+        except Exception as e:
+            logger.error(f"Error in bulk update: {str(e)}")
+            # Fall back to individual updates
+            for email in emails:
                 try:
-                    # Track unique customers
-                    unique_customers.add(email)
-                    
-                    logger.debug(f"Getting/creating preference for {email}")
-                    
-                    # Get or create recipient preference
                     recipient_pref = MessageRecipientPreference.get_or_create_for_identifier(
                         team_id=self.team.id, identifier=email
                     )
-                    
-                    logger.debug(f"Got preference object with ID {recipient_pref.id} for {email}")
-                    
-                    # Set opt-out preference for this topic
-                    logger.info(f"Setting opt-out for {email} on category {category_id} (topic {topic_id})")
                     recipient_pref.set_preference(category_id, PreferenceStatus.OPTED_OUT)
-                    
-                    logger.debug(f"Successfully set opt-out for {email}")
-                    
-                    self.progress["preferences_updated"] += 1
-                    processed_in_topic += 1
-                    
-                except Exception as e:
-                    logger.error(f"Failed to import preference for {email} on topic {topic_id}: {str(e)}")
-                    logger.exception(f"Full error trace:")
-                    self.progress["errors"].append(f"Failed to import preference for {email}: {str(e)}")
-            
-            logger.info(f"Processed {processed_in_topic}/{len(opted_out_emails)} opt-outs for topic {topic_id}")
-        
-        self.progress["customers_processed"] = len(unique_customers)
-        logger.info(f"Completed preference import. Processed {len(unique_customers)} unique customers")
+                except Exception as individual_error:
+                    logger.error(f"Failed to import preference for {email}: {str(individual_error)}")
+                    self.progress["errors"].append(f"Failed: {email} - {str(individual_error)[:100]}")
 
     def get_progress(self) -> dict[str, Any]:
         return self.progress

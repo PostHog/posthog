@@ -104,7 +104,7 @@ class CustomerIOClient:
         return response
 
     def search_customers(
-        self, filter_conditions: dict[str, Any], limit: int = 50, start: Optional[str] = None
+        self, filter_conditions: dict[str, Any], limit: int = 1000, start: Optional[str] = None
     ) -> dict[str, Any]:
         """
         Search for customers using filter conditions
@@ -129,14 +129,14 @@ class CustomerIOClient:
         return result
     
     def search_customers_opted_out_of_topic(
-        self, topic_id: str, limit: int = 50, start: Optional[str] = None
+        self, topic_id: str, limit: int = 1000, start: Optional[str] = None
     ) -> dict[str, Any]:
         """
         Search for customers who have opted out of a specific topic
         
         Args:
             topic_id: The topic ID to search for opt-outs
-            limit: Number of results per page (max 100)
+            limit: Number of results per page (max 1000)
             start: Pagination cursor
         Returns:
             Search results with customers who opted out of this topic
@@ -151,87 +151,7 @@ class CustomerIOClient:
         }
         return self.search_customers(filter_conditions, limit, start)
 
-    def get_opted_out_customers_for_topics(
-        self, topic_ids: list[str], batch_size: int = 50
-    ) -> dict[str, list[str]]:
-        """
-        Get all customers who have opted out of each topic
-        
-        Args:
-            topic_ids: List of topic IDs to check
-            batch_size: Number of customers to fetch per API call
-        Returns:
-            Dictionary mapping topic_id -> list of email addresses opted out
-        """
-        print(f"[DEBUG] get_opted_out_customers_for_topics called with topics: {topic_ids}")
-        opt_outs_by_topic = {}
-        
-        logger.info(f"Starting to fetch opt-outs for {len(topic_ids)} topics: {topic_ids}")
-        print(f"[DEBUG] After first log statement")
-        
-        if not topic_ids:
-            logger.warning("No topic IDs provided, returning empty dict")
-            return opt_outs_by_topic
-        
-        for i, topic_id in enumerate(topic_ids):
-            print(f"[DEBUG] Starting loop for topic {i+1}/{len(topic_ids)}: {topic_id}")
-            logger.info(f"Processing topic {i+1}/{len(topic_ids)}: {topic_id}")
-            opted_out_emails = []
-            start = None
-            page = 0
-            
-            while True:
-                page += 1
-                try:
-                    print(f"[DEBUG] Topic {topic_id}: About to fetch page {page}")
-                    logger.info(f"Topic {topic_id}: Fetching page {page}, start cursor: {start}")
-                    
-                    # Search for customers opted out of this topic
-                    print(f"[DEBUG] Calling search_customers_opted_out_of_topic for topic {topic_id}")
-                    response = self.search_customers_opted_out_of_topic(topic_id, limit=batch_size, start=start)
-                    print(f"[DEBUG] Response received for topic {topic_id}")
-                    
-                    logger.info(f"Topic {topic_id}: API response keys: {response.keys() if response else 'None'}")
-                    
-                    identifiers = response.get("identifiers", [])
-                    logger.info(f"Topic {topic_id}: Page {page} returned {len(identifiers)} customers")
-                    
-                    # Add emails to the list
-                    email_count = 0
-                    for customer_info in identifiers:
-                        email = customer_info.get("email")
-                        if email:
-                            opted_out_emails.append(email)
-                            email_count += 1
-                    
-                    logger.info(f"Topic {topic_id}: Added {email_count} emails from page {page}")
-                    
-                    # Check for next page
-                    next_cursor = response.get("next")
-                    logger.info(f"Topic {topic_id}: Next cursor: {next_cursor}")
-                    
-                    if not next_cursor or next_cursor == "":
-                        logger.info(f"Topic {topic_id}: No more pages, finishing")
-                        break
-                    start = next_cursor
-                    
-                    # Rate limiting to avoid hitting API limits
-                    time.sleep(0.1)
-                    
-                except CustomerIOAPIError as e:
-                    logger.error(f"Error fetching opt-outs for topic {topic_id} on page {page}: {e}")
-                    break
-                except Exception as e:
-                    logger.exception(f"Unexpected error fetching opt-outs for topic {topic_id} on page {page}: {e}")
-                    break
-            
-            opt_outs_by_topic[str(topic_id)] = opted_out_emails
-            logger.info(f"Completed topic {topic_id}: Total {len(opted_out_emails)} customers opted out")
-        
-        logger.info(f"Finished fetching all opt-outs. Summary: {[(t, len(emails)) for t, emails in opt_outs_by_topic.items()]}")
-        return opt_outs_by_topic
-    
-    def get_all_customers_with_preferences(self, batch_size: int = 50) -> Generator[dict[str, Any], None, None]:
+    def get_all_customers_with_preferences(self, batch_size: int = 1000) -> Generator[dict[str, Any], None, None]:
         """
         Fetch all customers and their subscription preferences
         Args:
