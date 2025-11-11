@@ -117,15 +117,10 @@ The `stats_config` field is a JSON object with method-specific keys:
   "bayesian": {
     "ci_level": 0.95,
     "difference_type": "RELATIVE",
-    "inverse": false,
-    "proper_prior": false,
-    "prior_type": "RELATIVE",
-    "prior_mean": 0.0,
-    "prior_variance": 1.0
+    "prior_type": "RELATIVE"
   },
   "frequentist": {
     "alpha": 0.05,
-    "test_type": "TWO_SIDED",
     "difference_type": "RELATIVE"
   }
 }
@@ -137,20 +132,13 @@ The `stats_config` field is a JSON object with method-specific keys:
 - **`difference_type`** (string, default: "RELATIVE"): Type of difference calculation
   - `"RELATIVE"`: Percentage change from baseline
   - `"ABSOLUTE"`: Absolute difference from baseline
-- **`inverse`** (bool, default: false): Whether lower values are better
-- **`proper_prior`** (bool, default: false): Whether to use an informative prior
 - **`prior_type`** (string, default: "RELATIVE"): Type of prior to use
   - `"RELATIVE"`: Prior relative to baseline
   - `"ABSOLUTE"`: Absolute prior
-- **`prior_mean`** (float, default: 0.0): Mean of the prior distribution
-- **`prior_variance`** (float, default: 1.0): Variance of the prior distribution (must be non-negative)
 
 ### Frequentist parameters
 
 - **`alpha`** (float, default: 0.05): Significance level, must be between 0 and 1
-- **`test_type`** (string, default: "TWO_SIDED"): Type of hypothesis test
-  - `"TWO_SIDED"`: Test for any difference
-  - `"ONE_SIDED"`: Test for improvement in one direction
 - **`difference_type`** (string, default: "RELATIVE"): Type of difference calculation
   - `"RELATIVE"`: Percentage change from baseline
   - `"ABSOLUTE"`: Absolute difference from baseline

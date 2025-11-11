@@ -95,7 +95,6 @@ class TestStatsConfig(APIBaseTest):
     @parameterized.expand(
         [
             ("invalid_difference_type", {"difference_type": "INVALID"}),
-            ("invalid_test_type", {"test_type": "INVALID"}),
             ("numeric_difference_type", {"difference_type": 123}),
         ]
     )

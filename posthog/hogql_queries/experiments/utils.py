@@ -205,7 +205,7 @@ def get_frequentist_experiment_result(
 
     config = FrequentistConfig(
         alpha=_validate_numeric_range(frequentist_config.get("alpha", 0.05), 0.0, 1.0, 0.05),
-        test_type=_parse_enum_config(frequentist_config.get("test_type", "TWO_SIDED"), TestType, TestType.TWO_SIDED),
+        test_type=TestType.TWO_SIDED,
         difference_type=_parse_enum_config(
             frequentist_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
         ),
@@ -279,11 +279,7 @@ def get_bayesian_experiment_result(
         difference_type=_parse_enum_config(
             bayesian_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
         ),
-        inverse=bayesian_config.get("inverse", False),
-        proper_prior=bayesian_config.get("proper_prior", False),
         prior_type=_parse_enum_config(bayesian_config.get("prior_type", "RELATIVE"), PriorType, PriorType.RELATIVE),
-        prior_mean=bayesian_config.get("prior_mean", 0.0),
-        prior_variance=_validate_numeric_range(bayesian_config.get("prior_variance", 1.0), 0.0, float("inf"), 1.0),
     )
     method = BayesianMethod(config)
 
