@@ -75,13 +75,14 @@ def sessions_v3_backfill(context: AssetExecutionContext) -> None:
     )
     context.log.info(backfill_sql)
 
-    with tags_context(kind="dagster", dagster=dagster_tags(context)):
-        cluster = get_cluster()
+    cluster = get_cluster()
+    tags = dagster_tags(context)
 
-        def backfill_per_shard(client: Client):
+    def backfill_per_shard(client: Client):
+        with tags_context(kind="dagster", dagster=tags):
             sync_execute(backfill_sql, settings=settings, sync_client=client)
 
-        cluster.map_one_host_per_shard(backfill_per_shard).result()
+    cluster.map_one_host_per_shard(backfill_per_shard).result()
 
     context.log.info(f"Successfully backfilled sessions_v3 for {partition_range_str}")
 
@@ -107,12 +108,13 @@ def sessions_v3_backfill_replay(context: AssetExecutionContext) -> None:
     )
     context.log.info(backfill_sql)
 
-    with tags_context(kind="dagster", dagster=dagster_tags(context)):
-        cluster = get_cluster()
+    cluster = get_cluster()
+    tags = dagster_tags(context)
 
-        def backfill_per_shard(client: Client):
+    def backfill_per_shard(client: Client):
+        with tags_context(kind="dagster", dagster=tags):
             sync_execute(backfill_sql, workload=Workload.OFFLINE, settings=settings, sync_client=client)
 
-        cluster.map_one_host_per_shard(backfill_per_shard).result()
+    cluster.map_one_host_per_shard(backfill_per_shard).result()
 
     context.log.info(f"Successfully backfilled sessions_v3 for {partition_range_str}")
