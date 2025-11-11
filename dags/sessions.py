@@ -18,6 +18,7 @@ from posthog.models.raw_sessions.sessions_v3 import (
 )
 
 from dags.common import dagster_tags
+from dags.common.common import JobOwners
 
 # This is the number of days to backfill in one SQL operation
 MAX_PARTITIONS_PER_RUN = 10
@@ -56,6 +57,7 @@ def get_partition_where_clause(context: AssetExecutionContext, timestamp_field: 
     name="sessions_v3_backfill",
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
     retry_policy=retry_policy,
+    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value},
 )
 def sessions_v3_backfill(context: AssetExecutionContext) -> None:
     where_clause = get_partition_where_clause(context, timestamp_field="timestamp")
@@ -82,6 +84,7 @@ def sessions_v3_backfill(context: AssetExecutionContext) -> None:
     name="sessions_v3_replay_backfill",
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
     retry_policy=retry_policy,
+    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value},
 )
 def sessions_v3_backfill_replay(context: AssetExecutionContext) -> None:
     where_clause = get_partition_where_clause(context, timestamp_field="min_first_timestamp")
