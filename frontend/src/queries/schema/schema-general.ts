@@ -1638,6 +1638,7 @@ export interface EndpointRequest {
     is_materialized?: boolean
     /** How frequently should the underlying materialized view be updated */
     sync_frequency?: DataWarehouseSyncInterval
+    derived_from_insight?: string
 }
 
 export interface EndpointRunRequest {
