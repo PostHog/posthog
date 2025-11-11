@@ -451,6 +451,12 @@ pub struct Config {
     // Log-only mode for IP-based rate limiting (defaults to true for safe rollout)
     #[envconfig(from = "FLAGS_IP_RATE_LIMIT_LOG_ONLY", default = "true")]
     pub flags_ip_rate_limit_log_only: FlexBool,
+
+    // Redis compression configuration
+    // When enabled, uses zstd compression for Redis values above threshold
+    // The `default_test_config()` sets this to true for test/development scenarios.
+    #[envconfig(from = "REDIS_COMPRESSION_ENABLED", default = "false")]
+    pub redis_compression_enabled: FlexBool,
 }
 
 impl Config {
@@ -525,6 +531,7 @@ impl Config {
             flags_ip_replenish_rate: 100.0,
             flags_rate_limit_log_only: FlexBool(true),
             flags_ip_rate_limit_log_only: FlexBool(true),
+            redis_compression_enabled: FlexBool(true),
         }
     }
 
