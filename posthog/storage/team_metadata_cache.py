@@ -252,7 +252,8 @@ def get_teams_needing_refresh(
     # 2. Check Redis TTLs to find caches about to expire
     try:
         redis_client = get_client()
-        pattern = f"cache:{team_metadata_hypercache.namespace}:*"
+        # HyperCache uses format: cache/team_tokens/{token}/team_metadata/full_metadata.json
+        pattern = f"cache/team_tokens/*/team_metadata/*"
 
         # Scan for all team metadata cache keys
         cache_keys = []
@@ -265,17 +266,15 @@ def get_teams_needing_refresh(
         ttl_threshold_seconds = ttl_threshold_hours * 3600
         expiring_soon = []
 
-        # Use regex for more robust parsing
-        token_pattern = r"cache:team_metadata:team_tokens/([^/]+)/full_metadata\.json"
-        id_pattern = r"cache:team_metadata:teams/(\d+)/full_metadata\.json"
+        # Regex to extract token from HyperCache key format
+        token_pattern = r"cache/team_tokens/([^/]+)/"
 
         for key in cache_keys:
             ttl = redis_client.ttl(key)
             if 0 < ttl < ttl_threshold_seconds:
-                # Extract team ID or token from the key
+                # Extract token from the key
                 key_str = key.decode("utf-8") if isinstance(key, bytes) else key
 
-                # Try to match token pattern first
                 match = re.search(token_pattern, key_str)
                 if match:
                     token = match.group(1)
@@ -284,15 +283,6 @@ def get_teams_needing_refresh(
                         expiring_soon.append(team.id)
                     except Team.DoesNotExist:
                         pass
-                else:
-                    # Try to match ID pattern
-                    match = re.search(id_pattern, key_str)
-                    if match:
-                        team_id = match.group(1)
-                        try:
-                            expiring_soon.append(int(team_id))
-                        except ValueError:
-                            pass
 
         # Add teams with expiring caches
         remaining_slots = batch_size - len(teams_to_refresh)
@@ -371,7 +361,8 @@ def get_cache_stats() -> dict[str, Any]:
     """
     try:
         redis_client = get_client()
-        pattern = f"cache:{team_metadata_hypercache.namespace}:*"
+        # HyperCache uses format: cache/team_tokens/{token}/team_metadata/full_metadata.json
+        pattern = f"cache/team_tokens/*/team_metadata/*"
 
         total_keys = 0
         ttl_buckets = {

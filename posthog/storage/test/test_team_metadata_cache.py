@@ -156,6 +156,7 @@ class TestCacheStats(BaseTest):
             b"cache:team_metadata:key2",
         ]
         mock_redis.ttl.side_effect = [3600, 86400]  # 1 hour, 1 day
+        mock_redis.memory_usage.side_effect = [1024, 2048]  # Sample memory sizes in bytes
 
         with patch("posthog.models.team.team.Team.objects.count", return_value=5):
             stats = get_cache_stats()

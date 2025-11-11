@@ -170,9 +170,9 @@ class HyperCache:
     def _set_cache_value_redis(self, key: KeyType, data: dict | None | HyperCacheStoreMissing):
         key = self.get_cache_key(key)
         if data is None or isinstance(data, HyperCacheStoreMissing):
-            cache.set(key, _HYPER_CACHE_EMPTY_VALUE, timeout=DEFAULT_CACHE_MISS_TTL)
+            cache.set(key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
         else:
-            cache.set(key, json.dumps(data), timeout=DEFAULT_CACHE_TTL)
+            cache.set(key, json.dumps(data), timeout=self.cache_ttl)
 
     def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing):
         key = self.get_cache_key(key)
