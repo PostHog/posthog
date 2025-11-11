@@ -453,13 +453,22 @@ class TestEdgeCases(BaseTest):
         """Test that concurrent updates are handled properly."""
         import threading
 
-        from posthog.storage.team_metadata_cache import update_team_metadata_cache
+        from posthog.storage.team_metadata_cache import get_team_metadata, update_team_metadata_cache
 
         results = []
+        metadata_results = []
+
+        # First, update the team with a specific value
+        self.team.name = "Original Name"
+        self.team.save()
+        update_team_metadata_cache(self.team)
 
         def update_cache():
             result = update_team_metadata_cache(self.team)
             results.append(result)
+            # After update, immediately read to check consistency
+            metadata = get_team_metadata(self.team)
+            metadata_results.append(metadata)
 
         # Start multiple threads to update cache concurrently
         threads = []
@@ -475,6 +484,63 @@ class TestEdgeCases(BaseTest):
         # All updates should succeed
         self.assertEqual(len(results), 5)
         self.assertTrue(all(results))
+
+        # All metadata reads should be consistent
+        self.assertEqual(len(metadata_results), 5)
+        # All should have the same team name
+        for metadata in metadata_results:
+            self.assertIsNotNone(metadata)
+            self.assertEqual(metadata["name"], "Original Name")
+
+    def test_concurrent_cache_updates_with_modifications(self):
+        """Test data consistency when team is modified during concurrent cache updates."""
+        import time
+        import threading
+
+        from posthog.storage.team_metadata_cache import get_team_metadata, update_team_metadata_cache
+
+        results = []
+        names_seen = set()
+
+        def update_and_modify(thread_id):
+            # Each thread modifies the team name and updates cache
+            self.team.name = f"Thread {thread_id} Name"
+            self.team.save()
+
+            # Small delay to increase chance of race conditions
+            time.sleep(0.01)
+
+            result = update_team_metadata_cache(self.team)
+            results.append(result)
+
+            # Read back the metadata
+            metadata = get_team_metadata(self.team)
+            if metadata:
+                names_seen.add(metadata["name"])
+
+        # Start multiple threads that modify and update
+        threads = []
+        for i in range(5):
+            thread = threading.Thread(target=update_and_modify, args=(i,))
+            threads.append(thread)
+            thread.start()
+
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+
+        # All updates should succeed
+        self.assertEqual(len(results), 5)
+        self.assertTrue(all(results))
+
+        # The final cached value should be one of the thread names
+        final_metadata = get_team_metadata(self.team)
+        self.assertIsNotNone(final_metadata)
+        # The name should be from one of the threads (last writer wins)
+        self.assertTrue(
+            any(f"Thread {i} Name" == final_metadata["name"] for i in range(5)),
+            f"Final name '{final_metadata['name']}' not from any thread",
+        )
 
     @patch("posthog.storage.team_metadata_cache.get_client")
     def test_cache_key_without_ttl(self, mock_get_client):
@@ -523,13 +589,26 @@ class TestEdgeCases(BaseTest):
 
         self.assertTrue(success)
 
+    @patch("posthog.tasks.team_metadata.logger")
     @patch("posthog.tasks.team_metadata.update_team_metadata_cache_task.delay")
-    def test_signal_error_handling(self, mock_task):
-        """Test that signal handlers handle errors gracefully."""
+    @patch("posthog.tasks.team_metadata.transaction")
+    def test_signal_error_handling(self, mock_transaction, mock_task, mock_logger):
+        """Test that signal handlers handle errors gracefully and log appropriately."""
         from celery.exceptions import OperationalError
 
         # Simulate Celery being down
         mock_task.side_effect = OperationalError("Celery is down")
+
+        # Store the callback that would be registered with on_commit
+        on_commit_callback = None
+
+        def capture_on_commit(callback):
+            nonlocal on_commit_callback
+            on_commit_callback = callback
+            # Execute the callback immediately in test context
+            callback()
+
+        mock_transaction.on_commit.side_effect = capture_on_commit
 
         # Creating a team should not raise an exception
         try:
@@ -539,5 +618,19 @@ class TestEdgeCases(BaseTest):
             )
             # Should succeed despite Celery error
             self.assertIsNotNone(team)
+
+            # Verify on_commit was called
+            mock_transaction.on_commit.assert_called_once()
+
+            # Verify that the error was logged
+            mock_logger.exception.assert_called_once()
+            call_args = mock_logger.exception.call_args
+            self.assertIn("Failed to enqueue cache update task", call_args[0][0])
+            # Check structured logging fields
+            self.assertEqual(call_args[1]["team_id"], team.id)
+            self.assertIn("Celery is down", call_args[1]["error"])
+        except AssertionError:
+            # Re-raise assertion errors
+            raise
         except Exception as e:
             self.fail(f"Signal handler raised exception: {e}")

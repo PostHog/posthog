@@ -3,23 +3,53 @@ Team metadata HyperCache - Full team object caching using existing HyperCache in
 
 This module provides dedicated caching of complete Team objects (38 fields) using the
 existing HyperCache system which handles Redis + S3 backup automatically.
+
+Memory Usage Estimates:
+
+Per team in Redis (compressed JSON):
+- Base fields (38 fields): ~15KB compressed
+- Related fields (org/project names): ~1KB
+- Metadata overhead: ~3KB
+- Total per team: ~19KB
+
+For 10,000 teams:
+- Redis memory: ~190MB (19KB × 10,000)
+- S3 storage: ~190MB (same data, gzipped)
+
+Memory Calculation Details:
+- String fields (names, tokens): 50-200 bytes each
+- UUID fields: 36 bytes as string
+- DateTime fields (ISO format): 30 bytes each
+- JSON arrays (configs): 100-2000 bytes depending on content
+- Boolean/numeric fields: 5-20 bytes each
+- Redis key overhead: ~100 bytes per key
+- JSON structure overhead: ~20% of data size
+- Compression ratio: ~3:1 for JSON strings
+
+Configuration:
+- Redis TTL: 7 days (TEAM_METADATA_CACHE_TTL)
+- Miss TTL: 1 day (TEAM_METADATA_CACHE_MISS_TTL)
+- Can be configured via environment variables (see module constants)
 """
 
-import logging
+import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
+
+import structlog
 
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
-# Cache TTL constants (in seconds)
-TEAM_METADATA_CACHE_TTL = 60 * 60 * 24 * 7  # 7 days
-TEAM_METADATA_CACHE_MISS_TTL = 60 * 60 * 24  # 1 day
+# Cache TTL constants (in seconds) - configurable via environment variables
+TEAM_METADATA_CACHE_TTL = int(os.environ.get("TEAM_METADATA_CACHE_TTL", str(60 * 60 * 24 * 7)))  # Default: 7 days
+TEAM_METADATA_CACHE_MISS_TTL = int(os.environ.get("TEAM_METADATA_CACHE_MISS_TTL", str(60 * 60 * 24)))  # Default: 1 day
 
 # List of fields to cache - full team object with 38 core fields
 TEAM_METADATA_FIELDS = [
@@ -85,11 +115,7 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
                     # Check if relations are accessible without causing a query
                     _ = team.organization.name
                     _ = team.project.name
-                except (
-                    AttributeError,
-                    Team.organization.RelatedObjectDoesNotExist,
-                    Team.project.RelatedObjectDoesNotExist,
-                ):
+                except (AttributeError, ObjectDoesNotExist):
                     # Relations not loaded or don't exist, refetch
                     team = Team.objects.select_related("organization", "project").get(id=team.id)
 
@@ -169,10 +195,10 @@ def update_team_metadata_cache(team: Team | str | int) -> bool:
 
     if success:
         team_id = team.id if isinstance(team, Team) else "unknown"
-        logger.info(f"Updated metadata cache for team_id={team_id}")
+        logger.info("Updated metadata cache", team_id=team_id)
     else:
         team_id = team.id if isinstance(team, Team) else "unknown"
-        logger.warning(f"Failed to update metadata cache for team_id={team_id}")
+        logger.warning("Failed to update metadata cache", team_id=team_id)
 
     return success
 
@@ -188,7 +214,7 @@ def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = 
     team_metadata_hypercache.clear_cache(team, kinds=kinds)
 
     team_id = team.id if isinstance(team, Team) else "unknown"
-    logger.info(f"Cleared metadata cache for team_id={team_id}")
+    logger.info("Cleared metadata cache", team_id=team_id)
 
 
 def get_teams_needing_refresh(
@@ -277,7 +303,7 @@ def get_teams_needing_refresh(
         teams_to_refresh.extend(expiring_soon[:remaining_slots])
 
     except Exception as e:
-        logger.warning(f"Error checking cache TTLs: {e}")
+        logger.warning("Error checking cache TTLs", error=str(e))
 
     # Remove duplicates and fetch the actual Team objects
     unique_team_ids = list(set(teams_to_refresh))[:batch_size]
@@ -285,8 +311,10 @@ def get_teams_needing_refresh(
     if unique_team_ids:
         teams = Team.objects.filter(id__in=unique_team_ids)
         logger.info(
-            f"Found {len(teams)} teams needing cache refresh "
-            f"(recently updated: {len(recently_updated)}, expiring soon: {len(expiring_soon)})"
+            "Found teams needing cache refresh",
+            team_count=len(teams),
+            recently_updated_count=len(recently_updated),
+            expiring_soon_count=len(expiring_soon),
         )
         return list(teams)
 
@@ -325,10 +353,15 @@ def refresh_stale_caches(
             else:
                 failed += 1
         except Exception as e:
-            logger.exception(f"Error refreshing cache for team {team.id}: {e}")
+            logger.exception("Error refreshing cache for team", team_id=team.id, error=str(e))
             failed += 1
 
-    logger.info(f"Cache refresh completed: {successful} successful, {failed} failed " f"out of {len(teams)} teams")
+    logger.info(
+        "Cache refresh completed",
+        successful=successful,
+        failed=failed,
+        total_teams=len(teams),
+    )
 
     return successful, failed
 
@@ -357,7 +390,7 @@ def get_cache_stats() -> dict[str, Any]:
             total_keys += 1
             ttl = redis_client.ttl(key)
 
-            if ttl < 0:
+            if ttl <= 0:
                 ttl_buckets["expired"] += 1
             elif ttl <= 3600:
                 ttl_buckets["expires_1h"] += 1
@@ -380,7 +413,7 @@ def get_cache_stats() -> dict[str, Any]:
         }
 
     except Exception as e:
-        logger.exception(f"Error getting cache stats: {e}")
+        logger.exception("Error getting cache stats", error=str(e))
         return {
             "error": str(e),
             "namespace": team_metadata_hypercache.namespace,
