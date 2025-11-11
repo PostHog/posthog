@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -23,8 +23,9 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     const commandInputRef = useRef<SearchInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
     const { search, newTabSceneDataInclude } = useValues(newTabSceneLogic({ tabId }))
-    const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle } = useActions(newTabSceneLogic({ tabId }))
-    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
+    const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle, setSearchInputRef } = useActions(
+        newTabSceneLogic({ tabId })
+    )
 
     const handleAskAi = (question?: string): void => {
         const nextQuestion = (question ?? search).trim()
@@ -42,6 +43,12 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
             const commandInfo = NEW_TAB_COMMANDS_ITEMS.find((cmd) => cmd.value === commandValue)
             return commandInfo || { value: commandValue, displayName: commandValue }
         })
+
+    // Set the ref in the logic so it can be accessed from other components
+    useEffect(() => {
+        setSearchInputRef(commandInputRef)
+    }, [setSearchInputRef])
+    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
     return (
         <>
