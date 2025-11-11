@@ -1008,6 +1008,15 @@ export interface InternalPerson extends BasePerson {
     version: number
 }
 
+/** Mutable fields that can be updated on a Person via updatePerson. */
+export interface PersonUpdateFields {
+    properties?: Properties
+    properties_last_updated_at?: PropertiesLastUpdatedAt
+    properties_last_operation?: PropertiesLastOperation | null
+    is_identified?: boolean
+    version?: number // Optional: allows forcing a specific version (used for dual-write sync)
+}
+
 /** Person model exposed outside of person-specific DB logic. */
 export interface Person {
     team_id: number

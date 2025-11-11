@@ -3,7 +3,14 @@ import { DateTime } from 'luxon'
 import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team, TeamId } from '../../../../types'
+import {
+    InternalPerson,
+    PersonUpdateFields,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    Team,
+    TeamId,
+} from '../../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { TwoPhaseCommitCoordinator } from '../../../../utils/db/two-phase'
@@ -132,7 +139,7 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
 
     async updatePerson(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tag?: string
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         // Enforce version parity across primary/secondary: run primary first, then set secondary to primary's new version

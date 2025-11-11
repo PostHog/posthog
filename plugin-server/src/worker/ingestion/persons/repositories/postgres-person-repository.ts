@@ -8,6 +8,7 @@ import { TopicMessage } from '../../../../kafka/producer'
 import {
     InternalPerson,
     PersonDistinctId,
+    PersonUpdateFields,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     RawPerson,
@@ -769,7 +770,7 @@ export class PostgresPersonRepository
 
     async updatePerson(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tag?: string,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {

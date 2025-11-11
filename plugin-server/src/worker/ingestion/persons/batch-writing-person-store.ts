@@ -1045,8 +1045,13 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         this.incrementDatabaseOperation(operation as MethodName, personUpdate.distinct_id)
         // Convert PersonUpdate back to InternalPerson for database call
         const person = toInternalPerson(personUpdate)
-        // Create update object without version field (updatePerson handles version internally)
-        const { version, ...updateFields } = person
+        // Only update mutable fields - exclude immutable fields like id, team_id, uuid, created_at
+        const updateFields = {
+            properties: person.properties,
+            properties_last_updated_at: person.properties_last_updated_at,
+            properties_last_operation: person.properties_last_operation,
+            is_identified: person.is_identified,
+        }
 
         this.incrementCount('updatePersonNoAssert', personUpdate.distinct_id)
         this.incrementDatabaseOperation('updatePersonNoAssert', personUpdate.distinct_id)
