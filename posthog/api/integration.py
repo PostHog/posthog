@@ -56,7 +56,6 @@ class IntegrationSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Any) -> Any:
         request = self.context["request"]
         team_id = self.context["team_id"]
-        organization_id = self.context["organization_id"]
 
         if validated_data["kind"] in GoogleCloudIntegration.supported_kinds:
             key_file = request.FILES.get("key")
@@ -77,7 +76,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
             instance = EmailIntegration.create_native_integration(
                 serializer.validated_data,
                 team_id=team_id,
-                organization_id=organization_id,
+                organization_id=str(self.context.get("get_organization")().id),
                 created_by=request.user,
             )
             return instance
