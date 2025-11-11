@@ -5,6 +5,7 @@ import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Spinner, T
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { DataWarehouseSavedQuery } from '~/types'
@@ -39,19 +40,22 @@ function RunHistoryDisplay({
 
     return (
         <div className="flex gap-1">
-            {displayRuns.map((run, index) => (
-                <Tooltip
-                    key={index}
-                    title={`${run.status}${run.timestamp ? ` at ${run.timestamp}` : ''}`}
-                    placement="top"
-                >
-                    <div
-                        className={`w-4 h-4 rounded-sm ${
-                            run.status === 'Completed' ? 'bg-success' : 'bg-danger'
-                        }`}
-                    />
-                </Tooltip>
-            ))}
+            {displayRuns.map((run, index) => {
+                const friendlyTime = run.timestamp ? humanFriendlyDetailedTime(run.timestamp) : ''
+                return (
+                    <Tooltip
+                        key={index}
+                        title={`${run.status}${friendlyTime ? ` - ${friendlyTime}` : ''}`}
+                        placement="top"
+                    >
+                        <div
+                            className={`w-4 h-4 rounded-sm ${
+                                run.status === 'Completed' ? 'bg-success' : 'bg-danger'
+                            }`}
+                        />
+                    </Tooltip>
+                )
+            })}
         </div>
     )
 }
@@ -71,8 +75,11 @@ export function QueriesTab(): JSX.Element {
         searchTerm,
         dependenciesMapLoading,
         runHistoryMapLoading,
+        materializedViewsCurrentPage,
+        viewsCurrentPage,
     } = useValues(queriesTabLogic)
-    const { setSearchTerm, deleteView, runMaterialization } = useActions(queriesTabLogic)
+    const { setSearchTerm, deleteView, runMaterialization, setMaterializedViewsPage, setViewsPage } =
+        useActions(queriesTabLogic)
 
     return (
         <div className="space-y-4">
@@ -185,7 +192,11 @@ export function QueriesTab(): JSX.Element {
                                 ),
                             },
                         ]}
-                        pagination={{ pageSize: 10 }}
+                        pagination={{
+                            pageSize: 10,
+                            currentPage: materializedViewsCurrentPage,
+                            onChangePage: setMaterializedViewsPage,
+                        }}
                     />
                 </div>
             )}
@@ -258,7 +269,11 @@ export function QueriesTab(): JSX.Element {
                                 ),
                             },
                         ]}
-                        pagination={{ pageSize: 10 }}
+                        pagination={{
+                            pageSize: 10,
+                            currentPage: viewsCurrentPage,
+                            onChangePage: setViewsPage,
+                        }}
                     />
                 </div>
             )}
