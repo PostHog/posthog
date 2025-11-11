@@ -1,78 +1,205 @@
 from unittest import mock
 
 import dagster
-from dagster import DagsterRunStatus
+from dagster import AssetKey, DagsterRunStatus
 
 from dags.common import JobOwners
-from dags.slack_alerts import get_job_owner_for_alert, should_suppress_alert
+from dags.slack_alerts import (
+    ASSET_OWNER_REGISTRY,
+    build_asset_owner_registry,
+    get_failed_steps_by_owner,
+    get_owners_for_failed_job,
+    should_suppress_alert,
+)
 
 
 class TestSlackAlertsRouting:
+    """Test the alert routing logic for both named jobs and __ASSET_JOB."""
+
+    def setup_method(self):
+        ASSET_OWNER_REGISTRY.clear()
+        ASSET_OWNER_REGISTRY["web_analytics_bounces_hourly"] = JobOwners.TEAM_WEB_ANALYTICS.value
+        ASSET_OWNER_REGISTRY["web_analytics_stats_table_hourly"] = JobOwners.TEAM_WEB_ANALYTICS.value
+        ASSET_OWNER_REGISTRY["clickhouse_table"] = JobOwners.TEAM_CLICKHOUSE.value
+        ASSET_OWNER_REGISTRY["revenue_analytics_daily"] = JobOwners.TEAM_REVENUE_ANALYTICS.value
+        ASSET_OWNER_REGISTRY["exchange_rates_hourly"] = JobOwners.TEAM_REVENUE_ANALYTICS.value
+
     def test_regular_job_uses_owner_tag(self):
+        """Named jobs should use their owner tag directly from run tags."""
         mock_run = mock.MagicMock(spec=dagster.DagsterRun)
         mock_run.job_name = "some_regular_job"
         mock_run.tags = {"owner": JobOwners.TEAM_CLICKHOUSE.value}
 
         error_message = "Some regular error message"
 
-        result = get_job_owner_for_alert(mock_run, error_message)
+        result = get_owners_for_failed_job(mock_run, error_message)
 
-        assert result == JobOwners.TEAM_CLICKHOUSE.value
+        # Named job returns single owner with empty asset list
+        assert result == {JobOwners.TEAM_CLICKHOUSE.value: []}
 
     def test_asset_job_with_web_steps_routes_to_web_analytics(self):
-        mock_run = mock.MagicMock(spec=dagster.DagsterRun)
-        mock_run.job_name = "__ASSET_JOB"
-        mock_run.tags = {"owner": JobOwners.TEAM_CLICKHOUSE.value}  # Original owner is different
-
+        """__ASSET_JOB with only web analytics assets routes to web analytics team."""
         error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['web_analytics_bounces_hourly', 'web_analytics_stats_table_hourly']."
 
-        result = get_job_owner_for_alert(mock_run, error_message)
+        result = get_failed_steps_by_owner(error_message)
 
-        assert result == JobOwners.TEAM_WEB_ANALYTICS.value
+        # Should group all web analytics assets under web analytics owner
+        assert len(result) == 1
+        assert JobOwners.TEAM_WEB_ANALYTICS.value in result
+        assert len(result[JobOwners.TEAM_WEB_ANALYTICS.value]) == 2
 
-    def test_asset_job_with_mixed_steps_routes_to_web_analytics(self):
-        mock_run = mock.MagicMock(spec=dagster.DagsterRun)
-        mock_run.job_name = "__ASSET_JOB"
-        mock_run.tags = {"owner": JobOwners.TEAM_REVENUE_ANALYTICS.value}
+    def test_asset_job_with_mixed_steps_routes_to_multiple_teams(self):
+        """__ASSET_JOB with assets from multiple teams sends alerts to each team."""
+        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['revenue_analytics_daily', 'web_analytics_bounces_hourly', 'clickhouse_table']."
 
-        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['some_other_asset', 'web_analytics_bounces_hourly', 'clickhouse_asset']."
+        result = get_failed_steps_by_owner(error_message)
 
-        result = get_job_owner_for_alert(mock_run, error_message)
+        # Should group by owner - each team gets their assets
+        assert len(result) == 3
+        assert JobOwners.TEAM_WEB_ANALYTICS.value in result
+        assert JobOwners.TEAM_CLICKHOUSE.value in result
+        assert JobOwners.TEAM_REVENUE_ANALYTICS.value in result
+        assert result[JobOwners.TEAM_WEB_ANALYTICS.value] == ["web_analytics_bounces_hourly"]
+        assert result[JobOwners.TEAM_CLICKHOUSE.value] == ["clickhouse_table"]
+        assert result[JobOwners.TEAM_REVENUE_ANALYTICS.value] == ["revenue_analytics_daily"]
 
-        assert result == JobOwners.TEAM_WEB_ANALYTICS.value
-
-    def test_asset_job_without_web_steps_uses_original_owner(self):
-        mock_run = mock.MagicMock(spec=dagster.DagsterRun)
-        mock_run.job_name = "__ASSET_JOB"
-        mock_run.tags = {"owner": JobOwners.TEAM_REVENUE_ANALYTICS.value}
-
+    def test_asset_job_without_web_steps_routes_to_correct_teams(self):
+        """__ASSET_JOB without web analytics assets routes to the correct team(s)."""
         error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['revenue_analytics_daily', 'exchange_rates_hourly']."
 
-        result = get_job_owner_for_alert(mock_run, error_message)
+        result = get_failed_steps_by_owner(error_message)
 
-        assert result == JobOwners.TEAM_REVENUE_ANALYTICS.value
+        # Both assets belong to revenue analytics
+        assert len(result) == 1
+        assert JobOwners.TEAM_REVENUE_ANALYTICS.value in result
+        assert len(result[JobOwners.TEAM_REVENUE_ANALYTICS.value]) == 2
 
-    def test_asset_job_no_failed_steps_uses_original_owner(self):
-        mock_run = mock.MagicMock(spec=dagster.DagsterRun)
-        mock_run.job_name = "__ASSET_JOB"
-        mock_run.tags = {"owner": JobOwners.TEAM_CLICKHOUSE.value}
-
+    def test_asset_job_no_failed_steps_returns_empty(self):
+        """__ASSET_JOB without parseable step information returns empty dict."""
         error_message = "Some generic asset job error message"
 
-        result = get_job_owner_for_alert(mock_run, error_message)
+        result = get_failed_steps_by_owner(error_message)
 
-        assert result == JobOwners.TEAM_CLICKHOUSE.value
+        # No steps to parse means empty result, sensor will skip multi-alert logic
+        assert result == {}
 
-    def test_asset_job_no_owner_tag_defaults_to_unknown(self):
-        mock_run = mock.MagicMock(spec=dagster.DagsterRun)
-        mock_run.job_name = "__ASSET_JOB"
-        mock_run.tags = {}
+    def test_asset_job_with_unknown_asset_routes_to_unknown(self):
+        """__ASSET_JOB with assets not in registry routes to 'unknown' owner."""
+        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['some_unknown_asset']."
 
-        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['some_asset']."
+        result = get_failed_steps_by_owner(error_message)
 
-        result = get_job_owner_for_alert(mock_run, error_message)
+        # Asset not in registry gets "unknown" owner
+        assert len(result) == 1
+        assert "unknown" in result
+        assert result["unknown"] == ["some_unknown_asset"]
 
-        assert result == "unknown"
+
+class TestAssetOwnerRegistry:
+    def test_build_asset_owner_registry_from_context(self):
+        mock_context = mock.MagicMock(spec=dagster.RunFailureSensorContext)
+        mock_instance = mock.MagicMock()
+        mock_context.instance = mock_instance
+
+        asset_key1 = AssetKey(["web_analytics_bounces_hourly"])
+        asset_key2 = AssetKey(["clickhouse_table"])
+        asset_key3 = AssetKey(["no_owner_asset"])
+
+        mock_instance.get_all_asset_keys.return_value = [asset_key1, asset_key2, asset_key3]
+
+        mock_node1 = mock.MagicMock()
+        mock_node1.tags = {"owner": JobOwners.TEAM_WEB_ANALYTICS.value}
+
+        mock_node2 = mock.MagicMock()
+        mock_node2.tags = {"owner": JobOwners.TEAM_CLICKHOUSE.value}
+
+        mock_node3 = mock.MagicMock()
+        mock_node3.tags = {}
+
+        def get_asset_node(asset_key):
+            if asset_key == asset_key1:
+                return mock_node1
+            elif asset_key == asset_key2:
+                return mock_node2
+            elif asset_key == asset_key3:
+                return mock_node3
+            return None
+
+        mock_instance.get_asset_node_from_cache.side_effect = get_asset_node
+
+        ASSET_OWNER_REGISTRY.clear()
+        build_asset_owner_registry(mock_context)
+
+        assert ASSET_OWNER_REGISTRY["web_analytics_bounces_hourly"] == JobOwners.TEAM_WEB_ANALYTICS.value
+        assert ASSET_OWNER_REGISTRY["clickhouse_table"] == JobOwners.TEAM_CLICKHOUSE.value
+        assert ASSET_OWNER_REGISTRY["no_owner_asset"] == "unknown"
+
+    def test_build_asset_owner_registry_only_once(self):
+        mock_context = mock.MagicMock(spec=dagster.RunFailureSensorContext)
+        mock_instance = mock.MagicMock()
+        mock_context.instance = mock_instance
+
+        ASSET_OWNER_REGISTRY.clear()
+        ASSET_OWNER_REGISTRY["existing_asset"] = "existing_owner"
+
+        build_asset_owner_registry(mock_context)
+
+        mock_instance.get_all_asset_keys.assert_not_called()
+        assert ASSET_OWNER_REGISTRY["existing_asset"] == "existing_owner"
+
+
+class TestFailedStepsByOwner:
+    def setup_method(self):
+        ASSET_OWNER_REGISTRY.clear()
+        ASSET_OWNER_REGISTRY["web_analytics_bounces_hourly"] = JobOwners.TEAM_WEB_ANALYTICS.value
+        ASSET_OWNER_REGISTRY["web_analytics_stats_table_hourly"] = JobOwners.TEAM_WEB_ANALYTICS.value
+        ASSET_OWNER_REGISTRY["clickhouse_table"] = JobOwners.TEAM_CLICKHOUSE.value
+        ASSET_OWNER_REGISTRY["revenue_analytics_daily"] = JobOwners.TEAM_REVENUE_ANALYTICS.value
+
+    def test_single_team_failure(self):
+        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['web_analytics_bounces_hourly', 'web_analytics_stats_table_hourly']."
+
+        result = get_failed_steps_by_owner(error_message)
+
+        assert len(result) == 1
+        assert JobOwners.TEAM_WEB_ANALYTICS.value in result
+        assert result[JobOwners.TEAM_WEB_ANALYTICS.value] == [
+            "web_analytics_bounces_hourly",
+            "web_analytics_stats_table_hourly",
+        ]
+
+    def test_multi_team_failure(self):
+        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['web_analytics_bounces_hourly', 'clickhouse_table', 'revenue_analytics_daily']."
+
+        result = get_failed_steps_by_owner(error_message)
+
+        assert len(result) == 3
+        assert result[JobOwners.TEAM_WEB_ANALYTICS.value] == ["web_analytics_bounces_hourly"]
+        assert result[JobOwners.TEAM_CLICKHOUSE.value] == ["clickhouse_table"]
+        assert result[JobOwners.TEAM_REVENUE_ANALYTICS.value] == ["revenue_analytics_daily"]
+
+    def test_unknown_asset_owner(self):
+        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['unknown_asset', 'web_analytics_bounces_hourly']."
+
+        result = get_failed_steps_by_owner(error_message)
+
+        assert len(result) == 2
+        assert result["unknown"] == ["unknown_asset"]
+        assert result[JobOwners.TEAM_WEB_ANALYTICS.value] == ["web_analytics_bounces_hourly"]
+
+    def test_no_failed_steps_pattern(self):
+        error_message = "Some generic error message without step information"
+
+        result = get_failed_steps_by_owner(error_message)
+
+        assert result == {}
+
+    def test_empty_failed_steps_list(self):
+        error_message = 'Execution of run for "__ASSET_JOB" failed. Steps failed: [].'
+
+        result = get_failed_steps_by_owner(error_message)
+
+        assert result == {}
 
 
 class TestConsecutiveFailureSuppression:
