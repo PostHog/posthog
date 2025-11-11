@@ -29,7 +29,9 @@ env:
     OBJECT_STORAGE_ENDPOINT: http://localhost:8333
     OBJECT_STORAGE_ACCESS_KEY_ID: any
     OBJECT_STORAGE_SECRET_ACCESS_KEY: any
-    BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT: http://seaweedfs:8333
+    AIRBYTE_BUCKET_KEY: any
+    AIRBYTE_BUCKET_SECRET: any
+    AIRBYTE_BUCKET_DOMAIN: seaweedfs:8333
     GITHUB_ACTION_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     CELERY_METRICS_PORT: 8999
     CLOUD_DEPLOYMENT: E2E

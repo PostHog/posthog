@@ -18,6 +18,9 @@ env:
     OBJECT_STORAGE_ENDPOINT: 'http://localhost:8333'
     OBJECT_STORAGE_ACCESS_KEY_ID: 'any'
     OBJECT_STORAGE_SECRET_ACCESS_KEY: 'any'
+    AIRBYTE_BUCKET_KEY: 'any'
+    AIRBYTE_BUCKET_SECRET: 'any'
+    AIRBYTE_BUCKET_DOMAIN: 'seaweedfs:8333'
     BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://seaweedfs:8333'
     # tests would intermittently fail in GH actions
     # with exit code 134 _after passing_ all tests
