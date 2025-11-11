@@ -20,6 +20,15 @@ logger = structlog.get_logger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
+class ValidatedRequest(Request):
+    """
+    Request with validated_data attribute.
+    This is set by the @validated_request decorator when request_serializer is provided.
+    """
+
+    validated_data: dict[str, Any]
+
+
 # Generic Pydantic model mixin for validating the response data
 class PydanticModelMixin:
     def get_model(self, data: dict, model: type[T]) -> T:
@@ -57,10 +66,8 @@ def validated_request(
             summary="Do something"
         )
         def my_action(self, request: Request, **kwargs):
-            # request.data contains validated body data (mutated)
-            # request.query_params contains validated query params (mutated)
-            # kwargs contains validated path params (mutated)
-            # DRF mixins automatically use validated data
+            # request.validated_data contains validated body data (if request_serializer provided)
+            # Query and path params are validated but not mutated
     """
 
     def decorator(view_func: Callable) -> Callable:
@@ -83,21 +90,11 @@ def validated_request(
         def wrapper(self, request: Request, *args, **kwargs) -> Response:
             if query_serializer is not None:
                 query_serializer_instance = query_serializer(data=request.query_params)
-                query_serializer_instance.is_valid(raise_exception=strict_request_validation)
-
-                validated_query_data = query_serializer_instance.validated_data
-                from django.http import QueryDict
-
-                validated_query_dict = QueryDict("", mutable=True)
-                validated_query_dict.update(validated_query_data)
-                request._request.GET = validated_query_dict
+                query_serializer_instance.is_valid(raise_exception=True)
 
             if path_serializer is not None:
                 path_serializer_instance = path_serializer(data=kwargs)
-                path_serializer_instance.is_valid(raise_exception=strict_request_validation)
-
-                # Mutate kwargs directly
-                kwargs.update(path_serializer_instance.validated_data)
+                path_serializer_instance.is_valid(raise_exception=True)
 
             if request_serializer is not None:
                 serializer = request_serializer(data=request.data)
@@ -111,8 +108,7 @@ def validated_request(
                         validation_errors=serializer.errors,
                     )
 
-                # Mutate request.data so DRF mixins consume validated data
-                request._full_data = serializer.validated_data
+                request.validated_data = serializer.validated_data
 
             result = view_func(self, request, *args, **kwargs)
 

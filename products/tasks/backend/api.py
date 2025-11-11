@@ -156,7 +156,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def update_position(self, request, pk=None, **kwargs):
         task = self.get_object()
 
-        new_position = request.data.get("position")
+        new_position = request.validated_data.get("position")
 
         if new_position is None:
             return Response(
@@ -301,7 +301,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def append_log(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
 
-        entries = request.data["entries"]
+        entries = request.validated_data["entries"]
         task_run.append_log(entries)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)

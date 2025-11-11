@@ -41,7 +41,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
             },
         )
         def mock_endpoint(view_self, request):
-            distinct_id = request.data["distinct_id"]
+            distinct_id = request.validated_data["distinct_id"]
             return Response(
                 {
                     "status": "ok",
@@ -371,7 +371,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
                 {
                     "status": "ok",
                     "event_id": str(uuid.uuid4()),
-                    "distinct_id": request.data["distinct_id"],
+                    "distinct_id": request.validated_data["distinct_id"],
                 },
                 status=status.HTTP_200_OK,
             )
@@ -485,7 +485,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
             strict_request_validation=False,
         )
         def mock_endpoint(view_self, request):
-            distinct_id = request.data["distinct_id"]
+            distinct_id = request.validated_data["distinct_id"]
             return Response(
                 {
                     "status": "ok",
@@ -790,3 +790,100 @@ class TestValidatedRequestDecorator(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.data["page"] == 3
         assert response.data["pk"] == 99
+
+    def test_post_request_with_query_parameters(self):
+        """POST request with query parameters: both should be validated"""
+
+        class QueryParamSerializer(serializers.Serializer):
+            dry_run = serializers.BooleanField(required=False, default=False)
+            force = serializers.BooleanField(required=False, default=False)
+
+        class PostRequestSerializer(serializers.Serializer):
+            action = serializers.ChoiceField(choices=["create", "update", "delete"])
+            data = serializers.DictField(required=False)
+
+        @validated_request(
+            request_serializer=PostRequestSerializer,
+            query_serializer=QueryParamSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+            },
+        )
+        def mock_endpoint(view_self, request, **kwargs):
+            action = request.validated_data["action"]
+            # Query params remain as strings, need to convert
+            dry_run = request.query_params.get("dry_run", "false").lower() == "true"
+            force = request.query_params.get("force", "false").lower() == "true"
+            return Response(
+                {
+                    "status": "ok",
+                    "event_id": str(uuid.uuid4()),
+                    "distinct_id": "test",
+                    "action": action,
+                    "dry_run": dry_run,
+                    "force": force,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {"action": "create", "data": {"key": "value"}}
+        from django.http import QueryDict
+
+        mock_get = QueryDict("dry_run=true&force=false")
+        mock_request._request = Mock()
+        mock_request._request.GET = mock_get
+        mock_request.query_params = mock_get
+
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["action"] == "create"
+        assert response.data["dry_run"] is True
+        assert response.data["force"] is False
+
+    def test_post_request_with_invalid_query_parameters_raises(self):
+        """POST request with invalid query parameters: should raise exception"""
+
+        class QueryParamSerializer(serializers.Serializer):
+            timeout = serializers.IntegerField(required=True, min_value=1, max_value=3600)
+
+        class PostRequestSerializer(serializers.Serializer):
+            action = serializers.CharField()
+
+        @validated_request(
+            request_serializer=PostRequestSerializer,
+            query_serializer=QueryParamSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+            },
+        )
+        def mock_endpoint(view_self, request, **kwargs):
+            return Response(
+                {
+                    "status": "ok",
+                    "event_id": str(uuid.uuid4()),
+                    "distinct_id": "test",
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {"action": "test"}
+        from django.http import QueryDict
+
+        mock_get = QueryDict("timeout=5000")  # Exceeds max_value
+        mock_request._request = Mock()
+        mock_request._request.GET = mock_get
+        mock_request.query_params = mock_get
+
+        with pytest.raises(serializers.ValidationError) as exc_info:
+            mock_endpoint(view_instance, mock_request)
+
+        assert "timeout" in str(exc_info.value)
