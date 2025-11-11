@@ -27,7 +27,7 @@ env:
     TEST: 1
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
     OBJECT_STORAGE_ENABLED: 'True'
-    OBJECT_STORAGE_ENDPOINT: 'http://localhost:8333'
+    OBJECT_STORAGE_ENDPOINT: 'http://seaweedfs:8333'
     OBJECT_STORAGE_ACCESS_KEY_ID: 'any'
     OBJECT_STORAGE_SECRET_ACCESS_KEY: 'any'
     # tests would intermittently fail in GH actions
