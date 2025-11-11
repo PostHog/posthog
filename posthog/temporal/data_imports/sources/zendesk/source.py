@@ -106,7 +106,7 @@ class ZendeskSource(BaseSource[ZendeskSourceConfig]):
 
         partition_key = PARTITION_FIELDS.get(inputs.schema_name, None)
 
-        # assumes datetime as all incremental zendesk fields are datetime based
+        # All partition keys are datetime
         if partition_key:
             zendesk_source_response.partition_count = 1
             zendesk_source_response.partition_size = 1
