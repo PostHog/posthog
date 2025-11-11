@@ -117,5 +117,9 @@ def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, creat
 @receiver(pre_delete, sender=Team)
 def clear_team_metadata_cache_on_delete(sender: type[Team], instance: Team, **kwargs: Any) -> None:
     """Clear team metadata cache when a Team is deleted."""
+    from django.conf import settings
+
     # Clear immediately since the team is about to be deleted
-    clear_team_metadata_cache(instance)
+    # In tests, only clear Redis to avoid S3 timestamp issues with frozen time
+    kinds = ["redis"] if settings.TEST else None
+    clear_team_metadata_cache(instance, kinds=kinds)
