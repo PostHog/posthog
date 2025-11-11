@@ -80,7 +80,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
                     "urlTriggers": [],
                     "urlBlocklist": [],
                     "eventTriggers": [],
-                    "scriptConfig": None,
+                    "scriptConfig": {"script": "posthog-recorder"},
                     "triggerMatchType": None,
                 },
                 "errorTracking": {"autocaptureExceptions": False, "suppressionRules": []},
