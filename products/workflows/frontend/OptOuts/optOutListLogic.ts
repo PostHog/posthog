@@ -20,6 +20,13 @@ export type OptOutPersonPreference = {
     preferences: Record<string, boolean>
 }
 
+export type PaginatedOptOuts = {
+    count: number
+    next: string | null
+    previous: string | null
+    results: OptOutEntry[]
+}
+
 export type OptOutListLogicProps = {
     category?: MessageCategory
 }
@@ -37,6 +44,9 @@ export const optOutListLogic = kea<optOutListLogicType>([
         setPersonsModalOpen: (open: boolean) => ({ open }),
         setManagePreferencesModalOpen: (open: boolean) => ({ open }),
         setSelectedIdentifier: (identifier: string | null) => ({ identifier }),
+        setCurrentPage: (page: number) => ({ page }),
+        loadNextPage: true,
+        loadPreviousPage: true,
     }),
     reducers({
         personsModalOpen: [
@@ -69,16 +79,45 @@ export const optOutListLogic = kea<optOutListLogicType>([
                 setSelectedIdentifier: (_, { identifier }) => identifier,
             },
         ],
+        currentPage: [
+            1,
+            {
+                setCurrentPage: (_, { page }) => page,
+                loadOptOutPersonsSuccess: () => 1, // Reset to page 1 on initial load
+                loadNextPageSuccess: (state) => state + 1,
+                loadPreviousPageSuccess: (state) => Math.max(1, state - 1),
+            },
+        ],
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         optOutPersons: {
-            __default: [] as OptOutEntry[],
-            loadOptOutPersons: async (): Promise<OptOutEntry[]> => {
+            __default: { count: 0, next: null, previous: null, results: [] } as PaginatedOptOuts,
+            loadOptOutPersons: async (): Promise<PaginatedOptOuts> => {
                 try {
-                    return await api.messaging.getMessageOptOuts(props.category?.key)
+                    return await api.messaging.getMessageOptOuts(props.category?.key, 1)
                 } catch {
                     lemonToast.error('Failed to load opt-out persons')
-                    return []
+                    return { count: 0, next: null, previous: null, results: [] }
+                }
+            },
+            loadNextPage: async (): Promise<PaginatedOptOuts> => {
+                const nextPage = values.currentPage + 1
+                try {
+                    const result = await api.messaging.getMessageOptOuts(props.category?.key, nextPage)
+                    return result
+                } catch {
+                    lemonToast.error('Failed to load next page')
+                    return values.optOutPersons
+                }
+            },
+            loadPreviousPage: async (): Promise<PaginatedOptOuts> => {
+                const prevPage = Math.max(1, values.currentPage - 1)
+                try {
+                    const result = await api.messaging.getMessageOptOuts(props.category?.key, prevPage)
+                    return result
+                } catch {
+                    lemonToast.error('Failed to load previous page')
+                    return values.optOutPersons
                 }
             },
         },

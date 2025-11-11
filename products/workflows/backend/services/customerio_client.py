@@ -123,9 +123,7 @@ class CustomerIOClient:
         
         json_data = {"filter": filter_conditions}
         
-        logger.info(f"Searching customers with params: {params}, filter: {filter_conditions}")
         result = self._make_request("POST", "/customers", params=params, json_data=json_data)
-        logger.info(f"Customer search returned: {result.keys() if result else 'None'}")
         return result
     
     def search_customers_opted_out_of_topic(
@@ -161,22 +159,16 @@ class CustomerIOClient:
         """
         start = None
         # First, get all customers (we'll check their preferences individually)
-        logger.info(f"Starting to fetch customers with batch size {batch_size}")
         has_yielded_any = False
         customer_total = 0
         
         while True:
             try:
                 # Get a batch of customers
-                logger.info(f"Fetching customer batch, start cursor: {start}")
                 response = self.search_customers(limit=batch_size, start=start)
                 
                 # Response has 'identifiers' field with customer data
-                if response:
-                    logger.info(f"Customer search response keys: {response.keys()}")
-                
                 identifiers = response.get("identifiers", [])
-                logger.info(f"Got {len(identifiers)} unsubscribed customers in this batch")
 
                 if not identifiers:
                     break
@@ -188,7 +180,6 @@ class CustomerIOClient:
                         continue
                     
                     customer_total += 1
-                    logger.info(f"Processing unsubscribed customer #{customer_total}: {email}")
                     
                     try:
                         # Get subscription preferences for this customer
@@ -209,7 +200,6 @@ class CustomerIOClient:
                             topics_dict[str(topic_id)] = False  # Opted out
                         
                         # Yield the customer data (we know they're globally unsubscribed)
-                        logger.info(f"Customer {email} (globally unsubscribed) marked as opted out of all topics: {topics_dict}")
                         has_yielded_any = True
                         yield {
                             "email": email,
@@ -236,8 +226,6 @@ class CustomerIOClient:
                 # Log error and break
                 logger.exception(f"Error fetching customers: {e}")
                 break
-        
-        logger.info(f"Finished fetching customers. Total processed: {customer_total}, Yielded any: {has_yielded_any}")
 
     def validate_credentials(self) -> bool:
         """
@@ -249,7 +237,6 @@ class CustomerIOClient:
             # Try a simple API call to validate credentials
             # Using subscription_topics to check authentication
             response = self._make_request("GET", "/subscription_topics")
-            logger.info(f"Credential validation successful")
             return True
         except CustomerIOAPIError as e:
             logger.error(f"Credential validation failed: {e}")

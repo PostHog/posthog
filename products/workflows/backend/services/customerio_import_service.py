@@ -124,9 +124,6 @@ class CustomerIOImportService:
                 self.progress["errors"].append(f"Failed to import topic {topic_id}: {str(e)}")
 
     def _import_customer_preferences(self) -> None:
-        import logging
-        logger = logging.getLogger(__name__)
-        
         # Get list of topic IDs and their names from our mapping
         topics_to_process = []
         for key in self.topic_mapping.keys():
@@ -139,7 +136,6 @@ class CustomerIOImportService:
                 })
         
         self.progress["total_categories"] = len(topics_to_process)
-        logger.info(f"Starting customer preference import for {len(topics_to_process)} topics")
         
         # Track unique customers across all topics
         unique_customers = set()
@@ -154,8 +150,6 @@ class CustomerIOImportService:
             self.progress["status"] = f"processing_category_{idx + 1}_of_{len(topics_to_process)}"
             self.progress["details"] = f"Processing topic {topic_id} ({idx + 1}/{len(topics_to_process)})"
             
-            logger.info(f"Processing topic {topic_id} ({idx + 1}/{len(topics_to_process)})")
-            
             # Process this topic in batches
             self._import_topic_preferences_in_batches(
                 topic_id, 
@@ -167,7 +161,6 @@ class CustomerIOImportService:
         self.progress["customers_processed"] = len(unique_customers)
         self.progress["status"] = "completed"
         self.progress["details"] = f"Import completed. Processed {len(unique_customers)} unique customers."
-        logger.info(f"Completed preference import. Processed {len(unique_customers)} unique customers")
     
     def _import_topic_preferences_in_batches(
         self, 
@@ -177,8 +170,6 @@ class CustomerIOImportService:
         batch_size: int = 500
     ) -> None:
         """Import preferences for a single topic in batches for better progress tracking"""
-        import logging
-        logger = logging.getLogger(__name__)
         
         start = None
         batch_num = 0
@@ -187,11 +178,10 @@ class CustomerIOImportService:
         while True:
             batch_num += 1
             self.progress["current_batch"] = batch_num
-            self.progress["details"] = f"Topic {topic_id}: Fetching batch {batch_num}"
+            self.progress["details"] = f"Fetching customers for Topic {topic_id}"
             
             try:
                 # Fetch a batch of opted-out customers for this topic
-                logger.info(f"Topic {topic_id}: Fetching batch {batch_num}")
                 response = self.client.search_customers_opted_out_of_topic(
                     topic_id, 
                     limit=batch_size, 
@@ -200,11 +190,10 @@ class CustomerIOImportService:
                 
                 identifiers = response.get("identifiers", [])
                 if not identifiers:
-                    logger.info(f"Topic {topic_id}: No more customers")
                     break
                 
                 self.progress["customers_in_current_batch"] = len(identifiers)
-                self.progress["details"] = f"Topic {topic_id}: Processing {len(identifiers)} customers in batch {batch_num}"
+                self.progress["details"] = f"Processing {len(identifiers)} customers for Topic {topic_id}"
                 
                 # Collect batch data for bulk operations
                 emails_to_process = []
@@ -221,8 +210,6 @@ class CustomerIOImportService:
                     batch_processed = len(emails_to_process)
                     self.progress["preferences_updated"] += batch_processed
                     topic_total += batch_processed
-                    
-                    logger.info(f"Topic {topic_id}: Batch {batch_num} complete. Processed {batch_processed} customers")
                 
                 # Check for next page
                 next_cursor = response.get("next")
@@ -235,18 +222,14 @@ class CustomerIOImportService:
                 time.sleep(0.1)
                 
             except Exception as e:
-                logger.error(f"Error fetching batch {batch_num} for topic {topic_id}: {e}")
-                self.progress["errors"].append(f"Batch error: {str(e)[:200]}")
+                self.progress["errors"].append(f"Error processing topic {topic_id}: {str(e)[:200]}")
                 break
         
-        logger.info(f"Topic {topic_id} complete: Processed {topic_total} opt-outs")
         self.progress["details"] = f"Topic {topic_id} complete: {topic_total} opt-outs processed"
     
     def _bulk_update_preferences(self, emails: list[str], category_id: str) -> None:
         """Bulk update preferences for multiple emails"""
-        import logging
         from django.db import transaction
-        logger = logging.getLogger(__name__)
         
         try:
             with transaction.atomic():
@@ -289,10 +272,7 @@ class CustomerIOImportService:
                         to_update, ['preferences', 'updated_at'], batch_size=500
                     )
                 
-                logger.info(f"Bulk updated {len(emails)} preferences (created: {len(to_create)}, updated: {len(to_update)})")
-                
         except Exception as e:
-            logger.error(f"Error in bulk update: {str(e)}")
             # Fall back to individual updates
             for email in emails:
                 try:
@@ -301,7 +281,6 @@ class CustomerIOImportService:
                     )
                     recipient_pref.set_preference(category_id, PreferenceStatus.OPTED_OUT)
                 except Exception as individual_error:
-                    logger.error(f"Failed to import preference for {email}: {str(individual_error)}")
                     self.progress["errors"].append(f"Failed: {email} - {str(individual_error)[:100]}")
 
     def get_progress(self) -> dict[str, Any]:

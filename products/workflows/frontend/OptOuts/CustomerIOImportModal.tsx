@@ -17,11 +17,8 @@ export function CustomerIOImportModal(): JSX.Element {
         
         const { 
             current_category_index, 
-            total_categories, 
-            current_batch,
-            customers_in_current_batch,
-            preferences_updated,
-            customers_processed 
+            total_categories,
+            customers_in_current_batch
         } = importProgress
         
         if (total_categories && total_categories > 0 && current_category_index) {
@@ -30,13 +27,13 @@ export function CustomerIOImportModal(): JSX.Element {
             return (
                 <div className="space-y-2">
                     <div className="flex justify-between text-xs text-muted-alt">
-                        <span>Category {current_category_index} of {total_categories}</span>
+                        <span>Topic {current_category_index} of {total_categories}</span>
                         <span>{Math.round(categoryProgress)}%</span>
                     </div>
                     <LemonProgress percent={categoryProgress} />
-                    {current_batch && current_batch > 0 && (
+                    {customers_in_current_batch && customers_in_current_batch > 0 && (
                         <div className="text-xs text-muted-alt">
-                            Batch {current_batch} - Processing {customers_in_current_batch || 0} customers
+                            Processing {customers_in_current_batch} customers with opt-outs
                         </div>
                     )}
                 </div>
@@ -87,7 +84,7 @@ export function CustomerIOImportModal(): JSX.Element {
                                 
                                 {importProgress?.status === 'creating_categories' && (
                                     <div className="text-sm text-muted-alt mb-4">
-                                        Creating message categories from topics...
+                                        Creating message categories from Customer.io topics...
                                     </div>
                                 )}
                                 
@@ -109,7 +106,7 @@ export function CustomerIOImportModal(): JSX.Element {
                                             <p>✓ Created {importProgress.categories_created || importProgress.workflows_created} categories</p>
                                         )}
                                         {importProgress.current_category && (
-                                            <p>Processing: {importProgress.current_category}</p>
+                                            <p>Currently importing opt-outs for: {importProgress.current_category}</p>
                                         )}
                                         {importProgress.customers_processed > 0 && (
                                             <p>Customers found with opt-outs: {importProgress.customers_processed}</p>
@@ -158,7 +155,7 @@ export function CustomerIOImportModal(): JSX.Element {
                             <li>Preserve their opt-out preferences for each topic</li>
                         </ul>
                         <p className="mt-2 text-warning">
-                            Note: For large customer bases (100k+), this may take several minutes.
+                            Note: The import duration depends on your customer base size. Large imports (100k+ customers) may take several minutes to complete.
                         </p>
                     </div>
                 </div>
@@ -172,7 +169,14 @@ export function CustomerIOImportModal(): JSX.Element {
             isOpen={isImportModalOpen}
             onClose={closeImportModal}
             footer={
-                !isImporting && importProgress?.status !== 'completed' && importProgress?.status !== 'failed' ? (
+                isImporting || (importProgress && importProgress.status !== 'completed' && importProgress.status !== 'failed') ? (
+                    // Hide all buttons during import
+                    null
+                ) : importProgress?.status === 'completed' || importProgress?.status === 'failed' ? (
+                    <LemonButton type="primary" onClick={closeImportModal}>
+                        Close
+                    </LemonButton>
+                ) : (
                     <>
                         <LemonButton type="secondary" onClick={closeImportModal}>
                             Cancel
@@ -186,10 +190,6 @@ export function CustomerIOImportModal(): JSX.Element {
                             Start Import
                         </LemonButton>
                     </>
-                ) : (
-                    <LemonButton type="primary" onClick={closeImportModal}>
-                        Close
-                    </LemonButton>
                 )
             }
             width="medium"
