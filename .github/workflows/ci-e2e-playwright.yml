@@ -224,6 +224,9 @@ jobs:
               shell: bash
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            - name: Ensure SeaweedFS bucket exists
+              run: |
+                  python manage.py ensure_object_storage_bucket
 
             - name: Install the working version of hogql-parser
               if: needs.changes.outputs.shouldRun == 'true' && steps.hogql-parser-diff.outputs.changed == 'true'

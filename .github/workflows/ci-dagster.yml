@@ -109,6 +109,9 @@ jobs:
               shell: bash
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            - name: Ensure SeaweedFS bucket exists
+              run: |
+                  python manage.py ensure_object_storage_bucket
 
             - name: Install Rust
               uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88

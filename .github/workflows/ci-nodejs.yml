@@ -186,6 +186,9 @@ jobs:
             - name: Install python dependencies
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            - name: Ensure SeaweedFS bucket exists
+              run: |
+                  python manage.py ensure_object_storage_bucket
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
