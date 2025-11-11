@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { LemonDialog } from '@posthog/lemon-ui'
@@ -16,14 +16,8 @@ const PAGE_SIZE = 10
 export const queriesTabLogic = kea<queriesTabLogicType>([
     path(['scenes', 'data-warehouse', 'scene', 'queriesTabLogic']),
     connect(() => ({
-        values: [
-            dataWarehouseViewsLogic,
-            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueriesLoading'],
-        ],
-        actions: [
-            dataWarehouseViewsLogic,
-            ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery'],
-        ],
+        values: [dataWarehouseViewsLogic, ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueriesLoading']],
+        actions: [dataWarehouseViewsLogic, ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -122,10 +116,7 @@ export const queriesTabLogic = kea<queriesTabLogicType>([
         ],
     })),
     selectors({
-        viewsLoading: [
-            (s) => [s.dataWarehouseSavedQueriesLoading],
-            (loading): boolean => loading,
-        ],
+        viewsLoading: [(s) => [s.dataWarehouseSavedQueriesLoading], (loading): boolean => loading],
         enrichedQueries: [
             (s) => [s.dataWarehouseSavedQueries, s.dependenciesMap, s.runHistoryMap],
             (queries, dependenciesMap, runHistoryMap): DataWarehouseSavedQuery[] => {
