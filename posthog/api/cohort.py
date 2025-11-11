@@ -1198,6 +1198,13 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         serializer.save()
         instance = cast(Cohort, serializer.instance)
 
+        # Although there are no changes when creating a Cohort, we synthesize one here because
+        # it is helpful to show the list of people in the cohort when looking at the activity log.
+        people = instance.to_dict()["people"]
+        changes = dict_changes_between(
+            "Cohort", previous={"people": []}, new={"people": people}, use_field_exclusions=True
+        )
+
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
@@ -1206,12 +1213,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             item_id=instance.id,
             scope="Cohort",
             activity="created",
-            detail=Detail(
-                changes=[
-                    Change(type="Cohort", action="created", field="people", before=0, after=instance.people.count())
-                ],
-                name=instance.name,
-            ),
+            detail=Detail(changes=changes, name=instance.name),
         )
 
     def perform_update(self, serializer):
