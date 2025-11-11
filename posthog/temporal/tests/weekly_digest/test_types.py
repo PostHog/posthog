@@ -138,6 +138,7 @@ def test_team_digest_render_payload():
     event = DigestEventDefinition(name="pageview", id=uuid4())
     flag = DigestFeatureFlag(name="Feature", id=1, key="feature")
     filter = DigestFilter(name="Filter", short_id="abc", view_count=5, recording_count=10)
+    recording = DigestRecording(session_id="session123", recording_ttl=7)
 
     digest = TeamDigest(
         id=1,
@@ -149,7 +150,7 @@ def test_team_digest_render_payload():
         external_data_sources=ExternalDataSourceList(root=[]),
         feature_flags=FeatureFlagList(root=[flag]),
         filters=FilterList(root=[filter]),
-        recordings=RecordingList(root=[]),
+        recordings=RecordingList(root=[recording]),
         surveys_launched=SurveyList(root=[]),
     )
 
@@ -164,6 +165,35 @@ def test_team_digest_render_payload():
     assert len(report["new_event_definitions"]) == 1
     assert len(report["new_feature_flags"]) == 1
     assert len(report["interesting_saved_filters"]) == 1
+    assert len(report["expiring_recordings"]) == 1
+    assert report["expiring_recordings"][0]["session_id"] == "session123"
+    assert report["expiring_recordings"][0]["recording_ttl"] == 7
+
+
+def test_team_digest_render_payload_empty_recordings():
+    """Test that TeamDigest renders its payload correctly with empty recordings."""
+    dashboard = DigestDashboard(name="Dashboard 1", id=1)
+
+    digest = TeamDigest(
+        id=1,
+        name="Test Team",
+        dashboards=DashboardList(root=[dashboard]),
+        event_definitions=EventDefinitionList(root=[]),
+        experiments_launched=ExperimentList(root=[]),
+        experiments_completed=ExperimentList(root=[]),
+        external_data_sources=ExternalDataSourceList(root=[]),
+        feature_flags=FeatureFlagList(root=[]),
+        filters=FilterList(root=[]),
+        recordings=RecordingList(root=[]),
+        surveys_launched=SurveyList(root=[]),
+    )
+
+    payload = digest.render_payload()
+
+    report = payload["report"]
+    assert isinstance(report, dict)
+    assert "expiring_recordings" in report
+    assert len(report["expiring_recordings"]) == 0
 
 
 def test_organization_digest_filter_for_user():
