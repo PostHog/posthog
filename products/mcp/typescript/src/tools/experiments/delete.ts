@@ -1,12 +1,13 @@
+import type { z } from 'zod'
+
 import { ExperimentDeleteSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = ExperimentDeleteSchema
 
 type Params = z.infer<typeof schema>
 
-export const deleteHandler = async (context: Context, { experimentId }: Params) => {
+export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context: Context, { experimentId }: Params) => {
     const projectId = await context.stateManager.getProjectId()
 
     const deleteResult = await context.api.experiments({ projectId }).delete({

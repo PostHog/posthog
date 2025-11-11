@@ -4,11 +4,7 @@ export const isShortId = (id: string): boolean => {
     return /^[A-Za-z0-9]{8}$/.test(id)
 }
 
-export const resolveInsightId = async (
-    context: Context,
-    insightId: string,
-    projectId: string
-): Promise<number> => {
+export const resolveInsightId = async (context: Context, insightId: string, projectId: string): Promise<number> => {
     if (isShortId(insightId)) {
         const result = await context.api.insights({ projectId }).get({ insightId })
 

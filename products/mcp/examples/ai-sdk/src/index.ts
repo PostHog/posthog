@@ -1,15 +1,16 @@
 import { openai } from '@ai-sdk/openai'
-import { PostHogAgentToolkit } from '@posthog/agent-toolkit/integrations/ai-sdk'
 import { generateText, stepCountIs } from 'ai'
 import 'dotenv/config'
 
-async function analyzeProductUsage() {
+import { PostHogAgentToolkit } from '@posthog/agent-toolkit/integrations/ai-sdk'
+
+async function analyzeProductUsage(): Promise<void> {
     const agentToolkit = new PostHogAgentToolkit({
         posthogPersonalApiKey: process.env.POSTHOG_PERSONAL_API_KEY!,
         posthogApiBaseUrl: process.env.POSTHOG_API_BASE_URL || 'https://us.posthog.com',
     })
 
-    const result = await generateText({
+    await generateText({
         model: openai('gpt-5-mini'),
         tools: await agentToolkit.getTools(),
         stopWhen: stepCountIs(30),
@@ -24,7 +25,7 @@ async function analyzeProductUsage() {
     })
 }
 
-async function main() {
+async function main(): Promise<void> {
     try {
         await analyzeProductUsage()
     } catch (error) {
