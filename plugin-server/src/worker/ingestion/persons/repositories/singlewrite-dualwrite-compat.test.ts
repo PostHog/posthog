@@ -22,6 +22,7 @@ import {
     assertCreatePersonConflictContractParity,
     assertCreatePersonContractParity,
     cleanupPrepared,
+    createPersonUpdateFields,
     getFirstTeam,
     mockDatabaseError,
     setupMigrationDb,
@@ -303,12 +304,12 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
             const singleUpdateResult = await singleWriteRepository.updatePerson(
                 singleCreatePersonResult.person,
-                { properties: { name: 'B' } },
+                createPersonUpdateFields(singleCreatePersonResult.person, { properties: { name: 'B' } }),
                 'single-update'
             )
             const dualUpdateResult = await dualWriteRepository.updatePerson(
                 dualCreatePersonResult.person,
-                { properties: { name: 'B' } },
+                createPersonUpdateFields(dualCreatePersonResult.person, { properties: { name: 'B' } }),
                 'dual-update'
             )
             assertUpdatePersonContractParity(singleUpdateResult, dualUpdateResult)
@@ -333,13 +334,13 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 () =>
                     singleWriteRepository.updatePerson(
                         singleCreatePersonResult.person,
-                        { properties: { name: 'B' } },
+                        createPersonUpdateFields(singleCreatePersonResult.person, { properties: { name: 'B' } }),
                         'single-update'
                     ),
                 () =>
                     dualWriteRepository.updatePerson(
                         dualCreatePersonResult.person,
-                        { properties: { name: 'B' } },
+                        createPersonUpdateFields(dualCreatePersonResult.person, { properties: { name: 'B' } }),
                         'dual-update'
                     ),
                 'unhandled database error'
@@ -366,13 +367,13 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 () =>
                     singleWriteRepository.updatePerson(
                         singleCreatePersonResult.person,
-                        { properties: { name: 'B' } },
+                        createPersonUpdateFields(singleCreatePersonResult.person, { properties: { name: 'B' } }),
                         'single-update'
                     ),
                 () =>
                     dualWriteRepository.updatePerson(
                         dualCreatePersonResult.person,
-                        { properties: { name: 'B' } },
+                        createPersonUpdateFields(dualCreatePersonResult.person, { properties: { name: 'B' } }),
                         'dual-update'
                     ),
                 PersonPropertiesSizeViolationError as any
@@ -428,12 +429,12 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
             }
             const singleUpdateResult = await singleWriteRepository.updatePerson(
                 singleCreatePersonResult.person,
-                updateToApply,
+                createPersonUpdateFields(singleCreatePersonResult.person, updateToApply),
                 'single-update'
             )
             const dualUpdateResult = await dualWriteRepository.updatePerson(
                 dualCreatePersonResult.person,
-                updateToApply,
+                createPersonUpdateFields(dualCreatePersonResult.person, updateToApply),
                 'dual-update'
             )
 

@@ -10,36 +10,21 @@ export interface PostHogFlagsResponse {
     results?: PostHogFeatureFlag[]
 }
 const base = ['exact', 'is_not', 'is_set', 'is_not_set'] as const
-const stringOps = [
-    ...base,
-    'icontains',
-    'not_icontains',
-    'regex',
-    'not_regex',
-    'is_cleaned_path_exact',
-] as const
+const stringOps = [...base, 'icontains', 'not_icontains', 'regex', 'not_regex', 'is_cleaned_path_exact'] as const
 const numberOps = [...base, 'gt', 'gte', 'lt', 'lte', 'min', 'max'] as const
 const booleanOps = [...base] as const
 
 const arrayOps = ['in', 'not_in'] as const
 
-const operatorSchema = z.enum([
-    ...stringOps,
-    ...numberOps,
-    ...booleanOps,
-    ...arrayOps,
-] as unknown as [string, ...string[]])
+const operatorSchema = z.enum([...stringOps, ...numberOps, ...booleanOps, ...arrayOps] as unknown as [
+    string,
+    ...string[],
+])
 
 export const PersonPropertyFilterSchema = z
     .object({
         key: z.string(),
-        value: z.union([
-            z.string(),
-            z.number(),
-            z.boolean(),
-            z.array(z.string()),
-            z.array(z.number()),
-        ]),
+        value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.array(z.number())]),
         operator: operatorSchema.optional(),
     })
     .superRefine((data, ctx) => {
