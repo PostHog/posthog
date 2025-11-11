@@ -71,8 +71,8 @@ async def minio_client(bucket_name):
     """
     async with create_test_client(
         "s3",
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
     ) as minio_client:
         await minio_client.create_bucket(Bucket=bucket_name)
 
@@ -102,8 +102,8 @@ def test_can_run_s3_test_step_for_new_destination(
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
         },
     }
@@ -139,8 +139,8 @@ def test_can_run_s3_test_step_for_destination(
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
         },
     }
@@ -299,8 +299,8 @@ def test_can_run_s3_test_step_with_additional_fields(
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
         },
     }

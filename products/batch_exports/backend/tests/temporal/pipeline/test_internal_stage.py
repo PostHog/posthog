@@ -212,8 +212,8 @@ async def minio_client():
     """Manage an S3 client to interact with a MinIO bucket."""
     async with create_test_client(
         "s3",
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
     ) as minio_client:
         yield minio_client
 

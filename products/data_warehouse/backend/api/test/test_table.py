@@ -531,8 +531,8 @@ class TestTable(APIBaseTest):
         s3_client = boto3.client(
             "s3",
             endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-            aws_access_key_id="object_storage_root_user",
-            aws_secret_access_key="object_storage_root_password",
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             region_name="us-east-1",
         )
 
@@ -553,8 +553,8 @@ class TestTable(APIBaseTest):
             }
             # Patch the settings to use our test bucket
             with self.settings(
-                AIRBYTE_BUCKET_KEY="object_storage_root_user",
-                AIRBYTE_BUCKET_SECRET="object_storage_root_password",
+                AIRBYTE_BUCKET_KEY="any",
+                AIRBYTE_BUCKET_SECRET="any",
                 AIRBYTE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
                 BUCKET_URL=f"s3://{test_bucket_name}",
                 DATAWAREHOUSE_BUCKET=test_bucket_name,

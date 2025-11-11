@@ -3,6 +3,8 @@ import datetime as dt
 
 import pytest
 
+from django.conf import settings
+
 import pyarrow as pa
 
 from posthog.batch_exports.models import BatchExportRun
@@ -29,8 +31,8 @@ async def s3_batch_export(
             "bucket_name": "a-bucket",
             "region": "us-east-1",
             "prefix": "a-key",
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         },
     }
 

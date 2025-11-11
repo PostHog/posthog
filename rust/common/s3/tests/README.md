@@ -2,50 +2,46 @@
 
 ## Running Integration Tests
 
-The integration tests require MinIO to be running locally on port 19000.
+The integration tests require SeaweedFS S3 to be running locally on port 8333.
 
 ### Option 1: Using PostHog Docker Compose (Recommended)
 
 From the PostHog root directory:
 
 ```bash
-# Start just the MinIO service
-docker-compose -f docker-compose.dev-full.yml up objectstorage -d
+# Start just the SeaweedFS service
+docker compose -f docker-compose.dev.yml up seaweedfs -d
 
 # Run the integration tests
 cd rust/common/s3
 cargo test -- --ignored
 
-# Stop MinIO when done
-docker-compose -f docker-compose.dev-full.yml down objectstorage
+# Stop SeaweedFS when done
+docker compose -f docker-compose.dev.yml down seaweedfs
 ```
 
 ### Option 2: Using Docker directly
 
 ```bash
-# Start MinIO with PostHog's credentials
-docker run -p 19000:19000 -p 19001:19001 \
-  -e MINIO_ROOT_USER=object_storage_root_user \
-  -e MINIO_ROOT_PASSWORD=object_storage_root_password \
-  minio/minio:RELEASE.2025-04-22T22-12-26Z \
-  server --address ":19000" --console-address ":19001" /data
+# Start SeaweedFS with S3 enabled
+docker run --rm -p 8333:8333 chrislusf/seaweedfs server -s3 -s3.port=8333
 
 # Run the integration tests
 cargo test -- --ignored
 ```
 
-### Checking if MinIO is Running
+### Checking if SeaweedFS is Running
 
-You can verify MinIO is running by visiting: http://localhost:19001 (MinIO Console)
+You can verify SeaweedFS S3 is running by hitting: http://localhost:8333
 
-Login credentials:
+Credentials used by tests:
 
-- Username: `object_storage_root_user`
-- Password: `object_storage_root_password`
+- Access key: `any`
+- Secret: `any`
 
 ## Unit Tests
 
-Unit tests don't require MinIO and test the mock implementation:
+Unit tests don't require S3:
 
 ```bash
 cargo test --lib

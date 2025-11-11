@@ -30,8 +30,8 @@ async def minio_client(bucket_name):
     """
     async with create_test_client(
         "s3",
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
     ) as minio_client:
         await minio_client.create_bucket(Bucket=bucket_name)
 
@@ -45,8 +45,8 @@ async def minio_client(bucket_name):
 async def test_s3_check_bucket_exists_test_step(bucket_name, minio_client):
     test_step = S3EnsureBucketTestStep(
         bucket_name=bucket_name,
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
     )
     result = await test_step.run()
@@ -58,8 +58,8 @@ async def test_s3_check_bucket_exists_test_step(bucket_name, minio_client):
 async def test_s3_check_bucket_exists_test_step_without_bucket(minio_client):
     test_step = S3EnsureBucketTestStep(
         bucket_name="some-other-bucket",
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
     )
     result = await test_step.run()

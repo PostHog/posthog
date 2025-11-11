@@ -77,8 +77,8 @@ async def minio_client(bucket_name):
     """
     async with create_test_client(
         "s3",
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
     ) as minio_client:
         await minio_client.create_bucket(Bucket=bucket_name)
 
@@ -107,8 +107,8 @@ async def s3_batch_export(
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": s3_key_prefix,
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
             "compression": compression,
             "exclude_events": exclude_events,

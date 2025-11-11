@@ -61,8 +61,8 @@ async def batch_export(ateam, temporal_client):
             "bucket_name": "a-bucket",
             "region": "us-east-1",
             "prefix": "a-key",
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         },
     }
 
