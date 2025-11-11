@@ -17,6 +17,7 @@ export const FRAMEWORK_DOCS: Record<SupportedFramework, string> = {
 
 /**
  * URL to the PostHog examples markdown artifact (latest release)
+ * This ZIP contains both example projects and LLM prompts
  */
 export const EXAMPLES_MARKDOWN_URL =
     'https://github.com/PostHog/examples/releases/latest/download/examples-mcp-resources.zip'
@@ -49,4 +50,14 @@ export function getSupportedFrameworks(): string[] {
  */
 export function getSupportedFrameworksList(): string {
     return getSupportedFrameworks().join(', ')
+}
+
+/**
+ * Workflow guide filenames in the examples-mcp-resources.zip artifact
+ * These are located in the prompts/ directory
+ */
+export const WORKFLOW_GUIDE_FILES = {
+    BEGIN: 'prompts/basic-integration/1.0-event-setup-begin.md',
+    EDIT: 'prompts/basic-integration/1.1-event-setup-edit.md',
+    REVISE: 'prompts/basic-integration/1.2-event-setup-revise.md',
 }

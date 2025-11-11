@@ -7,14 +7,11 @@ import {
     EXAMPLES_MARKDOWN_URL,
     FRAMEWORK_DOCS,
     FRAMEWORK_MARKDOWN_FILES,
+    WORKFLOW_GUIDE_FILES,
     getSupportedFrameworks,
     getSupportedFrameworksList,
     isSupportedFramework,
 } from './framework-mappings'
-// Import workflow markdown files
-import workflowBegin from './workflow-guides/1.0-event-setup-begin.md'
-import workflowEdit from './workflow-guides/1.1-event-setup-edit.md'
-import workflowRevise from './workflow-guides/1.2-event-setup-revise.md'
 
 /**
  * Resource URI constants for PostHog integration resources
@@ -43,7 +40,7 @@ export const WORKFLOW_NEXT_STEP_MESSAGE = 'Upon completion, access the following
  */
 const IDENTIFY_USERS_DOCS_URL = 'https://posthog.com/docs/getting-started/identify-users.md'
 
-// Cache for the examples markdown ZIP contents
+// Cache for the examples markdown ZIP contents (includes both examples and prompts)
 let cachedExamplesMarkdown: Unzipped | null = null
 
 /**
@@ -61,6 +58,7 @@ async function fetchDocumentation(url: string): Promise<string> {
 
 /**
  * Fetches and caches the examples markdown ZIP at startup
+ * This ZIP contains both example projects and LLM prompts
  */
 async function fetchExamplesMarkdown(): Promise<Unzipped> {
     if (cachedExamplesMarkdown) {
@@ -80,25 +78,25 @@ async function fetchExamplesMarkdown(): Promise<Unzipped> {
     return cachedExamplesMarkdown
 }
 
-// Define workflow sequence - automatically appends next step URI to each workflow
+// Define workflow sequence - files will be loaded from ZIP
 const workflowSequence = [
     {
         uri: ResourceUri.WORKFLOW_SETUP_BEGIN,
         name: 'Event Setup - Begin',
         description: 'Start the event tracking setup process',
-        content: workflowBegin,
+        file: WORKFLOW_GUIDE_FILES.BEGIN,
     },
     {
         uri: ResourceUri.WORKFLOW_SETUP_EDIT,
         name: 'Event Setup - Edit',
         description: 'Edit files to add PostHog event tracking',
-        content: workflowEdit,
+        file: WORKFLOW_GUIDE_FILES.EDIT,
     },
     {
         uri: ResourceUri.WORKFLOW_SETUP_REVISE,
         name: 'Event Setup - Revise',
         description: 'Review and fix any errors in the implementation',
-        content: workflowRevise,
+        file: WORKFLOW_GUIDE_FILES.REVISE,
     },
 ]
 
@@ -107,7 +105,7 @@ const workflowSequence = [
  */
 // oxlint-disable-next-line @typescript-eslint/no-unused-vars
 export function registerIntegrationResources(server: McpServer, _context: Context): void {
-    // Fetch examples markdown at startup
+    // Fetch examples markdown (includes both examples and prompts) at startup
     fetchExamplesMarkdown().catch((error) => {
         console.error('Failed to fetch examples markdown:', error)
     })
@@ -115,11 +113,6 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
     // Register workflow resources with automatic next step appending
     workflowSequence.forEach((workflow, i) => {
         const nextWorkflow = workflowSequence[i + 1]
-
-        // Append next step URI if there is a next workflow
-        const content = nextWorkflow
-            ? `${workflow.content}\n\n---\n\n**${WORKFLOW_NEXT_STEP_MESSAGE}** ${nextWorkflow.uri}`
-            : workflow.content
 
         server.registerResource(
             workflow.name,
@@ -129,11 +122,27 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
                 description: workflow.description,
             },
             async (uri) => {
+                // Fetch the examples ZIP which includes prompts (from cache if available)
+                const examplesZip = await fetchExamplesMarkdown()
+
+                // Read the workflow file from the ZIP
+                const promptData = examplesZip[workflow.file]
+                if (!promptData) {
+                    throw new Error(`Workflow file "${workflow.file}" not found in examples archive`)
+                }
+
+                const content = strFromU8(promptData)
+
+                // Append next step URI if there is a next workflow
+                const finalContent = nextWorkflow
+                    ? `${content}\n\n---\n\n**${WORKFLOW_NEXT_STEP_MESSAGE}** ${nextWorkflow.uri}`
+                    : content
+
                 return {
                     contents: [
                         {
                             uri: uri.toString(),
-                            text: content,
+                            text: finalContent,
                         },
                     ],
                 }
