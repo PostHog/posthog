@@ -8,6 +8,7 @@ import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { formatExceptionDisplay, formatResolvedName } from 'lib/components/Errors/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { urls } from 'scenes/urls'
 
 import { fixModalLogic } from './fixModalLogic'
 
@@ -24,7 +25,7 @@ export function FixModal({ isOpen, onClose, issueId }: FixModalProps): JSX.Eleme
     const { setMode } = useActions(fixModalLogic)
 
     const generatePrompt = (): string => {
-        const issueUrl = `${window.location.origin}/error_tracking/${issueId}`
+        const issueUrl = window.location.origin + urls.errorTrackingIssue(issueId)
         const stacktraceText = exceptionList
             .map((exception) => generateExceptionText(exception, stackFrameRecords))
             .join('\n\n')
