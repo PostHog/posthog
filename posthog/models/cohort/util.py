@@ -1,4 +1,3 @@
-import math
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union, cast
@@ -7,7 +6,6 @@ from django.conf import settings
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from dateutil import parser
 from rest_framework.exceptions import ValidationError
 
@@ -46,7 +44,6 @@ from posthog.queries.util import PersonPropertiesMode
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
-TARGET_CHUNK_SIZE = 5_000_000
 
 logger = structlog.get_logger(__name__)
 
@@ -445,7 +442,7 @@ def recalculate_cohortpeople(
         tag_queries(user_id=initiating_user_id)
     for team in relevant_teams:
         tag_queries(team_id=team.id)
-        _recalculate_cohortpeople_for_team_hogql(cohort, pending_version, team)
+        _recalculate_cohortpeople_for_team(cohort, pending_version, team)
         count: Optional[int]
         if cohort.is_static:
             count = get_static_cohort_size(cohort_id=cohort.id, team_id=team.id)
@@ -456,7 +453,7 @@ def recalculate_cohortpeople(
     return count_by_team_id[cohort.team_id]
 
 
-def _recalculate_cohortpeople_for_team_hogql(cohort: Cohort, pending_version: int, team: Team) -> int:
+def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, team: Team) -> int:
     tag_queries(name="recalculate_cohortpeople_for_team_hogql")
 
     history = CohortCalculationHistory.objects.create(
@@ -464,14 +461,7 @@ def _recalculate_cohortpeople_for_team_hogql(cohort: Cohort, pending_version: in
     )
 
     try:
-        estimated_size = cohort.count if cohort.count else 0
-        chunk_size = _get_cohort_chunking_config(cohort, team.uuid, team.organization.id, estimated_size)
-        if chunk_size is not None:
-            total_chunks = max(math.ceil(estimated_size / chunk_size), 1)
-            result = _recalculate_cohortpeople_chunked(cohort, pending_version, team, total_chunks, history)
-        else:
-            result = _recalculate_cohortpeople_standard(cohort, pending_version, team, history)
-
+        result = _recalculate_cohortpeople_for_team_hogql(cohort, pending_version, team, history)
         return result
 
     except Exception as e:
@@ -481,10 +471,9 @@ def _recalculate_cohortpeople_for_team_hogql(cohort: Cohort, pending_version: in
         raise
 
 
-def _recalculate_cohortpeople_standard(
+def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, history: CohortCalculationHistory
 ) -> int:
-    """Standard non-chunked cohort calculation with metrics tracking"""
     cohort_params: dict[str, Any]
     if cohort.is_static:
         cohort_query, cohort_params = format_static_cohort_query(cohort, 0, prepend="")
@@ -548,98 +537,15 @@ def _recalculate_cohortpeople_standard(
     )
 
     if history:
-        try:
-            history.finished_at = query_end_time
-            if isinstance(result, list) and len(result) == 0:
-                history.count = 0
-            else:
-                history.count = result
+        history.finished_at = query_end_time
+        if isinstance(result, list) and len(result) == 0:
+            history.count = 0
+        else:
+            history.count = result
 
-            history.save(update_fields=["finished_at", "count"])
-
-        except Exception as e:
-            history.finished_at = timezone.now()
-            history.error = str(e)
-            history.save(update_fields=["finished_at", "error"])
-            raise
+        history.save(update_fields=["finished_at", "count"])
 
     return result
-
-
-def _recalculate_cohortpeople_chunked(
-    cohort: Cohort, pending_version: int, team: Team, total_chunks: int, history: CohortCalculationHistory
-) -> int:
-    """Chunked cohort calculation to prevent OOMs with metrics tracking"""
-    total_inserted = 0
-
-    for chunk_index in range(total_chunks):
-        chunk_cohort_params: dict[str, Any]
-        from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-
-        chunk_cohort_query, hogql_context = (
-            HogQLCohortQuery(cohort=cohort, team=team, chunk_index=chunk_index, total_chunks=total_chunks)
-            .get_query_executor()
-            .generate_clickhouse_sql()
-        )
-        chunk_cohort_params = hogql_context.values
-
-        # Remove SETTINGS clause for subquery compatibility
-        chunk_cohort_query = chunk_cohort_query[: chunk_cohort_query.rfind("SETTINGS")]
-
-        chunk_recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=chunk_cohort_query)
-
-        def execute_chunk_query(sql=chunk_recalculate_cohortpeople_sql, params=chunk_cohort_params):
-            tag_queries(
-                kind="cohort_calculation_chunk",
-                query_type="CohortsQueryHogQL",
-                feature=Feature.COHORT,
-                cohort_id=cohort.pk,
-                team_id=team.id,
-            )
-            hogql_global_settings = HogQLGlobalSettings()
-
-            return sync_execute(
-                sql,
-                {
-                    **params,
-                    "cohort_id": cohort.pk,
-                    "team_id": team.id,
-                    "new_version": pending_version,
-                },
-                settings={
-                    "max_execution_time": 600,
-                    "send_timeout": 600,
-                    "receive_timeout": 600,
-                    "optimize_on_insert": 0,
-                    "max_ast_elements": hogql_global_settings.max_ast_elements,
-                    "max_expanded_ast_elements": hogql_global_settings.max_expanded_ast_elements,
-                    "max_bytes_ratio_before_external_group_by": 0.5,
-                    "max_bytes_ratio_before_external_sort": 0.5,
-                },
-                workload=Workload.OFFLINE,
-                ch_user=ClickHouseUser.COHORTS,
-            )
-
-        chunk_result, _ = run_cohort_query(
-            execute_chunk_query, cohort_id=cohort.pk, history=history, query=chunk_recalculate_cohortpeople_sql
-        )
-
-        chunk_inserted = chunk_result or 0
-        total_inserted += chunk_inserted
-
-    if history:
-        try:
-            history.finished_at = timezone.now()
-            history.count = total_inserted
-            history.save(update_fields=["finished_at", "count"])
-
-        except Exception as e:
-            history.finished_at = timezone.now()
-            history.error = str(e)
-            history.save(update_fields=["finished_at", "error"])
-            raise
-
-    return total_inserted
 
 
 def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:
@@ -895,58 +801,3 @@ def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[in
             dfs(cohort_id, seen, sorted_cohort_ids)
 
     return sorted_cohort_ids
-
-
-def _get_cohort_chunking_config(
-    cohort: Cohort, team_uuid: uuid.UUID, organization_id: int, estimated_size: int
-) -> int | None:
-    """
-    Get chunk size from feature flag, or None if chunking is disabled.
-
-    The chunk size determines how large each chunk should be when processing
-    large cohorts. If the flag is disabled or any errors occur, returns None
-    to indicate chunking should not be used.
-
-    Args:
-        cohort: The cohort being calculated
-        team_uuid: UUID of the team
-        organization_id: ID of the organization
-
-    Returns:
-        Optional[int]: chunk_size if chunking enabled (defaults to TARGET_CHUNK_SIZE),
-                       None if chunking is disabled or cohort is static or has zero estimated size
-    """
-    if cohort.is_static:
-        return None
-
-    if estimated_size == 0:
-        return None
-
-    try:
-        result = posthoganalytics.get_feature_flag_result(
-            "cohort-calculation-chunked",
-            str(team_uuid),
-            groups={"organization": str(organization_id)},
-            group_properties={"organization": {"id": str(organization_id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-
-        if result is None or not result.enabled or result.payload is None:
-            return None
-
-        chunk_size = result.payload.get("chunk_size")
-
-        if isinstance(chunk_size, int) and chunk_size > 0:
-            return chunk_size
-
-        return TARGET_CHUNK_SIZE
-
-    except Exception as e:
-        logger.exception(
-            "Failed to retrieve cohort chunking config, disabling chunking",
-            team_uuid=str(team_uuid),
-            organization_id=organization_id,
-            error=str(e),
-        )
-        return None
