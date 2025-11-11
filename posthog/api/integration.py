@@ -73,10 +73,15 @@ class IntegrationSerializer(serializers.ModelSerializer):
             serializer = NativeEmailIntegrationSerializer(data=config)
             serializer.is_valid(raise_exception=True)
 
+            get_organization = self.context.get("get_organization")
+            if get_organization is None:
+                raise ValidationError("Organization context is missing")
+            organization_id = str(get_organization().id)
+
             instance = EmailIntegration.create_native_integration(
                 serializer.validated_data,
                 team_id=team_id,
-                organization_id=str(self.context.get("get_organization")().id),
+                organization_id=organization_id,
                 created_by=request.user,
             )
             return instance
