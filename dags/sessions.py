@@ -1,3 +1,4 @@
+from clickhouse_driver import Client
 from dagster import (
     AssetExecutionContext,
     BackfillPolicy,
@@ -10,6 +11,7 @@ from dagster import (
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.cluster import get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.git import get_git_commit_short
 from posthog.models.raw_sessions.sessions_v3 import (
@@ -31,7 +33,7 @@ daily_partitions = DailyPartitionsDefinition(
 
 retry_policy = RetryPolicy(
     max_retries=3,
-    delay=60,
+    delay=10 * 60,  # 10 minutes
     backoff=Backoff.EXPONENTIAL,
     jitter=Jitter.PLUS_MINUS,
 )
@@ -64,7 +66,7 @@ def sessions_v3_backfill(context: AssetExecutionContext) -> None:
 
     # note that this is idempotent, so we don't need to worry about running it multiple times for the same partition
     # as long as the backfill has run at least once for each partition, the data will be correct
-    backfill_sql = RAW_SESSION_TABLE_BACKFILL_SQL_V3(where=where_clause)
+    backfill_sql = RAW_SESSION_TABLE_BACKFILL_SQL_V3(where=where_clause, use_sharded_source=True)
 
     partition_range = context.partition_key_range
     partition_range_str = f"{partition_range.start} to {partition_range.end}"
@@ -73,8 +75,14 @@ def sessions_v3_backfill(context: AssetExecutionContext) -> None:
     )
     context.log.info(backfill_sql)
 
-    with tags_context(kind="dagster", dagster=dagster_tags(context)):
-        sync_execute(backfill_sql, workload=Workload.OFFLINE, settings=settings)
+    cluster = get_cluster()
+    tags = dagster_tags(context)
+
+    def backfill_per_shard(client: Client):
+        with tags_context(kind="dagster", dagster=tags):
+            sync_execute(backfill_sql, settings=settings, sync_client=client)
+
+    cluster.map_one_host_per_shard(backfill_per_shard).result()
 
     context.log.info(f"Successfully backfilled sessions_v3 for {partition_range_str}")
 
@@ -91,7 +99,7 @@ def sessions_v3_backfill_replay(context: AssetExecutionContext) -> None:
 
     # note that this is idempotent, so we don't need to worry about running it multiple times for the same partition
     # as long as the backfill has run at least once for each partition, the data will be correct
-    backfill_sql = RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where=where_clause)
+    backfill_sql = RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where=where_clause, use_sharded_source=True)
 
     partition_range = context.partition_key_range
     partition_range_str = f"{partition_range.start} to {partition_range.end}"
@@ -100,7 +108,13 @@ def sessions_v3_backfill_replay(context: AssetExecutionContext) -> None:
     )
     context.log.info(backfill_sql)
 
-    with tags_context(kind="dagster", dagster=dagster_tags(context)):
-        sync_execute(backfill_sql, workload=Workload.OFFLINE, settings=settings)
+    cluster = get_cluster()
+    tags = dagster_tags(context)
+
+    def backfill_per_shard(client: Client):
+        with tags_context(kind="dagster", dagster=tags):
+            sync_execute(backfill_sql, workload=Workload.OFFLINE, settings=settings, sync_client=client)
+
+    cluster.map_one_host_per_shard(backfill_per_shard).result()
 
     context.log.info(f"Successfully backfilled sessions_v3 for {partition_range_str}")

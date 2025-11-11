@@ -1266,8 +1266,18 @@ async def test_inconsistent_types_in_data(team):
         workflow_id,
         inputs,
         [
-            {"id": "4112492", "domain_names": "transfer"},
-            {"id": "4112492", "domain_names": ["transfer", "another_value"]},
+            {
+                "id": "4112492",
+                "domain_names": "transfer",
+                "created_at": "2022-04-25T19:42:18Z",
+                "updated_at": "2024-05-31T22:10:48Z",
+            },
+            {
+                "id": "4112492",
+                "domain_names": ["transfer", "another_value"],
+                "created_at": "2022-04-25T19:42:18Z",
+                "updated_at": "2024-05-31T22:10:48Z",
+            },
         ],
     )
 

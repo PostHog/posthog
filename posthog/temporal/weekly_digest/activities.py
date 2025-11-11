@@ -451,6 +451,9 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
         )
 
 
+RECORD_BATCH_SIZE = 100
+
+
 @activity.defn(name="send-weekly-digest-batch")
 async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
     async with Heartbeater():
@@ -467,6 +470,8 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
         if not ph_client and not input.dry_run:
             logger.error("Failed to set up Posthog client")
             return
+
+        messaging_record_batch: list[MessagingRecord] = []
 
         async with redis.from_url(_redis_url(input.common)) as r:
             batch_start, batch_end = input.batch
@@ -546,9 +551,15 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                     continue
                 finally:
                     if not input.dry_run and partial:
-                        ph_client.flush()
                         messaging_record.sent_at = timezone.now()
-                        await messaging_record.asave()
+                        messaging_record_batch.append(messaging_record)
+
+                    if len(messaging_record_batch) >= RECORD_BATCH_SIZE:
+                        await MessagingRecord.objects.abulk_update(messaging_record_batch, ["sent_at"])
+                        messaging_record_batch = []
+
+        if len(messaging_record_batch) > 0:
+            await MessagingRecord.objects.abulk_update(messaging_record_batch, ["sent_at"])
 
         if ph_client:
             ph_client.shutdown()

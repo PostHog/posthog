@@ -71,10 +71,10 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
         # Sort 'changes' lists for order-insensitive comparison
         for item in activity:
-            if "detail" in item and "changes" in item["detail"]:
+            if "detail" in item and item["detail"].get("changes") is not None:
                 item["detail"]["changes"].sort(key=lambda x: x.get("field", ""))
         for item in expected:
-            if "detail" in item and "changes" in item["detail"]:
+            if "detail" in item and item["detail"].get("changes") is not None:
                 item["detail"]["changes"].sort(key=lambda x: x.get("field", ""))
 
         assert activity == expected
@@ -1413,7 +1413,7 @@ email@example.org,
                     "activity": "created",
                     "scope": "Cohort",
                     "item_id": str(cohort.pk),
-                    "detail": {"changes": [], "trigger": None, "name": "whatever", "short_id": None, "type": None},
+                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
                     "created_at": mock.ANY,
                 }
             ],
@@ -1475,9 +1475,52 @@ email@example.org,
                     "activity": "created",
                     "scope": "Cohort",
                     "item_id": str(cohort.pk),
-                    "detail": {"changes": [], "trigger": None, "name": "whatever", "short_id": None, "type": None},
+                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
                     "created_at": mock.ANY,
                 },
+            ],
+        )
+
+    def test_create_static_cohort_activity_log(self):
+        """
+        Test that creating a static cohort creates an activity log entry that does not include 'changes' in the detail.
+        Previously, 'changes' included all the users added to the cohort, which could be very large and cause exceptions
+        while propagating the activity log entry.
+        """
+
+        num_people = 3
+        person_uuids = []
+        for i in range(num_people):
+            person = Person.objects.create(
+                team=self.team, distinct_ids=[f"user_{i}"], properties={"email": f"user{i}@example.com"}
+            )
+            person_uuids.append(str(person.uuid))
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "my static cohort", "is_static": True, "_create_static_person_ids": person_uuids[:num_people]},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort_id = response.json()["id"]
+
+        self.assert_cohort_activity(
+            cohort_id=cohort_id,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "created",
+                    "scope": "Cohort",
+                    "item_id": str(cohort_id),
+                    "detail": {
+                        "trigger": None,
+                        "changes": None,
+                        "name": "my static cohort",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": mock.ANY,
+                }
             ],
         )
 
