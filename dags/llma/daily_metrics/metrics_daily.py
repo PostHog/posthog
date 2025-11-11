@@ -8,6 +8,7 @@ for efficient querying and cost analysis.
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pandas as pd
 import dagster
 from dagster import BackfillPolicy, DailyPartitionsDefinition
 from jinja2 import Template
@@ -20,7 +21,7 @@ from dags.common import JobOwners, dagster_tags
 from dags.llma.daily_metrics.config import AI_EVENT_TYPES, config
 
 # Partition definition for daily aggregations
-partition_def = DailyPartitionsDefinition(start_date=config.partition_start_date)
+partition_def = DailyPartitionsDefinition(start_date=config.partition_start_date, end_offset=1)
 
 # Backfill policy: process N days per run
 backfill_policy_def = BackfillPolicy.multi_run(max_partitions_per_run=config.max_partitions_per_run)
@@ -127,6 +128,25 @@ def llma_metrics_daily(
         insert_query = get_insert_query(date_start, date_end)
         context.log.info(f"Inserting metrics: {insert_query}")
         sync_execute(insert_query, settings=LLMA_CLICKHOUSE_SETTINGS)
+
+        # Query and log the metrics that were just aggregated
+        metrics_query = f"""
+            SELECT
+                metric_name,
+                count(DISTINCT team_id) as teams,
+                sum(metric_value) as total_value
+            FROM {config.table_name}
+            WHERE date >= '{date_start}' AND date < '{date_end}'
+            GROUP BY metric_name
+            ORDER BY metric_name
+        """
+        metrics_results = sync_execute(metrics_query)
+
+        if metrics_results:
+            df = pd.DataFrame(metrics_results, columns=["metric_name", "teams", "total_value"])
+            context.log.info(f"Aggregated {len(df)} metric types for {date_start}:\n{df.to_string(index=False)}")
+        else:
+            context.log.info(f"No AI events found for {date_start}")
 
         context.log.info(f"Successfully aggregated LLMA metrics for {date_start}")
 
