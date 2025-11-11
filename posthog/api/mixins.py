@@ -51,6 +51,7 @@ def validated_request(
     deprecated: bool = False,
     strict_request_validation: bool = True,
     strict_response_validation: bool = False,
+    **extend_schema_kwargs,
 ) -> Callable:
     """
     Takes req/res serializers and validates against them.
@@ -85,6 +86,7 @@ def validated_request(
             description=description,
             tags=tags,
             deprecated=deprecated,
+            **extend_schema_kwargs,
         )
         @wraps(view_func)
         def wrapper(self, request: Request, *args, **kwargs) -> Response:
