@@ -95,7 +95,14 @@ where
             move |req: axum::extract::Request, next: axum::middleware::Next| async move {
                 match tokio::time::timeout(timeout_duration, next.run(req)).await {
                     Ok(response) => response,
-                    Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response(),
+                    Err(_) => {
+                        metrics::counter!("capture_request_timeouts_total").increment(1);
+                        tracing::warn!(
+                            timeout_seconds = request_timeout_seconds,
+                            "Request timed out"
+                        );
+                        (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response()
+                    }
                 }
             },
         ));
@@ -383,7 +390,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_no_timeout_when_none_specified() {
-        // Test with 1 second timeout - should timeout on slow handler (which sleeps 2 seconds)
+        // Test when None is specified - should complete without timeout
         let router = Router::new().route("/slow", get(slow_handler));
         let router = apply_request_timeout_middleware(router, None);
 
