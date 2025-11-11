@@ -54,8 +54,7 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { displayOverviewItems, loading, isPropertyPopoverOpen } = useValues(playerMetaLogic(logicProps))
     const { setIsPropertyPopoverOpen } = useActions(playerMetaLogic(logicProps))
-    // setFilters will be used in Task 1.4
-    const { setFilters } = useActions(sessionRecordingsPlaylistLogic) // eslint-disable-line @typescript-eslint/no-unused-vars
+    const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
 
     return (
         <>
@@ -91,6 +90,12 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                                     icon={item.icon}
                                     itemKeyTooltip={item.keyTooltip}
                                     fadeLabel
+                                    showFilter={item.type === 'property' && item.value !== undefined}
+                                    onFilterClick={
+                                        item.type === 'property' && item.value !== undefined
+                                            ? () => handleFilterByProperty(item.property, item.value, setFilters)
+                                            : undefined
+                                    }
                                 >
                                     <div className="flex flex-row items-center deprecated-space-x-2 justify-start font-medium">
                                         {item.type === 'property' && (
