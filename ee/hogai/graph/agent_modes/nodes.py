@@ -108,7 +108,7 @@ class AgentToolkit:
         return []
 
     async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list["MaxTool"]:
-        from ee.hogai.tool import get_contextual_tool_class
+        from ee.hogai.registry import get_contextual_tool_class
 
         tool_classes: list[type[MaxTool]] = [*self.default_tools, *self.custom_tools]
 

@@ -52,7 +52,9 @@ async def _get_modes_prompt(
             asyncio.gather(
                 *[
                     tool_class.create_tool_class(team=team, user=user, state=state, config=config)
-                    for tool_class in definition.toolkit_class(team, user, context_manager).custom_tools
+                    for tool_class in definition.toolkit_class(
+                        team=team, user=user, context_manager=context_manager
+                    ).custom_tools
                 ]
             )
         )
