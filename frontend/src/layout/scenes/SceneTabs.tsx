@@ -14,6 +14,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -111,7 +112,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 to={urls.newTab()}
                 onClick={(e) => {
                     // If we're already on the new tab scene, just focus the search input
-                    if (router.values.location.pathname.includes(urls.newTab())) {
+                    if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
                         e.preventDefault()
                         focusSearchInput()
                     }
@@ -120,6 +121,16 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                     iconOnly: true,
                     className: 'z-20 rounded-lg text-tertiary hover:text-primary',
                 }}
+                tooltip={
+                    <div className="flex flex-col gap-1">
+                        <span>Replace current tab with new tab</span>
+                        <span>
+                            <KeyboardShortcut command shift k /> to open command bar
+                        </span>
+                    </div>
+                }
+                tooltipPlacement="bottom"
+                tooltipCloseDelayMs={0}
             >
                 <IconSearch />
             </Link>
