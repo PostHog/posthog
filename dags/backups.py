@@ -316,7 +316,7 @@ def get_latest_backups(
     base_prefix = f"{base_prefix}{shard_path}/"
 
     backups = s3.get_client().list_objects_v2(
-        Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=base_prefix, Delimiter="/", MaxKeys=15
+        Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=base_prefix, Delimiter="/"
     )
 
     if "CommonPrefixes" not in backups:
@@ -327,7 +327,7 @@ def get_latest_backups(
         for backup in sorted(backups["CommonPrefixes"], key=lambda x: x["Prefix"], reverse=True)
     ]
     context.log.info(f"Found {len(latest_backups)} latest backups: {latest_backups}")
-    return latest_backups
+    return latest_backups[:15]
 
 
 @dagster.op
