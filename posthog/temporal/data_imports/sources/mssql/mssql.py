@@ -99,7 +99,11 @@ def _build_query(
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     query = base_query.format(top="TOP 100" if add_limit else "", schema=schema, table_name=table_name)
-    query = f"{query} WHERE [{incremental_field}] > %(incremental_value)s ORDER BY [{incremental_field}] ASC"
+    query = f"{query} WHERE [{incremental_field}] > %(incremental_value)s"
+    # it is only safe to have this order by nested in a CTE if TOP is also specified
+    # ordering for incremental sync purposes where TOP is not specified is handled in get_rows()
+    if add_limit:
+        query = f"{query} ORDER BY [{incremental_field}] ASC"
 
     return query, {
         "incremental_value": db_incremental_field_last_value,
@@ -529,6 +533,9 @@ def mssql_source(
                         incremental_field_type,
                         db_incremental_field_last_value,
                     )
+                    if incremental_field:
+                        query = f"{query} ORDER BY [{incremental_field}] ASC"
+
                     logger.debug(f"MS SQL query: {query.format(args)}")
 
                     cursor.execute(query, args)
