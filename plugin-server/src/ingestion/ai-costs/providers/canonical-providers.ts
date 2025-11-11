@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-11-11 10:03:37 UTC
+// Generated at: 2025-11-11 20:02:01 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -60,6 +60,7 @@ export type CanonicalProvider =
     | 'mancer-int4'
     | 'meta-fp8'
     | 'minimax'
+    | 'minimax-fp8'
     | 'mistral'
     | 'modelrun'
     | 'moonshotai'

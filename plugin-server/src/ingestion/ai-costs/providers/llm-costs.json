@@ -2946,7 +2946,7 @@
                 "prompt_token": 3e-7,
                 "completion_token": 1.2e-7
             },
-            "minimax": {
+            "minimax-fp8": {
                 "prompt_token": 2.55e-7,
                 "completion_token": 0.00000102
             },
@@ -2967,7 +2967,7 @@
                 "prompt_token": 0,
                 "completion_token": 0
             },
-            "minimax": {
+            "minimax-fp8": {
                 "prompt_token": 0,
                 "completion_token": 0
             }
