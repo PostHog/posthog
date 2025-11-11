@@ -1,72 +1,60 @@
 # LLMA (LLM Analytics) Dagster Location
 
-Daily aggregation pipelines for LLM analytics metrics.
+Data pipelines for LLM analytics and observability.
+
+## Overview
+
+The LLMA location contains pipelines for aggregating and analyzing AI/LLM
+events tracked through PostHog. These pipelines power analytics, cost tracking,
+and observability features for AI products.
 
 ## Structure
 
 ```text
 dags/llma/
 ├── README.md
-├── daily_metrics/
-│   ├── config.py                     # Configuration for daily metrics pipeline
-│   ├── metrics_daily.py              # Daily aggregation asset and schedule
-│   └── sql/
-│       ├── event_counts.sql          # Count metrics for AI events
-│       └── error_rates.sql           # Error rate metrics for AI events
+├── daily_metrics/               # Daily aggregation pipeline
+│   ├── README.md               # Detailed pipeline documentation
+│   ├── config.py               # Pipeline configuration
+│   ├── metrics_daily.py        # Dagster asset and schedule
+│   └── sql/                    # Modular SQL templates
+│       ├── event_counts.sql    # Event count metrics
+│       └── error_rates.sql     # Error rate metrics
 └── __init__.py
 ```
 
-## Daily Metrics Pipeline
+## Pipelines
+
+### Daily Metrics
 
 Aggregates AI event metrics ($ai_trace, $ai_generation, $ai_span,
-$ai_embedding) into the `llma_metrics_daily` ClickHouse table.
+$ai_embedding) by team and date into the `llma_metrics_daily` ClickHouse
+table.
 
-### Architecture
+Features:
 
-The pipeline uses a modular SQL template system:
+- Modular SQL template system for easy metric additions
+- Event counts and error rates
+- Long-format schema for schema-less evolution
+- Daily schedule at 6 AM UTC
 
-- Each metric type lives in its own `.sql` file under `daily_metrics/sql/`
-- Templates are auto-discovered and combined with UNION ALL
-- To add a new metric, simply drop a new `.sql` file in the directory
+See [daily_metrics/README.md](daily_metrics/README.md) for detailed
+documentation.
 
-### Output Schema
+## Local Development
 
-```sql
-CREATE TABLE llma_metrics_daily (
-    date Date,
-    team_id UInt64,
-    metric_name String,
-    metric_value Float64
-) ENGINE = ReplicatedMergeTree()
-PARTITION BY toYYYYMM(date)
-ORDER BY (team_id, date, metric_name)
+The LLMA location is loaded in `.dagster_home/workspace.yaml` for local
+development.
+
+View in Dagster UI:
+
+```bash
+# Dagster runs on port 3030
+open http://localhost:3030
 ```
 
-Long format allows adding new metrics without schema changes.
-
-### Current Metrics
-
-- `ai_generation_count`, `ai_trace_count`, etc: Daily event counts per
-  team
-- `ai_generation_error_rate`, `ai_trace_error_rate`, etc: Error rate as
-  percentage (0-100)
-
-### Schedule
-
-Runs daily at 6 AM UTC for the previous day's partition.
-
-### Local Development
-
-The LLMA location is loaded in `.dagster_home/workspace.yaml` for local development.
-
-To test aggregation:
+Test pipelines:
 
 ```bash
 python test_llma_metrics.py
-```
-
-To query results:
-
-```sql
-SELECT * FROM llma_metrics_daily WHERE date = today()
 ```
