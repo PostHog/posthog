@@ -141,16 +141,20 @@ class TestRunEvaluationWorkflow:
             mock_client = MagicMock()
             mock_openai.return_value = mock_client
 
+            mock_parsed = MagicMock()
+            mock_parsed.verdict = True
+            mock_parsed.reasoning = "The answer is correct"
+
             mock_response = MagicMock()
             mock_response.choices = [MagicMock()]
-            mock_response.choices[0].message.content = '{"verdict": true, "reasoning": "The answer is correct"}'
-            mock_client.chat.completions.create.return_value = mock_response
+            mock_response.choices[0].message.parsed = mock_parsed
+            mock_client.beta.chat.completions.parse.return_value = mock_response
 
             result = await execute_llm_judge_activity(evaluation, event_data)
 
             assert result["verdict"] is True
             assert result["reasoning"] == "The answer is correct"
-            mock_client.chat.completions.create.assert_called_once()
+            mock_client.beta.chat.completions.parse.assert_called_once()
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

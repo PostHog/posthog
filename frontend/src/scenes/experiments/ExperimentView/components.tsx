@@ -55,7 +55,6 @@ import {
     AnyPropertyFilter,
     Experiment,
     ExperimentConclusion,
-    ExperimentIdType,
     InsightShortId,
     ProductKey,
     ProgressStatus,
@@ -391,7 +390,6 @@ export function ExperimentLoadingAnimation(): JSX.Element {
 
 export function PageHeaderCustom(): JSX.Element {
     const {
-        experimentId,
         experiment,
         isExperimentDraft,
         isExperimentRunning,
@@ -520,7 +518,7 @@ export function PageHeaderCustom(): JSX.Element {
                                         <b>Ship a variant</b>
                                     </LemonButton>
                                 </Tooltip>
-                                <ShipVariantModal experimentId={experimentId} />
+                                <ShipVariantModal />
                             </>
                         )}
                         {experiment && (
@@ -585,7 +583,7 @@ export function PageHeaderCustom(): JSX.Element {
                             </ButtonPrimitive>
                         )}
 
-                        <ResetButton experimentId={experiment.id} />
+                        <ResetButton />
 
                         {!experiment.end_date && (
                             <ButtonPrimitive
@@ -603,9 +601,9 @@ export function PageHeaderCustom(): JSX.Element {
     )
 }
 
-export function ConclusionForm({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { setExperiment } = useActions(experimentLogic({ experimentId }))
+export function ConclusionForm(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { setExperiment } = useActions(experimentLogic)
 
     return (
         <div className="space-y-4">
@@ -662,9 +660,9 @@ export function ConclusionForm({ experimentId }: { experimentId: Experiment['id'
     )
 }
 
-export function EditConclusionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { updateExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic({ experimentId }))
+export function EditConclusionModal(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { updateExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeEditConclusionModal } = useActions(modalsLogic)
     const { isEditConclusionModalOpen } = useValues(modalsLogic)
 
@@ -701,14 +699,14 @@ export function EditConclusionModal({ experimentId }: { experimentId: Experiment
                 </div>
             }
         >
-            <ConclusionForm experimentId={experimentId} />
+            <ConclusionForm />
         </LemonModal>
     )
 }
 
-export function StopExperimentModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { endExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic({ experimentId }))
+export function StopExperimentModal(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { endExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeStopExperimentModal } = useActions(modalsLogic)
     const { isStopExperimentModalOpen } = useValues(modalsLogic)
 
@@ -746,15 +744,15 @@ export function StopExperimentModal({ experimentId }: { experimentId: Experiment
                 <div className="mb-2">
                     Stopping the experiment will end data collection. You can restart it later if needed.
                 </div>
-                <ConclusionForm experimentId={experimentId} />
+                <ConclusionForm />
             </div>
         </LemonModal>
     )
 }
 
-export function ShipVariantModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { shipVariant } = useActions(experimentLogic({ experimentId }))
+export function ShipVariantModal(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { shipVariant } = useActions(experimentLogic)
     const { closeShipVariantModal } = useActions(modalsLogic)
     const { isShipVariantModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -838,8 +836,8 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
     )
 }
 
-export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }): JSX.Element => {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
+export const ResetButton = (): JSX.Element => {
+    const { experiment } = useValues(experimentLogic)
     const { resetRunningExperiment } = useActions(experimentLogic)
 
     const onClickReset = (): void => {

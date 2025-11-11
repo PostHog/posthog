@@ -209,11 +209,14 @@ impl ServerHandle {
                 non_persons_writer: non_persons_writer.clone(),
                 persons_reader: persons_reader.clone(),
                 persons_writer: persons_writer.clone(),
+                test_before_acquire: *config.test_before_acquire,
             });
 
             let app = feature_flags::router::router(
-                redis_reader_client,
-                redis_writer_client,
+                redis_reader_client.clone(),
+                redis_writer_client.clone(),
+                None::<Arc<MockRedisClient>>, // No dedicated flags Redis in tests
+                None::<Arc<MockRedisClient>>,
                 database_pools,
                 cohort_cache,
                 geoip_service,

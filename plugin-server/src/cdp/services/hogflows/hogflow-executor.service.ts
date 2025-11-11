@@ -37,21 +37,27 @@ export function createHogFlowInvocation(
     hogFlow: HogFlow,
     filterGlobals: HogFunctionFilterGlobals
 ): CyclotronJobInvocationHogFlow {
+    // Build default variables from hogFlow, then merge in any provided in globals.variables
+    const defaultVariables =
+        hogFlow.variables?.reduce(
+            (acc, variable) => {
+                acc[variable.key] = variable.default || null
+                return acc
+            },
+            {} as Record<string, any>
+        ) || {}
+
+    const mergedVariables = {
+        ...defaultVariables,
+        ...(globals.variables || {}),
+    }
+
     return {
         id: new UUIDT().toString(),
         state: {
             event: globals.event,
             actionStepCount: 0,
-            variables: {
-                // Spread in any existing variables from hogflow so the default values are in place
-                ...hogFlow.variables?.reduce(
-                    (acc, variable) => {
-                        acc[variable.key] = variable.default || null
-                        return acc
-                    },
-                    {} as Record<string, any>
-                ),
-            },
+            variables: mergedVariables,
         },
         teamId: hogFlow.team_id,
         functionId: hogFlow.id, // TODO: Include version?

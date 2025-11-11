@@ -458,6 +458,13 @@ class FeatureFlagSerializer(
             # mypy cannot tell that self.instance is a FeatureFlag
             return self.instance.filters
 
+        # Only validate empty groups for new flag creation (POST), not updates (PUT/PATCH)
+        # Existing flags may legitimately have empty groups temporarily during scheduled changes
+        if self.context["request"].method == "POST":
+            groups = filters.get("groups", [])
+            if not groups:
+                raise serializers.ValidationError("Feature flags must have at least one condition set (group).")
+
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
         def properties_all_match(predicate):

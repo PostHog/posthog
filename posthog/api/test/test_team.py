@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -45,7 +45,7 @@ def team_api_test_factory():
     class TestTeamAPI(APIBaseTest):
         """Tests for /api/environments/."""
 
-        def _assert_activity_log(self, expected: list[dict], team_id: Optional[int] = None) -> None:
+        def _assert_activity_log(self, expected: list[dict], team_id: int | None = None) -> None:
             if not team_id:
                 team_id = self.team.pk
 
@@ -2032,6 +2032,75 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response = self.client.post("/api/projects/@current/environments/", {"name": "New environment 2"})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 3)
+
+    def test_new_team_inherits_org_ip_anonymization_default_when_true(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
+        ]
+        self.organization.default_anonymize_ips = True
+        self.organization.save()
+
+        response = self.client.post("/api/projects/@current/environments/", {"name": "Test IP Anonymization"})
+        assert response.status_code == 201
+
+        new_team = Team.objects.get(name="Test IP Anonymization")
+        self.assertTrue(new_team.anonymize_ips)
+
+    def test_new_team_inherits_org_ip_anonymization_default_when_false(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
+        ]
+        self.organization.default_anonymize_ips = False
+        self.organization.save()
+
+        response = self.client.post("/api/projects/@current/environments/", {"name": "Test No IP Anonymization"})
+        assert response.status_code == 201
+
+        new_team = Team.objects.get(name="Test No IP Anonymization")
+        self.assertFalse(new_team.anonymize_ips)
+
+    def test_new_team_defaults_to_false_when_org_default_is_none(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
+        ]
+        self.organization.default_anonymize_ips = False
+        self.organization.save()
+
+        response = self.client.post("/api/projects/@current/environments/", {"name": "Test Default Behavior"})
+        assert response.status_code == 201
+
+        new_team = Team.objects.get(name="Test Default Behavior")
+        self.assertFalse(new_team.anonymize_ips)
+
+    @override_settings(SITE_URL="https://eu.posthog.com", CLOUD_DEPLOYMENT="EU")
+    def test_new_eu_organization_defaults_to_anonymize_ips_true(self):
+        """New organizations on EU cloud should default to default_anonymize_ips=True"""
+        new_org = Organization.objects.create(name="EU Test Org")
+
+        # Should automatically be True for EU cloud
+        self.assertTrue(new_org.default_anonymize_ips)
+
+    @override_settings(SITE_URL="https://us.posthog.com", CLOUD_DEPLOYMENT="US")
+    def test_new_us_organization_defaults_to_anonymize_ips_false(self):
+        """New organizations on US cloud should default to default_anonymize_ips=False"""
+        new_org = Organization.objects.create(name="US Test Org")
+
+        # Should be False for US cloud
+        self.assertFalse(new_org.default_anonymize_ips)
+
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT=None)
+    def test_new_selfhosted_organization_defaults_to_anonymize_ips_false(self):
+        """New organizations on self-hosted should default to default_anonymize_ips=False"""
+        new_org = Organization.objects.create(name="Self-Hosted Test Org")
+
+        # Should be False for self-hosted
+        self.assertFalse(new_org.default_anonymize_ips)
 
     def test_team_member_can_write_to_team_config_with_member_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

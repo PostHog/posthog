@@ -92,7 +92,12 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 if saved_query:
                     created = False
                 else:
-                    saved_query = DataWarehouseSavedQuery(name=view.name, team=self.team, managed_viewset=self)
+                    saved_query = DataWarehouseSavedQuery(
+                        name=view.name,
+                        team=self.team,
+                        managed_viewset=self,
+                        origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
+                    )
                     created = True
 
                 # Do NOT use get_columns because it runs the query, and these are possibly heavy

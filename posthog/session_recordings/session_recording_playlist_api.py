@@ -453,7 +453,8 @@ class SessionRecordingPlaylistViewSet(
                 elif request_value == SessionRecordingPlaylist.PlaylistType.FILTERS:
                     queryset = queryset.filter(type=SessionRecordingPlaylist.PlaylistType.FILTERS)
             elif key == "collection_type":
-                if request_value == "synthetic":
+                if request_value in ("synthetic", "new-urls"):
+                    # Exclude all DB playlists when filtering for synthetic or new-urls
                     queryset = queryset.none()
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)
@@ -494,7 +495,11 @@ class SessionRecordingPlaylistViewSet(
                     pass
             elif key == "collection_type":
                 if request_value == "custom":
+                    # Custom means user-created only, exclude all synthetic playlists
                     return []
+                elif request_value == "new-urls":
+                    # Filter for only new-urls synthetic playlists
+                    filtered = [p for p in filtered if p.short_id.startswith("synthetic-new-url-")]
             elif key == "pinned":
                 # Synthetic playlists are never pinned, so exclude them
                 return []

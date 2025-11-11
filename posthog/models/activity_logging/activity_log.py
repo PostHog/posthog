@@ -385,6 +385,9 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "sync_frequency_interval",
         "deleted_name",
     ],
+    "Endpoint": [
+        "saved_query",
+    ],
     "Organization": [
         "teams",
         "billing",

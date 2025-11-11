@@ -98,7 +98,7 @@ export function ReleaseConditionsTable(): JSX.Element {
                         ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
                         : 'users'
 
-                const releaseText = `${item.rollout_percentage}% of ${aggregationTargetName}`
+                const releaseText = `${item.rollout_percentage ?? 0}% of ${aggregationTargetName}`
 
                 return (
                     <div>

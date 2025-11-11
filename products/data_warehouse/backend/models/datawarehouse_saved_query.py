@@ -62,7 +62,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
         DATA_WAREHOUSE = "data_warehouse"
         ENDPOINT = "endpoint"
-        REVENUE_ANALYTICS = "revenue_analytics"
+        MANAGED_VIEWSET = "managed_viewset"
 
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)

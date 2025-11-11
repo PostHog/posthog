@@ -83,6 +83,7 @@ import { EventType, InsightLogicProps } from '~/types'
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
+import { DataTableViewReplays } from './DataTableViewReplays'
 
 export enum ColumnFeature {
     canSort = 'canSort',
@@ -695,6 +696,7 @@ export function DataTable({
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (
             <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
         ) : null,
+        <DataTableViewReplays key="data-table-view-replays" />,
         showExport ? (
             <DataTableExport
                 key="data-table-export"
