@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -21,9 +21,15 @@ const STATUS_TAG_SETTINGS: Record<string, LemonTagType> = {
 
 function RunHistoryDisplay({
     runHistory,
+    loading,
 }: {
-    runHistory?: Array<{ status: 'Completed' | 'Failed'; timestamp?: string }>
+    runHistory?: Array<{ status: string; timestamp?: string }>
+    loading?: boolean
 }): JSX.Element {
+    if (loading) {
+        return <Spinner className="text-sm" />
+    }
+
     if (!runHistory || runHistory.length === 0) {
         return <span className="text-muted">-</span>
     }
@@ -50,8 +56,22 @@ function RunHistoryDisplay({
     )
 }
 
+function DependencyCount({ count, loading }: { count?: number; loading?: boolean }): JSX.Element {
+    if (loading) {
+        return <Spinner className="text-sm" />
+    }
+    return <span>{count ?? 0}</span>
+}
+
 export function QueriesTab(): JSX.Element {
-    const { filteredViews, filteredMaterializedViews, viewsLoading, searchTerm } = useValues(queriesTabLogic)
+    const {
+        filteredViews,
+        filteredMaterializedViews,
+        viewsLoading,
+        searchTerm,
+        dependenciesMapLoading,
+        runHistoryMapLoading,
+    } = useValues(queriesTabLogic)
     const { setSearchTerm, deleteView, runMaterialization } = useActions(queriesTabLogic)
 
     return (
@@ -126,19 +146,25 @@ export function QueriesTab(): JSX.Element {
                                 title: 'Run history',
                                 key: 'run_history',
                                 tooltip: 'Recent run status (up to 5 most recent)',
-                                render: (_, view) => <RunHistoryDisplay runHistory={view.run_history} />,
+                                render: (_, view) => (
+                                    <RunHistoryDisplay runHistory={view.run_history} loading={runHistoryMapLoading} />
+                                ),
                             },
                             {
                                 title: 'Upstream',
                                 key: 'upstream_count',
                                 tooltip: 'Number of immediate upstream dependencies',
-                                render: (_, view) => view.upstream_dependency_count ?? 0,
+                                render: (_, view) => (
+                                    <DependencyCount count={view.upstream_dependency_count} loading={dependenciesMapLoading} />
+                                ),
                             },
                             {
                                 title: 'Downstream',
                                 key: 'downstream_count',
                                 tooltip: 'Number of immediate downstream dependencies',
-                                render: (_, view) => view.downstream_dependency_count ?? 0,
+                                render: (_, view) => (
+                                    <DependencyCount count={view.downstream_dependency_count} loading={dependenciesMapLoading} />
+                                ),
                             },
                             {
                                 key: 'actions',
@@ -204,13 +230,17 @@ export function QueriesTab(): JSX.Element {
                                 title: 'Upstream',
                                 key: 'upstream_count',
                                 tooltip: 'Number of immediate upstream dependencies',
-                                render: (_, view) => view.upstream_dependency_count ?? 0,
+                                render: (_, view) => (
+                                    <DependencyCount count={view.upstream_dependency_count} loading={dependenciesMapLoading} />
+                                ),
                             },
                             {
                                 title: 'Downstream',
                                 key: 'downstream_count',
                                 tooltip: 'Number of immediate downstream dependencies',
-                                render: (_, view) => view.downstream_dependency_count ?? 0,
+                                render: (_, view) => (
+                                    <DependencyCount count={view.downstream_dependency_count} loading={dependenciesMapLoading} />
+                                ),
                             },
                             {
                                 key: 'actions',

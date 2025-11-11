@@ -1,7 +1,9 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 import { DataWarehouseSavedQuery } from '~/types'
@@ -25,6 +27,8 @@ export const queriesTabLogic = kea<queriesTabLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         deleteView: (viewId: string) => ({ viewId }),
         runMaterialization: (viewId: string) => ({ viewId }),
+        loadDependenciesForViews: (viewIds: string[]) => ({ viewIds }),
+        loadRunHistoryForViews: (viewIds: string[]) => ({ viewIds }),
     }),
     reducers({
         searchTerm: [
@@ -34,27 +38,69 @@ export const queriesTabLogic = kea<queriesTabLogicType>([
             },
         ],
     }),
+    loaders(({ values }) => ({
+        dependenciesMap: [
+            {} as Record<string, { upstream_count: number; downstream_count: number }>,
+            {
+                loadDependenciesForViews: async ({ viewIds }) => {
+                    const results = await Promise.all(
+                        viewIds.map(async (viewId) => {
+                            try {
+                                const data = await api.dataWarehouseSavedQueries.dependencies(viewId)
+                                return { viewId, data }
+                            } catch (error) {
+                                console.error(`Failed to load dependencies for view ${viewId}:`, error)
+                                return { viewId, data: { upstream_count: 0, downstream_count: 0 } }
+                            }
+                        })
+                    )
+
+                    const newMap = { ...values.dependenciesMap }
+                    results.forEach(({ viewId, data }) => {
+                        newMap[viewId] = data
+                    })
+                    return newMap
+                },
+            },
+        ],
+        runHistoryMap: [
+            {} as Record<string, Array<{ status: string; timestamp: string }>>,
+            {
+                loadRunHistoryForViews: async ({ viewIds }) => {
+                    const results = await Promise.all(
+                        viewIds.map(async (viewId) => {
+                            try {
+                                const data = await api.dataWarehouseSavedQueries.runHistory(viewId)
+                                return { viewId, data: data.run_history }
+                            } catch (error) {
+                                console.error(`Failed to load run history for view ${viewId}:`, error)
+                                return { viewId, data: [] }
+                            }
+                        })
+                    )
+
+                    const newMap = { ...values.runHistoryMap }
+                    results.forEach(({ viewId, data }) => {
+                        newMap[viewId] = data
+                    })
+                    return newMap
+                },
+            },
+        ],
+    })),
     selectors({
         viewsLoading: [
             (s) => [s.dataWarehouseSavedQueriesLoading],
             (loading): boolean => loading,
         ],
-        // Mock dependency counts and run history for all views
         enrichedQueries: [
-            (s) => [s.dataWarehouseSavedQueries],
-            (queries): DataWarehouseSavedQuery[] => {
-                // Add mocked dependency counts and run history to each query
+            (s) => [s.dataWarehouseSavedQueries, s.dependenciesMap, s.runHistoryMap],
+            (queries, dependenciesMap, runHistoryMap): DataWarehouseSavedQuery[] => {
                 return queries.map((query) => ({
                     ...query,
-                    // Mock: Generate semi-random but consistent dependency counts
-                    upstream_dependency_count:
-                        query.upstream_dependency_count ?? Math.floor(Math.abs(hashString(query.id)) % 5),
-                    downstream_dependency_count:
-                        query.downstream_dependency_count ?? Math.floor(Math.abs(hashString(query.id + 'down')) % 4),
-                    // Mock: Generate run history for materialized views (up to 5 runs)
-                    run_history:
-                        query.run_history ??
-                        (query.is_materialized ? generateMockRunHistory(query.id) : undefined),
+                    upstream_dependency_count: dependenciesMap[query.id]?.upstream_count,
+                    downstream_dependency_count: dependenciesMap[query.id]?.downstream_count,
+                    run_history: runHistoryMap[query.id],
                 }))
             },
         ],
@@ -79,7 +125,7 @@ export const queriesTabLogic = kea<queriesTabLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         deleteView: ({ viewId }) => {
             LemonDialog.open({
                 title: 'Delete view?',
@@ -100,34 +146,31 @@ export const queriesTabLogic = kea<queriesTabLogicType>([
         runMaterialization: ({ viewId }) => {
             actions.runDataWarehouseSavedQuery(viewId)
         },
+        loadDataWarehouseSavedQueriesSuccess: () => {
+            // Once views are loaded, fetch dependencies and run history
+            const allViewIds = values.dataWarehouseSavedQueries.map((q) => q.id)
+            const materializedViewIds = values.dataWarehouseSavedQueries.filter((q) => q.is_materialized).map((q) => q.id)
+
+            if (allViewIds.length > 0) {
+                actions.loadDependenciesForViews(allViewIds)
+            }
+            if (materializedViewIds.length > 0) {
+                actions.loadRunHistoryForViews(materializedViewIds)
+            }
+        },
     })),
+    afterMount(({ actions, values }) => {
+        // If views are already loaded (e.g., from cache), fetch dependencies immediately
+        if (values.dataWarehouseSavedQueries.length > 0) {
+            const allViewIds = values.dataWarehouseSavedQueries.map((q) => q.id)
+            const materializedViewIds = values.dataWarehouseSavedQueries.filter((q) => q.is_materialized).map((q) => q.id)
+
+            if (allViewIds.length > 0) {
+                actions.loadDependenciesForViews(allViewIds)
+            }
+            if (materializedViewIds.length > 0) {
+                actions.loadRunHistoryForViews(materializedViewIds)
+            }
+        }
+    }),
 ])
-
-// Simple hash function to generate consistent "random" numbers from a string
-function hashString(str: string): number {
-    let hash = 0
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i)
-        hash = (hash << 5) - hash + char
-        hash = hash & hash
-    }
-    return hash
-}
-
-// Generate mock run history with 1-5 runs
-function generateMockRunHistory(id: string): Array<{ status: 'Completed' | 'Failed'; timestamp?: string }> {
-    const hash = Math.abs(hashString(id + 'history'))
-    const numRuns = Math.min((hash % 5) + 1, 5) // 1 to 5 runs
-    const runs: Array<{ status: 'Completed' | 'Failed'; timestamp?: string }> = []
-
-    for (let i = 0; i < numRuns; i++) {
-        // Use different hash for each run to get varied results
-        const runHash = Math.abs(hashString(id + 'run' + i))
-        // ~80% success rate
-        const status = runHash % 10 < 8 ? 'Completed' : 'Failed'
-        runs.push({ status })
-    }
-
-    // Reverse so most recent is first
-    return runs.reverse()
-}
