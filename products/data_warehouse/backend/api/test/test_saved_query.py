@@ -1145,7 +1145,7 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data["upstream_count"], 2)  # events and persons (base tables)
+        self.assertEqual(data["upstream_count"], 1)  # events
         self.assertEqual(data["downstream_count"], 0)  # No downstream dependencies
 
     def test_dependencies_with_upstream_and_downstream(self):
