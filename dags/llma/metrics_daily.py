@@ -6,6 +6,7 @@ for efficient querying and cost analysis.
 """
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import dagster
 from dagster import BackfillPolicy, DailyPartitionsDefinition
@@ -39,36 +40,15 @@ AI_EVENT_TYPES = [
     "$ai_embedding",
 ]
 
-# Jinja template for the INSERT query
-INSERT_QUERY_TEMPLATE = Template(
-    """
-INSERT INTO llma_metrics_daily (date, team_id, metric_name, metric_value)
-{% for event_type in event_types %}
-SELECT
-    date(timestamp) as date,
-    team_id,
-    '{{ event_type.lstrip('$') }}_count' as metric_name,
-    count(distinct uuid) as metric_value
-FROM events
-WHERE event = '{{ event_type }}'
-  AND timestamp >= toDateTime('{{ date_start }}', 'UTC')
-  AND timestamp < toDateTime('{{ date_end }}', 'UTC')
-GROUP BY date, team_id
-HAVING metric_value > 0
-{% if not loop.last %}
-UNION ALL
-{% endif %}
-{% endfor %}
-"""
-)
+# SQL template directory
+SQL_DIR = Path(__file__).parent / "sql"
 
-# Jinja template for the DELETE query
-DELETE_QUERY_TEMPLATE = Template(
-    """
-ALTER TABLE llma_metrics_daily
-DELETE WHERE date >= '{{ date_start }}' AND date < '{{ date_end }}'
-"""
-)
+# Load Jinja templates from SQL files
+with open(SQL_DIR / "insert_metrics.sql") as f:
+    INSERT_QUERY_TEMPLATE = Template(f.read())
+
+with open(SQL_DIR / "delete_metrics.sql") as f:
+    DELETE_QUERY_TEMPLATE = Template(f.read())
 
 
 def get_insert_query(date_start: str, date_end: str) -> str:
