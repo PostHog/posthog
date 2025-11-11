@@ -115,8 +115,11 @@ class BackupStatus:
     event_time_microseconds: datetime
     error: Optional[str] = None
 
-    def is_success(self) -> bool:
+    def created(self) -> bool:
         return self.status == "BACKUP_CREATED"
+
+    def creating(self) -> bool:
+        return self.status == "CREATING_BACKUP"
 
 
 @dataclass
@@ -355,7 +358,7 @@ def get_latest_successful_backup(
     for latest_backup in latest_backups:
         context.log.info(f"Checking status of backup: {latest_backup.path}")
         most_recent_status = get_most_recent_status(map_hosts(latest_backup.status).result().values())
-        if most_recent_status and not most_recent_status.is_success():
+        if most_recent_status and not most_recent_status.created():
             context.log.warning(
                 f"Backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Checking next backup."
             )
@@ -441,20 +444,22 @@ def wait_for_backup(
 
     done = False
     tries = 0
-    if backup:
-        while not done:
-            tries += 1
-            map_hosts(backup.wait).result().values()
-            most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
-            if most_recent_status and most_recent_status.status == "CREATING_BACKUP":
-                continue
-            if most_recent_status and most_recent_status.is_success():
-                context.log.info(f"Backup for table {backup.table} in path {backup.path} finished successfully")
-                done = True
-            if (most_recent_status and not most_recent_status.is_success()) or (most_recent_status and tries >= 5):
-                raise ValueError(
-                    f"Backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}."
-                )
+    while not done:
+        tries += 1
+        map_hosts(backup.wait).result().values()
+        most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
+        if most_recent_status and most_recent_status.creating() and tries < 3:
+            context.log.warning(
+                f"Backup {backup.path} is no longer running but status is still creating. Waiting a bit longer in case ClickHouse didn't flush logs yet..."
+            )
+            continue
+        elif most_recent_status and most_recent_status.created():
+            context.log.info(f"Backup for table {backup.table} in path {backup.path} finished successfully")
+            done = True
+        else:
+            raise ValueError(
+                f"Backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}."
+            )
 
     context.add_output_metadata(
         {
