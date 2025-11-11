@@ -240,10 +240,7 @@ impl FeatureFlagMatcher {
 
         // Process any hash key overrides
         let (hash_key_overrides, flag_hash_key_override_error) = self
-            .process_hash_key_override_if_needed(
-                flags_need_hash_key_override,
-                hash_key_override,
-            )
+            .process_hash_key_override_if_needed(flags_need_hash_key_override, hash_key_override)
             .await;
 
         let overrides = FlagEvaluationOverrides {
