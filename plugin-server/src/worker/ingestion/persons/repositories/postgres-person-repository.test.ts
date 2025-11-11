@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { createTeam, insertRow, resetTestDatabase } from '../../../../../tests/helpers/sql'
-import { Hub, InternalPerson, Team } from '../../../../types'
+import { Hub, InternalPerson, PropertyUpdateOperation, Team } from '../../../../types'
 import { closeHub, createHub } from '../../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { parseJSON } from '../../../../utils/json-parse'
@@ -2259,6 +2259,215 @@ describe('PostgresPersonRepository', () => {
             expect(updatedPerson.version).toBe(person.version + 1)
             expect(messages).toHaveLength(1)
             expect(versionDisparity).toBe(false)
+        })
+    })
+
+    describe('JSON field size metrics', () => {
+        let personJsonFieldSizeHistogram: any
+        let labelsSpy: jest.SpyInstance
+        let observeCalls: any[]
+
+        beforeEach(() => {
+            // Import the histogram
+            const metricsModule = require('../metrics')
+            personJsonFieldSizeHistogram = metricsModule.personJsonFieldSizeHistogram
+
+            // Track observe calls
+            observeCalls = []
+
+            // Spy on labels to intercept and spy on observe
+            const originalLabels = personJsonFieldSizeHistogram.labels.bind(personJsonFieldSizeHistogram)
+            labelsSpy = jest.spyOn(personJsonFieldSizeHistogram, 'labels').mockImplementation(function (labels: any) {
+                const labeledInstance = originalLabels(labels)
+                const originalObserve = labeledInstance.observe.bind(labeledInstance)
+                labeledInstance.observe = jest.fn((value: number) => {
+                    observeCalls.push({ labels, value })
+                    return originalObserve(value)
+                })
+                return labeledInstance
+            })
+        })
+
+        afterEach(() => {
+            if (labelsSpy) {
+                labelsSpy.mockRestore()
+            }
+            observeCalls = []
+        })
+
+        it('should track JSON field sizes on createPerson', async () => {
+            const team = await getFirstTeam(hub)
+            const properties = { name: 'Alice', email: 'alice@example.com', age: 25 }
+            const propertiesLastUpdatedAt = { name: '2024-01-15T10:30:00.000Z', email: '2024-01-15T10:30:00.000Z' }
+            const propertiesLastOperation = { name: PropertyUpdateOperation.Set, email: PropertyUpdateOperation.Set }
+
+            // Pre-serialize to calculate expected sizes
+            const expectedPropertiesSize = JSON.stringify(properties).length
+            const expectedPropertiesLastUpdatedAtSize = JSON.stringify(propertiesLastUpdatedAt).length
+            const expectedPropertiesLastOperationSize = JSON.stringify(propertiesLastOperation).length
+
+            await repository.createPerson(
+                TIMESTAMP,
+                properties,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                team.id,
+                null,
+                true,
+                new UUIDT().toString(),
+                [{ distinctId: 'test-metrics-create' }]
+            )
+
+            // Verify metrics were recorded for all three fields (3 calls total)
+            expect(observeCalls).toHaveLength(3)
+
+            // Verify each field was recorded with operation='createPerson' and exact size
+            const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
+            const propertiesLastUpdatedAtCall = observeCalls.find(
+                (c) => c.labels.field === 'properties_last_updated_at'
+            )
+            const propertiesLastOperationCall = observeCalls.find((c) => c.labels.field === 'properties_last_operation')
+
+            expect(propertiesCall).toBeDefined()
+            expect(propertiesCall!.labels.operation).toBe('createPerson')
+            expect(propertiesCall!.value).toBe(expectedPropertiesSize)
+
+            expect(propertiesLastUpdatedAtCall).toBeDefined()
+            expect(propertiesLastUpdatedAtCall!.labels.operation).toBe('createPerson')
+            expect(propertiesLastUpdatedAtCall!.value).toBe(expectedPropertiesLastUpdatedAtSize)
+
+            expect(propertiesLastOperationCall).toBeDefined()
+            expect(propertiesLastOperationCall!.labels.operation).toBe('createPerson')
+            expect(propertiesLastOperationCall!.value).toBe(expectedPropertiesLastOperationSize)
+        })
+
+        it('should track JSON field sizes on updatePerson with properties', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-metrics-update', { name: 'Bob' })
+
+            // Clear observe calls from createTestPerson
+            observeCalls = []
+
+            const update = {
+                properties: { name: 'Bob Updated', city: 'San Francisco', data: 'x'.repeat(1000) },
+                properties_last_updated_at: { name: '2024-01-16T10:30:00.000Z', city: '2024-01-16T10:30:00.000Z' },
+                properties_last_operation: { name: PropertyUpdateOperation.Set, city: PropertyUpdateOperation.Set },
+            }
+
+            // Pre-serialize to calculate expected sizes
+            const expectedPropertiesSize = JSON.stringify(update.properties).length
+            const expectedPropertiesLastUpdatedAtSize = JSON.stringify(update.properties_last_updated_at).length
+            const expectedPropertiesLastOperationSize = JSON.stringify(update.properties_last_operation).length
+
+            await repository.updatePerson(person, update)
+
+            // Verify metrics were recorded for all updated fields (3 calls total)
+            expect(observeCalls).toHaveLength(3)
+
+            // Verify each field was recorded with exact size
+            const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
+            const propertiesLastUpdatedAtCall = observeCalls.find(
+                (c) => c.labels.field === 'properties_last_updated_at'
+            )
+            const propertiesLastOperationCall = observeCalls.find((c) => c.labels.field === 'properties_last_operation')
+
+            expect(propertiesCall).toBeDefined()
+            expect(propertiesCall!.labels.operation).toBe('updatePerson')
+            expect(propertiesCall!.value).toBe(expectedPropertiesSize)
+
+            expect(propertiesLastUpdatedAtCall).toBeDefined()
+            expect(propertiesLastUpdatedAtCall!.labels.operation).toBe('updatePerson')
+            expect(propertiesLastUpdatedAtCall!.value).toBe(expectedPropertiesLastUpdatedAtSize)
+
+            expect(propertiesLastOperationCall).toBeDefined()
+            expect(propertiesLastOperationCall!.labels.operation).toBe('updatePerson')
+            expect(propertiesLastOperationCall!.value).toBe(expectedPropertiesLastOperationSize)
+        })
+
+        it('should only track metrics for fields being updated', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-metrics-partial', { name: 'Charlie' })
+
+            // Clear observe calls from createTestPerson
+            observeCalls = []
+
+            // Only update properties, not the other fields
+            const update = {
+                properties: { name: 'Charlie Updated' },
+            }
+
+            const expectedPropertiesSize = JSON.stringify(update.properties).length
+
+            await repository.updatePerson(person, update)
+
+            // Only properties metric should be recorded (1 call only)
+            expect(observeCalls).toHaveLength(1)
+
+            expect(observeCalls[0].labels.operation).toBe('updatePerson')
+            expect(observeCalls[0].labels.field).toBe('properties')
+            expect(observeCalls[0].value).toBe(expectedPropertiesSize)
+        })
+
+        it('should handle large properties correctly', async () => {
+            const team = await getFirstTeam(hub)
+            const largeProperties = {
+                name: 'David',
+                large_field: 'z'.repeat(100000), // 100KB of data
+            }
+
+            // Pre-serialize to calculate expected sizes
+            const expectedPropertiesSize = JSON.stringify(largeProperties).length
+            const expectedPropertiesLastUpdatedAtSize = JSON.stringify({}).length
+            const expectedPropertiesLastOperationSize = JSON.stringify({}).length
+
+            await repository.createPerson(
+                TIMESTAMP,
+                largeProperties,
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                new UUIDT().toString(),
+                [{ distinctId: 'test-metrics-large' }]
+            )
+
+            // Should have 3 calls (properties, properties_last_updated_at, properties_last_operation)
+            expect(observeCalls).toHaveLength(3)
+
+            // Verify exact sizes
+            const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
+            const propertiesLastUpdatedAtCall = observeCalls.find(
+                (c) => c.labels.field === 'properties_last_updated_at'
+            )
+            const propertiesLastOperationCall = observeCalls.find((c) => c.labels.field === 'properties_last_operation')
+
+            expect(propertiesCall).toBeDefined()
+            expect(propertiesCall!.labels.operation).toBe('createPerson')
+            expect(propertiesCall!.value).toBe(expectedPropertiesSize)
+            expect(propertiesCall!.value).toBeGreaterThan(100000) // Sanity check
+
+            expect(propertiesLastUpdatedAtCall).toBeDefined()
+            expect(propertiesLastUpdatedAtCall!.value).toBe(expectedPropertiesLastUpdatedAtSize)
+
+            expect(propertiesLastOperationCall).toBeDefined()
+            expect(propertiesLastOperationCall!.value).toBe(expectedPropertiesLastOperationSize)
+        })
+
+        it('should not record metrics when update is empty', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-metrics-empty', { name: 'Eve' })
+
+            // Clear observe calls from createTestPerson
+            observeCalls = []
+
+            // Empty update
+            const update = {}
+
+            await repository.updatePerson(person, update)
+
+            // No metrics should be recorded for empty update
+            expect(observeCalls).toHaveLength(0)
         })
     })
 })

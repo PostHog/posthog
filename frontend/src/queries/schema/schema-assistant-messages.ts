@@ -289,6 +289,12 @@ export type AssistantTool =
     | 'filter_revenue_analytics'
     | 'create_feature_flag'
 
+export enum AgentMode {
+    ProductAnalytics = 'product_analytics',
+    // The schema generator breaks on enums with a single member. This will be removed.
+    Noop = 'noop',
+}
+
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:
 // "

@@ -115,7 +115,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_process_query_dict.assert_called_once()  # Query processing started
         msg = cast(AssistantMessage, new_state.messages[0])
         self.assertEqual(msg.content, "There was an unknown error running this query.")
-        self.assertEqual(msg.type, "ai/failure")
+        self.assertEqual(msg.type, "ai")
         self.assertIsNotNone(msg.id)
 
     @patch(
@@ -152,7 +152,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
             cast(AssistantMessage, msg).content,
             "There was an error running this query: This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam.",
         )
-        self.assertEqual(msg.type, "ai/failure")
+        self.assertEqual(msg.type, "ai")
         self.assertIsNotNone(msg.id)
 
     async def test_node_requires_a_viz_message_in_state(self):
@@ -211,60 +211,35 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertIsNotNone(msg.id)
 
     def test_get_example_prompt(self):
-        node = QueryExecutorNode(self.team, self.user)
+        from ee.hogai.graph.query_executor.query_executor import get_example_prompt
 
         # Test Trends Query
-        trends_message = VisualizationMessage(
-            answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
-            plan="Plan",
-            id="test",
-            initiator="test",
-        )
-        self.assertEqual(node._get_example_prompt(trends_message), TRENDS_EXAMPLE_PROMPT)
+        trends_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode()])
+        self.assertEqual(get_example_prompt(trends_query), TRENDS_EXAMPLE_PROMPT)
 
         # Test Funnel Query - Steps (default)
-        funnel_steps_message = VisualizationMessage(
-            answer=AssistantFunnelsQuery(series=[]),
-            plan="Plan",
-            id="test",
-            initiator="test",
-        )
-        self.assertEqual(node._get_example_prompt(funnel_steps_message), FUNNEL_STEPS_EXAMPLE_PROMPT)
+        funnel_steps_query = AssistantFunnelsQuery(series=[])
+        self.assertEqual(get_example_prompt(funnel_steps_query), FUNNEL_STEPS_EXAMPLE_PROMPT)
 
         # Test Funnel Query - Time to Convert
-        funnel_time_message = VisualizationMessage(
-            answer=AssistantFunnelsQuery(
-                series=[],
-                funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TIME_TO_CONVERT),
-            ),
-            plan="Plan",
-            id="test",
-            initiator="test",
+        funnel_time_query = AssistantFunnelsQuery(
+            series=[],
+            funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TIME_TO_CONVERT),
         )
-        self.assertEqual(node._get_example_prompt(funnel_time_message), FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT)
+        self.assertEqual(get_example_prompt(funnel_time_query), FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT)
 
         # Test Funnel Query - Trends
-        funnel_trends_message = VisualizationMessage(
-            answer=AssistantFunnelsQuery(
-                series=[],
-                funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
-            ),
-            plan="Plan",
-            id="test",
-            initiator="test",
+        funnel_trends_query = AssistantFunnelsQuery(
+            series=[],
+            funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
         )
-        self.assertEqual(node._get_example_prompt(funnel_trends_message), FUNNEL_TRENDS_EXAMPLE_PROMPT)
+        self.assertEqual(get_example_prompt(funnel_trends_query), FUNNEL_TRENDS_EXAMPLE_PROMPT)
 
         # Test Retention Query
-        retention_message = VisualizationMessage(
-            answer=AssistantRetentionQuery(
-                retentionFilter=AssistantRetentionFilter(
-                    targetEntity=AssistantRetentionEventsNode(name="event"),
-                    returningEntity=AssistantRetentionEventsNode(name="event"),
-                )
-            ),
-            plan="Plan",
-            id="test",
-            initiator="test",
+        retention_query = AssistantRetentionQuery(
+            retentionFilter=AssistantRetentionFilter(
+                targetEntity=AssistantRetentionEventsNode(name="event"),
+                returningEntity=AssistantRetentionEventsNode(name="event"),
+            )
         )
-        self.assertEqual(node._get_example_prompt(retention_message), RETENTION_EXAMPLE_PROMPT)
+        self.assertEqual(get_example_prompt(retention_query), RETENTION_EXAMPLE_PROMPT)

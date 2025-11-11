@@ -485,6 +485,14 @@ services:
         volumes:
             - '/var/run/docker.sock:/var/run/docker.sock'
 
+    seaweedfs:
+        container_name: '${SEAWEEDFS_DOCKER_NAME:-seaweedfs-main}'
+        image: chrislusf/seaweedfs:latest
+        ports:
+            - '127.0.0.1:8333:8333' # S3 API
+            - '127.0.0.1:9333:9333' # Master server (for admin UI)
+        command: server -s3 -s3.port=8333 -dir=/data
+
 networks:
     otel_network:
         driver: bridge
