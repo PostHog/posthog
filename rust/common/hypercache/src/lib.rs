@@ -433,6 +433,7 @@ impl HyperCacheReader {
                             ],
                             1,
                         );
+
                         Err(HyperCacheError::CacheMiss.into())
                     }
                 }

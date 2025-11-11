@@ -4,32 +4,28 @@ Team metadata HyperCache - Full team object caching using existing HyperCache in
 This module provides dedicated caching of complete Team objects (38 fields) using the
 existing HyperCache system which handles Redis + S3 backup automatically.
 
-Memory Usage Estimates:
+Memory Usage Estimation:
+------------------------
+Cache size varies significantly based on your team configurations. Factors include:
+- Number of configured features (recording settings, survey configs, etc.)
+- Length of organization and team names
+- Number of populated optional fields
+- Complexity of JSON configuration objects
 
-Per team in Redis (compressed JSON):
-- Base fields (38 fields): ~15KB compressed
-- Related fields (org/project names): ~1KB
-- Metadata overhead: ~3KB
-- Total per team: ~19KB
+Typical ranges (based on preliminary analysis):
+- Per team: 10-30 KB compressed in Redis
+- Compression ratio: 2-4:1 from raw JSON
 
-For 10,000 teams:
-- Redis memory: ~190MB (19KB × 10,000)
-- S3 storage: ~190MB (same data, gzipped)
+To get accurate estimates for YOUR data, run:
+    python manage.py analyze_team_cache_sizes
 
-Memory Calculation Details:
-- String fields (names, tokens): 50-200 bytes each
-- UUID fields: 36 bytes as string
-- DateTime fields (ISO format): 30 bytes each
-- JSON arrays (configs): 100-2000 bytes depending on content
-- Boolean/numeric fields: 5-20 bytes each
-- Redis key overhead: ~100 bytes per key
-- JSON structure overhead: ~20% of data size
-- Compression ratio: ~3:1 for JSON strings
+This will sample your actual teams and provide percentile-based memory projections.
 
 Configuration:
-- Redis TTL: 7 days (TEAM_METADATA_CACHE_TTL)
-- Miss TTL: 1 day (TEAM_METADATA_CACHE_MISS_TTL)
-- Can be configured via environment variables (see module constants)
+- Redis TTL: 7 days (configurable via TEAM_METADATA_CACHE_TTL env var)
+- Miss TTL: 1 day (configurable via TEAM_METADATA_CACHE_MISS_TTL env var)
+
+Note: Redis adds ~100 bytes overhead per key. S3 storage uses similar compression.
 """
 
 import os
@@ -371,7 +367,7 @@ def get_cache_stats() -> dict[str, Any]:
     Get statistics about the team metadata cache.
 
     Returns:
-        Dictionary with cache statistics
+        Dictionary with cache statistics including size information
     """
     try:
         redis_client = get_client()
@@ -385,6 +381,10 @@ def get_cache_stats() -> dict[str, Any]:
             "expires_7d": 0,
             "expires_later": 0,
         }
+
+        # Sample size statistics
+        sample_sizes = []
+        sample_limit = 100  # Sample first 100 entries for size stats
 
         for key in redis_client.scan_iter(match=pattern, count=1000):
             total_keys += 1
@@ -401,15 +401,42 @@ def get_cache_stats() -> dict[str, Any]:
             else:
                 ttl_buckets["expires_later"] += 1
 
+            # Sample memory usage for size statistics
+            if len(sample_sizes) < sample_limit:
+                try:
+                    # Get actual memory usage from Redis (if available)
+                    memory_usage = redis_client.memory_usage(key)
+                    if memory_usage:
+                        sample_sizes.append(memory_usage)
+                except:
+                    # MEMORY USAGE command might not be available
+                    pass
+
         # Get total teams for comparison
         total_teams = Team.objects.count()
+
+        # Calculate size statistics if we have samples
+        size_stats = {}
+        if sample_sizes:
+            import statistics
+
+            size_stats = {
+                "sample_count": len(sample_sizes),
+                "avg_size_bytes": int(statistics.mean(sample_sizes)),
+                "median_size_bytes": int(statistics.median(sample_sizes)),
+                "min_size_bytes": min(sample_sizes),
+                "max_size_bytes": max(sample_sizes),
+                "estimated_total_mb": round((statistics.mean(sample_sizes) * total_keys) / (1024 * 1024), 2),
+            }
 
         return {
             "total_cached": total_keys,
             "total_teams": total_teams,
             "cache_coverage": f"{(total_keys / total_teams * 100):.1f}%" if total_teams else "0%",
             "ttl_distribution": ttl_buckets,
+            "size_statistics": size_stats,
             "namespace": team_metadata_hypercache.namespace,
+            "note": "Run 'python manage.py analyze_team_cache_sizes' for detailed analysis",
         }
 
     except Exception as e:

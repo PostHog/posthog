@@ -233,8 +233,6 @@ def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, creat
                 team_id=instance.id,
                 error=str(e),
             )
-            # Optionally: fall back to synchronous update (uncomment if desired)
-            # update_team_metadata_cache(instance)
 
     # Use transaction.on_commit to ensure the database changes are committed
     # before we update the cache
