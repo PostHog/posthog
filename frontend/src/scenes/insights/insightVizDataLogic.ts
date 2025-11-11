@@ -495,7 +495,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (querySource) => {
                 return (
                     (querySource?.kind === NodeKind.TrendsQuery || querySource?.kind === NodeKind.FunnelsQuery) &&
-                    querySource?.series?.some((s) => s.name === 'All events')
+                    querySource?.series?.some((s: { name?: string }) => s.name === 'All events')
                 )
             },
         ],
@@ -504,7 +504,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (querySource) => {
                 return (
                     querySource?.kind === NodeKind.TrendsQuery &&
-                    querySource?.series?.some((s) =>
+                    querySource?.series?.some((s: { math?: string }) =>
                         ['first_matching_event_for_user', 'first_time_for_user'].includes(s.math || '')
                     )
                 )

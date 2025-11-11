@@ -72,7 +72,7 @@ export type QueryContextColumnComponent = ComponentType<{
     recordIndex: number
     rowCount: number
     value: unknown
-    context?: QueryContext
+    context?: QueryContext<any>
 }>
 
 export interface QueryContextColumn {

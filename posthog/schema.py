@@ -12086,8 +12086,17 @@ class WebExternalClicksTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: Optional[int] = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -12105,6 +12114,7 @@ class WebExternalClicksTableQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebExternalClicksTableQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     stripQueryParams: Optional[bool] = None
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
@@ -12115,8 +12125,17 @@ class WebGoalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: Optional[int] = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -12134,6 +12153,7 @@ class WebGoalsQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -12143,8 +12163,17 @@ class WebOverviewQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: Optional[int] = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -12161,6 +12190,7 @@ class WebOverviewQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -12170,8 +12200,17 @@ class WebPageURLSearchQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: Optional[int] = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -12189,6 +12228,7 @@ class WebPageURLSearchQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebPageURLSearchQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     searchTerm: Optional[str] = None
     stripQueryParams: Optional[bool] = None
     tags: Optional[QueryLogTags] = None
@@ -12200,9 +12240,18 @@ class WebStatsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: Optional[int] = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     breakdownBy: WebStatsBreakdown
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -12223,6 +12272,7 @@ class WebStatsTableQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -13098,8 +13148,17 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: Optional[int] = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     draftConversionGoal: Optional[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]] = Field(
@@ -13119,6 +13178,7 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[MarketingAnalyticsAggregatedQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     select: Optional[list[str]] = Field(
         default=None, description="Return a limited set of data. Will use default columns if empty."
     )
@@ -13131,8 +13191,17 @@ class MarketingAnalyticsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: Optional[int] = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     draftConversionGoal: Optional[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]] = Field(
@@ -13160,6 +13229,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[MarketingAnalyticsTableQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     select: Optional[list[str]] = Field(
         default=None, description="Return a limited set of data. Will use default columns if empty."
     )
@@ -13541,8 +13611,17 @@ class WebTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: Optional[int] = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -13561,6 +13640,7 @@ class WebTrendsQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebTrendsQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -13570,8 +13650,17 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: Optional[int] = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -13590,6 +13679,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebVitalsPathBreakdownQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     tags: Optional[QueryLogTags] = None
     thresholds: list[float] = Field(..., max_length=2, min_length=2)
     useSessionsTable: Optional[bool] = None
@@ -15294,8 +15384,17 @@ class WebVitalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: Optional[int] = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -15312,6 +15411,7 @@ class WebVitalsQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     source: Union[
         TrendsQuery,
         FunnelsQuery,
