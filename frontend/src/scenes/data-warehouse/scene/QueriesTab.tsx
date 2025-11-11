@@ -8,7 +8,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSavedQuery } from '~/types'
+import { DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
 
 import { queriesTabLogic } from './queriesTabLogic'
 
@@ -24,7 +24,7 @@ function RunHistoryDisplay({
     runHistory,
     loading,
 }: {
-    runHistory?: Array<{ status: string; timestamp?: string }>
+    runHistory?: DataWarehouseSavedQueryRunHistory[]
     loading?: boolean
 }): JSX.Element {
     if (loading) {

@@ -4782,6 +4782,18 @@ export interface DataWarehouseTable {
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet' | 'JSON' | 'CSVWithNames'
 
+export type DataModelingJobStatus = 'Running' | 'Completed' | 'Failed' | 'Cancelled'
+
+export interface DataWarehouseSavedQueryRunHistory {
+    status: DataModelingJobStatus
+    timestamp?: string
+}
+
+export interface DataWarehouseSavedQueryDependencies {
+    upstream_count: number
+    downstream_count: number
+}
+
 export interface DataWarehouseSavedQuery {
     /** UUID */
     id: string
@@ -4799,11 +4811,6 @@ export interface DataWarehouseSavedQuery {
     downstream_dependency_count?: number
     created_at?: string
     run_history?: DataWarehouseSavedQueryRunHistory[]
-}
-
-export interface DataWarehouseSavedQueryRunHistory {
-    status: 'Completed' | 'Failed'
-    timestamp?: string
 }
 
 export interface DataWarehouseSavedQueryDraft {

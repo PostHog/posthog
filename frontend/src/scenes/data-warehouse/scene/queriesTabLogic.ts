@@ -6,7 +6,11 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
+import {
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryDependencies,
+    DataWarehouseSavedQueryRunHistory,
+} from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { queriesTabLogicType } from './queriesTabLogicType'
@@ -53,7 +57,7 @@ export const queriesTabLogic = kea<queriesTabLogicType>([
     }),
     loaders(({ values }) => ({
         dependenciesMap: [
-            {} as Record<string, { upstream_count: number; downstream_count: number }>,
+            {} as Record<string, DataWarehouseSavedQueryDependencies>,
             {
                 loadDependenciesForViews: async ({ viewIds }) => {
                     // Filter out views we've already loaded

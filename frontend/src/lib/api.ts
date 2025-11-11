@@ -3746,12 +3746,12 @@ const api = {
         },
         async dependencies(
             viewId: DataWarehouseSavedQuery['id']
-        ): Promise<{ upstream_count: number; downstream_count: number }> {
+        ): Promise<DataWarehouseSavedQueryDependencies> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('dependencies').get()
         },
         async runHistory(
             viewId: DataWarehouseSavedQuery['id']
-        ): Promise<{ run_history: Array<{ status: string; timestamp: string }> }> {
+        ): Promise<{ run_history: DataWarehouseSavedQueryRunHistory[] }> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('run_history').get()
         },
         dataWarehouseDataModelingJobs: {
