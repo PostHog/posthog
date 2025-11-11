@@ -1167,12 +1167,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 errorsSort,
                 groupsTaxonomicTypes
             ): DataTableNode => {
-                // Build filter string for the query template
-                const filters = 'true' // Base filter, actual filtering is done via query filters
-
                 // Use the shared query template
                 const query = errorsQueryTemplate
-                    .replace('{filters}', filters)
                     .replace('{orderBy}', errorsSort.column)
                     .replace('{orderDirection}', errorsSort.direction)
 
@@ -1194,6 +1190,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         'error',
                         'traces',
                         'generations',
+                        'spans',
+                        'embeddings',
                         'sessions',
                         'users',
                         'days_seen',

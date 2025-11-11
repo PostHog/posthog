@@ -7,8 +7,8 @@ WITH extracted_errors AS (
         distinct_id,
         timestamp,
         event,
-        JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
-        JSONExtractRaw(properties, '$ai_session_id') as ai_session_id,
+        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') as ai_trace_id,
+        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$ai_session_id'), ''), 'null'), '^"|"$', '') as ai_session_id,
         CASE
             -- For common Anthropic format: extract the actual error message text
             -- This gives us: "Your credit balance is too low..." instead of JSON structure
@@ -129,11 +129,11 @@ all_numbers_normalized AS (
 )
 SELECT
     normalized_error as error,
-    countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
+    countDistinctIf(ai_trace_id, isNotNull(ai_trace_id) AND ai_trace_id != '') as traces,
     countIf(event = '$ai_generation') as generations,
     countIf(event = '$ai_span') as spans,
     countIf(event = '$ai_embedding') as embeddings,
-    countDistinctIf(ai_session_id, notEmpty(ai_session_id)) as sessions,
+    countDistinctIf(ai_session_id, isNotNull(ai_session_id) AND ai_session_id != '') as sessions,
     uniq(distinct_id) as users,
     uniq(toDate(timestamp)) as days_seen,
     min(timestamp) as first_seen,
