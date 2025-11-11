@@ -77,6 +77,11 @@ const WebAnalyticsAIFilters = (): JSX.Element => {
     } = useValues(webAnalyticsLogic)
     const { setDates, setWebAnalyticsFilters, setIsPathCleaningEnabled, setCompareFilter } =
         useActions(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_POSTHOG_AI]) {
+        return <WebPropertyFilters />
+    }
 
     return (
         <MaxTool
@@ -104,11 +109,11 @@ const WebAnalyticsAIFilters = (): JSX.Element => {
                     setCompareFilter(toolOutput.compareFilter)
                 }
             }}
-            initialMaxPrompt="Filter my web analytics for "
+            initialMaxPrompt="Filter web analytics data for "
             suggestions={[
-                'Show mobile traffic from last month',
-                'Filter only sessions greater than 2 minutes',
-                "Don't include direct traffic",
+                'Show mobile traffic from last 30 days for the US',
+                'Filter only sessions greater than 2 minutes coming from organic search',
+                "Don't include direct traffic and show data for the last 7 days",
             ]}
         >
             <WebPropertyFilters />
