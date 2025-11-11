@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-export OBJECT_STORAGE_ENDPOINT=http://localhost:19000
+export OBJECT_STORAGE_ENDPOINT=http://localhost:8333
 export SESSION_RECORDING_V2_S3_ENDPOINT=http://localhost:8333
 
 export CLICKHOUSE_API_USER="api"

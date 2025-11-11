@@ -118,7 +118,68 @@ if ! grep -q "SESSION_RECORDING_V2_METADATA_SWITCHOVER" .env; then
   source .env
 fi
 
-# Check if session recording storage migration marker exists
+# Check if object storage migration marker exists (all services)
+if ! grep -q "OBJECT_STORAGE_MIGRATED_TO_SEAWEEDFS" .env; then
+  echo ""
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📦 OBJECT STORAGE UPDATE (All services)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "PostHog now uses SeaweedFS for object storage."
+  echo "Your existing objects are stored in MinIO."
+  echo ""
+  echo "You have TWO options:"
+  echo ""
+  echo "1. 🔄 MIGRATE your existing data to SeaweedFS"
+  echo "   - Keeps exports, media uploads, query cache (optional), source maps, and recordings accessible"
+  echo "   - Run migration script after upgrade"
+  echo "   - New objects will be stored in SeaweedFS"
+  echo "   - Migration is best-effort for hobby deployments; support is limited"
+  echo ""
+  echo "2. ⚠️  SKIP MIGRATION"
+  echo "   - Some data is regenerable (query cache, many exports)"
+  echo "   - User uploads/source maps may be required to re-upload if needed"
+  echo "   - Faster upgrade, no migration needed"
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  read -r -p "Do you want to MIGRATE now? [y/N] " response
+  if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+  then
+    echo ""
+    echo "✅ You chose to MIGRATE."
+    echo ""
+    echo "After the upgrade completes, run this command to migrate ALL services:"
+    echo ""
+    echo "  ./bin/migrate-storage-hobby"
+    echo ""
+    echo "Examples:"
+    echo "  ./bin/migrate-storage-hobby --mode migrate    # One-way MinIO → SeaweedFS"
+    echo "  ./bin/migrate-storage-hobby exports -n        # Dry run a specific service"
+    echo ""
+    read -r -p "Press ENTER to acknowledge and continue..."
+    echo "OBJECT_STORAGE_MIGRATED_TO_SEAWEEDFS=pending_migration" >> .env
+  else
+    echo ""
+    echo "⚠️  You chose to SKIP migration."
+    echo "Regenerable data (query cache, many exports) will be recreated as needed."
+    echo "User uploads/source maps may require re-upload if you need historic assets."
+    echo ""
+    read -r -p "Are you sure? [y/N] " confirm
+    if [[ "$confirm" =~ ^([yY][eE][sS]|[yY])+$ ]]
+    then
+      echo "OBJECT_STORAGE_MIGRATED_TO_SEAWEEDFS=skipped" >> .env
+      echo "✅ Proceeding without migration."
+    else
+      echo "Upgrade cancelled. No changes made."
+      exit 1
+    fi
+  fi
+  source .env
+fi
+
+# Check if session recording storage migration marker exists (legacy prompt kept for clarity)
 if ! grep -q "SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS" .env; then
   echo ""
   echo ""
