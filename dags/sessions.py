@@ -109,7 +109,8 @@ def sessions_v3_backfill_replay(context: AssetExecutionContext) -> None:
         f"Running backfill for {partition_range_str} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
     )
     context.log.info(backfill_sql)
-    context.log.info(metabase_debug_query_url(context.run_id))
+    if debug_url := metabase_debug_query_url(context.run_id):
+        context.log.info(f"Debug query: {debug_url}")
 
     cluster = get_cluster()
     tags = dagster_tags(context)
