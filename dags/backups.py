@@ -444,22 +444,23 @@ def wait_for_backup(
 
     done = False
     tries = 0
-    while not done:
-        tries += 1
-        map_hosts(backup.wait).result().values()
-        most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
-        if most_recent_status and most_recent_status.creating() and tries < 3:
-            context.log.warning(
-                f"Backup {backup.path} is no longer running but status is still creating. Waiting a bit longer in case ClickHouse didn't flush logs yet..."
-            )
-            continue
-        elif most_recent_status and most_recent_status.created():
-            context.log.info(f"Backup for table {backup.table} in path {backup.path} finished successfully")
-            done = True
-        else:
-            raise ValueError(
-                f"Backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}."
-            )
+    if backup:
+        while not done:
+            tries += 1
+            map_hosts(backup.wait).result().values()
+            most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
+            if most_recent_status and most_recent_status.creating() and tries < 3:
+                context.log.warning(
+                    f"Backup {backup.path} is no longer running but status is still creating. Waiting a bit longer in case ClickHouse didn't flush logs yet..."
+                )
+                continue
+            elif most_recent_status and most_recent_status.created():
+                context.log.info(f"Backup for table {backup.table} in path {backup.path} finished successfully")
+                done = True
+            else:
+                raise ValueError(
+                    f"Backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}."
+                )
 
     context.add_output_metadata(
         {
@@ -537,7 +538,8 @@ def run_backup_request(
         },
     )
     if skip_reason:
-        return skip_reason
+        context.log.info(skip_reason.skip_message)
+        return None
 
     timestamp = datetime.now(UTC)
     config = BackupConfig(
@@ -565,7 +567,9 @@ def run_backup_request(
 def full_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch a full backup for sharded tables"""
     for table in SHARDED_TABLES:
-        yield run_backup_request(table, incremental=False, context=context)
+        request = run_backup_request(table, incremental=False, context=context)
+        if request:
+            yield request
 
 
 @dagster.schedule(
@@ -576,7 +580,9 @@ def full_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):
 def full_non_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch a full backup for non-sharded tables"""
     for table in NON_SHARDED_TABLES:
-        yield run_backup_request(table, incremental=False, context=context)
+        request = run_backup_request(table, incremental=False, context=context)
+        if request:
+            yield request
 
 
 @dagster.schedule(
@@ -587,7 +593,9 @@ def full_non_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext)
 def incremental_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch an incremental backup for sharded tables"""
     for table in SHARDED_TABLES:
-        yield run_backup_request(table, incremental=True, context=context)
+        request = run_backup_request(table, incremental=True, context=context)
+        if request:
+            yield request
 
 
 @dagster.schedule(
@@ -598,4 +606,6 @@ def incremental_sharded_backup_schedule(context: dagster.ScheduleEvaluationConte
 def incremental_non_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch an incremental backup for non-sharded tables"""
     for table in NON_SHARDED_TABLES:
-        yield run_backup_request(table, incremental=True, context=context)
+        request = run_backup_request(table, incremental=True, context=context)
+        if request:
+            yield request
