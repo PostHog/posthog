@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useState } from 'react'
 import { match } from 'ts-pattern'
 
-import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -20,6 +20,7 @@ import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTa
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -438,14 +439,7 @@ export function Experiments(): JSX.Element {
                             resourceType={AccessControlResourceType.Experiment}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <LemonButton
-                                size="small"
-                                type="primary"
-                                data-attr="create-experiment"
-                                to={urls.experiment('new')}
-                            >
-                                New experiment
-                            </LemonButton>
+                            <NewExperimentButton />
                         </AccessControlAction>
                     ) : undefined
                 }
@@ -491,5 +485,45 @@ export function Experiments(): JSX.Element {
                 />
             )}
         </SceneContent>
+    )
+}
+
+function NewExperimentButton(): JSX.Element {
+    const { loadExperiments } = useActions(experimentsLogic)
+
+    useMaxTool({ identifier: 'create_feature_flag', context: {} })
+
+    return (
+        <MaxTool
+            identifier="create_experiment"
+            initialMaxPrompt="Create an experiment for "
+            suggestions={[
+                'Create an experiment to test our new checkout flow',
+                'Set up an A/B test for the pricing page redesign',
+                'Create an experiment to test different call-to-action buttons on the homepage',
+                'Create an experiment for testing our new recommendation algorithm',
+            ]}
+            callback={(toolOutput: {
+                experiment_id?: string | number
+                experiment_name?: string
+                feature_flag_key?: string
+                error?: string
+            }) => {
+                if (toolOutput?.error || !toolOutput?.experiment_id) {
+                    lemonToast.error(`Failed to create experiment: ${toolOutput?.error || 'Unknown error'}`)
+                    return
+                }
+                // Refresh experiments list to show new experiment, then redirect to it
+                loadExperiments()
+                router.actions.push(urls.experiment(toolOutput.experiment_id))
+            }}
+            position="bottom-right"
+            active={true}
+            context={{}}
+        >
+            <LemonButton size="small" type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
+                <span className="pr-3">New experiment</span>
+            </LemonButton>
+        </MaxTool>
     )
 }
