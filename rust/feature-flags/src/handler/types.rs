@@ -127,7 +127,7 @@ impl Library {
     ///
     /// let mut headers = HeaderMap::new();
     /// headers.insert("user-agent", "posthog-node/3.1.0".parse().unwrap());
-    /// assert_eq!(Library::from_headers(&headers), Library::ServerNode);
+    /// assert_eq!(Library::from_headers(&headers), Library::PosthogNode);
     /// ```
     pub fn from_headers(headers: &HeaderMap) -> Self {
         // Extract user-agent header
