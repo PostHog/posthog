@@ -162,6 +162,8 @@ struct GroupEvaluationData {
 pub struct FeatureFlagMatcher {
     /// Unique identifier for the user/entity being evaluated
     pub distinct_id: String,
+    /// Optional device identifier for device-level bucketing
+    pub device_id: Option<String>,
     /// Team ID for scoping flag evaluations
     pub team_id: TeamId,
     /// Router for database connections across persons/non-persons pools
@@ -185,6 +187,7 @@ pub struct FeatureFlagMatcher {
 impl FeatureFlagMatcher {
     pub fn new(
         distinct_id: String,
+        device_id: Option<String>,
         team_id: TeamId,
         router: PostgresRouter,
         cohort_cache: Arc<CohortCacheManager>,
@@ -193,6 +196,7 @@ impl FeatureFlagMatcher {
     ) -> Self {
         FeatureFlagMatcher {
             distinct_id,
+            device_id,
             team_id,
             router,
             cohort_cache,
@@ -1190,6 +1194,19 @@ impl FeatureFlagMatcher {
             Ok(group_key)
         } else {
             // Person-based flag
+            use crate::flags::flag_models::BucketingIdentifier;
+
+            // Check if flag is configured for device_id bucketing
+            if feature_flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
+                if let Some(device_id) = &self.device_id {
+                    if !device_id.is_empty() {
+                        return Ok(device_id.clone());
+                    }
+                }
+                // If device_id bucketing is set but no device_id provided,
+                // fall through to hash_key_overrides or distinct_id
+            }
+
             // Use hash key overrides for experience continuity
             if let Some(hash_key_override) = hash_key_overrides
                 .as_ref()
