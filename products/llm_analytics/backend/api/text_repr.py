@@ -33,6 +33,9 @@ from products.llm_analytics.backend.text_repr.formatters import format_event_tex
 
 logger = structlog.get_logger(__name__)
 
+# Cache timeout for text representation results (1 hour)
+TEXT_REPR_CACHE_TIMEOUT = 3600
+
 
 # Request/Response Serializers for OpenAPI documentation
 class TextReprOptionsSerializer(serializers.Serializer):
@@ -338,8 +341,8 @@ The response includes the formatted text and metadata about the rendering.
                 },
             }
 
-            # Cache the result for 1 hour (3600 seconds)
-            cache.set(cache_key, result, timeout=3600)
+            # Cache the result
+            cache.set(cache_key, result, timeout=TEXT_REPR_CACHE_TIMEOUT)
             logger.info(
                 "Generated and cached text representation",
                 event_type=event_type,
