@@ -20,7 +20,7 @@ from posthog.models.raw_sessions.sessions_v3 import (
 from dags.common import dagster_tags
 
 # This is the number of days to backfill in one SQL operation
-MAX_PARTITIONS_PER_RUN = 30
+MAX_PARTITIONS_PER_RUN = 10
 
 daily_partitions = DailyPartitionsDefinition(
     start_date="2019-01-01",  # this is a year before posthog was founded, so should be early enough even including data imports
@@ -34,6 +34,12 @@ retry_policy = RetryPolicy(
     backoff=Backoff.EXPONENTIAL,
     jitter=Jitter.PLUS_MINUS,
 )
+
+settings = {
+    "max_execution_time": 10 * 60 * 60,  # 10 hours
+    "max_memory_usage": 100 * 1024 * 1024 * 1024,  # 100GB
+    "distributed_aggregation_memory_efficient": "1",
+}
 
 
 def get_partition_where_clause(context: AssetExecutionContext, timestamp_field: str) -> str:
@@ -66,7 +72,7 @@ def sessions_v3_backfill(context: AssetExecutionContext) -> None:
     context.log.info(backfill_sql)
 
     with tags_context(kind="dagster", dagster=dagster_tags(context)):
-        sync_execute(backfill_sql, workload=Workload.OFFLINE)
+        sync_execute(backfill_sql, workload=Workload.OFFLINE, settings=settings)
 
     context.log.info(f"Successfully backfilled sessions_v3 for {partition_range_str}")
 
@@ -92,6 +98,6 @@ def sessions_v3_backfill_replay(context: AssetExecutionContext) -> None:
     context.log.info(backfill_sql)
 
     with tags_context(kind="dagster", dagster=dagster_tags(context)):
-        sync_execute(backfill_sql, workload=Workload.OFFLINE)
+        sync_execute(backfill_sql, workload=Workload.OFFLINE, settings=settings)
 
     context.log.info(f"Successfully backfilled sessions_v3 for {partition_range_str}")
