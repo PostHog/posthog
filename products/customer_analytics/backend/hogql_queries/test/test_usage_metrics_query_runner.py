@@ -16,7 +16,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import UsageMetricsQuery
+from posthog.schema import CachedUsageMetricsQueryResponse, UsageMetricsQuery
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group.util import create_group
@@ -410,6 +410,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response1 = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
+        assert isinstance(response1, CachedUsageMetricsQueryResponse)
         self.assertFalse(response1.is_cached)
         self.assertEqual(len(response1.results), 0)
 
@@ -429,6 +430,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response2 = runner2.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
+        assert isinstance(response2, CachedUsageMetricsQueryResponse)
         self.assertFalse(response2.is_cached)
         self.assertEqual(len(response2.results), 1)
         self.assertEqual(response2.results[0].name, "Test metric")
@@ -459,6 +461,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response1 = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
+        assert isinstance(response1, CachedUsageMetricsQueryResponse)
         self.assertFalse(response1.is_cached)
         self.assertEqual(len(response1.results), 1)
         self.assertEqual(response1.results[0].name, "Test metric")
@@ -471,5 +474,6 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response2 = runner2.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
+        assert isinstance(response2, CachedUsageMetricsQueryResponse)
         self.assertFalse(response2.is_cached)
         self.assertEqual(len(response2.results), 0)
