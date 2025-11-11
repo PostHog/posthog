@@ -10,13 +10,12 @@ export class SessionManager {
         this.cache = cache
     }
 
-    async _getKey(sessionId: string): Promise<PrefixedString<'session'>> {
+    _getKey(sessionId: string): PrefixedString<'session'> {
         return `session:${sessionId}`
     }
 
     async getSessionUuid(sessionId: string): Promise<string> {
-        const key = await this._getKey(sessionId)
-
+        const key = this._getKey(sessionId)
         const existingSession = await this.cache.get(key)
 
         if (existingSession?.uuid) {
@@ -24,7 +23,6 @@ export class SessionManager {
         }
 
         const newSessionUuid = uuidv7()
-
         await this.cache.set(key, { uuid: newSessionUuid })
 
         return newSessionUuid

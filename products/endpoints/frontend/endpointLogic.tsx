@@ -40,6 +40,7 @@ export const endpointLogic = kea<endpointLogicType>([
         setEndpointName: (endpointName: string) => ({ endpointName }),
         setEndpointDescription: (endpointDescription: string) => ({ endpointDescription }),
         setActiveCodeExampleTab: (tab: CodeExampleTab) => ({ tab }),
+        setSelectedCodeExampleVersion: (version: number | null) => ({ version }),
         setIsUpdateMode: (isUpdateMode: boolean) => ({ isUpdateMode }),
         setSelectedEndpointName: (selectedEndpointName: string | null) => ({ selectedEndpointName }),
         setCacheAge: (cacheAge: number | null) => ({ cacheAge }),
@@ -62,6 +63,10 @@ export const endpointLogic = kea<endpointLogicType>([
             { setEndpointDescription: (_, { endpointDescription }) => endpointDescription },
         ],
         activeCodeExampleTab: ['terminal' as CodeExampleTab, { setActiveCodeExampleTab: (_, { tab }) => tab }],
+        selectedCodeExampleVersion: [
+            null as number | null,
+            { setSelectedCodeExampleVersion: (_, { version }) => version },
+        ],
         isUpdateMode: [
             false,
             {

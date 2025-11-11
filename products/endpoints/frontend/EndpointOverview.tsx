@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
 
-import { LemonButton, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonLabel, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { Label } from 'lib/ui/Label/Label'
 
 import { endpointLogic } from './endpointLogic'
 
@@ -26,13 +25,22 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
             <div className="flex flex-col gap-0 overflow-hidden">
                 <div className="inline-flex deprecated-space-x-8">
                     <div className="flex flex-col">
-                        <Label intent="menu">Status</Label>
+                        <LemonLabel>Status</LemonLabel>
                         <LemonTag type={endpoint.is_active ? 'success' : 'danger'}>
                             <b className="uppercase">{endpoint.is_active ? 'Active' : 'Inactive'}</b>
                         </LemonTag>
                     </div>
                     <div className="flex flex-col">
-                        <Label intent="menu">Endpoint URL</Label>
+                        <LemonLabel info="A version is incremented when the underlying query changes. You can execute old versions of the Endpoint by setting the `version` param on the request body.">
+                            Current version
+                        </LemonLabel>
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold">v{endpoint.current_version}</span>
+                            <span className="text-xs text-muted">({endpoint.versions_count} total)</span>
+                        </div>
+                    </div>
+                    <div className="flex flex-col">
+                        <LemonLabel>Endpoint URL</LemonLabel>
                         <LemonButton
                             type="secondary"
                             size="xsmall"
@@ -49,7 +57,7 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
 
                 {hasParameters && (
                     <div className="flex flex-col mt-4">
-                        <Label intent="menu">Variables</Label>
+                        <LemonLabel>Variables</LemonLabel>
                         <div className="space-y-2 mt-1">
                             {Object.entries(endpoint.parameters).map(([key, value]) => (
                                 <div key={key} className="flex items-start gap-2">
@@ -67,7 +75,7 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
                 <div className="flex flex-col overflow-hidden items-start min-[1200px]:items-end">
                     <div className="inline-flex deprecated-space-x-8">
                         <div className="flex flex-col">
-                            <Label intent="menu">Last executed</Label>
+                            <LemonLabel>Last executed</LemonLabel>
                             {endpoint.last_executed_at ? (
                                 <TZLabel time={endpoint.last_executed_at} />
                             ) : (
@@ -75,7 +83,7 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
                             )}
                         </div>
                         <div className="flex flex-col">
-                            <Label intent="menu">Created by</Label>
+                            <LemonLabel>Created by</LemonLabel>
                             {endpoint.created_by && <ProfilePicture user={endpoint.created_by} size="md" showName />}
                         </div>
                     </div>

@@ -299,7 +299,7 @@ export class SessionRecordingIngester {
 
         // Initialize overflow producer if not consuming from overflow
         if (!this.consumeOverflow) {
-            this.kafkaOverflowProducer = await KafkaProducerWrapper.create(this.hub, 'CONSUMER')
+            this.kafkaOverflowProducer = await KafkaProducerWrapper.create(this.hub, 'WARPSTREAM_PRODUCER')
         }
 
         // Initialize restriction handler with the overflow producer

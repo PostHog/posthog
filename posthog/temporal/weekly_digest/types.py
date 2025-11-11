@@ -247,9 +247,9 @@ class OrganizationDigest(BaseModel):
             "organization_id": str(self.id),
             "teams": [td.render_payload() for td in self.team_digests],
             "scope": "user",
-            "template_name": "periodic_digest_report",
+            "template_name": "weekly_digest_report",
             "period": digest.render_payload(),
-            "total_digest_items_with_data": self.count_nonempty(),
+            "nonempty_items": self.count_nonempty(),
         }
 
 
