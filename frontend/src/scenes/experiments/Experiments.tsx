@@ -96,58 +96,61 @@ const ExperimentsTableFilters = ({
 }): JSX.Element => {
     return (
         <div className="flex justify-between gap-2 flex-wrap">
-            <LemonInput
-                type="search"
-                placeholder="Search experiments"
-                onChange={(search) => onFiltersChange({ search, page: 1 })}
-                value={filters.search || ''}
-            />
-            <div className="flex items-center gap-2">
-                {ExperimentsTabs.Archived !== tab && (
-                    <>
-                        <span>
-                            <b>Status</b>
-                        </span>
-                        <LemonSelect
-                            size="small"
-                            onChange={(status) => {
-                                if (status === 'all') {
-                                    const { status: _, ...restFilters } = filters
-                                    onFiltersChange({ ...restFilters, page: 1 }, true)
-                                } else {
-                                    onFiltersChange({ status: status as ProgressStatus, page: 1 })
-                                }
-                            }}
-                            options={
-                                [
-                                    { label: 'All', value: 'all' },
-                                    { label: 'Draft', value: ProgressStatus.Draft },
-                                    { label: 'Running', value: ProgressStatus.Running },
-                                    { label: 'Complete', value: ProgressStatus.Complete },
-                                ] as { label: string; value: string }[]
-                            }
-                            value={filters.status ?? 'all'}
-                            dropdownMatchSelectWidth={false}
-                            dropdownMaxContentWidth
-                        />
-                    </>
-                )}
-                <span className="ml-1">
-                    <b>Created by</b>
-                </span>
-                <MemberSelect
-                    defaultLabel="Any user"
-                    value={filters.created_by_id ?? null}
-                    onChange={(user) => {
-                        if (!user) {
-                            const { created_by_id, ...restFilters } = filters
-                            onFiltersChange({ ...restFilters, page: 1 }, true)
-                        } else {
-                            onFiltersChange({ created_by_id: user.id, page: 1 })
-                        }
-                    }}
+            <div className="flex items-center gap-6">
+                <LemonInput
+                    type="search"
+                    placeholder="Search experiments"
+                    onChange={(search) => onFiltersChange({ search, page: 1 })}
+                    value={filters.search || ''}
                 />
+                <div className="flex items-center gap-2">
+                    {ExperimentsTabs.Archived !== tab && (
+                        <>
+                            <span>
+                                <b>Status</b>
+                            </span>
+                            <LemonSelect
+                                size="small"
+                                onChange={(status) => {
+                                    if (status === 'all') {
+                                        const { status: _, ...restFilters } = filters
+                                        onFiltersChange({ ...restFilters, page: 1 }, true)
+                                    } else {
+                                        onFiltersChange({ status: status as ProgressStatus, page: 1 })
+                                    }
+                                }}
+                                options={
+                                    [
+                                        { label: 'All', value: 'all' },
+                                        { label: 'Draft', value: ProgressStatus.Draft },
+                                        { label: 'Running', value: ProgressStatus.Running },
+                                        { label: 'Complete', value: ProgressStatus.Complete },
+                                    ] as { label: string; value: string }[]
+                                }
+                                value={filters.status ?? 'all'}
+                                dropdownMatchSelectWidth={false}
+                                dropdownMaxContentWidth
+                            />
+                        </>
+                    )}
+                    <span className="ml-1">
+                        <b>Created by</b>
+                    </span>
+                    <MemberSelect
+                        defaultLabel="Any user"
+                        value={filters.created_by_id ?? null}
+                        onChange={(user) => {
+                            if (!user) {
+                                const { created_by_id, ...restFilters } = filters
+                                onFiltersChange({ ...restFilters, page: 1 }, true)
+                            } else {
+                                onFiltersChange({ created_by_id: user.id, page: 1 })
+                            }
+                        }}
+                    />
+                </div>
             </div>
+            <ExperimentVelocityStats />
         </div>
     )
 }
@@ -445,7 +448,6 @@ export function Experiments(): JSX.Element {
                     </AccessControlAction>
                 }
             />
-            <ExperimentVelocityStats />
             <LemonTabs
                 activeKey={tab}
                 onChange={(newKey) => setExperimentsTab(newKey)}

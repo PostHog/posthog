@@ -30,16 +30,16 @@ export function ExperimentVelocityStats(): JSX.Element | null {
     const changeColor = isPositive ? 'text-success' : isNegative ? 'text-danger' : 'text-text-secondary'
 
     return (
-        <div className="px-4 py-3 border rounded bg-bg-light flex items-center gap-6">
+        <div className="px-3 py-2 border rounded bg-bg-light flex items-center gap-3">
             <div className="metric-cell-header font-semibold flex items-center gap-1">
-                Experimentation velocity (last 30d)
+                Velocity (last 30d)
                 <Tooltip title="Shows your team's experimentation velocity: how many experiments you're launching, running, and completing. Launched count is compared to the previous 30 days to track growth.">
                     <IconInfo className="text-muted-alt" fontSize="16" />
                 </Tooltip>
             </div>
             <div className="h-4 w-px bg-border" />
-            <div className="flex items-baseline gap-2 metric-cell">
-                <span className="text-lg font-semibold">{launched_last_30d}</span>
+            <div className="flex items-baseline gap-1">
+                <span className="text-base font-semibold ">{launched_last_30d}</span>
                 <span>launched</span>
                 {percent_change !== 0 && (
                     <span className={`metric-cell font-bold ${changeColor}`}>
@@ -48,13 +48,13 @@ export function ExperimentVelocityStats(): JSX.Element | null {
                 )}
             </div>
             <div>•</div>
-            <div className="flex items-baseline gap-2 metric-cell">
-                <span className="text-lg font-semibold">{active_experiments}</span>
+            <div className="flex items-baseline gap-1">
+                <span className="text-base font-semibold">{active_experiments}</span>
                 <span className="">active</span>
             </div>
             <div>•</div>
-            <div className="flex items-baseline gap-2 metric-cell">
-                <span className="text-lg font-bold">{completed_last_30d}</span>
+            <div className="flex items-baseline gap-1">
+                <span className="text-base font-bold">{completed_last_30d}</span>
                 <span>completed</span>
             </div>
         </div>
