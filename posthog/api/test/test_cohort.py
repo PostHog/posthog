@@ -1413,15 +1413,7 @@ email@example.org,
                     "activity": "created",
                     "scope": "Cohort",
                     "item_id": str(cohort.pk),
-                    "detail": {
-                        "changes": [
-                            {"type": "Cohort", "action": "created", "field": "people", "before": 0, "after": 0}
-                        ],
-                        "trigger": None,
-                        "name": "whatever",
-                        "short_id": None,
-                        "type": None,
-                    },
+                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
                     "created_at": mock.ANY,
                 }
             ],
@@ -1483,15 +1475,7 @@ email@example.org,
                     "activity": "created",
                     "scope": "Cohort",
                     "item_id": str(cohort.pk),
-                    "detail": {
-                        "changes": [
-                            {"type": "Cohort", "action": "created", "field": "people", "before": 0, "after": 0}
-                        ],
-                        "trigger": None,
-                        "name": "whatever",
-                        "short_id": None,
-                        "type": None,
-                    },
+                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
                     "created_at": mock.ANY,
                 },
             ],
@@ -1530,15 +1514,7 @@ email@example.org,
                     "item_id": str(cohort_id),
                     "detail": {
                         "trigger": None,
-                        "changes": [
-                            {
-                                "type": "Cohort",
-                                "action": "created",
-                                "field": "people",
-                                "before": 0,
-                                "after": len(person_uuids),
-                            }
-                        ],
+                        "changes": None,
                         "name": "my static cohort",
                         "short_id": None,
                         "type": None,
