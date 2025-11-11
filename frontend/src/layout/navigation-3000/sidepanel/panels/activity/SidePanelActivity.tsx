@@ -25,7 +25,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, PropertyFilterType, PropertyOperator } from '~/types'
+import { AvailableFeature, CyclotronJobFilterPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelActivityMetalytics } from './SidePanelActivityMetalytics'
@@ -143,7 +143,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                         items={
                                             HOG_FUNCTION_SUB_TEMPLATES['activity-log'].map((subTemplate) => {
                                                 // Build property filters based on context
-                                                const properties: any[] = [
+                                                const properties: CyclotronJobFilterPropertyFilter[] = [
                                                     {
                                                         key: 'scope',
                                                         type: PropertyFilterType.Event,
@@ -153,7 +153,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                                 ]
 
                                                 // If we have item_id, add it to filters
-                                                if (hasItemContext && contextFromPage!.item_id) {
+                                                if (hasItemContext) {
                                                     properties.push({
                                                         key: 'item_id',
                                                         type: PropertyFilterType.Event,
@@ -169,7 +169,6 @@ export const SidePanelActivity = (): JSX.Element => {
                                                     properties,
                                                 }
 
-                                                // Configuration overrides to merge with subTemplate (like urlForTemplate does)
                                                 const configurationOverrides = { filters }
 
                                                 const configuration: Record<string, any> = {
