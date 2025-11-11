@@ -26,10 +26,10 @@ pub fn get_team_request_library_key(
 ) -> String {
     match request_type {
         FlagRequestType::Decide => {
-            format!("posthog:decide_requests:sdk:{team_id}:{library}")
+            format!("posthog:decide_requests:sdk:{team_id}:{}", library.to_string())
         }
         FlagRequestType::FlagDefinitions => {
-            format!("posthog:local_evaluation_requests:sdk:{team_id}:{library}")
+            format!("posthog:local_evaluation_requests:sdk:{team_id}:{}", library.to_string())
         }
     }
 }
