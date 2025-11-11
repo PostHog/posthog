@@ -18,6 +18,7 @@ class CustomerIOImportService:
         self.client = None
         self.api_key = api_key
         self.topic_mapping = {}  # Maps Customer.io topic IDs to PostHog MessageCategory IDs
+        self.topic_names = {}  # Maps topic IDs to their display names
         self.progress = {
             "status": "initializing",
             "topics_found": 0,
@@ -37,7 +38,7 @@ class CustomerIOImportService:
         try:
             # Try to validate credentials with US region first, then EU
             self.progress["status"] = "validating_credentials"
-            
+
             # Try US region first
             self.client = CustomerIOClient(self.api_key, region="us")
             if self.client.validate_credentials():
@@ -47,7 +48,9 @@ class CustomerIOImportService:
                 self.client = CustomerIOClient(self.api_key, region="eu")
                 if not self.client.validate_credentials():
                     self.progress["status"] = "failed"
-                    self.progress["errors"].append("Invalid Customer.io API credentials. Please check: 1) You're using an App API key from Settings > API Credentials > App API Keys, 2) The key has not expired, 3) You've copied the complete key")
+                    self.progress["errors"].append(
+                        "Invalid Customer.io API credentials. Please check: 1) You're using an App API key from Settings > API Credentials > App API Keys, 2) The key has not expired, 3) You've copied the complete key"
+                    )
                     return self.progress
 
             # Import subscription topics
@@ -116,6 +119,8 @@ class CustomerIOImportService:
                 self.topic_mapping[topic_identifier] = str(category.id)
                 # Also store just the numeric ID (e.g., "1")
                 self.topic_mapping[str(topic_id)] = str(category.id)
+                # Store the topic name for display purposes
+                self.topic_names[str(topic_id)] = topic_name
 
                 if created:
                     self.progress["categories_created"] += 1
@@ -129,72 +134,67 @@ class CustomerIOImportService:
         for key in self.topic_mapping.keys():
             # Extract numeric IDs (skip the "topic_N" format duplicates)
             if not key.startswith("topic_"):
-                topics_to_process.append({
-                    "id": key,
-                    "category_id": self.topic_mapping[key],
-                    "name": f"Topic {key}"  # We can enhance this later with actual names
-                })
-        
+                topics_to_process.append(
+                    {
+                        "id": key,
+                        "category_id": self.topic_mapping[key],
+                        "name": self.topic_names.get(key, f"Category {key}"),
+                    }
+                )
+
         self.progress["total_categories"] = len(topics_to_process)
-        
+
         # Track unique customers across all topics
         unique_customers = set()
-        
+
         # Process each topic/category one by one
         for idx, topic_info in enumerate(topics_to_process):
             topic_id = topic_info["id"]
             category_id = topic_info["category_id"]
-            
+
+            topic_name = topic_info["name"]
+
             self.progress["current_category_index"] = idx + 1
-            self.progress["current_category"] = f"Topic {topic_id}"
+            self.progress["current_category"] = topic_name
             self.progress["status"] = f"processing_category_{idx + 1}_of_{len(topics_to_process)}"
-            self.progress["details"] = f"Processing topic {topic_id} ({idx + 1}/{len(topics_to_process)})"
-            
+            self.progress["details"] = f"Importing preferences for {topic_name}"
+
             # Process this topic in batches
-            self._import_topic_preferences_in_batches(
-                topic_id, 
-                category_id, 
-                unique_customers,
-                batch_size=500  
-            )
-        
+            self._import_topic_preferences_in_batches(topic_id, category_id, unique_customers, batch_size=500)
+
         self.progress["customers_processed"] = len(unique_customers)
         self.progress["status"] = "completed"
-        self.progress["details"] = f"Import completed. Processed {len(unique_customers)} unique customers."
-    
+        self.progress["details"] = f"Import completed. Found {len(unique_customers)} unique customers with opt-outs."
+
     def _import_topic_preferences_in_batches(
-        self, 
-        topic_id: str, 
-        category_id: str, 
-        unique_customers: set,
-        batch_size: int = 500
+        self, topic_id: str, category_id: str, unique_customers: set, batch_size: int = 500
     ) -> None:
         """Import preferences for a single topic in batches for better progress tracking"""
-        
+
         start = None
         batch_num = 0
         topic_total = 0
-        
+
         while True:
             batch_num += 1
             self.progress["current_batch"] = batch_num
-            self.progress["details"] = f"Fetching customers for Topic {topic_id}"
-            
+            self.progress["details"] = (
+                f"Fetching preferences for {self.topic_names.get(topic_id, f'Category {topic_id}')}"
+            )
+
             try:
                 # Fetch a batch of opted-out customers for this topic
-                response = self.client.search_customers_opted_out_of_topic(
-                    topic_id, 
-                    limit=batch_size, 
-                    start=start
-                )
-                
+                response = self.client.search_customers_opted_out_of_topic(topic_id, limit=batch_size, start=start)
+
                 identifiers = response.get("identifiers", [])
                 if not identifiers:
                     break
-                
+
                 self.progress["customers_in_current_batch"] = len(identifiers)
-                self.progress["details"] = f"Processing {len(identifiers)} customers for Topic {topic_id}"
-                
+                self.progress["details"] = (
+                    f"Processing {len(identifiers)} preferences for {self.topic_names.get(topic_id, f'Category {topic_id}')}"
+                )
+
                 # Collect batch data for bulk operations
                 emails_to_process = []
                 for customer_info in identifiers:
@@ -202,50 +202,50 @@ class CustomerIOImportService:
                     if email:
                         emails_to_process.append(email)
                         unique_customers.add(email)
-                
+
                 if emails_to_process:
                     # Bulk fetch/create preferences
                     self._bulk_update_preferences(emails_to_process, category_id)
-                    
+
                     batch_processed = len(emails_to_process)
                     self.progress["preferences_updated"] += batch_processed
                     topic_total += batch_processed
-                
+
                 # Check for next page
                 next_cursor = response.get("next")
                 if not next_cursor or next_cursor == "":
                     break
                 start = next_cursor
-                
+
                 # Small delay to avoid hitting rate limits
                 import time
+
                 time.sleep(0.1)
-                
+
             except Exception as e:
                 self.progress["errors"].append(f"Error processing topic {topic_id}: {str(e)[:200]}")
                 break
-        
-        self.progress["details"] = f"Topic {topic_id} complete: {topic_total} opt-outs processed"
-    
+
+        self.progress["details"] = (
+            f"{self.topic_names.get(topic_id, f'Category {topic_id}')} complete: {topic_total} preferences processed"
+        )
+
     def _bulk_update_preferences(self, emails: list[str], category_id: str) -> None:
         """Bulk update preferences for multiple emails"""
         from django.db import transaction
-        
+
         try:
             with transaction.atomic():
                 # Fetch existing preferences
                 existing_prefs = {
                     pref.identifier: pref
-                    for pref in MessageRecipientPreference.objects.filter(
-                        team_id=self.team.id,
-                        identifier__in=emails
-                    )
+                    for pref in MessageRecipientPreference.objects.filter(team_id=self.team.id, identifier__in=emails)
                 }
-                
+
                 # Prepare records to create and update
                 to_create = []
                 to_update = []
-                
+
                 for email in emails:
                     if email in existing_prefs:
                         # Update existing preference
@@ -258,21 +258,21 @@ class CustomerIOImportService:
                             MessageRecipientPreference(
                                 team_id=self.team.id,
                                 identifier=email,
-                                preferences={str(category_id): PreferenceStatus.OPTED_OUT.value}
+                                preferences={str(category_id): PreferenceStatus.OPTED_OUT.value},
                             )
                         )
-                
+
                 # Bulk create new preferences
                 if to_create:
                     MessageRecipientPreference.objects.bulk_create(to_create, batch_size=500)
-                
+
                 # Bulk update existing preferences
                 if to_update:
                     MessageRecipientPreference.objects.bulk_update(
-                        to_update, ['preferences', 'updated_at'], batch_size=500
+                        to_update, ["preferences", "updated_at"], batch_size=500
                     )
-                
-        except Exception as e:
+
+        except Exception:
             # Fall back to individual updates
             for email in emails:
                 try:

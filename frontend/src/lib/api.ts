@@ -181,7 +181,6 @@ import {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import { Task, TaskUpsertProps } from 'products/tasks/frontend/types'
-import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'

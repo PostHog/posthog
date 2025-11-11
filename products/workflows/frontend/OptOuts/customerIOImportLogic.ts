@@ -1,11 +1,11 @@
-import { actions, kea, listeners, path, reducers, selectors, afterMount, beforeUnmount } from 'kea'
+import { actions, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
 
-import api, { ApiRequest } from 'lib/api'
+import { ApiRequest } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import type { customerIOImportLogicType } from './customerIOImportLogicType'
+import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 
 export interface ImportFormValues {
     app_api_key: string
@@ -92,7 +92,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                         .messagingCategories()
                         .addPathComponent('import_from_customerio')
                         .create({ data: { app_api_key } })
-                    
+
                     // The API now returns immediately with import_id
                     if (response.import_id) {
                         actions.startPolling(response.import_id)
@@ -100,7 +100,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                         // Legacy behavior for backward compatibility
                         actions.setImportProgress(response)
                     }
-                    
+
                     return response
                 } catch (error: any) {
                     throw error
@@ -113,7 +113,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         isImportComplete: [(s) => [s.importProgress], (importProgress) => importProgress?.status === 'completed'],
         isImportFailed: [(s) => [s.importProgress], (importProgress) => importProgress?.status === 'failed'],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         setImportProgress: ({ importProgress }) => {
             if (importProgress.status === 'completed') {
                 actions.stopPolling()
@@ -121,10 +121,10 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 lemonToast.success(
                     `Import completed! Created ${categoriesCreated} categories and imported ${importProgress.preferences_updated} opt-outs.`
                 )
-                // Reload the message categories after successful import
+                // Refresh the categories list without reloading the page
                 if (window.location.pathname.includes('workflows')) {
-                    // Trigger a refresh of the message categories
-                    setTimeout(() => window.location.reload(), 2000)
+                    // Refresh the categories
+                    optOutCategoriesLogic.actions.loadCategories()
                 }
             } else if (importProgress.status === 'failed') {
                 actions.stopPolling()
@@ -145,12 +145,12 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             if (pollInterval) {
                 clearInterval(pollInterval)
             }
-            
+
             // Start polling every 2 seconds
             pollInterval = setInterval(() => {
                 actions.pollProgress(importId)
             }, 2000)
-            
+
             // Do initial poll immediately
             actions.pollProgress(importId)
         },
@@ -167,7 +167,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                     .addPathComponent('import_progress')
                     .withQueryString({ import_id: importId })
                     .get()
-                
+
                 actions.setImportProgress(response)
             } catch (error) {
                 console.error('Failed to poll progress:', error)

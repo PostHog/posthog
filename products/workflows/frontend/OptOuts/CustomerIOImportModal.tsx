@@ -13,33 +13,35 @@ export function CustomerIOImportModal(): JSX.Element {
     const { closeImportModal, submitImportForm } = useActions(customerIOImportLogic)
 
     const renderProgressBar = (): JSX.Element | null => {
-        if (!importProgress) return null
-        
-        const { 
-            current_category_index, 
-            total_categories,
-            customers_in_current_batch
-        } = importProgress
-        
+        if (!importProgress) {
+            return null
+        }
+
+        const { current_category_index, total_categories, customers_in_current_batch } = importProgress
+
         if (total_categories && total_categories > 0 && current_category_index) {
-            const categoryProgress = (current_category_index / total_categories) * 100
-            
+            // Don't show 100% until actually completed - show max 99% during processing
+            const rawProgress = (current_category_index / total_categories) * 100
+            const categoryProgress = importProgress.status === 'completed' ? 100 : Math.min(99, rawProgress)
+
             return (
                 <div className="space-y-2">
                     <div className="flex justify-between text-xs text-muted-alt">
-                        <span>Topic {current_category_index} of {total_categories}</span>
+                        <span>
+                            Category {current_category_index} of {total_categories}
+                        </span>
                         <span>{Math.round(categoryProgress)}%</span>
                     </div>
                     <LemonProgress percent={categoryProgress} />
                     {customers_in_current_batch && customers_in_current_batch > 0 && (
                         <div className="text-xs text-muted-alt">
-                            Processing {customers_in_current_batch} customers with opt-outs
+                            Processing {customers_in_current_batch} preferences
                         </div>
                     )}
                 </div>
             )
         }
-        
+
         return null
     }
 
@@ -52,11 +54,25 @@ export function CustomerIOImportModal(): JSX.Element {
                             <>
                                 <div className="text-success text-lg font-semibold mb-4">Import Complete!</div>
                                 <div className="space-y-2 text-sm">
-                                    <p>Topics found: {importProgress.topics_found}</p>
-                                    <p>Categories created: {importProgress.categories_created || importProgress.workflows_created}</p>
-                                    <p>Unique customers processed: {importProgress.customers_processed}</p>
-                                    <p>Total opt-outs imported: {importProgress.preferences_updated}</p>
+                                    <p>Categories found: {importProgress.topics_found}</p>
+                                    <p>
+                                        Categories created:{' '}
+                                        {importProgress.categories_created || importProgress.workflows_created}
+                                    </p>
+                                    <p>
+                                        Unique customers with opt-outs:{' '}
+                                        {importProgress.customers_processed.toLocaleString()}
+                                    </p>
+                                    <p>
+                                        Total opt-out preferences imported:{' '}
+                                        {importProgress.preferences_updated.toLocaleString()}
+                                    </p>
                                 </div>
+                                {importProgress.preferences_updated > importProgress.customers_processed && (
+                                    <div className="text-xs text-muted-alt mt-2">
+                                        Note: Some customers have opted out of multiple categories
+                                    </div>
+                                )}
                                 {importProgress.errors && importProgress.errors.length > 0 && (
                                     <div className="mt-4">
                                         <div className="text-warning font-semibold">Some errors occurred:</div>
@@ -81,13 +97,13 @@ export function CustomerIOImportModal(): JSX.Element {
                         ) : (
                             <>
                                 <div className="text-lg font-semibold mb-4">Importing...</div>
-                                
+
                                 {importProgress?.status === 'creating_categories' && (
                                     <div className="text-sm text-muted-alt mb-4">
                                         Creating message categories from Customer.io topics...
                                     </div>
                                 )}
-                                
+
                                 {importProgress?.status?.startsWith('processing_category') && (
                                     <>
                                         <div className="text-sm text-muted-alt mb-4">
@@ -96,23 +112,36 @@ export function CustomerIOImportModal(): JSX.Element {
                                         {renderProgressBar()}
                                     </>
                                 )}
-                                
+
                                 {importProgress && (
                                     <div className="mt-4 space-y-1 text-xs">
                                         {importProgress.topics_found > 0 && (
-                                            <p>✓ Found {importProgress.topics_found} topics</p>
+                                            <p>✓ Found {importProgress.topics_found} categories</p>
                                         )}
-                                        {((importProgress.categories_created || importProgress.workflows_created || 0) > 0) && (
-                                            <p>✓ Created {importProgress.categories_created || importProgress.workflows_created} categories</p>
+                                        {(importProgress.categories_created || importProgress.workflows_created || 0) >
+                                            0 && (
+                                            <p>
+                                                ✓ Created{' '}
+                                                {importProgress.categories_created || importProgress.workflows_created}{' '}
+                                                categories
+                                            </p>
                                         )}
                                         {importProgress.current_category && (
-                                            <p>Currently importing opt-outs for: {importProgress.current_category}</p>
+                                            <p>
+                                                Currently importing preferences for: {importProgress.current_category}
+                                            </p>
                                         )}
                                         {importProgress.customers_processed > 0 && (
-                                            <p>Customers found with opt-outs: {importProgress.customers_processed}</p>
+                                            <p>
+                                                Unique customers found:{' '}
+                                                {importProgress.customers_processed.toLocaleString()}
+                                            </p>
                                         )}
                                         {importProgress.preferences_updated > 0 && (
-                                            <p>Opt-outs imported: {importProgress.preferences_updated}</p>
+                                            <p>
+                                                Total preferences processed:{' '}
+                                                {importProgress.preferences_updated.toLocaleString()}
+                                            </p>
                                         )}
                                     </div>
                                 )}
@@ -155,7 +184,8 @@ export function CustomerIOImportModal(): JSX.Element {
                             <li>Preserve their opt-out preferences for each topic</li>
                         </ul>
                         <p className="mt-2 text-warning">
-                            Note: The import duration depends on your customer base size. Large imports (100k+ customers) may take several minutes to complete.
+                            Note: The import duration depends on your customer base size. Large imports (100k+
+                            customers) may take several minutes to complete.
                         </p>
                     </div>
                 </div>
@@ -169,10 +199,11 @@ export function CustomerIOImportModal(): JSX.Element {
             isOpen={isImportModalOpen}
             onClose={closeImportModal}
             footer={
-                isImporting || (importProgress && importProgress.status !== 'completed' && importProgress.status !== 'failed') ? (
-                    // Hide all buttons during import
-                    null
-                ) : importProgress?.status === 'completed' || importProgress?.status === 'failed' ? (
+                isImporting ||
+                (importProgress &&
+                    importProgress.status !== 'completed' &&
+                    importProgress.status !== 'failed') ? // Hide all buttons during import
+                null : importProgress?.status === 'completed' || importProgress?.status === 'failed' ? (
                     <LemonButton type="primary" onClick={closeImportModal}>
                         Close
                     </LemonButton>
