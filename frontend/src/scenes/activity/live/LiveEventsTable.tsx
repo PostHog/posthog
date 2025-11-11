@@ -84,7 +84,6 @@ export function LiveEventsTable(): JSX.Element {
 
     return (
         <SceneContent data-attr="manage-events-table">
-            <LemonTabs activeKey={ActivityTab.LiveEvents} tabs={tabs} sceneInset />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Activity].name}
                 description={sceneConfigurations[Scene.Activity].description}
@@ -92,6 +91,7 @@ export function LiveEventsTable(): JSX.Element {
                     type: sceneConfigurations[Scene.Activity].iconType || 'default_icon_type',
                 }}
             />
+            <LemonTabs activeKey={ActivityTab.LiveEvents} tabs={tabs} sceneInset />
             <SceneDivider />
             <div className="mb-4 flex w-full justify-between items-center">
                 <div className="flex justify-center">

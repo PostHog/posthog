@@ -1,3 +1,4 @@
+import time
 from datetime import timedelta
 from typing import Any
 
@@ -25,7 +26,7 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
 
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
-    _raw_delete(PersonDistinctId.objects.filter(team_id__in=team_ids))
+    _raw_delete_batch(PersonDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
 
     # Get cohort_ids from the default database first to avoid cross-database join
@@ -34,13 +35,32 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(CohortPeople.objects.filter(cohort_id__in=cohort_ids))
 
     _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))
-    _raw_delete(Person.objects.filter(team_id__in=team_ids))
+    _raw_delete_batch(Person.objects.filter(team_id__in=team_ids))
     _raw_delete(InsightCachingState.objects.filter(team_id__in=team_ids))
 
 
 def _raw_delete(queryset: Any):
     "Issues a single DELETE statement for the queryset"
     queryset._raw_delete(queryset.db)
+
+
+def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
+    """
+    Deletes records in batches to avoid statement timeout on large tables.
+    """
+    while True:
+        batch_ids = list(queryset.values_list("id", flat=True)[:batch_size])
+
+        if not batch_ids:
+            break
+
+        queryset.model.objects.filter(id__in=batch_ids)._raw_delete(queryset.db)
+
+        # If we got fewer records than batch_size, we're done
+        if len(batch_ids) < batch_size:
+            break
+
+        time.sleep(0.1)
 
 
 def delete_batch_exports(team_ids: list[int]):

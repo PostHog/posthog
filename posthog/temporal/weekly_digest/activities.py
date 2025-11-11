@@ -341,16 +341,11 @@ async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput)
             async for team in query_teams_for_digest()[batch_start:batch_end]:
                 try:
                     async for user in await database_sync_to_async(team.all_users_with_access)():
-                        if team.id == 2:
-                            logger.info(f"Processing PH user {user.id}")
-
                         if should_send_notification(user, NotificationSetting.WEEKLY_PROJECT_DIGEST.value, team.id):
                             key: str = f"{input.digest.key}-user-notify-{user.id}"
                             await r.sadd(key, team.id)
                             await r.expire(key, input.common.redis_ttl)
-                        else:
-                            if team.id == 2:
-                                logger.info(f"PH user {user.id} has disabled notifications")
+
                         user_count += 1
                     team_count += 1
                 except Exception as e:
@@ -495,15 +490,15 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         empty_org_digest_count += 1
                         continue
 
-                    messaging_record, _ = await MessagingRecord.objects.aget_or_create(
+                    messaging_record, created = await MessagingRecord.objects.aget_or_create(
                         email_hash=get_email_hash(f"org_{organization.id}"), campaign_key=input.digest.key
                     )
 
-                    # if not created and messaging_record.sent_at:
-                    #    logger.info(
-                    #        f"Digest already sent for organization, skipping...", organization_id=organization.id
-                    #    )
-                    #    continue
+                    if not created and messaging_record.sent_at:
+                        logger.info(
+                            f"Digest already sent for organization, skipping...", organization_id=organization.id
+                        )
+                        continue
 
                     async for member in query_org_members(organization):
                         user = member.user
@@ -530,21 +525,16 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                                 user_email=user.email,
                             )
                         else:
-                            if user.email == "tue@posthog.com":
-                                logger.info("Match - sending digest")
-                                partial = True
-
-                                ph_client.capture(
-                                    distinct_id=user.distinct_id,
-                                    event="transactional email",
-                                    properties=payload,
-                                    groups={
-                                        "organization": str(organization.id),
-                                        "instance": settings.SITE_URL,
-                                    },
-                                )
-
-                                ph_client.group_identify("organization", str(organization.id), payload)
+                            partial = True
+                            ph_client.capture(
+                                distinct_id=user.distinct_id,
+                                event="transactional email",
+                                properties=payload,
+                                groups={
+                                    "organization": str(organization.id),
+                                    "instance": settings.SITE_URL,
+                                },
+                            )
 
                         sent_digest_count += 1
                 except Exception as e:

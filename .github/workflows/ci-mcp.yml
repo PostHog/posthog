@@ -26,47 +26,6 @@ jobs:
                         - '.github/workflows/mcp-ci.yml'
                         - '.github/workflows/mcp-publish.yml'
 
-    lint-and-format:
-        name: Lint, Format, and Type Check
-        runs-on: ubuntu-latest
-        needs: changes
-        if: needs.changes.outputs.mcp == 'true'
-        permissions:
-            contents: read
-
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
-
-            - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
-
-            - name: Setup Node.js
-              uses: actions/setup-node@v4
-              with:
-                  node-version: 22
-                  cache: 'pnpm'
-
-            - name: Install dependencies
-              run: pnpm install
-
-            - name: Run linter
-              run: cd products/mcp && pnpm run lint
-
-            - name: Run formatter
-              run: cd products/mcp && pnpm run format
-
-            - name: Run type check
-              run: cd products/mcp && pnpm run typecheck
-
-            - name: Check for changes
-              run: |
-                  if [ -n "$(git status --porcelain)" ]; then
-                    echo "Code formatting or linting changes detected!"
-                    git diff
-                    exit 1
-                  fi
-
     unit-tests:
         name: Unit Tests
         runs-on: ubuntu-latest

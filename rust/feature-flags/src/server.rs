@@ -50,8 +50,12 @@ where
 {
     // Configure compression based on environment variable
     let compression_config = if *config.redis_compression_enabled {
-        tracing::info!("Redis compression enabled");
-        CompressionConfig::default()
+        let config = CompressionConfig::default();
+        tracing::info!(
+            "Redis compression enabled (threshold: {} bytes)",
+            config.threshold
+        );
+        config
     } else {
         tracing::info!("Redis compression disabled");
         CompressionConfig::disabled()

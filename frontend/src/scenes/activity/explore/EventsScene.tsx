@@ -21,7 +21,6 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
     return (
         <SceneContent>
-            <LemonTabs activeKey={ActivityTab.ExploreEvents} tabs={tabs} sceneInset />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Activity].name}
                 description={sceneConfigurations[Scene.Activity].description}
@@ -29,6 +28,7 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     type: sceneConfigurations[Scene.Activity].iconType || 'default_icon_type',
                 }}
             />
+            <LemonTabs activeKey={ActivityTab.ExploreEvents} tabs={tabs} sceneInset />
             <SceneDivider />
             <Query
                 attachTo={eventsSceneLogic({ tabId })}

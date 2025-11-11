@@ -91,6 +91,7 @@ export const logsLogic = kea<logsLogicType>([
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
+        setPrettifyJson: (prettifyJson: boolean) => ({ prettifyJson }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
             filterGroup,
             openFilterOnInsert,
@@ -149,6 +150,13 @@ export const logsLogic = kea<logsLogicType>([
             true as boolean,
             {
                 setWrapBody: (_, { wrapBody }) => wrapBody,
+            },
+        ],
+        prettifyJson: [
+            true as boolean,
+            { persist: true },
+            {
+                setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
             },
         ],
         timestampFormat: [
