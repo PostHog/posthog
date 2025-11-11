@@ -6,6 +6,7 @@ import { registerIntegrationResources } from '@/resources/integration'
 import {
     EXAMPLES_MARKDOWN_URL,
     FRAMEWORK_MARKDOWN_FILES,
+    WORKFLOW_GUIDE_FILES,
     getSupportedFrameworks,
 } from '@/resources/integration/framework-mappings'
 import { ResourceUri } from '@/resources/integration/index'
@@ -148,5 +149,50 @@ describe('Example Resources - Markdown Artifact Loading', () => {
 
         // Results should be identical
         expect(result1.contents[0].text).toBe(result2.contents[0].text)
+    }, 30000)
+
+    it('should contain workflow prompt files in the prompts/ directory', async () => {
+        const response = await fetch(EXAMPLES_MARKDOWN_URL)
+        const arrayBuffer = await response.arrayBuffer()
+        const uint8Array = new Uint8Array(arrayBuffer)
+        const unzipped = unzipSync(uint8Array)
+
+        // Verify all workflow guide files are present
+        const workflowFiles = Object.values(WORKFLOW_GUIDE_FILES)
+
+        for (const filename of workflowFiles) {
+            const fileData = unzipped[filename]
+            expect(fileData).toBeTruthy()
+            expect(fileData!.length).toBeGreaterThan(0)
+
+            // Verify the file contains valid markdown content
+            const markdown = strFromU8(fileData!)
+            expect(markdown).toBeTruthy()
+            expect(markdown.length).toBeGreaterThan(0)
+        }
+    }, 30000)
+
+    it('should successfully retrieve workflow prompt resources via MCP', async () => {
+        const resources = (server as any)._registeredResources
+
+        // Test all workflow resources
+        const workflowUris = [
+            ResourceUri.WORKFLOW_SETUP_BEGIN,
+            ResourceUri.WORKFLOW_SETUP_EDIT,
+            ResourceUri.WORKFLOW_SETUP_REVISE,
+        ]
+
+        for (const uri of workflowUris) {
+            const resource = resources[uri]
+            expect(resource).toBeTruthy()
+
+            const result = await resource.readCallback(new URL(uri))
+
+            expect(result).toBeTruthy()
+            expect(result.contents).toHaveLength(1)
+            expect(result.contents[0].text).toBeTruthy()
+            expect(result.contents[0].text.length).toBeGreaterThan(0)
+            expect(result.contents[0].uri).toBe(uri)
+        }
     }, 30000)
 })
