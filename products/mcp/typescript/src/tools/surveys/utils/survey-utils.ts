@@ -12,11 +12,7 @@ export interface FormattedSurvey extends Omit<SurveyData, 'end_date'> {
 /**
  * Formats a survey with consistent status logic and additional fields
  */
-export function formatSurvey(
-    survey: SurveyData,
-    context: Context,
-    projectId: string
-): FormattedSurvey {
+export function formatSurvey(survey: SurveyData, context: Context, projectId: string): FormattedSurvey {
     const status = survey.archived
         ? 'archived'
         : survey.start_date === null || survey.start_date === undefined
@@ -43,10 +39,6 @@ export function formatSurvey(
 /**
  * Formats multiple surveys consistently
  */
-export function formatSurveys(
-    surveys: SurveyData[],
-    context: Context,
-    projectId: string
-): FormattedSurvey[] {
+export function formatSurveys(surveys: SurveyData[], context: Context, projectId: string): FormattedSurvey[] {
     return surveys.map((survey) => formatSurvey(survey, context, projectId))
 }

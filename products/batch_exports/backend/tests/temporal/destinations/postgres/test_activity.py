@@ -40,8 +40,8 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    # While we migrate to the new workflow, we need to test both new and old activities
-    pytest.mark.parametrize("use_internal_stage", [False, True]),
+    # TODO - clean up when we remove the old activity
+    pytest.mark.parametrize("use_internal_stage", [True]),
 ]
 
 
