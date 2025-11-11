@@ -146,7 +146,10 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
             {/* Rounded corner on the left edge of the tabs to curve the line above into the navbar right border */}
             {showRoundedCorner && (
                 <>
-                    <div className="hidden lg:block absolute bottom-[-11px] left-[-1px] w-[11px] h-[11px] z-10 rounded-tl-lg border-l border-t border-primary" />
+                    {/* background to match the navbar  */}
+                    <div className="hidden lg:block absolute bottom-[-11px] left-[-1px] w-[11px] h-[11px] z-11 rounded-tl-lg border-l border-t border-primary bg-[var(--scene-layout-background)]" />
+                    {/* corner to match the main */}
+                    <div className="hidden lg:block absolute bottom-[-11px] left-[-1px] w-[11px] h-[11px] z-10 bg-surface-tertiary" />
                 </>
             )}
 
