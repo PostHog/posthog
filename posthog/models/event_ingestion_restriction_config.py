@@ -85,9 +85,9 @@ def regenerate_redis_for_restriction_type(restriction_type: str):
     redis_key = f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{restriction_type}"
 
     # Fetch all restrictions of this type from the database
-    configs = EventIngestionRestrictionConfig.objects.filter(restriction_type=restriction_type)
+    configs = list(EventIngestionRestrictionConfig.objects.filter(restriction_type=restriction_type))
 
-    if not configs.exists():
+    if not configs:
         # No configs exist, delete the Redis key
         redis_client.delete(redis_key)
         return
