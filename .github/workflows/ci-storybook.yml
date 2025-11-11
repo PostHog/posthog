@@ -479,7 +479,7 @@ jobs:
                   workflow-type: storybook
                   patch-path: /tmp/snapshot-patches/
                   snapshot-path: frontend/__snapshots__/
-                  commit-message: Update UI snapshots (all browsers)
+                  commit-message: 'test(storybook): update UI snapshots'
                   pr-number: ${{ github.event.pull_request.number }}
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
