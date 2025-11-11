@@ -149,11 +149,12 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
             primaryOut = p
 
             const primaryUpdated = p[0]
-            const secondaryUpdate: Partial<InternalPerson> = {
+            const secondaryUpdate: PersonUpdateFields = {
                 properties: primaryUpdated.properties,
                 properties_last_updated_at: primaryUpdated.properties_last_updated_at,
                 properties_last_operation: primaryUpdated.properties_last_operation,
                 is_identified: primaryUpdated.is_identified,
+                created_at: primaryUpdated.created_at,
                 version: primaryUpdated.version,
             }
 
