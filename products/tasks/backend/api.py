@@ -21,8 +21,10 @@ from .serializers import (
     AgentDefinitionSerializer,
     AgentListResponseSerializer,
     ErrorResponseSerializer,
+    TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunDetailSerializer,
+    TaskRunPathSerializer,
     TaskSerializer,
     TaskUpdatePositionRequestSerializer,
 )
@@ -56,6 +58,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "run",
         ]
     }
+
+    @validated_request(
+        query_serializer=TaskListQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
+        },
+        summary="List tasks",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, and repository.",
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team=self.team).order_by("position")
@@ -143,7 +156,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def update_position(self, request, pk=None, **kwargs):
         task = self.get_object()
 
-        new_position = request.validated_data.get("position")
+        new_position = request.data.get("position")
 
         if new_position is None:
             return Response(
@@ -201,6 +214,28 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "head", "options"]
     filter_rewrite_rules = {"team_id": "team_id"}
 
+    @validated_request(
+        path_serializer=TaskRunPathSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="List of task runs"),
+        },
+        summary="List task runs",
+        description="Get a list of runs for a specific task.",
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @validated_request(
+        path_serializer=TaskRunPathSerializer,
+        responses={
+            201: OpenApiResponse(response=TaskRunDetailSerializer, description="Created task run"),
+        },
+        summary="Create task run",
+        description="Create a new run for a specific task.",
+    )
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
     def safely_get_queryset(self, queryset):
         # Task runs are always scoped to a specific task
         task_id = self.kwargs.get("parent_lookup_task_id")
@@ -225,6 +260,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @validated_request(
         request_serializer=None,
+        path_serializer=TaskRunPathSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated output"),
             404: OpenApiResponse(description="Run not found"),
@@ -251,6 +287,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @validated_request(
         request_serializer=TaskRunAppendLogRequestSerializer,
+        path_serializer=TaskRunPathSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated log"),
             400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid log entries"),
@@ -264,7 +301,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def append_log(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
 
-        entries = request.validated_data["entries"]
+        entries = request.data["entries"]
         task_run.append_log(entries)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
