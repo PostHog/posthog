@@ -73,8 +73,8 @@ export const STATIC_TOOLS: ToolRegistration[] = [
     },
     {
         identifier: 'create_and_query_insight' as const,
-        name: TOOL_DEFINITIONS['create_and_query_insight'].name,
-        description: TOOL_DEFINITIONS['create_and_query_insight'].description,
+        name: 'Query data',
+        description: 'Query data by creating insights and SQL queries',
     },
 ]
 
@@ -210,17 +210,10 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         ],
         toolMap: [
             (s) => [s.registeredToolMap, s.availableStaticTools],
-            (registeredToolMap, availableStaticTools) => {
-                if (registeredToolMap.edit_current_insight) {
-                    availableStaticTools = availableStaticTools.filter(
-                        (tool) => tool.identifier !== 'create_and_query_insight'
-                    )
-                }
-                return {
-                    ...Object.fromEntries(availableStaticTools.map((tool) => [tool.identifier, tool])),
-                    ...registeredToolMap,
-                }
-            },
+            (registeredToolMap, availableStaticTools) => ({
+                ...Object.fromEntries(availableStaticTools.map((tool) => [tool.identifier, tool])),
+                ...registeredToolMap,
+            }),
         ],
         tools: [(s) => [s.toolMap], (toolMap): ToolRegistration[] => Object.values(toolMap)],
         editInsightToolRegistered: [

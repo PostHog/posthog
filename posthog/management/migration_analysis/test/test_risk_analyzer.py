@@ -18,9 +18,9 @@ def create_mock_operation(op_class, **kwargs):
 class TestRiskLevelScoring:
     def test_safe_scores(self):
         assert RiskLevel.from_score(0) == RiskLevel.SAFE
-        assert RiskLevel.from_score(1) == RiskLevel.SAFE
 
     def test_needs_review_scores(self):
+        assert RiskLevel.from_score(1) == RiskLevel.NEEDS_REVIEW
         assert RiskLevel.from_score(2) == RiskLevel.NEEDS_REVIEW
         assert RiskLevel.from_score(3) == RiskLevel.NEEDS_REVIEW
 
@@ -48,9 +48,9 @@ class TestAddFieldOperations:
 
         risk = self.analyzer.analyze_operation(op)
 
-        assert risk.score == 0
+        assert risk.score == 1
         assert "nullable" in risk.reason.lower()
-        assert risk.level == RiskLevel.SAFE
+        assert risk.level == RiskLevel.NEEDS_REVIEW
 
     def test_add_blank_field_without_null(self):
         """blank=True doesn't make database safe - only null=True does."""
@@ -66,7 +66,7 @@ class TestAddFieldOperations:
 
         # blank=True is just form validation, so this needs a default to be safe
         assert risk.score == 1
-        assert risk.level == RiskLevel.SAFE
+        assert risk.level == RiskLevel.NEEDS_REVIEW
 
     def test_add_not_null_with_default(self):
         field: models.Field = models.CharField(max_length=100, default="test", null=False, blank=False)
@@ -81,7 +81,7 @@ class TestAddFieldOperations:
 
         assert risk.score == 1
         assert "constant" in risk.reason.lower()
-        assert risk.level == RiskLevel.SAFE
+        assert risk.level == RiskLevel.NEEDS_REVIEW
 
     def test_add_not_null_without_default(self):
         """Test NOT NULL field without default - Django doesn't set default, it's NOT_PROVIDED by default."""
@@ -374,7 +374,7 @@ class TestRunSQLOperations:
         assert risk.level == RiskLevel.NEEDS_REVIEW
 
     def test_run_sql_with_concurrent_index_with_if_not_exists(self):
-        """Test CREATE INDEX CONCURRENTLY with IF NOT EXISTS - score 1 (SAFE)."""
+        """Test CREATE INDEX CONCURRENTLY with IF NOT EXISTS - score 1 (NEEDS_REVIEW)."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON users(foo);",
@@ -383,7 +383,7 @@ class TestRunSQLOperations:
         risk = self.analyzer.analyze_operation(op)
 
         assert risk.score == 1
-        assert risk.level == RiskLevel.SAFE
+        assert risk.level == RiskLevel.NEEDS_REVIEW
         assert "safe" in risk.reason.lower() or "non-blocking" in risk.reason.lower()
 
     def test_run_sql_with_concurrent_index_without_if_not_exists(self):
@@ -400,7 +400,7 @@ class TestRunSQLOperations:
         assert risk.guidance and "if not exists" in risk.guidance.lower()
 
     def test_run_sql_with_drop_index_concurrent_with_if_exists(self):
-        """Test DROP INDEX CONCURRENTLY with IF EXISTS - score 1 (SAFE)."""
+        """Test DROP INDEX CONCURRENTLY with IF EXISTS - score 1 (NEEDS_REVIEW)."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="DROP INDEX CONCURRENTLY IF EXISTS idx_foo;",
@@ -409,7 +409,7 @@ class TestRunSQLOperations:
         risk = self.analyzer.analyze_operation(op)
 
         assert risk.score == 1
-        assert risk.level == RiskLevel.SAFE
+        assert risk.level == RiskLevel.NEEDS_REVIEW
         assert "safe" in risk.reason.lower() or "non-blocking" in risk.reason.lower()
 
     def test_run_sql_with_drop_index_concurrent_without_if_exists(self):
@@ -426,7 +426,7 @@ class TestRunSQLOperations:
         assert risk.guidance and "if exists" in risk.guidance.lower()
 
     def test_run_sql_with_reindex_concurrent(self):
-        """Test REINDEX CONCURRENTLY - should be safe (score 1)."""
+        """Test REINDEX CONCURRENTLY - should be needs review (score 1)."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="REINDEX INDEX CONCURRENTLY idx_foo;",
@@ -435,11 +435,11 @@ class TestRunSQLOperations:
         risk = self.analyzer.analyze_operation(op)
 
         assert risk.score == 1
-        assert risk.level == RiskLevel.SAFE
+        assert risk.level == RiskLevel.NEEDS_REVIEW
         assert "safe" in risk.reason.lower() or "non-blocking" in risk.reason.lower()
 
     def test_run_sql_add_constraint_not_valid(self):
-        """Test ADD CONSTRAINT ... NOT VALID - safe (score 1)."""
+        """Test ADD CONSTRAINT ... NOT VALID - needs review (score 1)."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="ALTER TABLE users ADD CONSTRAINT check_age CHECK (age >= 0) NOT VALID;",
@@ -448,7 +448,7 @@ class TestRunSQLOperations:
         risk = self.analyzer.analyze_operation(op)
 
         assert risk.score == 1
-        assert risk.level == RiskLevel.SAFE
+        assert risk.level == RiskLevel.NEEDS_REVIEW
         assert "not valid" in risk.reason.lower() or "validates new rows" in risk.reason.lower()
 
     def test_run_sql_validate_constraint(self):

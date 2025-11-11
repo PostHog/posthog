@@ -20,14 +20,15 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             insightVizDataLogic(props),
             ['dateRange', 'retentionFilter', 'vizSpecificOptions', 'theme'],
             retentionLogic(props),
-            ['results', 'selectedBreakdownValue', 'retentionMeans', 'breakdownDisplayNames'],
+            ['results', 'filteredResults', 'selectedBreakdownValue', 'retentionMeans', 'breakdownDisplayNames'],
         ],
-        actions: [retentionLogic(props), ['setSelectedBreakdownValue']],
+        actions: [retentionLogic(props), ['setSelectedBreakdownValue', 'setSelectedInterval']],
     })),
 
     actions({
         toggleBreakdown: (breakdownValue: string) => ({ breakdownValue }),
         setExpandedBreakdowns: (expandedBreakdowns: Record<string, boolean>) => ({ expandedBreakdowns }),
+        setHoveredColumn: (columnIndex: number | null) => ({ columnIndex }),
     }),
 
     reducers({
@@ -39,6 +40,12 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                     [breakdownValue]: !state[breakdownValue],
                 }),
                 setExpandedBreakdowns: (_, { expandedBreakdowns }) => expandedBreakdowns,
+            },
+        ],
+        hoveredColumn: [
+            null as number | null,
+            {
+                setHoveredColumn: (_, { columnIndex }) => columnIndex,
             },
         ],
     }),
@@ -59,21 +66,6 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             (vizSpecificOptions) => vizSpecificOptions?.[InsightType.RETENTION],
         ],
         hideSizeColumn: [(s) => [s.retentionVizOptions], (retentionVizOptions) => retentionVizOptions?.hideSizeColumn],
-
-        filteredResults: [
-            (s) => [s.results, s.selectedBreakdownValue],
-            (results, selectedBreakdownValue) => {
-                if (!results || results.length === 0) {
-                    return []
-                }
-                if (selectedBreakdownValue === null) {
-                    return results
-                }
-
-                // Return only results for the selected breakdown
-                return results.filter((result) => result.breakdown_value === selectedBreakdownValue)
-            },
-        ],
 
         tableRows: [
             (s) => [s.filteredResults, s.retentionFilter],

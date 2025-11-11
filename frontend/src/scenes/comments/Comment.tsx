@@ -67,7 +67,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
 
                 <div className="flex flex-col flex-1">
                     <div className="flex items-center gap-2">
-                        <span className="flex-1 font-semibold ">
+                        <span className="ph-no-capture flex-1 font-semibold">
                             {comment.created_by?.first_name ?? 'Unknown user'}
                         </span>
                         {comment.created_at ? (

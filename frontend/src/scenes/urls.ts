@@ -81,7 +81,8 @@ export const urls = {
     comment: (id: CommentType['id'] | ':id'): string => `/data-management/comments/${id}`,
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
-    projectHomepage: (): string => '/',
+    projectRoot: (): string => '/',
+    projectHomepage: (): string => '/home',
     max: (chat?: string, ask?: string): string => combineUrl('/max', { ask, chat }).url,
     maxHistory: (): string => '/max/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>

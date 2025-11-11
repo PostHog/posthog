@@ -1,4 +1,6 @@
 import re
+import json
+import uuid
 from typing import Any
 
 from django.core.exceptions import ValidationError
@@ -22,6 +24,39 @@ def validate_endpoint_name(value: str) -> None:
             f"Endpoint name '{value}' is too long. Maximum length is 128 characters.",
             params={"value": value},
         )
+
+
+class EndpointVersion(models.Model):
+    """Immutable snapshot of an endpoint's query at a specific version.
+
+    Each time an endpoint's query is modified, a new version is created.
+    This allows users to execute specific versions or track query evolution over time.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    endpoint = models.ForeignKey("Endpoint", on_delete=models.CASCADE, related_name="versions")
+    version = models.IntegerField()
+    query = models.JSONField(help_text="Immutable query snapshot")
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="endpoint_versions_created")
+
+    class Meta:
+        db_table = "endpoints_endpointversion"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["endpoint", "version"],
+                name="unique_endpoint_version",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["endpoint", "version"], name="endpoint_version_idx"),
+            models.Index(fields=["endpoint", "-version"], name="endpoint_version_desc_idx"),
+            models.Index(fields=["created_at"], name="endpoint_version_created_idx"),
+        ]
+        ordering = ["-version"]
+
+    def __str__(self) -> str:
+        return f"{self.endpoint.name} v{self.version}"
 
 
 class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
@@ -66,6 +101,8 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         related_name="endpoints",
         help_text="The underlying materialized view that backs this endpoint",
     )
+
+    current_version = models.IntegerField(default=1, help_text="Current version number of the endpoint query")
 
     created_by = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -138,3 +175,60 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         if not self.saved_query:
             return ""
         return self.saved_query.latest_error or ""
+
+    def can_materialize(self) -> tuple[bool, str]:
+        """Check if endpoint can be materialized.
+
+        Returns: (can_materialize: bool, reason: str)
+        """
+        if self.query.get("kind") != "HogQLQuery":
+            return False, "Only HogQL queries can be materialized."
+
+        if self.query.get("variables"):
+            return False, "Queries with variables cannot be materialized."
+
+        hogql_query = self.query.get("query")
+        if not hogql_query or not isinstance(hogql_query, str):
+            return False, "Query is empty or invalid."
+
+        return True, ""
+
+    def has_query_changed(self, new_query: dict[str, Any]) -> bool:
+        """Deep comparison to check if query has actually changed.
+
+        We normalize JSON before comparison to handle key ordering differences.
+        """
+        current_normalized = json.loads(json.dumps(self.query, sort_keys=True))
+        new_normalized = json.loads(json.dumps(new_query, sort_keys=True))
+        return current_normalized != new_normalized
+
+    def create_new_version(self, query: dict[str, Any], user: User) -> "EndpointVersion":
+        """Create a new version with the given query.
+
+        This increments current_version and creates an EndpointVersion record.
+        Should be called when the query changes during an update.
+        """
+        self.current_version += 1
+        self.query = query
+        self.save(update_fields=["current_version", "query", "updated_at"])
+
+        version = EndpointVersion.objects.create(
+            endpoint=self,
+            version=self.current_version,
+            query=query,
+            created_by=user,
+        )
+
+        return version
+
+    def get_version(self, version: int | None = None) -> EndpointVersion | None:
+        """Get a specific version, or the latest if version is None.
+
+        Raises:
+            EndpointVersion.DoesNotExist: If the version doesn't exist
+        """
+        if version is not None:
+            return EndpointVersion.objects.get(endpoint=self, version=version)
+
+        version_instance = self.versions.first()
+        return version_instance

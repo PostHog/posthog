@@ -1,14 +1,14 @@
 use anyhow::{Context, Result};
-use reqwest::blocking::Client;
 use std::collections::VecDeque;
 
 use crate::{
+    api::client::PHClient,
     experimental::tasks::{
         utils::{fetch_stages, fetch_tasks, fetch_workflows},
         Task,
     },
     invocation_context::context,
-    utils::{auth::Token, raise_for_err},
+    utils::raise_for_err,
 };
 
 use super::{TaskListResponse, TaskWorkflow, WorkflowStage};
@@ -16,15 +16,13 @@ use super::{TaskListResponse, TaskWorkflow, WorkflowStage};
 const BUFFER_SIZE: usize = 50;
 
 pub struct TaskIterator {
-    client: Client,
-    token: Token,
+    client: PHClient,
     buffer: VecDeque<Task>,
     next_url: Option<String>,
 }
 
 impl TaskIterator {
-    pub fn new(client: Client, host: String, token: Token, offset: Option<usize>) -> Result<Self> {
-        let initial_url = format!("{}/api/environments/{}/tasks/", host, token.env_id);
+    pub fn new(client: PHClient, offset: Option<usize>) -> Result<Self> {
         let mut params = vec![];
         params.push(("limit", BUFFER_SIZE.to_string()));
         if let Some(offset) = offset {
@@ -32,13 +30,8 @@ impl TaskIterator {
         }
 
         let response = client
-            .get(&initial_url)
-            .query(&params)
-            .header("Authorization", format!("Bearer {}", token.token))
-            .send()
-            .context("Failed to send request")?;
-
-        let response = raise_for_err(response)?;
+            .send_get("tasks", |req| req.query(&params))
+            .context("Failed to get tasks")?;
 
         let task_response: TaskListResponse = response
             .json()
@@ -49,7 +42,6 @@ impl TaskIterator {
 
         Ok(Self {
             client,
-            token,
             buffer,
             next_url: task_response.next,
         })
@@ -64,8 +56,7 @@ impl TaskIterator {
 
         let response = self
             .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.token.token))
+            .get(&url)?
             .send()
             .context("Failed to send request")?;
 
@@ -164,19 +155,15 @@ pub fn print_task(task: &Task, workflows: &[TaskWorkflow], stages: &[WorkflowSta
 }
 
 pub fn list_tasks(limit: Option<&usize>, offset: Option<&usize>) -> Result<()> {
-    let token = context().token.clone();
-    let host = token.get_host();
-    let client = context().client.clone();
+    let client = &context().client;
 
-    let workflows: Result<Vec<TaskWorkflow>> =
-        fetch_workflows(client.clone(), host.clone(), token.clone())?.collect();
+    let workflows: Result<Vec<TaskWorkflow>> = fetch_workflows(client.clone())?.collect();
     let workflows = workflows?;
 
-    let stages: Result<Vec<WorkflowStage>> =
-        fetch_stages(client.clone(), host.clone(), token.clone())?.collect();
+    let stages: Result<Vec<WorkflowStage>> = fetch_stages(client.clone())?.collect();
     let stages = stages?;
 
-    let tasks = fetch_tasks(client, host, token, offset.cloned())?;
+    let tasks = fetch_tasks(client.clone(), offset.cloned())?;
 
     let task_iter: Box<dyn Iterator<Item = Result<Task>>> = if let Some(limit) = limit {
         Box::new(tasks.take(*limit))

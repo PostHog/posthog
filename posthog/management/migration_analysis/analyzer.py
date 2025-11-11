@@ -28,9 +28,10 @@ class RiskAnalyzer:
     Analyzes Django migration operations and assigns risk scores.
 
     Risk scoring rules:
-    0-1: Safe - No locks, backwards compatible
-    2-3: Needs Review - May have performance impact or needs careful deployment
-    4-5: Blocked - Causes locks, breaks backwards compatibility, or can't rollback
+    0: Safe - No contention risk (new tables, concurrent operations)
+    1: Needs Review - Brief lock required, review for high-traffic tables
+    2-3: Needs Review - Extended operations or performance impact
+    4-5: Blocked - Table rewrites, breaks backwards compatibility, or can't rollback
     """
 
     # Registry of operation analyzers

@@ -518,27 +518,44 @@ export const RecordingsUniversalFiltersEmbed = ({
                                     filters={filters}
                                     setFilters={setFilters}
                                 />
-                                <Popover
-                                    overlay={
-                                        <UniversalFilters.PureTaxonomicFilter
-                                            fullWidth={false}
-                                            onChange={() => setIsPopoverVisible(false)}
-                                        />
-                                    }
-                                    placement="bottom"
-                                    visible={isPopoverVisible}
-                                    onClickOutside={() => setIsPopoverVisible(false)}
-                                >
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        data-attr="replay-filters-add-filter-button"
-                                        icon={<IconPlus />}
-                                        onClick={() => setIsPopoverVisible(!isPopoverVisible)}
-                                    >
-                                        Add filter
-                                    </LemonButton>
-                                </Popover>
+                                {/* Add filter button scoped to the first nested group */}
+                                {filters.filter_group.values.length > 0 &&
+                                    isUniversalGroupFilterLike(filters.filter_group.values[0]) && (
+                                        <UniversalFilters
+                                            rootKey="session-recordings.nested"
+                                            group={filters.filter_group.values[0]}
+                                            taxonomicGroupTypes={taxonomicGroupTypes}
+                                            onChange={(nestedGroup) => {
+                                                const newFilterGroup = {
+                                                    ...filters.filter_group,
+                                                    values: [nestedGroup, ...filters.filter_group.values.slice(1)],
+                                                }
+                                                setFilters({ filter_group: newFilterGroup })
+                                            }}
+                                        >
+                                            <Popover
+                                                overlay={
+                                                    <UniversalFilters.PureTaxonomicFilter
+                                                        fullWidth={false}
+                                                        onChange={() => setIsPopoverVisible(false)}
+                                                    />
+                                                }
+                                                placement="bottom"
+                                                visible={isPopoverVisible}
+                                                onClickOutside={() => setIsPopoverVisible(false)}
+                                            >
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    data-attr="replay-filters-add-filter-button"
+                                                    icon={<IconPlus />}
+                                                    onClick={() => setIsPopoverVisible(!isPopoverVisible)}
+                                                >
+                                                    Add filter
+                                                </LemonButton>
+                                            </Popover>
+                                        </UniversalFilters>
+                                    )}
                             </div>
                         )}
 

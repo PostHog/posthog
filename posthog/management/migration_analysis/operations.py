@@ -45,12 +45,20 @@ class AddFieldAnalyzer(OperationAnalyzer):
         return self._analyze_not_null_with_default(op, field)
 
     def _analyze_nullable_field(self, op) -> OperationRisk:
-        """Nullable fields are always safe."""
+        """Nullable fields require brief lock but no table rewrite."""
         return OperationRisk(
             type=self.operation_type,
-            score=0,
-            reason="Adding nullable field is safe",
+            score=1,
+            reason="Adding nullable field requires brief lock",
             details={"model": op.model_name, "field": op.name},
+            guidance="""While this operation doesn't rewrite the table, it still acquires an ACCESS EXCLUSIVE lock briefly.
+
+For high-traffic tables, consider:
+- Deploy during low-traffic periods
+- Monitor lock contention and query timeouts during deployment
+- Have a rollback plan ready
+
+For low-traffic tables, this operation is generally safe to deploy anytime.""",
         )
 
     def _risk_not_null_no_default(self, op) -> OperationRisk:

@@ -17,7 +17,7 @@ export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong> {userNameForLogItem(logItem)}</strong> created destination{' '}
+                    <strong className="ph-no-capture"> {userNameForLogItem(logItem)}</strong> created destination{' '}
                     <strong>{nameOrLinkToBatchExport(logItem?.item_id, logItem?.detail.name)}</strong>
                 </>
             ),
@@ -29,7 +29,8 @@ export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted destination <strong>{displayName}</strong>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted destination{' '}
+                    <strong>{displayName}</strong>
                 </>
             ),
         }
@@ -39,7 +40,7 @@ export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> updated destination{' '}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated destination{' '}
                     <strong>{nameOrLinkToBatchExport(logItem?.item_id, logItem?.detail.name)}</strong>
                 </>
             ),

@@ -9,7 +9,6 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { urls } from '~/scenes/urls'
 
@@ -138,7 +137,6 @@ export function SchemaManagement(): JSX.Element {
                     forceIcon: <IconApps />,
                 }}
             />
-            <SceneDivider />
             <div className="space-y-4">
                 <div className="flex items-center justify-between gap-2">
                     <LemonInput

@@ -722,6 +722,16 @@ class ClickhouseFunnelBase(ABC):
             select_clause += f", groupArray(10)(final_matching_event) as final_matching_events"
         return select_clause
 
+    @staticmethod
+    def _order_by(max_steps: int):
+        return "ORDER BY " + ",".join([f"step_{i + 1} DESC" for i in reversed(range(max_steps))])
+
+    def _get_limit(self):
+        if self._filter.limit:
+            return f"LIMIT {self._filter.limit}"
+        # TODO figure out some good default limit
+        return "LIMIT 1000"
+
     def get_query(self) -> str:
         raise NotImplementedError()
 

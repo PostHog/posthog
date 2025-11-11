@@ -78,10 +78,10 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
                 return False, "No collections found in database"
         except OperationFailure as e:
             capture_exception(e)
-            return False, "MongoDB authentication failed"
+            return False, f"MongoDB authentication failed: {str(e)}"
         except Exception as e:
             capture_exception(e)
-            return False, "Failed to connect to MongoDB database"
+            return False, f"Failed to connect to MongoDB database: {str(e)}"
 
         return True, None
 

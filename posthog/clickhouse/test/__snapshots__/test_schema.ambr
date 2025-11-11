@@ -485,6 +485,7 @@
       document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      content String, -- The actual text content that was embedded
       embedding Array(Float64) -- The embedding itself
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_document_embeddings_test', kafka_group_name = 'clickhouse_document_embeddings', kafka_format = 'JSONEachRow')
@@ -1702,6 +1703,7 @@
       document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      content String, -- The actual text content that was embedded
       embedding Array(Float64) -- The embedding itself
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_document_embeddings_test', kafka_group_name = 'clickhouse_document_embeddings', kafka_format = 'JSONEachRow')
@@ -2263,6 +2265,7 @@
       document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      content String DEFAULT '', -- The actual text content that was embedded
       embedding Array(Float64) -- The embedding itself
       
       
@@ -2297,6 +2300,7 @@
   document_id,
   timestamp,
   _timestamp as inserted_at,
+  coalesce(content, '') as content,
   embedding,
   _timestamp,
   _offset,
@@ -2801,7 +2805,8 @@
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      has_autocapture SimpleAggregateFunction(max, Boolean),
   
       -- Flags - store every seen value for each flag
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
@@ -2998,7 +3003,8 @@
       initializeAggregation('uniqExactState', if(event='$screen', uuid, NULL)) as screen_uniq,
   
       -- perf
-      initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
+      initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen', uuid, NULL)) as page_screen_uniq_up_to,
+      event = '$autocapture' as has_autocapture,
   
       -- flags
       initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
@@ -3086,7 +3092,8 @@
       initializeAggregation('uniqExactState', null_uuid) as screen_uniq,
   
       -- perf
-      initializeAggregation('uniqUpToState(1)', null_uuid) as page_screen_autocapture_uniq_up_to,
+      initializeAggregation('uniqUpToState(1)', null_uuid) as page_screen_uniq_up_to,
+      false as has_autocapture,
   
       -- flags
       initializeAggregation('groupUniqArrayMapState', CAST(map(), 'Map(String, String)')) as flag_values,
@@ -3940,7 +3947,8 @@
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      has_autocapture SimpleAggregateFunction(max, Boolean),
   
       -- Flags - store every seen value for each flag
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
@@ -5097,7 +5105,8 @@
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      has_autocapture SimpleAggregateFunction(max, Boolean),
   
       -- Flags - store every seen value for each flag
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
@@ -5793,6 +5802,7 @@
       document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      content String DEFAULT '', -- The actual text content that was embedded
       embedding Array(Float64) -- The embedding itself
       
       
@@ -6407,7 +6417,8 @@
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+      has_autocapture SimpleAggregateFunction(max, Boolean),
   
       -- Flags - store every seen value for each flag
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),

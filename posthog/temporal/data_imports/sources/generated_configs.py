@@ -73,6 +73,11 @@ class ChargebeeSourceConfig(config.Config):
 
 
 @config.config
+class CustomerIOSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class DoItSourceConfig(config.Config):
     api_key: str
 
@@ -249,6 +254,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
+        ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
         ExternalDataSourceType.GITHUB: GithubSourceConfig,
         ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,

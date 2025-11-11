@@ -501,13 +501,13 @@ Query results: 42 events
         result = self.context_manager._format_entity_context([], "events", "Event")
         self.assertEqual(result, "")
 
-    @patch("ee.hogai.tool.get_contextual_tool_class")
+    @patch("ee.hogai.registry.get_contextual_tool_class")
     def test_get_contextual_tools_prompt(self, mock_get_contextual_tool_class):
         """Test generation of contextual tools prompt"""
         # Mock the tool class
         mock_tool = MagicMock()
         mock_tool.format_context_prompt_injection.return_value = "Tool system prompt"
-        mock_get_contextual_tool_class.return_value = lambda team, user, tool_call_id: mock_tool
+        mock_get_contextual_tool_class.return_value = lambda team, user: mock_tool
 
         config = RunnableConfig(
             configurable={"contextual_tools": {"search_session_recordings": {"current_filters": {}}}}

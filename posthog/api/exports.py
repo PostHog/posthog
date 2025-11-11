@@ -34,8 +34,6 @@ FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM = 10
 
 logger = structlog.get_logger(__name__)
 
-SIX_MONTHS = timedelta(weeks=26)
-
 
 class ExportedAssetSerializer(serializers.ModelSerializer):
     """Standard ExportedAsset serializer that doesn't return content."""
@@ -54,7 +52,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             "expires_after",
             "exception",
         ]
-        read_only_fields = ["id", "created_at", "has_content", "filename", "exception"]
+        read_only_fields = ["id", "created_at", "has_content", "filename", "expires_after", "exception"]
 
     def to_representation(self, instance):
         """Override to show stuck exports as having an exception."""
@@ -128,8 +126,6 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         ]
                     }
                 )
-
-        data["expires_after"] = data.get("expires_after", (now() + SIX_MONTHS).date())
 
         data["team_id"] = self.context["team_id"]
         return data

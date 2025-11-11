@@ -281,7 +281,6 @@ export function AsyncMigrations(): JSX.Element {
                         </Link>
                         .
                     </p>
-                    <SceneDivider />
 
                     <LemonTabs sceneInset activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
 

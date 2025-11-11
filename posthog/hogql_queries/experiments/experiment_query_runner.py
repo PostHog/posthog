@@ -69,10 +69,12 @@ class ExperimentQueryRunner(QueryRunner):
         self,
         *args,
         override_end_date: Optional[datetime] = None,
+        user_facing: bool = True,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
+        self.user_facing = user_facing
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -477,20 +479,22 @@ class ExperimentQueryRunner(QueryRunner):
             assert isinstance(self.metric, ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric)
 
             # Get the "missing" (not directly accessible) parameters required for the builder
-            exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
-                self.experiment
-            )
+            (
+                exposure_config,
+                multiple_variant_handling,
+                filter_test_accounts,
+            ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
             builder = ExperimentQueryBuilder(
                 team=self.team,
                 feature_flag_key=self.feature_flag.key,
-                metric=self.metric,
                 exposure_config=exposure_config,
                 filter_test_accounts=filter_test_accounts,
                 multiple_variant_handling=multiple_variant_handling,
                 variants=self.variants,
                 date_range_query=self.date_range_query,
                 entity_key=self.entity_key,
+                metric=self.metric,
             )
             return builder.build_query()
 

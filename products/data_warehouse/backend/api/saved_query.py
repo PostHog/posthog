@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -8,6 +8,7 @@ from django.db.models import OuterRef, Prefetch, Q, Subquery, TextField
 from django.db.models.functions import Cast
 
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
@@ -15,6 +16,8 @@ from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from temporalio.client import ScheduleActionExecutionStartWorkflow
+
+from posthog.schema import DataWarehouseManagedViewsetKind
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, SerializedField, serialize_fields
@@ -68,6 +71,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     sync_frequency = serializers.SerializerMethodField()
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
     edited_history_id = serializers.CharField(write_only=True, required=False, allow_null=True)
     soft_update = serializers.BooleanField(write_only=True, required=False, allow_null=True)
 
@@ -84,6 +88,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "columns",
             "status",
             "last_run_at",
+            "managed_viewset_kind",
             "latest_error",
             "edited_history_id",
             "latest_history_id",
@@ -97,6 +102,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "columns",
             "status",
             "last_run_at",
+            "managed_viewset_kind",
             "latest_error",
             "latest_history_id",
             "is_materialized",
@@ -154,6 +160,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             return view.latest_activity_id
 
         return None
+
+    def get_managed_viewset_kind(self, view: DataWarehouseSavedQuery) -> DataWarehouseManagedViewsetKind | None:
+        return cast(DataWarehouseManagedViewsetKind, view.managed_viewset.kind) if view.managed_viewset else None
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
@@ -224,6 +233,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
+        if instance.managed_viewset is not None:
+            raise serializers.ValidationError("Cannot update a query from a managed viewset")
+
         try:
             before_update = DataWarehouseSavedQuery.objects.get(pk=instance.id)
         except DataWarehouseSavedQuery.DoesNotExist:
@@ -408,14 +420,36 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         base_queryset = (
             queryset.prefetch_related(
                 "created_by",
+                "managed_viewset",
                 Prefetch(
                     "datamodelingjob_set", queryset=DataModelingJob.objects.order_by("-last_run_at")[:1], to_attr="jobs"
                 ),
             )
-            .filter(managed_viewset__isnull=True)  # Ignore managed views for now
             .exclude(deleted=True)
             .order_by(self.ordering)
         )
+
+        # Detect whether we should include managed views in the queryset
+        is_managed_viewset_enabled = posthoganalytics.feature_enabled(
+            "managed-viewsets",
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(self.team.organization_id),
+                },
+                "project": {
+                    "id": str(self.team.id),
+                },
+            },
+            send_feature_flag_events=False,
+        )
+
+        if not is_managed_viewset_enabled:
+            base_queryset = base_queryset.filter(managed_viewset__isnull=True)
 
         # Only annotate with latest activity ID for list operations, not for single object retrieves
         # This avoids the annotation when we're getting a single object for update/create/etc.
@@ -457,6 +491,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseSavedQuery = self.get_object()
 
+        if instance.managed_viewset is not None:
+            raise serializers.ValidationError(
+                "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
+            )
+
         delete_saved_query_schedule(str(instance.id))
 
         for join in DataWarehouseJoin.objects.filter(
@@ -487,6 +526,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         (i.e. delete the materialized table and the schedule)
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
+
+        if saved_query.managed_viewset is not None:
+            raise serializers.ValidationError("Cannot revert materialization of a query from a managed viewset.")
+
         saved_query.revert_materialization()
 
         return response.Response(status=status.HTTP_200_OK)

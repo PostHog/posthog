@@ -1,4 +1,3 @@
-import json
 import hashlib
 from datetime import datetime
 from typing import Any, Literal, Optional, cast
@@ -6,6 +5,7 @@ from typing import Any, Literal, Optional, cast
 from django.core.cache import cache
 from django.db.models import Manager, Q
 
+import orjson
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 
@@ -173,7 +173,7 @@ class EventDefinitionViewSet(
         excluded_properties = self.request.GET.get("excluded_properties")
 
         if excluded_properties:
-            excluded_list = list(set(json.loads(excluded_properties)))
+            excluded_list = list(set(orjson.loads(excluded_properties)))
             search_query = search_query + f" AND NOT name = ANY(ARRAY{excluded_list})"
 
         sql = create_event_definitions_sql(
@@ -316,7 +316,7 @@ class EventDefinitionViewSet(
             "version": self.TYPESCRIPT_GENERATOR_VERSION,
             "schemas": schema_data,
         }
-        schema_hash = hashlib.sha256(json.dumps(hash_input, sort_keys=True).encode()).hexdigest()[:32]
+        schema_hash = hashlib.sha256(orjson.dumps(hash_input, option=orjson.OPT_SORT_KEYS)).hexdigest()[:32]
 
         # Generate TypeScript definitions
         ts_content = self._generate_typescript(event_definitions, schema_map)
@@ -354,19 +354,18 @@ import type {{ CaptureOptions, CaptureResult, PostHog as OriginalPostHog, Proper
 
         for event_def in event_definitions:
             properties = schema_map.get(str(event_def.id), [])
-            # Escape event name for use as object key
-            event_name = event_def.name.replace("'", "\\'")
+            event_name_json = orjson.dumps(event_def.name).decode("utf-8")
 
             if not properties:
-                event_schemas_lines.append(f"    '{event_name}': Record<string, any>")
+                event_schemas_lines.append(f"    {event_name_json}: Record<string, any>")
             else:
-                event_schemas_lines.append(f"    '{event_name}': {{")
+                event_schemas_lines.append(f"    {event_name_json}: {{")
                 for prop in properties:
                     ts_type = self._map_property_type(prop.property_type)
                     optional_marker = "" if prop.is_required else "?"
-                    # Always quote property names (simpler and handles all edge cases)
-                    prop_name = f"'{prop.name.replace("'", "\\'")}'"
-                    event_schemas_lines.append(f"        {prop_name}{optional_marker}: {ts_type}")
+                    # Use orjson.dumps() for proper escaping of property names
+                    prop_name_json = orjson.dumps(prop.name).decode("utf-8")
+                    event_schemas_lines.append(f"        {prop_name_json}{optional_marker}: {ts_type}")
                 event_schemas_lines.append("    }")
 
         event_schemas_lines.append("}")
@@ -490,7 +489,6 @@ const createTypedPostHog = (original: OriginalPostHog): TypedPostHog => {
 const posthog = createTypedPostHog(originalPostHog as OriginalPostHog)
 
 export default posthog
-export { posthog }
 export type { EventSchemas, TypedPostHog }
 
 // Re-export everything else from posthog-js

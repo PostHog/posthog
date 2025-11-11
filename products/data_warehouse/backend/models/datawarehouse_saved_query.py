@@ -62,7 +62,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
         DATA_WAREHOUSE = "data_warehouse"
         ENDPOINT = "endpoint"
-        REVENUE_ANALYTICS = "revenue_analytics"
+        MANAGED_VIEWSET = "managed_viewset"
 
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -264,6 +264,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             name=self.name,
             query=self.query["query"],
             fields=fields,
+            # Currently only storing metadata related to the managed viewset, but we can expand this in the future
+            # This is basically just a bag of props that can be used by other methods to properly identify this query
+            metadata=self.managed_viewset.to_saved_query_metadata(self.name) if self.managed_viewset else {},
         )
 
 

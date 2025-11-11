@@ -81,7 +81,6 @@ async def eval_create_feature_flag_basic(pytestconfig, demo_org_team_user):
         tool = await CreateFeatureFlagTool.create_tool_class(
             team=team,
             user=user,
-            tool_call_id="test-eval-call",
             state=AssistantState(messages=[]),
             config={
                 "configurable": {
@@ -148,7 +147,6 @@ async def eval_create_feature_flag_with_rollout(pytestconfig, demo_org_team_user
         tool = await CreateFeatureFlagTool.create_tool_class(
             team=team,
             user=user,
-            tool_call_id="test-eval-call",
             state=AssistantState(messages=[]),
             config={
                 "configurable": {
@@ -241,7 +239,6 @@ async def eval_create_feature_flag_with_property_filters(pytestconfig, demo_org_
         tool = await CreateFeatureFlagTool.create_tool_class(
             team=team,
             user=user,
-            tool_call_id="test-eval-call",
             state=AssistantState(messages=[]),
             config={
                 "configurable": {
@@ -336,7 +333,6 @@ async def eval_create_feature_flag_duplicate_handling(pytestconfig, demo_org_tea
         tool = await CreateFeatureFlagTool.create_tool_class(
             team=team,
             user=user,
-            tool_call_id="test-eval-call",
             state=AssistantState(messages=[]),
             config={
                 "configurable": {

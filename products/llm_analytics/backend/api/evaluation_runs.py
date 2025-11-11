@@ -22,6 +22,7 @@ logger = structlog.get_logger(__name__)
 class EvaluationRunRequestSerializer(serializers.Serializer):
     evaluation_id = serializers.UUIDField(required=True)
     target_event_id = serializers.UUIDField(required=True)
+    timestamp = serializers.DateTimeField(required=True)
 
 
 class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -41,6 +42,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         evaluation_id = str(serializer.validated_data["evaluation_id"])
         target_event_id = str(serializer.validated_data["target_event_id"])
+        timestamp = serializer.validated_data["timestamp"].isoformat()
 
         # Verify evaluation exists and belongs to this team
         try:
@@ -52,6 +54,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         inputs = RunEvaluationInputs(
             evaluation_id=evaluation_id,
             target_event_id=target_event_id,
+            timestamp=timestamp,
         )
 
         # Generate unique workflow ID

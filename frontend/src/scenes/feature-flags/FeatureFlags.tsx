@@ -33,7 +33,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
@@ -543,7 +542,6 @@ export function FeatureFlags(): JSX.Element {
                     </AccessControlAction>
                 }
             />
-            <SceneDivider />
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(newKey) => setActiveTab(newKey)}

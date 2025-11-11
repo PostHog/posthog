@@ -3,12 +3,26 @@ import csv
 import json
 import typing
 import datetime as dt
+import functools
 
 import pytest
 
 import pyarrow as pa
 
-from products.batch_exports.backend.temporal.pipeline.transformer import CSVStreamTransformer, dump_dict
+from products.batch_exports.backend.temporal.pipeline.table import (
+    Field,
+    Table,
+    TypeTupleToCastMapping,
+    _make_ensure_array,
+)
+from products.batch_exports.backend.temporal.pipeline.transformer import (
+    CSVStreamTransformer,
+    JSONLStreamTransformer,
+    PipelineTransformer,
+    SchemaTransformer,
+    dump_dict,
+)
+from products.batch_exports.backend.temporal.utils import JsonType
 
 
 def create_deeply_nested_dict(depth: int, value: str = "test") -> typing.Any:
@@ -95,6 +109,7 @@ async def test_csv_stream_transformer_writes_record_batches():
         escape_char="\\",
         quoting=csv.QUOTE_NONE,
         include_inserted_at=False,
+        max_file_size_bytes=0,
     )
 
     record_batch = record_batch.sort_by("_inserted_at")
@@ -103,7 +118,7 @@ async def test_csv_stream_transformer_writes_record_batches():
         yield record_batch
 
     chunks = []
-    async for chunk in transformer.iter(record_batches(), max_file_size_bytes=0):
+    async for chunk in transformer.iter(record_batches()):
         if chunk.data:
             chunks.append(chunk.data)
 
@@ -131,3 +146,170 @@ async def test_csv_stream_transformer_writes_record_batches():
         assert "_inserted_at" not in row
         expected_row = [str(v) for k, v in TEST_RECORDS[index].items() if k != "_inserted_at"]
         assert row == expected_row
+
+
+class TestField(Field):
+    def __init__(self, name: str, data_type: pa.DataType):
+        self.name = name
+        self.data_type = data_type
+
+    @classmethod
+    def from_arrow_field(cls, field: pa.Field) -> typing.Self:
+        raise NotImplementedError()
+
+    def to_arrow_field(cls) -> pa.Field:
+        raise NotImplementedError()
+
+    @classmethod
+    def from_destination_field(cls, field: typing.Any) -> typing.Self:
+        raise NotImplementedError()
+
+    def to_destination_field(cls) -> typing.Any:
+        raise NotImplementedError()
+
+    def with_new_arrow_type(self, new_type: pa.DataType) -> "TestField":
+        raise NotImplementedError()
+
+
+async def test_transformer_pipeline_pipes_multiple_transformers():
+    """Test piping a `SchemaTransformer` into a `JSONLStreamTransformer`."""
+    fibo = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
+    numbers = pa.array(fibo)
+    record_batch = pa.RecordBatch.from_arrays(
+        [numbers],
+        names=[
+            "number",
+        ],
+    )
+
+    async def record_batch_iter():
+        yield record_batch
+        return
+
+    class TestTable(Table):
+        @classmethod
+        def from_arrow_schema(cls, schema: pa.Schema, **kwargs) -> typing.Self:
+            return cls(name="test", fields=[TestField("number", pa.string())])
+
+    t = TestTable.from_arrow_schema(record_batch.schema)
+    pipeline = PipelineTransformer(
+        (
+            SchemaTransformer(
+                t,
+                {
+                    (pa.int64(), pa.string()): _make_ensure_array(
+                        functools.partial(pa.compute.cast, target_type=pa.string())
+                    )
+                },
+            ),
+            JSONLStreamTransformer(),
+        )
+    )
+
+    transformed_jsonl_bytes = [chunk.data async for chunk in pipeline.iter(record_batch_iter())]
+
+    seen = []
+    for expected_number, transformed_jsonl in zip(fibo, b"".join(transformed_jsonl_bytes).decode("utf-8").split("\n")):
+        doc = json.loads(transformed_jsonl)
+
+        assert "number" in doc
+        assert doc["number"] == str(expected_number)
+        seen.append(expected_number)
+
+    # Make sure all the numbers went through the transformer, as zip stops on the
+    # shortest iterator in case they are not the same length.
+    assert fibo == seen
+
+
+FIBO = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
+NUMBERS = pa.array(FIBO)
+NUMBERS_RECORD_BATCH = pa.RecordBatch.from_arrays([NUMBERS], names=["number"])
+
+DATES = [dt.datetime(2025, 1, 1, 1, 1, 1, tzinfo=dt.UTC), dt.datetime(2025, 1, 2, 1, 1, 1, tzinfo=dt.UTC)]
+DATES_SECONDS_RECORD_BATCH = pa.RecordBatch.from_arrays(
+    [pa.array(DATES, type=pa.timestamp("s", tz="UTC"))], names=["date"]
+)
+DATES_MILLISECONDS_RECORD_BATCH = pa.RecordBatch.from_arrays(
+    [pa.array(DATES, type=pa.timestamp("ms", tz="UTC"))], names=["date"]
+)
+DATES_MICROSECONDS_RECORD_BATCH = pa.RecordBatch.from_arrays(
+    [pa.array(DATES, type=pa.timestamp("us", tz="UTC"))], names=["date"]
+)
+
+
+@pytest.mark.parametrize(
+    "target_type,record_batch,compatible_types,expected_pylist",
+    (
+        # int64 -> string
+        (
+            pa.string(),
+            NUMBERS_RECORD_BATCH,
+            {
+                (pa.int64(), pa.string()): _make_ensure_array(
+                    functools.partial(pa.compute.cast, target_type=pa.string())
+                )
+            },
+            [{"number": str(n)} for n in FIBO],
+        ),
+        # int64 -> int64, no change required
+        (
+            pa.int64(),
+            NUMBERS_RECORD_BATCH,
+            {},
+            [{"number": n} for n in FIBO],
+        ),
+        # string -> JsonType
+        (
+            JsonType(),
+            pa.RecordBatch.from_arrays([pa.array(['{"one": 1}', '{"two": 2}'], type=pa.string())], names=["json"]),
+            {},
+            [{"json": {"one": 1}}, {"json": {"two": 2}}],
+        ),
+        # timestamp("s", "UTC") -> int64
+        (
+            pa.int64(),
+            DATES_SECONDS_RECORD_BATCH,
+            {},
+            [{"date": d.timestamp()} for d in DATES],
+        ),
+        # timestamp("ms", "UTC") -> int64
+        (
+            pa.int64(),
+            DATES_MILLISECONDS_RECORD_BATCH,
+            {},
+            [{"date": d.timestamp() * 1_000} for d in DATES],
+        ),
+        # timestamp("us", "UTC") -> int64
+        (
+            pa.int64(),
+            DATES_MICROSECONDS_RECORD_BATCH,
+            {},
+            [{"date": d.timestamp() * 1_000_000} for d in DATES],
+        ),
+    ),
+)
+async def test_schema_transformer(
+    target_type: pa.DataType,
+    record_batch: pa.RecordBatch,
+    compatible_types: TypeTupleToCastMapping,
+    expected_pylist: list[dict[str, typing.Any]],
+):
+    """Test `SchemaTransformer` produces record batches with the right types."""
+
+    async def record_batch_iter():
+        yield record_batch
+        return
+
+    class TestTable(Table):
+        @classmethod
+        def from_arrow_schema(cls, schema: pa.Schema, **kwargs) -> typing.Self:
+            return cls(name="test", fields=[TestField(record_batch[0]._name, target_type)])  # type: ignore[attr-defined]
+
+    t = TestTable.from_arrow_schema(record_batch.schema)
+    transformer = SchemaTransformer(t, compatible_types)
+
+    transformed_record_batches = [record_batch async for record_batch in transformer.iter(record_batch_iter())]
+
+    assert len(transformed_record_batches) == 1
+    assert transformed_record_batches[0][record_batch[0]._name].type == target_type  # type: ignore[attr-defined]
+    assert transformed_record_batches[0].to_pylist() == expected_pylist

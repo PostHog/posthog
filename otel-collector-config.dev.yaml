@@ -28,7 +28,7 @@ exporters:
         tls:
             insecure: true # For local communication to Jaeger
     otlphttp/logs:
-        endpoint: 'http://log-capture:4318'
+        endpoint: 'http://capture-logs:4318'
         compression: none
         tls:
             insecure: true

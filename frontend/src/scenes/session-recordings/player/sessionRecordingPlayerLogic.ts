@@ -24,7 +24,6 @@ import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-type
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
@@ -45,7 +44,6 @@ import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, 
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
-import { getTestWorkerManager, terminateTestWorker } from './TestWorkerManager'
 import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverlayLogic'
 import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOverlayLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
@@ -719,13 +717,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     })),
     selectors({
-        useProgressiveLoading: [
-            (s) => [s.featureFlags],
-            (featureFlags) => {
-                return !!featureFlags[FEATURE_FLAGS.REPLAY_PROGRESSIVE_LOADING]
-            },
-        ],
-
         // Prop references for use by other logics
         sessionRecordingId: [(_, p) => [p.sessionRecordingId], (sessionRecordingId) => sessionRecordingId],
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
@@ -871,32 +862,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (s) => [s.currentTimestamp, s.sessionPlayerData],
             (currentTimestamp, sessionPlayerData) => {
                 return Math.max(0, (currentTimestamp ?? 0) - (sessionPlayerData?.start?.valueOf() ?? 0))
-            },
-        ],
-
-        dataBufferedUntilPlayerTime: [
-            (s) => [s.dataBufferedUntilTimestamp, s.sessionPlayerData],
-            (dataBufferedUntilTimestamp, sessionPlayerData) => {
-                return Math.max(0, (dataBufferedUntilTimestamp ?? 0) - (sessionPlayerData?.start?.valueOf() ?? 0))
-            },
-        ],
-
-        /**
-         * we want a signal we can use to check if we should try to load more data when progressive loading
-         * if this is negative then it means the player time is past the current buffer -> we should load
-         * if it is within some tolerance -> we should load
-         */
-        percentPlayedOfBuffered: [
-            (s) => [s.dataBufferedUntilPlayerTime, s.currentPlayerTime],
-            (dataBufferedUntilPlayerTime, currentPlayerTime) => {
-                if (dataBufferedUntilPlayerTime <= 0) {
-                    return 0
-                }
-                if (currentPlayerTime <= 0) {
-                    return 0
-                }
-
-                return (currentPlayerTime / dataBufferedUntilPlayerTime) * 100
             },
         ],
 
@@ -1502,10 +1467,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.player?.replayer?.pause()
                     actions.startBuffer()
                     actions.clearPlayerError()
-                    if (values.useProgressiveLoading) {
-                        // if we're buffering, then be careful to ensure we're loading data
-                        actions.loadNextSnapshotSource()
-                    }
+                    // if we're buffering, then be careful to ensure we're loading data
+                    actions.loadNextSnapshotSource()
                 }
             }
 
@@ -1574,15 +1537,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (values.currentSegment?.kind === 'gap') {
                     newTimestamp = values.currentTimestamp + values.roughAnimationFPS
                 }
-            }
-
-            // if we're playing at e.g. 16x speed
-            // then we want to preload earlier
-            const thresholdPercent = values.playerSpeed >= 4 ? 33 : 67
-            if (values.useProgressiveLoading && values.percentPlayedOfBuffered >= thresholdPercent) {
-                // if we get within a minute of playing time of the end of the data
-                // then we want to preload the next section
-                actions.loadNextSnapshotSource()
             }
 
             // If we're beyond buffered position, set to buffering
@@ -1900,12 +1854,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         values.player?.replayer?.destroy()
         actions.setPlayer(null)
 
-        try {
-            terminateTestWorker()
-        } catch (error) {
-            console.warn('[SessionRecordingPlayerLogic] Failed to terminate test worker:', error)
-        }
-
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
             viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
@@ -1941,13 +1889,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             document.addEventListener('fullscreenchange', fullScreenListener)
             return () => document.removeEventListener('fullscreenchange', fullScreenListener)
         }, 'fullscreenListener')
-
-        try {
-            const testWorker = getTestWorkerManager()
-            void testWorker.initialize()
-        } catch (error) {
-            console.warn('[SessionRecordingPlayerLogic] Failed to initialize test worker:', error)
-        }
 
         if (props.sessionRecordingId) {
             actions.loadRecordingData()

@@ -7,8 +7,8 @@ from django.conf import settings
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 
+from posthog.exceptions import capture_exception
 from posthog.settings.utils import get_from_env
-from posthog.temporal.data_imports.deltalake_compaction_job import capture_exception
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.s3 import get_s3_client

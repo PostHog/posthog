@@ -46,6 +46,7 @@
           ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
           ExternalDataSourceType.BRAZE: BrazeSourceConfig,
           ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
+          ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
           ExternalDataSourceType.DOIT: DoItSourceConfig,
           ExternalDataSourceType.GITHUB: GithubSourceConfig,
           ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,

@@ -5,7 +5,9 @@ members = [
     "property-defs-rs",
     "batch-import-worker",
     "capture",
+    "capture-logs",
     "common/alloc",
+    "common/cache",
     "common/cookieless",
     "common/database",
     "common/dns",
@@ -33,7 +35,6 @@ members = [
     "embedding-worker",
     "common/geoip",
     "common/hogvm",
-    "log-capture",
     "kafka-deduplicator",
 ]
 

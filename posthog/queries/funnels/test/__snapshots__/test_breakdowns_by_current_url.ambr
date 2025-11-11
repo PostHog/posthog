@@ -96,6 +96,9 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
+  LIMIT 100
   '''
 # ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_pathname
@@ -195,5 +198,8 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
+  LIMIT 100
   '''
 # ---

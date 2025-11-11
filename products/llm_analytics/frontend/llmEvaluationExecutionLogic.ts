@@ -13,13 +13,17 @@ export const llmEvaluationExecutionLogic = kea<llmEvaluationExecutionLogicType>(
         values: [teamLogic, ['currentTeamId']],
     })),
     actions({
-        runEvaluation: (evaluationId: string, targetEventId: string) => ({ evaluationId, targetEventId }),
+        runEvaluation: (evaluationId: string, targetEventId: string, timestamp: string) => ({
+            evaluationId,
+            targetEventId,
+            timestamp,
+        }),
     }),
     loaders(({ values }) => ({
         evaluationRun: [
             null as { workflow_id: string } | null,
             {
-                runEvaluation: async ({ evaluationId, targetEventId }) => {
+                runEvaluation: async ({ evaluationId, targetEventId, timestamp }) => {
                     if (!values.currentTeamId) {
                         throw new Error('No team selected')
                     }
@@ -28,6 +32,7 @@ export const llmEvaluationExecutionLogic = kea<llmEvaluationExecutionLogicType>(
                         const response = await api.evaluationRuns.create({
                             evaluation_id: evaluationId,
                             target_event_id: targetEventId,
+                            timestamp: timestamp,
                         })
 
                         lemonToast.success('Evaluation started successfully')

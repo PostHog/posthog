@@ -354,4 +354,6 @@ AUTH_BACKEND_DISPLAY_NAMES = {
     "github": "GitHub",
     "gitlab": "GitLab",
     "saml": "SAML",
+    "ee.api.authentication.CustomGoogleOAuth2": "Google OAuth",
+    "ee.api.authentication.MultitenantSAMLAuth": "SAML",
 }

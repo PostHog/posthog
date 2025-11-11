@@ -4,10 +4,14 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
+import structlog
+
 from posthog.api.cohort import validate_filters_and_compute_realtime_support
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.cohort.util import get_all_cohort_dependencies, sort_cohorts_topologically
 from posthog.models.team.team import Team
+
+logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
@@ -37,12 +41,13 @@ class Command(BaseCommand):
         dry_run: bool = bool(options.get("dry_run"))
         batch_size: int = int(options.get("batch_size") or 500)
 
-        # Announce run scope and options for operator visibility
-        scope_desc = f"team={team_id}" if team_id else "all teams"
-        self.stdout.write(
-            self.style.MIGRATE_HEADING(
-                f"Starting cohort resave ({scope_desc}, dry_run={dry_run}, batch_size={batch_size})"
-            )
+        # Log start of operation
+        logger.info(
+            "cohort_resave_started",
+            team_id=team_id,
+            dry_run=dry_run,
+            batch_size=batch_size,
+            scope="single_team" if team_id else "all_teams",
         )
 
         # Get teams to process
@@ -61,7 +66,11 @@ class Command(BaseCommand):
         # Process each team separately
         for team in teams_qs:
             teams_processed += 1
-            self.stdout.write(self.style.MIGRATE_LABEL(f"Processing team {team.id} ({teams_processed}/{total_teams})"))
+            logger.info(
+                "cohort_resave_team_started",
+                team_id=team.id,
+                team_progress=f"{teams_processed}/{total_teams}",
+            )
 
             stats = self._process_team_cohorts(team, batch_size, dry_run)
 
@@ -71,30 +80,30 @@ class Command(BaseCommand):
             global_errors += stats["errors"]
             global_prospective_realtime += stats["prospective_realtime"]
 
-            # Report team stats
+            # Log team completion
             if stats["total"] > 0:
-                self.stdout.write(
-                    f"  Team {team.id}: processed={stats['total']} changed={stats['changed']} "
-                    f"realtime={stats['prospective_realtime']} errors={stats['errors']}"
+                logger.info(
+                    "cohort_resave_team_completed",
+                    team_id=team.id,
+                    total_cohorts=stats["total"],
+                    changed_cohorts=stats["changed"],
+                    realtime_cohorts=stats["prospective_realtime"],
+                    error_count=stats["errors"],
+                    dry_run=dry_run,
                 )
 
-        # Final summary
-        if dry_run:
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"\nDone (dry-run). teams={teams_processed} total_cohorts={global_total} "
-                    f"would_change={global_changed} would_be_realtime={global_prospective_realtime} "
-                    f"errors={global_errors}"
-                )
-            )
-        else:
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"\nDone. teams={teams_processed} total_cohorts={global_total} "
-                    f"changed={global_changed} realtime_now={global_prospective_realtime} "
-                    f"errors={global_errors}"
-                )
-            )
+        # Log final summary
+        logger.info(
+            "cohort_resave_completed",
+            dry_run=dry_run,
+            teams_processed=teams_processed,
+            total_cohorts=global_total,
+            changed_cohorts=global_changed,
+            realtime_cohorts=global_prospective_realtime,
+            error_count=global_errors,
+            change_percentage=round((global_changed / global_total * 100), 2) if global_total > 0 else 0,
+            realtime_percentage=round((global_prospective_realtime / global_total * 100), 2) if global_total > 0 else 0,
+        )
 
     def _process_team_cohorts(self, team: Team, batch_size: int, dry_run: bool) -> dict[str, int]:
         """Process all cohorts for a single team."""
@@ -192,7 +201,13 @@ class Command(BaseCommand):
                     changed += 1
             except Exception as err:
                 errors += 1
-                self.stderr.write(self.style.ERROR(f"Cohort {cohort.id} (team {team.id}): {err}"))
+                logger.error(
+                    "cohort_resave_error",
+                    cohort_id=cohort.id,
+                    team_id=team.id,
+                    error=str(err),
+                    exc_info=True,
+                )
 
         return {
             "total": total,

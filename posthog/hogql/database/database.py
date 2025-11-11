@@ -5,11 +5,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Prefetch, Q
 
+import structlog
+import posthoganalytics
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaEndpointTable,
     DatabaseSchemaField,
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaPostHogTable,
@@ -119,6 +122,7 @@ from posthog.models.team.team import WeekStartDay
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
+from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 
 if TYPE_CHECKING:
@@ -144,7 +148,10 @@ type DatabaseSchemaTable = (
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
     | DatabaseSchemaManagedViewTable
+    | DatabaseSchemaEndpointTable
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class Database(BaseModel):
@@ -235,12 +242,17 @@ class Database(BaseModel):
             raise ValueError(f"Unknown timezone: '{str(timezone)}'")
 
         self._week_start_day = week_start_day
+        self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
 
     def get_week_start_day(self) -> WeekStartDay:
         return self._week_start_day or WeekStartDay.SUNDAY
+
+    def get_serialization_errors(self) -> dict[str, str]:
+        """Return any errors encountered during serialization."""
+        return self._serialization_errors.copy()
 
     def has_table(self, table_name: str | list[str]) -> bool:
         if isinstance(table_name, str):
@@ -295,17 +307,17 @@ class Database(BaseModel):
 
     def _add_warehouse_tables(self, node: TableNode):
         self.tables.merge_with(node)
-        for name in node.resolve_all_table_names():
+        for name in sorted(node.resolve_all_table_names()):
             self._warehouse_table_names.append(name)
 
     def _add_warehouse_self_managed_tables(self, node: TableNode):
         self.tables.merge_with(node)
-        for name in node.resolve_all_table_names():
+        for name in sorted(node.resolve_all_table_names()):
             self._warehouse_self_managed_table_names.append(name)
 
     def _add_views(self, node: TableNode):
         self.tables.merge_with(node)
-        for name in node.resolve_all_table_names():
+        for name in sorted(node.resolve_all_table_names()):
             self._view_table_names.append(name)
 
     def serialize(
@@ -430,26 +442,35 @@ class Database(BaseModel):
             if include_only and table_key not in include_only:
                 continue
 
-            field_input = {}
-            table = self.get_table(table_key)
-            if isinstance(table, Table):
-                field_input = table.fields
+            try:
+                field_input = {}
+                table = self.get_table(table_key)
+                if isinstance(table, Table):
+                    field_input = table.fields
 
-            fields = serialize_fields(
-                field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
-            )
-            fields_dict = {field.name: field for field in fields}
+                fields = serialize_fields(
+                    field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
+                )
+                fields_dict = {field.name: field for field in fields}
 
-            tables[table_key] = DatabaseSchemaDataWarehouseTable(
-                fields=fields_dict,
-                id=str(warehouse_table.id),
-                name=table_key,
-                format=warehouse_table.format,
-                url_pattern=warehouse_table.url_pattern,
-                schema=schema,
-                source=source,
-                row_count=warehouse_table.row_count,
-            )
+                tables[table_key] = DatabaseSchemaDataWarehouseTable(
+                    fields=fields_dict,
+                    id=str(warehouse_table.id),
+                    name=table_key,
+                    format=warehouse_table.format,
+                    url_pattern=warehouse_table.url_pattern,
+                    schema=schema,
+                    source=source,
+                    row_count=warehouse_table.row_count,
+                )
+            except (QueryError, ResolutionError) as e:
+                # Log error but continue processing other tables
+                logger.warning(
+                    f"Failed to serialize data warehouse table '{table_key}': {str(e)}",
+                    exc_info=True,
+                )
+                self._serialization_errors[table_key] = str(e)
+                continue  # Skip this table but process others
 
         # Fetch all views in a single query
         all_views = (
@@ -488,6 +509,7 @@ class Database(BaseModel):
                 continue
 
             saved_query = views_dict.get(view_name)
+
             if not saved_query:
                 continue
 
@@ -495,11 +517,22 @@ class Database(BaseModel):
             if saved_query.table:
                 row_count = saved_query.table.row_count
 
+            if saved_query and saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+                tables[view_name] = DatabaseSchemaEndpointTable(
+                    fields=fields_dict,
+                    id=str(saved_query.pk),
+                    name=view_name,
+                    query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
+                    row_count=row_count,
+                    status=saved_query.status,
+                )
+                continue
+
             tables[view_name] = DatabaseSchemaViewTable(
                 fields=fields_dict,
                 id=str(saved_query.pk),
                 name=view_name,
-                query=HogQLQuery(query=saved_query.query["query"]),
+                query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
                 row_count=row_count,
             )
 
@@ -514,15 +547,16 @@ class Database(BaseModel):
         modifiers: Optional[HogQLQueryModifiers] = None,
         timings: Optional[HogQLTimings] = None,
     ) -> "Database":
-        from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+        if timings is None:
+            timings = HogQLTimings()
+
+        with timings.measure("imports"):
+            from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
         from posthog.hogql.query import create_default_modifiers_for_team
 
         from posthog.models import Team
 
         from products.data_warehouse.backend.models import DataWarehouseJoin, DataWarehouseSavedQuery
-
-        if timings is None:
-            timings = HogQLTimings()
 
         with timings.measure("team"):
             if team_id is None and team is None:
@@ -540,6 +574,25 @@ class Database(BaseModel):
             # Set team_id for the create_hogql_database tracing span
             span = trace.get_current_span()
             span.set_attribute("team_id", team.pk)
+
+        with timings.measure("feature_flags"):
+            is_managed_viewset_enabled = posthoganalytics.feature_enabled(
+                "managed-viewsets",
+                str(team.uuid),
+                groups={
+                    "organization": str(team.organization_id),
+                    "project": str(team.id),
+                },
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization_id),
+                    },
+                    "project": {
+                        "id": str(team.id),
+                    },
+                },
+                send_feature_flag_events=False,
+            )
 
         with timings.measure("database"):
             database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
@@ -655,24 +708,52 @@ class Database(BaseModel):
 
         with timings.measure("data_warehouse_saved_query"):
             with timings.measure("select"):
-                saved_queries = list(
+                queryset = (
                     DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
-                    .filter(managed_viewset__isnull=True)  # Ignore managed views for now
                     .exclude(deleted=True)
-                    .select_related("table", "table__credential")
+                    .order_by("name")
+                    .select_related("table", "table__credential", "managed_viewset")
                 )
+                if not is_managed_viewset_enabled:
+                    queryset = queryset.filter(managed_viewset__isnull=True)
+
+                saved_queries = list(queryset)
 
             for saved_query in saved_queries:
                 with timings.measure(f"saved_query_{saved_query.name}"):
                     views.add_child(
-                        TableNode(name=saved_query.name, table=saved_query.hogql_definition(modifiers)),
+                        TableNode.create_nested_for_chain(
+                            saved_query.name.split("."),
+                            table=saved_query.hogql_definition(modifiers),
+                        ),
                         table_conflict_mode="ignore",
                     )
 
-        with timings.measure("revenue_analytics_views"):
-            revenue_views = []
+        with timings.measure("endpoint_saved_query"):
+            endpoint_saved_queries = []
             try:
-                revenue_views = list(build_all_revenue_analytics_views(team, timings))
+                endpoint_saved_queries = list(
+                    DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                    .filter(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
+                    .exclude(deleted=True)
+                    .select_related("table", "table__credential")
+                )
+                for endpoint_saved_query in endpoint_saved_queries:
+                    with timings.measure(f"endpoint_saved_query_{endpoint_saved_query.name}"):
+                        views.add_child(
+                            TableNode(
+                                name=endpoint_saved_query.name, table=endpoint_saved_query.hogql_definition(modifiers)
+                            ),
+                            table_conflict_mode="ignore",
+                        )
+            except Exception as e:
+                capture_exception(e)
+
+        with timings.measure("revenue_analytics_views"):
+            revenue_views: list[RevenueAnalyticsBaseView] = []
+            try:
+                if not is_managed_viewset_enabled:
+                    revenue_views = list(build_all_revenue_analytics_views(team, timings))
             except Exception as e:
                 capture_exception(e)
 

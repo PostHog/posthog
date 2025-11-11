@@ -1,5 +1,6 @@
 from contextlib import suppress
 from enum import Enum
+from typing import Optional
 
 import dagster
 from clickhouse_driver.errors import Error, ErrorCodes
@@ -137,3 +138,36 @@ def settings_with_log_comment(
     qt = query_tagging.get_query_tags()
     qt.with_dagster(dagster_tags(context))
     return {"log_comment": qt.to_json()}
+
+
+def check_for_concurrent_runs(
+    context: dagster.ScheduleEvaluationContext, tags: dict[str, str]
+) -> Optional[dagster.SkipReason]:
+    # Get the schedule name from the context
+    schedule_name = context._schedule_name
+    if schedule_name is None:
+        context.log.info("Skipping concurrent runs check because schedule name is not available")
+        return None
+
+    # Get the schedule definition from the repository to find the associated job
+    schedule_def = context.repository_def.get_schedule_def(schedule_name)
+    job_name = schedule_def.job_name
+
+    run_records = context.instance.get_run_records(
+        dagster.RunsFilter(
+            job_name=job_name,
+            tags=tags,
+            statuses=[
+                dagster.DagsterRunStatus.QUEUED,
+                dagster.DagsterRunStatus.NOT_STARTED,
+                dagster.DagsterRunStatus.STARTING,
+                dagster.DagsterRunStatus.STARTED,
+            ],
+        )
+    )
+
+    if len(run_records) > 0:
+        context.log.info(f"Skipping {job_name} due to {len(run_records)} active run(s)")
+        return dagster.SkipReason(f"Skipping {job_name} run because another run of the same job is already active")
+
+    return None

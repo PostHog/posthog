@@ -125,10 +125,12 @@ impl From<(&RawHermesFrame, HermesError)> for Frame {
             resolve_failure: Some(err.to_string()),
             synthetic: frame.meta.synthetic,
             junk_drawer: None,
+            code_variables: None,
             context: None,
             release: None,
             suspicious: false,
             module: None,
+            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, frame);
@@ -158,10 +160,12 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
             resolve_failure: None,
             synthetic: frame.meta.synthetic,
             junk_drawer: None,
+            code_variables: None,
             context: get_token_context(&token, token.get_src_line() as usize),
             release: None,
             suspicious: false,
             module: None,
+            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, frame);
@@ -223,7 +227,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()), // We set the chunk id as the storage ptr above, in production it will be a different value with a prefix
             )
-            .returning(|_, _| Ok(get_symbol_data_bytes()));
+            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
 
         let client = Arc::new(client);
 

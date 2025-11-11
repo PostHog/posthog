@@ -439,11 +439,10 @@ class FeatureFlagGeneratorGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentS
     4. Generate structured feature flag configuration
     """
 
-    def __init__(self, team: Team, user: User, tool_call_id: str):
+    def __init__(self, team: Team, user: User):
         super().__init__(
             team,
             user,
-            tool_call_id,
             loop_node_class=FeatureFlagCreationNode,
             tools_node_class=FeatureFlagCreationToolsNode,
             toolkit_class=FeatureFlagToolkit,
@@ -501,7 +500,7 @@ The tool will automatically:
 
     async def _create_flag_from_instructions(self, instructions: str) -> FeatureFlagCreationSchema:
         """Use TaxonomyAgent graph to generate structured flag configuration."""
-        graph = FeatureFlagGeneratorGraph(team=self._team, user=self._user, tool_call_id=self._tool_call_id)
+        graph = FeatureFlagGeneratorGraph(team=self._team, user=self._user)
 
         graph_context = {
             "change": f"Create a feature flag based on these instructions: {instructions}",

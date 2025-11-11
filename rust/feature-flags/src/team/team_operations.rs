@@ -5,6 +5,7 @@ use crate::{
 };
 use common_database::PostgresReader;
 use common_redis::Client as RedisClient;
+use common_types::ProjectId;
 use std::{future::Future, sync::Arc};
 use tracing::{debug, warn};
 
@@ -119,10 +120,7 @@ impl Team {
             tracing::error!("failed to parse data to team for token {token}: {e}");
             FlagError::RedisDataParsingError
         })?;
-        if team.project_id == 0 {
-            // If `project_id` is 0, this means the payload is from before December 2024, which we correct for here
-            team.project_id = team.id as i64;
-        }
+        team.project_id = Some(team.project_id());
 
         tracing::debug!(
             "Successfully read team {} from Redis at key '{}{}'",
@@ -224,6 +222,11 @@ impl Team {
 
         Ok(row)
     }
+
+    pub fn project_id(&self) -> ProjectId {
+        // If `project_id` is not present, this means the payload is from before December 2024, which we correct for here
+        self.project_id.unwrap_or(self.id as ProjectId)
+    }
 }
 
 #[cfg(test)]
@@ -278,7 +281,7 @@ mod tests {
         let token = random_string("phc_", 12);
         let team = Team {
             id,
-            project_id: i64::from(id) - 1,
+            project_id: Some(i64::from(id) - 1),
             name: "team".to_string(),
             api_token: token,
             cookieless_server_hash_mode: Some(0),
@@ -320,7 +323,7 @@ mod tests {
             id: 343,
             name: "team".to_string(),
             api_token: target_token.clone(),
-            project_id: 0,
+            project_id: None,
             uuid: Uuid::nil(),
             session_recording_opt_in: false,
             cookieless_server_hash_mode: Some(0),
@@ -344,7 +347,7 @@ mod tests {
 
         assert_eq!(team_from_redis.api_token, target_token);
         assert_eq!(team_from_redis.id, 343);
-        assert_eq!(team_from_redis.project_id, 343); // Same as `id`
+        assert_eq!(team_from_redis.project_id, Some(343)); // Same as `id`
         assert_eq!(team_from_redis.cookieless_server_hash_mode, Some(0));
     }
 
@@ -440,7 +443,7 @@ mod tests {
         let token = random_string("phc_", 12);
         let test_team = Team {
             id: team_id,
-            project_id: i64::from(team_id),
+            project_id: Some(i64::from(team_id)),
             name: "team".to_string(),
             api_token: token.clone(),
             organization_id: Some(Uuid::new_v4()),
@@ -489,7 +492,7 @@ mod tests {
         let token = random_string("phc_", 12);
         let test_team = Team {
             id: team_id,
-            project_id: i64::from(team_id),
+            project_id: Some(i64::from(team_id)),
             name: "team".to_string(),
             api_token: token.clone(),
             organization_id: Some(Uuid::new_v4()),
@@ -536,7 +539,7 @@ mod tests {
         let token = random_string("phc_", 12);
         let test_team = Team {
             id: team_id,
-            project_id: i64::from(team_id),
+            project_id: Some(i64::from(team_id)),
             name: "team".to_string(),
             api_token: token.clone(),
             organization_id: Some(Uuid::new_v4()),

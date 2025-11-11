@@ -1,5 +1,5 @@
 from dataclasses import asdict, dataclass
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
@@ -12,10 +12,42 @@ from posthog.models.utils import CreatedMetaFields, UUIDModel
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 
+if TYPE_CHECKING:
+    from ee.hogai.videos.session_moments import SessionMomentOutput
+
 
 @dataclass(frozen=True)
 class ExtraSummaryContext:
     focus_area: str | None = None
+
+
+@dataclass(frozen=True)
+class SessionSummaryVisualConfirmationResult:
+    event_id: str  # Hex id of the event
+    event_uuid: str  # Full uuid of the event
+    asset_id: int  # Id of the generated video asset
+    timestamp_s: int  # Timestamp of starting point in the video
+    duration_s: int  # Duration of the video in seconds
+    video_description: str  # What LLM found in the video
+    created_at: str  # When the video was created, ISO format
+    expires_after: str  # When the video will expire, ISO format
+    model_id: str  # What model was used to analyze the video
+
+    @classmethod
+    def from_session_moment_output(
+        cls, session_moment_output: "SessionMomentOutput", event_uuid: str
+    ) -> "SessionSummaryVisualConfirmationResult":
+        return cls(
+            event_id=session_moment_output.moment_id,
+            event_uuid=event_uuid,
+            asset_id=session_moment_output.asset_id,
+            timestamp_s=session_moment_output.timestamp_s,
+            duration_s=session_moment_output.duration_s,
+            video_description=session_moment_output.video_description,
+            created_at=session_moment_output.created_at.isoformat(),
+            expires_after=session_moment_output.expires_after.isoformat(),
+            model_id=session_moment_output.model_id,
+        )
 
 
 @dataclass(frozen=True)
@@ -24,6 +56,7 @@ class SessionSummaryRunMeta:
 
     model_used: str
     visual_confirmation: bool
+    visual_confirmation_results: list[SessionSummaryVisualConfirmationResult] | None = None
 
 
 @dataclass(frozen=True)

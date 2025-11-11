@@ -13,7 +13,6 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.shutdown import ShutdownMonitor
-from posthog.temporal.data_imports.deltalake_compaction_job import trigger_compaction_job
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -343,9 +342,12 @@ class PipelineNonDLT:
             self._logger.debug("No deltalake table, not continuing with post-run ops")
             return
 
-        self._logger.debug("Triggering workflow to compact and vacuum")
-        compaction_job_id = trigger_compaction_job(self._job, self._schema, self._logger)
-        self._logger.debug(f"Compaction workflow id: {compaction_job_id}")
+        self._logger.debug("Triggering compaction and vacuuming on delta table")
+        try:
+            self._delta_table_helper.compact_table()
+        except Exception as e:
+            capture_exception(e)
+            self._logger.exception(f"Compaction failed: {e}", exc_info=e)
 
         file_uris = delta_table.file_uris()
         self._logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")

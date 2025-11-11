@@ -85,6 +85,7 @@ const _itemTypes = [
     'inactivity',
     'inspector-summary',
     'app-state',
+    'session-change',
 ] as const
 
 export type InspectorListItemType = (typeof _itemTypes)[number]
@@ -138,6 +139,18 @@ export type InspectorListBrowserVisibility = InspectorListItemBase & {
     status: 'hidden' | 'visible'
 }
 
+interface SessionChangePayload {
+    nextSessionId?: string
+    previousSessionId?: string
+    changeReason?: { noSessionId: boolean; activityTimeout: boolean; sessionPastMaximumLength: boolean }
+}
+
+export type InspectorListSessionChange = InspectorListItemBase & {
+    type: 'session-change'
+    tag: '$session_starting' | '$session_ending'
+    data: SessionChangePayload
+}
+
 export type InspectorListItemDoctor = InspectorListItemBase & {
     type: 'doctor'
     tag: string
@@ -171,6 +184,7 @@ export type InspectorListItem =
     | InspectorListItemSummary
     | InspectorListItemInactivity
     | InspectorListItemAppState
+    | InspectorListSessionChange
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -443,6 +457,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 const appStateItems: InspectorListItemAppState[] = []
                 const snapshotCounts: Record<string, Record<string, number>> = {}
                 const consoleLogSeenCache = new Set<string>()
+                const sessionChangeItems: InspectorListSessionChange[] = []
 
                 // Single pass through all snapshots
                 Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
@@ -474,6 +489,21 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                     highlightColor: 'warning',
                                     key: `${timestamp.valueOf()}-offline-status-${tag}`,
                                 } satisfies InspectorListOfflineStatusChange)
+                            }
+
+                            if (['$session_ending', '$session_starting'].includes(tag)) {
+                                const item: InspectorListSessionChange = {
+                                    type: 'session-change',
+                                    timestamp: timestamp,
+                                    timeInRecording: timeInRecording,
+                                    search: tag,
+                                    tag: tag as '$session_starting' | '$session_ending',
+                                    data: customEvent.data.payload as SessionChangePayload,
+                                    windowId: windowId,
+                                    windowNumber: windowNumberForID(windowId),
+                                    key: `${timestamp.valueOf()}-session-change-${tag}`,
+                                }
+                                sessionChangeItems.push(item)
                             }
 
                             // Browser visibility changes
@@ -630,6 +660,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     ...offlineStatusChanges,
                     ...browserVisibilityChanges,
                     ...doctorEvents,
+                    ...sessionChangeItems,
                 ]
 
                 return {

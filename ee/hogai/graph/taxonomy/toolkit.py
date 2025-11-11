@@ -40,7 +40,6 @@ from ee.hogai.graph.taxonomy.format import (
     format_property_values,
 )
 from ee.hogai.utils.types.base import AssistantState, BaseStateWithTasks, TaskArtifact, TaskResult
-from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
 from .tools import (
@@ -50,7 +49,6 @@ from .tools import (
     retrieve_event_properties,
     retrieve_event_property_values,
 )
-from .types import TaxonomyNodeName
 
 
 class TaxonomyToolNotFoundError(Exception):
@@ -122,14 +120,6 @@ class TaxonomyTaskExecutorNode(
     Task executor node specifically for taxonomy operations.
     """
 
-    def __init__(self, team: Team, user: User, parent_tool_call_id: str | None):
-        super().__init__(team, user)
-        self._parent_tool_call_id = parent_tool_call_id
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return TaxonomyNodeName.TASK_EXECUTOR
-
     async def _aget_input_tuples(self, tool_calls: list[AssistantToolCall]) -> list[TaskExecutionInputTuple]:
         taxonomy_toolkit = TaxonomyAgentToolkit(self._team, self._user)
         input_tuples: list[TaskExecutionInputTuple] = []
@@ -147,8 +137,6 @@ class TaxonomyTaskExecutorNode(
 
 class TaxonomyAgentToolkit:
     """Base toolkit for taxonomy agents that handle tool execution."""
-
-    _parent_tool_call_id: str | None
 
     def __init__(self, team: Team, user: User):
         self._team = team
@@ -391,7 +379,7 @@ class TaxonomyAgentToolkit:
                 )
             )
         message = AssistantMessage(content="", id=str(uuid4()), tool_calls=tool_calls)
-        executor = TaxonomyTaskExecutorNode(self._team, self._user, parent_tool_call_id=self._parent_tool_call_id)
+        executor = TaxonomyTaskExecutorNode(self._team, self._user)
         result = await executor.arun(AssistantState(messages=[message]), RunnableConfig())
 
         final_result = {}
@@ -651,7 +639,7 @@ class TaxonomyAgentToolkit:
             for event_name_or_action_id in event_name_or_action_ids
         ]
         message = AssistantMessage(content="", id=str(uuid4()), tool_calls=tool_calls)
-        executor = TaxonomyTaskExecutorNode(self._team, self._user, parent_tool_call_id=self._parent_tool_call_id)
+        executor = TaxonomyTaskExecutorNode(self._team, self._user)
         result = await executor.arun(AssistantState(messages=[message]), RunnableConfig())
         return {task_result.id: task_result.result for task_result in result.task_results}
 
