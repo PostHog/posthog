@@ -53,7 +53,9 @@ export const logsLogic = kea<logsLogicType>([
     }),
 
     actionToUrl(({ actions, values }) => {
-        const buildURL = (): [
+        const buildURL = (
+            debounce: integer = 0
+        ): [
             string,
             Params,
             Record<string, any>,
@@ -68,7 +70,7 @@ export const logsLogic = kea<logsLogicType>([
                 updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
                 updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
-                actions.runQuery()
+                actions.runQuery(debounce)
                 return params
             })
         }
@@ -76,7 +78,7 @@ export const logsLogic = kea<logsLogicType>([
         return {
             setDateRange: () => buildURL(),
             setFilterGroup: () => buildURL(),
-            setSearchTerm: () => buildURL(),
+            setSearchTerm: () => buildURL(300),
             setSeverityLevels: () => buildURL(),
             setServiceNames: () => buildURL(),
             setOrderBy: () => buildURL(),
