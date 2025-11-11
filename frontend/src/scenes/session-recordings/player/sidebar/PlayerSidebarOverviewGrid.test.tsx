@@ -1,6 +1,5 @@
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-// Import the function we'll be testing (doesn't exist yet - will fail)
 import { handleFilterByProperty } from './PlayerSidebarOverviewGrid'
 
 describe('PlayerSidebarOverviewGrid', () => {

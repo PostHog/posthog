@@ -11,6 +11,7 @@ import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/pl
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
+import { sessionRecordingsPlaylistLogic } from '../../playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSidebarEditPinnedPropertiesPopover } from './PlayerSidebarEditPinnedPropertiesPopover'
 
@@ -53,6 +54,8 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { displayOverviewItems, loading, isPropertyPopoverOpen } = useValues(playerMetaLogic(logicProps))
     const { setIsPropertyPopoverOpen } = useActions(playerMetaLogic(logicProps))
+    // setFilters will be used in Task 1.4
+    const { setFilters } = useActions(sessionRecordingsPlaylistLogic) // eslint-disable-line @typescript-eslint/no-unused-vars
 
     return (
         <>
