@@ -231,6 +231,7 @@ mod test {
     const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
 
     // Used to construct a Catalog with only the chunk id based provider implemented
+    #[allow(dead_code)]
     struct UnimplementedProvider;
     #[async_trait]
     impl Provider for UnimplementedProvider {
