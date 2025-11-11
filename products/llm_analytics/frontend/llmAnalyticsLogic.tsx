@@ -1168,7 +1168,10 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 groupsTaxonomicTypes
             ): DataTableNode => {
                 // Use the shared query template
+                // The SQL template uses Python's .format() escaping ({{ for literal {), so normalize those for HogQL
                 const query = errorsQueryTemplate
+                    .replace(/\{\{/g, '{')
+                    .replace(/\}\}/g, '}')
                     .replace('{orderBy}', errorsSort.column)
                     .replace('{orderDirection}', errorsSort.direction)
 
