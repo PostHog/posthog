@@ -1,7 +1,7 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 
-import api from 'lib/api'
+import api, { ApiRequest } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import type { customerIOImportLogicType } from './customerIOImportLogicType'
@@ -67,12 +67,10 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             } as ImportFormValues,
             submit: async ({ app_api_key }) => {
                 try {
-                    const response = await api.create(
-                        'api/projects/@current/message_categories/import_from_customerio',
-                        {
-                            app_api_key,
-                        }
-                    )
+                    const response = await new ApiRequest()
+                        .messagingCategories()
+                        .addPathComponent('import_from_customerio')
+                        .create({ data: { app_api_key } })
                     actions.setImportProgress(response)
                     return response
                 } catch (error: any) {

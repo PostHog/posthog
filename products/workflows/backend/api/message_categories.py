@@ -69,7 +69,7 @@ class MessageCategoryViewSet(
         )
 
     @action(detail=False, methods=["post"])
-    def import_from_customerio(self, request):
+    def import_from_customerio(self, request, **kwargs):
         """
         Import subscription topics and preferences from Customer.io
         """

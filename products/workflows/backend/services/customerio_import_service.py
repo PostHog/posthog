@@ -15,12 +15,13 @@ class CustomerIOImportService:
     def __init__(self, team: Team, api_key: str, user):
         self.team = team
         self.user = user
-        self.client = CustomerIOClient(api_key)
+        self.client = None
+        self.api_key = api_key
         self.topic_mapping = {}  # Maps Customer.io topic IDs to PostHog MessageCategory IDs
         self.progress = {
             "status": "initializing",
             "topics_found": 0,
-            "workflows_created": 0,
+            "categories_created": 0,  # Changed from workflows_created for clarity
             "customers_processed": 0,
             "preferences_updated": 0,
             "errors": [],
@@ -28,32 +29,34 @@ class CustomerIOImportService:
 
     def import_all(self) -> dict[str, Any]:
         try:
-            # Validate credentials first
+            # Try to validate credentials with US region first, then EU
             self.progress["status"] = "validating_credentials"
-            if not self.client.validate_credentials():
-                self.progress["status"] = "failed"
-                self.progress["errors"].append("Invalid Customer.io API credentials")
-                return self.progress
+            
+            # Try US region first
+            self.client = CustomerIOClient(self.api_key, region="us")
+            if self.client.validate_credentials():
+                self.progress["status"] = "validated"
+            else:
+                # Try EU region
+                self.client = CustomerIOClient(self.api_key, region="eu")
+                if not self.client.validate_credentials():
+                    self.progress["status"] = "failed"
+                    self.progress["errors"].append("Invalid Customer.io API credentials. Please check: 1) You're using an App API key from Settings > API Credentials > App API Keys, 2) The key has not expired, 3) You've copied the complete key")
+                    return self.progress
 
-            # Import subscription centers and topics
+            # Import subscription topics
             self.progress["status"] = "fetching_topics"
-            subscription_centers = self.client.get_subscription_centers()
+            topics = self.client.get_subscription_centers()  # This actually fetches topics
 
-            if not subscription_centers:
-                self.progress["errors"].append("No subscription centers found in Customer.io")
+            if not topics:
+                self.progress["errors"].append("No subscription topics found in Customer.io")
                 self.progress["status"] = "completed"
                 return self.progress
 
-            # Process the first subscription center (most accounts have only one)
-            center = subscription_centers[0]
-            center_id = center.get("id")
-
-            # Get topics from the subscription center
-            topics = self.client.get_subscription_center_topics(center_id)
             self.progress["topics_found"] = len(topics)
 
-            # Create workflows from topics
-            self.progress["status"] = "creating_workflows"
+            # Create message categories from topics
+            self.progress["status"] = "creating_categories"
             self._import_topics(topics)
 
             # Import customer preferences
@@ -73,8 +76,10 @@ class CustomerIOImportService:
             try:
                 # Extract topic data
                 topic_id = topic.get("id")
+                topic_identifier = topic.get("identifier", f"topic_{topic_id}")  # e.g., "topic_1"
                 topic_name = topic.get("name", f"Topic {topic_id}")
-                topic_key = f"customerio_topic_{topic_id}"
+                # Use the identifier as the key to maintain consistency with Customer.io
+                topic_key = f"customerio_{topic_identifier}"
                 description = topic.get("description", "")
                 public_description = topic.get("public_description", description)
 
@@ -99,63 +104,95 @@ class CustomerIOImportService:
                         },
                     )
 
-                # Store the mapping for later use
+                # Store the mapping using both the identifier and numeric ID
+                # Customer.io may use either format in preferences
+                # Store with topic_ prefix (e.g., "topic_1")
+                self.topic_mapping[topic_identifier] = str(category.id)
+                # Also store just the numeric ID (e.g., "1")
                 self.topic_mapping[str(topic_id)] = str(category.id)
 
                 if created:
-                    self.progress["workflows_created"] += 1
+                    self.progress["categories_created"] += 1
 
             except Exception as e:
                 self.progress["errors"].append(f"Failed to import topic {topic_id}: {str(e)}")
 
     def _import_customer_preferences(self) -> None:
-        # Fetch customers with preferences
-        for customer_data in self.client.get_all_customers_with_preferences():
-            try:
-                email = customer_data.get("email")
-                if not email:
-                    continue
-
-                preferences = customer_data.get("preferences", {})
-                topics = preferences.get("topics", {})
-
-                if not topics:
-                    continue
-
-                # Get or create recipient preference
-                recipient_pref = MessageRecipientPreference.get_or_create_for_identifier(
-                    team_id=self.team.id, identifier=email
-                )
-
-                # Process each topic preference
-                preferences_updated = False
-                for topic_id, is_subscribed in topics.items():
-                    # Extract numeric ID from topic_N format
-                    if topic_id.startswith("topic_"):
-                        numeric_id = topic_id.replace("topic_", "")
-                    else:
-                        numeric_id = topic_id
-
-                    # Find the corresponding PostHog category
-                    category_id = self.topic_mapping.get(numeric_id)
-                    if not category_id:
-                        continue
-
-                    # Set preference (False in Customer.io means opted out)
-                    status = PreferenceStatus.OPTED_IN if is_subscribed else PreferenceStatus.OPTED_OUT
-
-                    # Only update if it's an opt-out (we care about unsubscribes)
-                    if not is_subscribed:
-                        recipient_pref.set_preference(category_id, status)
-                        preferences_updated = True
-
-                if preferences_updated:
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Get list of topic IDs from our mapping
+        topic_ids = []
+        for key in self.topic_mapping.keys():
+            # Extract numeric IDs (skip the "topic_N" format duplicates)
+            if not key.startswith("topic_"):
+                topic_ids.append(key)
+        
+        logger.info(f"Starting customer preference import for topics: {topic_ids}")
+        
+        # Get all opted-out customers per topic
+        logger.info("Calling get_opted_out_customers_for_topics...")
+        logger.info(f"Client exists: {self.client is not None}")
+        logger.info(f"Client type: {type(self.client)}")
+        
+        try:
+            logger.info("About to call client.get_opted_out_customers_for_topics")
+            opt_outs_by_topic = self.client.get_opted_out_customers_for_topics(topic_ids)
+            logger.info(f"Call completed. Received opt-outs data: {[(t, len(emails)) for t, emails in opt_outs_by_topic.items()]}")
+        except Exception as e:
+            logger.error(f"Failed to fetch opt-outs: {e}")
+            logger.exception("Full traceback:")
+            self.progress["errors"].append(f"Failed to fetch opt-outs: {str(e)}")
+            return
+        
+        # Track unique customers processed
+        unique_customers = set()
+        
+        # Process opt-outs for each topic
+        logger.info("Starting to process opt-outs by topic...")
+        for topic_id, opted_out_emails in opt_outs_by_topic.items():
+            # Get the PostHog category ID for this topic
+            category_id = self.topic_mapping.get(str(topic_id))
+            if not category_id:
+                logger.warning(f"Could not find mapping for topic {topic_id}")
+                continue
+            
+            logger.info(f"Processing {len(opted_out_emails)} opt-outs for topic {topic_id} -> category {category_id}")
+            
+            # Process each opted-out customer
+            processed_in_topic = 0
+            for email in opted_out_emails:
+                try:
+                    # Track unique customers
+                    unique_customers.add(email)
+                    
+                    logger.debug(f"Getting/creating preference for {email}")
+                    
+                    # Get or create recipient preference
+                    recipient_pref = MessageRecipientPreference.get_or_create_for_identifier(
+                        team_id=self.team.id, identifier=email
+                    )
+                    
+                    logger.debug(f"Got preference object with ID {recipient_pref.id} for {email}")
+                    
+                    # Set opt-out preference for this topic
+                    logger.info(f"Setting opt-out for {email} on category {category_id} (topic {topic_id})")
+                    recipient_pref.set_preference(category_id, PreferenceStatus.OPTED_OUT)
+                    
+                    logger.debug(f"Successfully set opt-out for {email}")
+                    
                     self.progress["preferences_updated"] += 1
-
-                self.progress["customers_processed"] += 1
-
-            except Exception as e:
-                self.progress["errors"].append(f"Failed to import preferences for {email}: {str(e)}")
+                    processed_in_topic += 1
+                    
+                except Exception as e:
+                    logger.error(f"Failed to import preference for {email} on topic {topic_id}: {str(e)}")
+                    logger.exception(f"Full error trace:")
+                    self.progress["errors"].append(f"Failed to import preference for {email}: {str(e)}")
+            
+            logger.info(f"Processed {processed_in_topic}/{len(opted_out_emails)} opt-outs for topic {topic_id}")
+        
+        self.progress["customers_processed"] = len(unique_customers)
+        logger.info(f"Completed preference import. Processed {len(unique_customers)} unique customers")
 
     def get_progress(self) -> dict[str, Any]:
         return self.progress
