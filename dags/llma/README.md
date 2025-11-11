@@ -52,9 +52,3 @@ View in Dagster UI:
 # Dagster runs on port 3030
 open http://localhost:3030
 ```
-
-Test pipelines:
-
-```bash
-python test_llma_metrics.py
-```

@@ -91,12 +91,6 @@ Runs daily at 6 AM UTC for the previous day's partition.
 
 ## Local Development
 
-Test the aggregation pipeline:
-
-```bash
-python test_llma_metrics.py
-```
-
 Query results in ClickHouse:
 
 ```bash

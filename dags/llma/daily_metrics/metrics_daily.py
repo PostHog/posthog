@@ -18,7 +18,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 
 from dags.common import JobOwners, dagster_tags
-from dags.llma.daily_metrics.config import AI_EVENT_TYPES, config
+from dags.llma.daily_metrics.config import config
 
 # Partition definition for daily aggregations
 partition_def = DailyPartitionsDefinition(start_date=config.partition_start_date, end_offset=1)
@@ -62,7 +62,8 @@ def get_insert_query(date_start: str, date_end: str) -> str:
     # Load and render each template
     rendered_queries = []
     template_context = {
-        "event_types": AI_EVENT_TYPES,
+        "event_types": config.ai_event_types,
+        "pageview_mappings": config.pageview_mappings,
         "date_start": date_start,
         "date_end": date_end,
         "include_error_rates": config.include_error_rates,
@@ -119,14 +120,11 @@ def llma_metrics_daily(
     context.log.info(f"Aggregating LLMA metrics for {date_start} to {date_end}")
 
     try:
-        # Delete existing data for this date range to ensure idempotency
         delete_query = get_delete_query(date_start, date_end)
-        context.log.info(f"Deleting existing metrics: {delete_query}")
         sync_execute(delete_query, settings=LLMA_CLICKHOUSE_SETTINGS)
 
-        # Insert aggregated metrics
         insert_query = get_insert_query(date_start, date_end)
-        context.log.info(f"Inserting metrics: {insert_query}")
+        context.log.info(f"Metrics query: \n{insert_query}")
         sync_execute(insert_query, settings=LLMA_CLICKHOUSE_SETTINGS)
 
         # Query and log the metrics that were just aggregated
