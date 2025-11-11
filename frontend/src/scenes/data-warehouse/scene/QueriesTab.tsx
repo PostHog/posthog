@@ -71,8 +71,11 @@ export function QueriesTab(): JSX.Element {
         searchTerm,
         dependenciesMapLoading,
         runHistoryMapLoading,
+        materializedViewsCurrentPage,
+        viewsCurrentPage,
     } = useValues(queriesTabLogic)
-    const { setSearchTerm, deleteView, runMaterialization } = useActions(queriesTabLogic)
+    const { setSearchTerm, deleteView, runMaterialization, setMaterializedViewsPage, setViewsPage } =
+        useActions(queriesTabLogic)
 
     return (
         <div className="space-y-4">
@@ -185,7 +188,11 @@ export function QueriesTab(): JSX.Element {
                                 ),
                             },
                         ]}
-                        pagination={{ pageSize: 10 }}
+                        pagination={{
+                            pageSize: 10,
+                            currentPage: materializedViewsCurrentPage,
+                            onChangePage: setMaterializedViewsPage,
+                        }}
                     />
                 </div>
             )}
@@ -258,7 +265,11 @@ export function QueriesTab(): JSX.Element {
                                 ),
                             },
                         ]}
-                        pagination={{ pageSize: 10 }}
+                        pagination={{
+                            pageSize: 10,
+                            currentPage: viewsCurrentPage,
+                            onChangePage: setViewsPage,
+                        }}
                     />
                 </div>
             )}
