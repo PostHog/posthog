@@ -121,6 +121,16 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                     iconOnly: true,
                     className: 'z-20 rounded-lg text-tertiary hover:text-primary',
                 }}
+                tooltip={
+                    <div className="flex flex-col gap-1">
+                        <span>Replace current tab with new tab</span>
+                        <span>
+                            <KeyboardShortcut command shift k /> to open command bar
+                        </span>
+                    </div>
+                }
+                tooltipPlacement="bottom"
+                tooltipCloseDelayMs={0}
             >
                 <IconSearch />
             </Link>
