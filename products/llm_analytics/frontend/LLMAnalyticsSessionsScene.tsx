@@ -16,7 +16,7 @@ import { isHogQLQuery } from '~/queries/utils'
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
-import { formatLLMCost } from './utils'
+import { formatLLMCost, getTraceTimestamp } from './utils'
 
 export function LLMAnalyticsSessionsScene(): JSX.Element {
     const {
@@ -233,7 +233,9 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                                                                 </LemonTag>
                                                             )}
                                                             <Link
-                                                                to={urls.llmAnalyticsTrace(trace.id)}
+                                                                to={urls.llmAnalyticsTrace(trace.id, {
+                                                                    timestamp: getTraceTimestamp(trace.createdAt),
+                                                                })}
                                                                 onClick={(e) => e.stopPropagation()}
                                                                 className="text-xs"
                                                             >

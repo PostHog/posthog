@@ -768,8 +768,6 @@ posthog/queries/trends/util.py:0: error: Argument 1 to "translate_hogql" has inc
 posthog/rbac/test/test_field_access_control.py:0: error: Team has no field named 'session_recording_opt_in'  [misc]
 posthog/rbac/test/test_field_access_control.py:0: error: TestModel has no field named 'test_field'  [misc]
 posthog/schema_migrations/upgrade_manager.py:0: error: Argument 1 to "upgrade" has incompatible type "Any | None"; expected "dict[Any, Any]"  [arg-type]
-posthog/settings/__init__.py:0: error: Cannot determine type of "MAILJET_PUBLIC_KEY"  [has-type]
-posthog/settings/__init__.py:0: error: Cannot determine type of "MAILJET_SECRET_KEY"  [has-type]
 posthog/settings/__init__.py:0: error: Cannot determine type of "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY"  [has-type]
 posthog/settings/__init__.py:0: error: Cannot determine type of "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET"  [has-type]
 posthog/settings/data_stores.py:0: error: Name "DATABASE_URL" already defined on line 0  [no-redef]
