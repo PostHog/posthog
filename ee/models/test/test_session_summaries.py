@@ -560,6 +560,7 @@ class TestGroupSessionSummary(BaseTest):
     def test_create_group_summary(self) -> None:
         summary = GroupSessionSummary.objects.create(
             team_id=self.team.id,
+            name="Checkout flow analysis",
             session_ids=self.session_ids,
             summary=self.summary_data,
             extra_summary_context=asdict(self.extra_context),
@@ -568,6 +569,7 @@ class TestGroupSessionSummary(BaseTest):
         )
         self.assertIsNotNone(summary.id)
         self.assertEqual(summary.team_id, self.team.id)
+        self.assertEqual(summary.name, "Checkout flow analysis")
         self.assertEqual(summary.session_ids, self.session_ids)
         self.assertEqual(summary.summary, self.summary_data)
         self.assertEqual(summary.extra_summary_context, asdict(self.extra_context))
@@ -578,6 +580,7 @@ class TestGroupSessionSummary(BaseTest):
         other_team: Team = Organization.objects.bootstrap(None)[2]
         summary = GroupSessionSummary.objects.create(
             team_id=self.team.id,
+            name="Team isolation test",
             session_ids=self.session_ids,
             summary=self.summary_data,
             created_by=self.user,
@@ -590,16 +593,19 @@ class TestGroupSessionSummary(BaseTest):
         # Create multiple summaries
         summary_1 = GroupSessionSummary.objects.create(
             team_id=self.team.id,
+            name="Summary 1",
             session_ids=["session-1"],
             summary=self.summary_data,
         )
         summary_2 = GroupSessionSummary.objects.create(
             team_id=self.team.id,
+            name="Summary 2",
             session_ids=["session-2"],
             summary=self.summary_data,
         )
         summary_3 = GroupSessionSummary.objects.create(
             team_id=self.team.id,
+            name="Summary 3",
             session_ids=["session-3"],
             summary=self.summary_data,
         )
@@ -613,6 +619,7 @@ class TestGroupSessionSummary(BaseTest):
     def test_update_summary(self) -> None:
         summary = GroupSessionSummary.objects.create(
             team_id=self.team.id,
+            name="Update test summary",
             session_ids=self.session_ids,
             summary=self.summary_data,
         )
@@ -644,9 +651,11 @@ class TestGroupSessionSummary(BaseTest):
     def test_str_representation(self) -> None:
         summary = GroupSessionSummary.objects.create(
             team_id=self.team.id,
+            name="String repr test",
             session_ids=self.session_ids,
             summary=self.summary_data,
         )
         str_repr = str(summary)
+        self.assertIn("String repr test", str_repr)
         self.assertIn("3 sessions", str_repr)
         self.assertIn(str(self.team.id), str_repr)

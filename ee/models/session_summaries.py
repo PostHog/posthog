@@ -262,9 +262,11 @@ class GroupSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
     from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
     summary = GroupSessionSummary.objects.create(
         team_id=team_id,
+        name="Checkout flow analysis - Q4 2024",
         session_ids=["session1", "session2", "session3"],
         summary=enriched_patterns.model_dump(),  # EnrichedSessionGroupSummaryPatternsList
         extra_summary_context={"focus_area": "checkout flow"},
+        extra_input_context={"custom_field": "value"},
         run_metadata={"model_used": "claude-3-5-sonnet", "visual_confirmation": False},
         created_by=user,
     )
@@ -292,6 +294,9 @@ class GroupSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
 
+    # User-facing name for the summary
+    name = models.CharField(max_length=2048, help_text="Name of the group session summary")
+
     # List of session IDs that were analyzed together in this group
     session_ids = ArrayField(
         models.CharField(max_length=10000),
@@ -309,6 +314,11 @@ class GroupSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
         blank=True,
         help_text="Additional context passed to the summary (ExtraSummaryContext schema)",
     )
+    extra_input_context = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Custom JSON field for additional input context (no schema validation)",
+    )
     run_metadata = models.JSONField(
         null=True,
         blank=True,
@@ -325,4 +335,4 @@ class GroupSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
 
     def __str__(self):
         session_count = len(self.session_ids) if self.session_ids else 0
-        return f"Group summary for {session_count} sessions (team {self.team_id})"
+        return f"{self.name} - {session_count} sessions (team {self.team_id})"

@@ -1,1 +1,1 @@
-0030_add_group_session_summary_model
+0030_groupsessionsummary
