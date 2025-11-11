@@ -23,7 +23,9 @@ import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
@@ -81,6 +83,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -179,7 +182,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'Database',
-            label: 'Data warehouse',
+            label: featureFlags[FEATURE_FLAGS.DATABASE_TAB_NAME] ? 'Database' : 'Data warehouse',
             icon: <IconDatabaseBolt />,
             onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {

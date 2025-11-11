@@ -3,7 +3,7 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import { IconBolt, IconCode2, IconDatabase, IconDocument, IconPlug, IconPlus } from '@posthog/icons'
+import { IconBolt, IconCode2, IconDatabase, IconDocument, IconGear, IconPlug, IconPlus } from '@posthog/icons'
 import { LemonMenuItem } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 
@@ -981,6 +981,18 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         },
                         record: {
                             type: 'sql',
+                        },
+                    } as TreeDataItem,
+                    {
+                        id: 'data-warehouse-config',
+                        name: 'Data warehouse configuration',
+                        type: 'node',
+                        icon: <IconGear />,
+                        onClick: () => {
+                            newInternalTab(urls.dataWarehouse())
+                        },
+                        record: {
+                            type: 'config',
                         },
                     } as TreeDataItem,
                     createTopLevelFolderNode('sources', sourcesChildren, false, <IconPlug />),
