@@ -26,6 +26,7 @@ import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch, Tooltip 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
@@ -44,8 +45,10 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { Label } from 'lib/ui/Label/Label'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
@@ -203,6 +206,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         accessDeniedToFeatureFlag,
         multivariateEnabled,
         variants,
+        experiment,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -410,29 +414,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         />
 
                         <SceneContent>
-                            {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
-                                <div className="mb-4">
-                                    <LemonBanner type="info">
-                                        <div className="flex items-center justify-between w-full">
-                                            <div>
-                                                <strong>This feature flag is linked to an experiment</strong>
-                                                <p className="mb-0 mt-1">
-                                                    Edit settings here only for advanced functionality. For standard
-                                                    experiment configuration, use the experiment view.
-                                                </p>
-                                            </div>
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                icon={<IconFlask />}
-                                                to={urls.experiment(featureFlag.experiment_set[0])}
-                                            >
-                                                View Experiment
-                                            </LemonButton>
-                                        </div>
-                                    </LemonBanner>
-                                </div>
-                            )}
                             <div className="max-w-1/2 deprecated-space-y-4">
                                 <LemonField
                                     name="key"
@@ -486,7 +467,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         defaultValue={featureFlag.name || ''}
                                     />
                                 </LemonField>
-                                {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
+                                {experiment && (
                                     <div className="mb-4 p-3 border rounded bg-bg-3000">
                                         <div className="flex items-center justify-between">
                                             <div>
@@ -494,14 +475,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     Linked Experiment
                                                 </div>
                                                 <div className="text-sm">
-                                                    This feature flag is powering an active experiment
+                                                    This feature flag is powering <strong>{experiment.name}</strong>
                                                 </div>
                                             </div>
                                             <LemonButton
                                                 type="secondary"
                                                 size="small"
                                                 icon={<IconFlask />}
-                                                to={urls.experiment(featureFlag.experiment_set[0])}
+                                                to={urls.experiment(experiment.id)}
                                             >
                                                 View Experiment
                                             </LemonButton>
@@ -865,20 +846,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     </>
                                 }
                             />
-                            {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
-                                <div className="mb-4">
-                                    <div className="flex items-center gap-2 text-sm">
-                                        <span className="text-muted">Linked experiment:</span>
-                                        <Link
-                                            to={urls.experiment(featureFlag.experiment_set[0])}
-                                            className="flex items-center gap-1 font-semibold"
-                                        >
-                                            <IconFlask className="text-base" />
-                                            View Experiment
-                                        </Link>
-                                    </div>
-                                </div>
-                            )}
                             <LemonTabs
                                 activeKey={activeTab}
                                 onChange={(tab) => tab !== activeTab && setActiveTab(tab)}
@@ -1012,6 +979,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         isDraftExperiment,
         properties,
         variantErrors,
+        experiment,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -1094,10 +1062,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                         evaluationRuntime={featureFlag.evaluation_runtime}
                     />
                     <div className="flex flex-col">
-                        <div className="grid grid-cols-8">
-                            <div className="col-span-2 card-secondary">Status</div>
-                            <div className="col-span-6 card-secondary">Type</div>
-                            <div className="col-span-2">
+                        <div className="grid grid-cols-2">
+                            <div className="card-secondary">Status</div>
+                            <div className="card-secondary">Type</div>
+                            <div>
                                 {featureFlag.deleted ? (
                                     <LemonTag size="medium" type="danger" className="uppercase">
                                         Deleted
@@ -1152,37 +1120,63 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     </div>
                                 )}
                             </div>
-                            <div className="col-span-6">
+                            <div>
                                 <span className="mt-1">{flagTypeString}</span>
                             </div>
-                        </div>
 
-                        {hasAvailableFeature(AvailableFeature.TAGGING) &&
-                            featureFlag.tags &&
-                            featureFlag.tags.length > 0 && (
-                                <>
-                                    <span className="card-secondary mt-4">Tags</span>
-                                    <div className="mt-2">
-                                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                            <FeatureFlagEvaluationTags
-                                                tags={featureFlag.tags}
-                                                evaluationTags={featureFlag.evaluation_tags || []}
-                                                staticOnly
-                                                flagId={featureFlag.id}
-                                            />
-                                        ) : (
-                                            <ObjectTags tags={featureFlag.tags} staticOnly />
-                                        )}
+                            <div className="col-span-2">
+                                {hasAvailableFeature(AvailableFeature.TAGGING) &&
+                                    featureFlag.tags &&
+                                    featureFlag.tags.length > 0 && (
+                                        <>
+                                            <span className="card-secondary mt-4">Tags</span>
+                                            <div className="mt-2">
+                                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                                    <FeatureFlagEvaluationTags
+                                                        tags={featureFlag.tags}
+                                                        evaluationTags={featureFlag.evaluation_tags || []}
+                                                        staticOnly
+                                                        flagId={featureFlag.id}
+                                                    />
+                                                ) : (
+                                                    <ObjectTags tags={featureFlag.tags} staticOnly />
+                                                )}
+                                            </div>
+                                        </>
+                                    )}
+                            </div>
+
+                            <div className="mt-4">
+                                <span className="card-secondary">Flag persistence</span>
+                                <div>
+                                    This flag{' '}
+                                    <b>{featureFlag.ensure_experience_continuity ? 'persists' : 'does not persist'} </b>
+                                    across authentication events.
+                                </div>
+                            </div>
+
+                            {experiment && (
+                                <div className="mt-4">
+                                    <Label intent="menu">Linked experiment</Label>
+                                    <div className="flex gap-1 items-center">
+                                        <CopyToClipboardInline
+                                            iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
+                                            className="font-normal text-sm"
+                                            description="experiment name"
+                                        >
+                                            {experiment.name}
+                                        </CopyToClipboardInline>
+                                        <Link
+                                            target="_blank"
+                                            className="font-semibold"
+                                            to={urls.experiment(experiment.id)}
+                                        >
+                                            <IconOpenInNew fontSize="18" />
+                                        </Link>
                                     </div>
-                                </>
+                                </div>
                             )}
-
-                        <span className="card-secondary mt-4">Flag persistence</span>
-                        <span>
-                            This flag{' '}
-                            <b>{featureFlag.ensure_experience_continuity ? 'persists' : 'does not persist'} </b>
-                            across authentication events.
-                        </span>
+                        </div>
 
                         {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
                             <>
