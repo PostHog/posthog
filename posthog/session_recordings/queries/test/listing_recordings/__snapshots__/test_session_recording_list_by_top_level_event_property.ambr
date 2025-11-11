@@ -34,8 +34,7 @@
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
            s.session_id DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -82,8 +81,7 @@
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
            s.session_id DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -130,8 +128,7 @@
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
            s.session_id DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -178,8 +175,7 @@
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
            s.session_id DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -226,8 +222,7 @@
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
            s.session_id DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -274,8 +269,7 @@
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
            s.session_id DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -322,8 +316,7 @@
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
            s.session_id DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -370,8 +363,7 @@
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
            s.session_id DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -418,8 +410,7 @@
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
            s.session_id DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -466,8 +457,7 @@
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
            s.session_id DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -514,8 +504,7 @@
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
            s.session_id DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -562,8 +551,7 @@
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
            s.session_id DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -610,8 +598,7 @@
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
            s.session_id DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -658,8 +645,7 @@
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
            s.session_id DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
