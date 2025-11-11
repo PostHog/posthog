@@ -2,15 +2,18 @@ import { useActions, useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 
 import { PropertyFilterType, PropertyOperator, RecordingUniversalFilters } from '~/types'
 
 import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
+import { playlistLogic } from '../../playlist/playlistLogic'
 import { sessionRecordingsPlaylistLogic } from '../../playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSidebarEditPinnedPropertiesPopover } from './PlayerSidebarEditPinnedPropertiesPopover'
@@ -20,7 +23,8 @@ export function handleFilterByProperty(
     propertyKey: string,
     propertyValue: string | undefined,
     filters: RecordingUniversalFilters,
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void,
+    setIsFiltersExpanded: (expanded: boolean) => void
 ): void {
     // Validate property value
     if (propertyValue === undefined || propertyValue === null) {
@@ -60,6 +64,18 @@ export function handleFilterByProperty(
     }
 
     setFilters({ filter_group: newGroup })
+
+    // Show toast notification with human-readable label and view filters button
+    const filterLabel = formatPropertyLabel(filter, {})
+    lemonToast.success(`Filter applied: ${filterLabel}`, {
+        toastId: `filter-applied-${propertyKey}`,
+        button: {
+            label: 'View filters',
+            action: () => {
+                setIsFiltersExpanded(true)
+            },
+        },
+    })
 }
 
 export function PlayerSidebarOverviewGrid(): JSX.Element {
@@ -68,6 +84,7 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
     const { setIsPropertyPopoverOpen } = useActions(playerMetaLogic(logicProps))
     const { filters } = useValues(sessionRecordingsPlaylistLogic)
     const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { setIsFiltersExpanded } = useActions(playlistLogic)
 
     return (
         <>
@@ -107,7 +124,13 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                                     onFilterClick={
                                         item.type === 'property' && item.value !== undefined
                                             ? () =>
-                                                  handleFilterByProperty(item.property, item.value, filters, setFilters)
+                                                  handleFilterByProperty(
+                                                      item.property,
+                                                      item.value,
+                                                      filters,
+                                                      setFilters,
+                                                      setIsFiltersExpanded
+                                                  )
                                             : undefined
                                     }
                                 >
