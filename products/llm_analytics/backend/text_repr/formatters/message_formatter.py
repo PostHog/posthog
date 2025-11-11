@@ -214,7 +214,7 @@ def safe_extract_text(content: Any) -> str:
         try:
             data_repr = repr(content)[:MAX_UNABLE_TO_PARSE_REPR_LENGTH]
             return f"[PARSE_ERROR: {type(content).__name__}] {str(e)} | Data: {data_repr}"
-        except:
+        except Exception:
             return f"[PARSE_ERROR: {type(content).__name__}] {str(e)}"
 
 
