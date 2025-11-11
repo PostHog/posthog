@@ -1,4 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
+import { IconPlusSmall } from '@posthog/icons'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { UsageMetricsConfig } from 'scenes/settings/environment/UsageMetricsConfig'
@@ -19,6 +22,7 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
+    const { setActions, toggleEditing } = useActions(notebookNodeLogic)
     const { personId, groupKey, groupTypeIndex } = attributes
     const dataNodeLogicProps = personId
         ? {
@@ -40,6 +44,16 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
           : { key: 'error', query: { kind: NodeKind.UsageMetricsQuery } }
     const logic = dataNodeLogic(dataNodeLogicProps)
     const { response, responseLoading, responseError } = useValues(logic)
+
+    useEffect(() => {
+        setActions([
+            {
+                text: 'Add metric',
+                icon: <IconPlusSmall />,
+                onClick: () => toggleEditing(true),
+            },
+        ])
+    }, [])
 
     if (!expanded) {
         return null
