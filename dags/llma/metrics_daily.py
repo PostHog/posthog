@@ -46,11 +46,13 @@ def get_insert_query(date_start: str, date_end: str) -> str:
     Generate SQL to aggregate AI event counts by team and metric type.
 
     Uses long format: each metric_name is a separate row for easy schema evolution.
+    Includes error rate metrics (percentage of events with errors) if configured.
     """
     return INSERT_QUERY_TEMPLATE.render(
         event_types=AI_EVENT_TYPES,
         date_start=date_start,
         date_end=date_end,
+        include_error_rates=config.include_error_rates,
     )
 
 

@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS {LLMA_METRICS_DAILY_TABLE}
     date Date,
     team_id UInt64,
     metric_name String,
-    metric_value UInt64
+    metric_value Float64
 ) ENGINE = {MergeTreeEngine(LLMA_METRICS_DAILY_TABLE, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toYYYYMM(date)
 ORDER BY (team_id, date, metric_name)

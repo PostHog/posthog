@@ -30,6 +30,9 @@ class LLMAConfig:
     # Dagster job timeout (seconds)
     job_timeout: int = 1800  # 30 minutes
 
+    # Include error rate metrics (percentage of events with errors)
+    include_error_rates: bool = True
+
 
 # AI event types to track
 # Add new event types here to automatically include them in daily aggregations
