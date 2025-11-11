@@ -59,10 +59,10 @@ function RunHistoryDisplay({
 }
 
 function DependencyCount({ count, loading }: { count?: number; loading?: boolean }): JSX.Element {
-    if (loading) {
+    if (loading || count === undefined) {
         return <Spinner className="text-sm" />
     }
-    return <span>{count ?? 0}</span>
+    return <span>{count}</span>
 }
 
 export function QueriesTab(): JSX.Element {
