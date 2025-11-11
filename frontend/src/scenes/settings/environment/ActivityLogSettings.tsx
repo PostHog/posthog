@@ -43,7 +43,7 @@ export function ActivityLogOrgLevelSettings(): JSX.Element {
         <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
             <div>
                 <p className="flex items-center gap-1">
-                    Enable organization-level activity logs notifications for this project.
+                    Enable organization-level activity logs for this project.
                     <Tooltip
                         title={
                             <>
