@@ -63,10 +63,21 @@ class CustomerIOClient:
             error_msg = f"Customer.io API error: {e}"
             if hasattr(e, "response") and e.response:
                 error_msg = f"{error_msg}. Status: {e.response.status_code}. Response: {e.response.text}"
-            logger.exception(f"API request failed: {error_msg}")
+            logger.error(f"API request failed: {error_msg}")
             raise CustomerIOAPIError(error_msg)
         except requests.exceptions.RequestException as e:
             raise CustomerIOAPIError(f"Request failed: {e}")
+
+    def get_subscription_centers(self) -> list[dict[str, Any]]:
+        """
+        Fetch all subscription topics from Customer.io
+        Returns:
+            List of subscription topics
+        """
+        # Note: Customer.io uses 'subscription_topics' endpoint
+        response = self._make_request("GET", "/subscription_topics")
+        # The response contains topics in a 'topics' field
+        return response.get("topics", [])
 
     def get_subscription_center_topics(self, subscription_center_id: str) -> list[dict[str, Any]]:
         """
@@ -97,7 +108,8 @@ class CustomerIOClient:
     ) -> dict[str, Any]:
         """
         Search for customers using filter conditions
-        Customer.io's /customers endpoint requires specific filter syntax.
+        NOTE: Customer.io's /customers endpoint requires specific filter syntax.
+        
         Args:
             filter_conditions: Filter conditions for the search
             limit: Number of results per page (max 100)
@@ -108,17 +120,18 @@ class CustomerIOClient:
         params = {"limit": min(limit, 100)}
         if start:
             params["start"] = start
-
+        
         json_data = {"filter": filter_conditions}
-
+        
         result = self._make_request("POST", "/customers", params=params, json_data=json_data)
         return result
-
+    
     def search_customers_opted_out_of_topic(
         self, topic_id: str, limit: int = 1000, start: Optional[str] = None
     ) -> dict[str, Any]:
         """
         Search for customers who have opted out of a specific topic
+        
         Args:
             topic_id: The topic ID to search for opt-outs
             limit: Number of results per page (max 1000)
@@ -131,7 +144,7 @@ class CustomerIOClient:
                 # Globally unsubscribed
                 {"attribute": {"field": "unsubscribed", "operator": "eq", "value": True}},
                 # Or specifically opted out of this topic
-                {"attribute": {"field": f"topics.{topic_id}.subscribed", "operator": "eq", "value": False}},
+                {"attribute": {"field": f"topics.{topic_id}.subscribed", "operator": "eq", "value": False}}
             ]
         }
         return self.search_customers(filter_conditions, limit, start)
@@ -146,13 +159,14 @@ class CustomerIOClient:
         """
         start = None
         # First, get all customers (we'll check their preferences individually)
+        has_yielded_any = False
         customer_total = 0
-
+        
         while True:
             try:
                 # Get a batch of customers
                 response = self.search_customers(limit=batch_size, start=start)
-
+                
                 # Response has 'identifiers' field with customer data
                 identifiers = response.get("identifiers", [])
 
@@ -164,17 +178,17 @@ class CustomerIOClient:
                     email = customer_info.get("email")
                     if not email:
                         continue
-
+                    
                     customer_total += 1
-
+                    
                     try:
                         # Get subscription preferences for this customer
                         pref_response = self.get_customer_subscription_preferences(email, id_type="email")
-
+                        
                         # Extract the customer data and topics
                         customer_data = pref_response.get("customer", {})
                         topics_list = customer_data.get("topics", [])
-
+                        
                         # Convert topics list to dict format for compatibility
                         # Since these are globally unsubscribed customers, we treat them as opted out of ALL topics
                         topics_dict = {}
@@ -184,12 +198,14 @@ class CustomerIOClient:
                             # Use both numeric ID and topic_N format for compatibility
                             topics_dict[f"topic_{topic_id}"] = False  # Opted out
                             topics_dict[str(topic_id)] = False  # Opted out
-
+                        
+                        # Yield the customer data (we know they're globally unsubscribed)
+                        has_yielded_any = True
                         yield {
                             "email": email,
                             "id": customer_info.get("id"),
                             "cio_id": customer_info.get("cio_id"),
-                            "preferences": {"topics": topics_dict},
+                            "preferences": {"topics": topics_dict}
                         }
                     except CustomerIOAPIError as e:
                         # Skip customers we can't fetch preferences for
@@ -200,7 +216,7 @@ class CustomerIOClient:
                 next_cursor = response.get("next")
                 if not next_cursor:
                     break
-
+                    
                 start = next_cursor
 
                 # Rate limiting to avoid hitting API limits
@@ -220,15 +236,13 @@ class CustomerIOClient:
         try:
             # Try a simple API call to validate credentials
             # Using subscription_topics to check authentication
-            self._make_request("GET", "/subscription_topics")
+            response = self._make_request("GET", "/subscription_topics")
             return True
         except CustomerIOAPIError as e:
-            logger.exception(f"Credential validation failed: {e}")
+            logger.error(f"Credential validation failed: {e}")
             # Try to provide more helpful error message
             if "401" in str(e):
-                logger.exception(
-                    "Authentication failed - please ensure you're using an App API key from Customer.io Settings > API Credentials > App API Keys"
-                )
+                logger.error("Authentication failed - please ensure you're using an App API key from Customer.io Settings > API Credentials > App API Keys")
             elif "403" in str(e):
-                logger.exception("Authorization failed - the API key may not have the required permissions")
+                logger.error("Authorization failed - the API key may not have the required permissions")
             return False
