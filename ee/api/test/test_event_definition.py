@@ -377,10 +377,19 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
+        # Clear features initially to test without INGESTION_TAXONOMY
+        self.demo_team.organization.available_product_features = []
+        self.demo_team.organization.save()
         # Create some events with hidden flag
-        EnterpriseEventDefinition.objects.create(team=self.demo_team, name="visible_event")
-        EnterpriseEventDefinition.objects.create(team=self.demo_team, name="hidden_event1", hidden=True)
-        EnterpriseEventDefinition.objects.create(team=self.demo_team, name="hidden_event2", hidden=True)
+        EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, project=self.demo_team.project, name="visible_event"
+        )
+        EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, project=self.demo_team.project, name="hidden_event1", hidden=True
+        )
+        EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, project=self.demo_team.project, name="hidden_event2", hidden=True
+        )
 
         # Test without enterprise taxonomy - hidden events should still be shown even with exclude_hidden=true
         response = self.client.get(f"/api/projects/{self.demo_team.pk}/event_definitions/?exclude_hidden=true")
