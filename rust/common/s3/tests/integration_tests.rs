@@ -10,7 +10,9 @@ async fn create_test_s3_client() -> (S3Impl, AwsS3SdkClient) {
     let config = aws_config::defaults(BehaviorVersion::latest())
         .endpoint_url(S3_ENDPOINT)
         .region(Region::new("us-east-1"))
-        .credentials_provider(aws_sdk_s3::config::Credentials::new("any", "any", None, None, "test"))
+        .credentials_provider(aws_sdk_s3::config::Credentials::new(
+            "any", "any", None, None, "test",
+        ))
         .load()
         .await;
 
