@@ -2,6 +2,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Optional
 
+from django.conf import settings
+
 import s3fs
 import pandas as pd
 
@@ -92,13 +94,15 @@ def create_data_warehouse_table_from_csv(
             for key, value in table_columns.items()
         }
 
+    # Build S3 HTTP URL that ClickHouse (in container) can reach
+    base_domain = getattr(settings, "AIRBYTE_BUCKET_DOMAIN", "seaweedfs:8333")
     table = DataWarehouseTable.objects.create(
         name=table_name,
         format=DataWarehouseTable.TableFormat.CSVWithNames,
         team=team,
         external_data_source=source,
         credential=credential,
-        url_pattern=f"http://host.docker.internal:19000/{folder}/*.csv",
+        url_pattern=f"http://{base_domain}/{folder}/*.csv",
         columns=table_columns,
     )
 
