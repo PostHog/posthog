@@ -23,14 +23,20 @@ describe('sessionRecordingsPlaylistLogic', () => {
         viewed: false,
         recording_duration: 10,
         start_time: '2023-10-12T16:55:36.404000Z',
+        end_time: '2023-10-12T16:55:46.404000Z',
         console_error_count: 50,
+        viewers: [],
+        snapshot_source: 'web' as const,
     }
     const bRecording = {
         id: 'def',
         viewed: false,
         recording_duration: 10,
         start_time: '2023-05-12T16:55:36.404000Z',
+        end_time: '2023-05-12T16:55:46.404000Z',
         console_error_count: 100,
+        viewers: [],
+        snapshot_source: 'web' as const,
     }
     const listOfSessionRecordings = [aRecording, bRecording]
     const offsetRecording = {
@@ -38,7 +44,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
         viewed: false,
         recording_duration: 10,
         start_time: '2023-08-12T16:55:36.404000Z',
+        end_time: '2023-08-12T16:55:46.404000Z',
         console_error_count: 75,
+        viewers: [],
+        snapshot_source: 'web' as const,
     }
 
     beforeEach(() => {
@@ -850,7 +859,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
             viewed: false,
             recording_duration: 15,
             start_time: '2023-09-12T16:55:36.404000Z',
+            end_time: '2023-09-12T16:55:51.404000Z',
             console_error_count: 25,
+            viewers: [],
+            snapshot_source: 'web' as const,
         }
 
         beforeEach(() => {
@@ -1001,7 +1013,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     viewed: false,
                     recording_duration: 20,
                     start_time: '2023-11-12T16:55:36.404000Z',
+                    end_time: '2023-11-12T16:55:56.404000Z',
                     console_error_count: 30,
+                    viewers: [],
+                    snapshot_source: 'web' as const,
                 }
 
                 await expectLogic(logic, () => {

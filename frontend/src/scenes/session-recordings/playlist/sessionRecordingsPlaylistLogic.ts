@@ -817,10 +817,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 try {
                     // Fetch the specific recording using session_ids filter
                     const response = await api.recordings.list({
-                        kind: NodeKind.RecordingsQuery,
-                        session_ids: [values.selectedRecordingId],
-                        // Include current filters to verify recording matches
                         ...convertUniversalFiltersToRecordingsQuery(values.filters),
+                        session_ids: [values.selectedRecordingId],
                     })
 
                     if (response.results && response.results.length > 0) {

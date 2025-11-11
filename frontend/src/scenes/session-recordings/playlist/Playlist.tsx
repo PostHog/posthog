@@ -122,9 +122,7 @@ export function Playlist({
         // If we are scrolling down then check if we are at the bottom of the list
         if (e.currentTarget.scrollTop > lastScrollPositionRef.current) {
             const scrollPosition = e.currentTarget.scrollTop + e.currentTarget.clientHeight
-            const distanceFromBottom = e.currentTarget.scrollHeight - scrollPosition
-
-            if (distanceFromBottom < SCROLL_TRIGGER_OFFSET) {
+            if (e.currentTarget.scrollHeight - scrollPosition < SCROLL_TRIGGER_OFFSET) {
                 onScrollListEdge?.('bottom')
             }
         }
