@@ -1,3 +1,4 @@
+import colors from 'ansi-colors'
 import equal from 'fast-deep-equal'
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -286,6 +287,21 @@ export const logsLogic = kea<logsLogicType>([
                     : dateRange.date_to,
                 explicitDate: dateRange.explicitDate,
             }),
+        ],
+        processedLogs: [
+            (s) => [s.logs],
+            (logs: LogMessage[]): Array<LogMessage & { cleanBody: string; parsedBody: any }> => {
+                return logs.map((log: LogMessage) => {
+                    const cleanBody = colors.unstyle(log.body)
+                    let parsedBody: any = null
+                    try {
+                        parsedBody = JSON.parse(cleanBody)
+                    } catch {
+                        // Not JSON, that's fine
+                    }
+                    return { ...log, cleanBody, parsedBody }
+                })
+            },
         ],
         sparklineData: [
             (s) => [s.sparkline],
