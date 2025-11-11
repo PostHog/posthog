@@ -4795,6 +4795,9 @@ export interface DataWarehouseSavedQuery {
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean
+    upstream_dependency_count?: number
+    downstream_dependency_count?: number
+    created_at?: string
 }
 
 export interface DataWarehouseSavedQueryDraft {
