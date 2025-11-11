@@ -291,6 +291,7 @@ export type AssistantTool =
     | 'execute_sql'
     | 'switch_mode'
     | 'summarize_sessions'
+    | 'create_insight'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

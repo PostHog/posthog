@@ -172,6 +172,21 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             return toolCall.status === 'completed' ? 'Created an insight' : 'Creating an insight...'
         },
     },
+    create_insight: {
+        name: 'Edit the insight',
+        description: "Edit the insight you're viewing",
+        icon: iconForType('product_analytics'),
+        product: Scene.Insight,
+        displayFormatter: (toolCall, { registeredToolMap }) => {
+            const isEditing = registeredToolMap.create_and_query_insight
+            if (isEditing) {
+                return toolCall.status === 'completed'
+                    ? 'Edited the insight you are viewing'
+                    : 'Editing the insight you are viewing...'
+            }
+            return toolCall.status === 'completed' ? 'Created an insight' : 'Creating an insight...'
+        },
+    },
     search_session_recordings: {
         name: 'Search recordings',
         description: 'Search recordings quickly',

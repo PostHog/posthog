@@ -3,6 +3,7 @@ import datetime
 from collections.abc import Generator
 
 import pytest
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -31,6 +32,7 @@ if os.environ.get("BRAINTRUST_API_KEY") and os.environ.get("EVAL_MODE") != "offl
 EVAL_USER_FULL_NAME = "Karen Smith"
 
 
+@patch("ee.hogai.graph.agent_modes.utils.has_agent_modes_feature_flag", return_value=True)
 @pytest.fixture
 def call_root_for_insight_generation(demo_org_team_user):
     # This graph structure will first get a plan, then generate the SQL query.
