@@ -189,12 +189,9 @@ impl Library {
         }
 
         // Additional browser detection from headers
-        // Browser requests typically include these headers
-        if headers.contains_key("origin")
-            || headers.contains_key("referer")
-            || headers.get("sec-fetch-mode").is_some()
-            || headers.get("sec-fetch-site").is_some()
-        {
+        // Only use sec-fetch-* headers as they are browser-only and cannot be spoofed
+        // (origin/referer can be set by server SDKs, proxies, etc.)
+        if headers.get("sec-fetch-mode").is_some() || headers.get("sec-fetch-site").is_some() {
             return Library::PosthogJs;
         }
 
@@ -307,19 +304,21 @@ mod tests {
     }
 
     #[test]
-    fn test_sdk_type_web_with_origin_header() {
+    fn test_sdk_type_other_with_origin_header_only() {
+        // origin/referer headers alone don't indicate browser (can be set by servers)
         let mut headers = HeaderMap::new();
         headers.insert("user-agent", "some-custom-client".parse().unwrap());
         headers.insert("origin", "https://example.com".parse().unwrap());
-        assert_eq!(Library::from_headers(&headers), Library::PosthogJs);
+        assert_eq!(Library::from_headers(&headers), Library::Other);
     }
 
     #[test]
-    fn test_sdk_type_web_with_referer_header() {
+    fn test_sdk_type_other_with_referer_header_only() {
+        // origin/referer headers alone don't indicate browser (can be set by servers)
         let mut headers = HeaderMap::new();
         headers.insert("user-agent", "some-custom-client".parse().unwrap());
         headers.insert("referer", "https://example.com/page".parse().unwrap());
-        assert_eq!(Library::from_headers(&headers), Library::PosthogJs);
+        assert_eq!(Library::from_headers(&headers), Library::Other);
     }
 
     #[test]
