@@ -13,14 +13,15 @@ from posthog.redis import get_client, redis
 
 
 class JobOwners(str, Enum):
+    TEAM_ANALYTICS_PLATFORM = "team-analytics-platform"
     TEAM_CLICKHOUSE = "team-clickhouse"
+    TEAM_DATA_WAREHOUSE = "team-data-warehouse"
+    TEAM_ERROR_TRACKING = "team-error-tracking"
+    TEAM_EXPERIMENTS = "team-experiments"
+    TEAM_GROWTH = "team-growth"
+    TEAM_MAX_AI = "team-max-ai"
     TEAM_REVENUE_ANALYTICS = "team-revenue-analytics"
     TEAM_WEB_ANALYTICS = "team-web-analytics"
-    TEAM_ERROR_TRACKING = "team-error-tracking"
-    TEAM_GROWTH = "team-growth"
-    TEAM_EXPERIMENTS = "team-experiments"
-    TEAM_MAX_AI = "team-max-ai"
-    TEAM_DATA_WAREHOUSE = "team-data-warehouse"
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
