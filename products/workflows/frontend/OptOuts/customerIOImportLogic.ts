@@ -11,6 +11,12 @@ export interface ImportFormValues {
     app_api_key: string
 }
 
+export interface CategoryProgress {
+    name: string
+    status: 'pending' | 'processing' | 'completed'
+    preferences_count: number
+}
+
 export interface ImportProgress {
     status: string
     topics_found: number
@@ -25,6 +31,7 @@ export interface ImportProgress {
     customers_in_current_batch?: number
     details?: string
     errors: string[]
+    categories_list?: CategoryProgress[]
 }
 
 let pollInterval: NodeJS.Timeout | null = null

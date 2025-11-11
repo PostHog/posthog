@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { IconCheck, IconEllipsis, IconWarning } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonModal, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
-import { customerIOImportLogic } from './customerIOImportLogic'
+import { CategoryProgress, customerIOImportLogic } from './customerIOImportLogic'
 
 export function CustomerIOImportModal(): JSX.Element {
     const { isImportModalOpen, isImporting, importProgress, importError, importForm } = useValues(customerIOImportLogic)
@@ -17,7 +18,7 @@ export function CustomerIOImportModal(): JSX.Element {
             return null
         }
 
-        const { current_category_index, total_categories, customers_in_current_batch } = importProgress
+        const { current_category_index, total_categories } = importProgress
 
         if (total_categories && total_categories > 0 && current_category_index) {
             // Don't show 100% until actually completed - show max 99% during processing
@@ -33,11 +34,6 @@ export function CustomerIOImportModal(): JSX.Element {
                         <span>{Math.round(categoryProgress)}%</span>
                     </div>
                     <LemonProgress percent={categoryProgress} />
-                    {customers_in_current_batch && customers_in_current_batch > 0 && (
-                        <div className="text-xs text-muted-alt">
-                            Processing {customers_in_current_batch} preferences
-                        </div>
-                    )}
                 </div>
             )
         }
@@ -52,21 +48,23 @@ export function CustomerIOImportModal(): JSX.Element {
                     <div className="text-center">
                         {importProgress?.status === 'completed' ? (
                             <>
-                                <div className="text-success text-lg font-semibold mb-4">Import Complete!</div>
+                                <LemonBanner type="success" className="mb-4">
+                                    <span className="font-semibold">Import Complete!</span>
+                                </LemonBanner>
                                 <div className="space-y-2 text-sm">
-                                    <p>Categories found: {importProgress.topics_found}</p>
-                                    <p>
-                                        Categories created:{' '}
-                                        {importProgress.categories_created || importProgress.workflows_created}
-                                    </p>
-                                    <p>
-                                        Unique customers with opt-outs:{' '}
-                                        {importProgress.customers_processed.toLocaleString()}
-                                    </p>
-                                    <p>
-                                        Total opt-out preferences imported:{' '}
-                                        {importProgress.preferences_updated.toLocaleString()}
-                                    </p>
+                                    <div className="flex items-center justify-between">
+                                        <span>Categories imported:</span>
+                                        <LemonTag>{importProgress.topics_found}</LemonTag>
+                                    </div>
+                                    <LemonDivider className="my-2" />
+                                    <div className="flex items-center justify-between">
+                                        <span>Unique customers with opt-outs:</span>
+                                        <LemonTag>{importProgress.customers_processed.toLocaleString()}</LemonTag>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span>Total opt-out preferences imported:</span>
+                                        <LemonTag>{importProgress.preferences_updated.toLocaleString()}</LemonTag>
+                                    </div>
                                 </div>
                                 {importProgress.preferences_updated > importProgress.customers_processed && (
                                     <div className="text-xs text-muted-alt mt-2">
@@ -74,26 +72,32 @@ export function CustomerIOImportModal(): JSX.Element {
                                     </div>
                                 )}
                                 {importProgress.errors && importProgress.errors.length > 0 && (
-                                    <div className="mt-4">
-                                        <div className="text-warning font-semibold">Some errors occurred:</div>
-                                        <div className="text-xs text-muted-alt mt-2 max-h-32 overflow-y-auto">
-                                            {importProgress.errors.slice(0, 10).map((error, idx) => (
-                                                <div key={idx}>{error}</div>
-                                            ))}
-                                            {importProgress.errors.length > 10 && (
-                                                <div>... and {importProgress.errors.length - 10} more errors</div>
-                                            )}
+                                    <LemonBanner type="warning" className="mt-4">
+                                        <div>
+                                            <div className="font-semibold mb-2">Some errors occurred:</div>
+                                            <div className="text-xs max-h-32 overflow-y-auto">
+                                                {importProgress.errors.slice(0, 10).map((error, idx) => (
+                                                    <div key={idx}>• {error}</div>
+                                                ))}
+                                                {importProgress.errors.length > 10 && (
+                                                    <div className="mt-1">
+                                                        ... and {importProgress.errors.length - 10} more errors
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
-                                    </div>
+                                    </LemonBanner>
                                 )}
                             </>
                         ) : importProgress?.status === 'failed' ? (
-                            <>
-                                <div className="text-danger text-lg font-semibold mb-4">Import Failed</div>
-                                <div className="text-sm text-muted-alt">
-                                    {importProgress.errors?.join(', ') || 'An unknown error occurred'}
+                            <LemonBanner type="error">
+                                <div>
+                                    <div className="font-semibold mb-2">Import Failed</div>
+                                    <div className="text-sm">
+                                        {importProgress.errors?.join(', ') || 'An unknown error occurred'}
+                                    </div>
                                 </div>
-                            </>
+                            </LemonBanner>
                         ) : (
                             <>
                                 <div className="text-lg font-semibold mb-4">Importing...</div>
@@ -114,35 +118,68 @@ export function CustomerIOImportModal(): JSX.Element {
                                 )}
 
                                 {importProgress && (
-                                    <div className="mt-4 space-y-1 text-xs">
+                                    <div className="mt-4 space-y-2">
                                         {importProgress.topics_found > 0 && (
-                                            <p>✓ Found {importProgress.topics_found} categories</p>
+                                            <div className="flex items-center gap-2 text-xs">
+                                                <IconCheck className="text-success" />
+                                                <span>Found {importProgress.topics_found} categories</span>
+                                            </div>
                                         )}
-                                        {(importProgress.categories_created || importProgress.workflows_created || 0) >
-                                            0 && (
-                                            <p>
-                                                ✓ Created{' '}
-                                                {importProgress.categories_created || importProgress.workflows_created}{' '}
-                                                categories
-                                            </p>
-                                        )}
-                                        {importProgress.current_category && (
-                                            <p>
-                                                Currently importing preferences for: {importProgress.current_category}
-                                            </p>
-                                        )}
-                                        {importProgress.customers_processed > 0 && (
-                                            <p>
-                                                Unique customers found:{' '}
-                                                {importProgress.customers_processed.toLocaleString()}
-                                            </p>
-                                        )}
-                                        {importProgress.preferences_updated > 0 && (
-                                            <p>
-                                                Total preferences processed:{' '}
-                                                {importProgress.preferences_updated.toLocaleString()}
-                                            </p>
-                                        )}
+
+                                        {/* Show categories list with their status */}
+                                        {importProgress.categories_list &&
+                                            importProgress.categories_list.length > 0 && (
+                                                <>
+                                                    <LemonDivider className="my-2" />
+                                                    <div className="space-y-1">
+                                                        {importProgress.categories_list.map(
+                                                            (category: CategoryProgress, idx: number) => (
+                                                                <div
+                                                                    key={idx}
+                                                                    className="flex items-center gap-2 text-xs"
+                                                                >
+                                                                    {category.status === 'completed' ? (
+                                                                        <IconCheck className="text-success" />
+                                                                    ) : category.status === 'processing' ? (
+                                                                        <Spinner className="text-xs" />
+                                                                    ) : (
+                                                                        <IconEllipsis className="text-muted-alt" />
+                                                                    )}
+                                                                    <span
+                                                                        className={
+                                                                            category.status === 'processing'
+                                                                                ? 'font-semibold'
+                                                                                : ''
+                                                                        }
+                                                                    >
+                                                                        {category.name}
+                                                                    </span>
+                                                                </div>
+                                                            )
+                                                        )}
+                                                    </div>
+                                                </>
+                                            )}
+
+                                        <LemonDivider className="my-2" />
+                                        <div className="flex gap-4 text-xs text-muted-alt">
+                                            {importProgress.customers_processed > 0 && (
+                                                <span>
+                                                    Total customers:{' '}
+                                                    <strong>
+                                                        {importProgress.customers_processed.toLocaleString()}
+                                                    </strong>
+                                                </span>
+                                            )}
+                                            {importProgress.preferences_updated > 0 && (
+                                                <span>
+                                                    Total preferences:{' '}
+                                                    <strong>
+                                                        {importProgress.preferences_updated.toLocaleString()}
+                                                    </strong>
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                             </>
@@ -174,7 +211,11 @@ export function CustomerIOImportModal(): JSX.Element {
                         />
                     </LemonField>
 
-                    {importError && <div className="text-danger text-sm">{importError}</div>}
+                    {importError && (
+                        <LemonBanner type="error" className="text-sm">
+                            {importError}
+                        </LemonBanner>
+                    )}
 
                     <div className="text-xs text-muted-alt">
                         <p>This import will:</p>
@@ -183,10 +224,15 @@ export function CustomerIOImportModal(): JSX.Element {
                             <li>Import all customers who have opted out of any topics</li>
                             <li>Preserve their opt-out preferences for each topic</li>
                         </ul>
-                        <p className="mt-2 text-warning">
-                            Note: The import duration depends on your customer base size. Large imports (100k+
-                            customers) may take several minutes to complete.
-                        </p>
+                        <div className="mt-1 p-2 bg-warning-highlight rounded">
+                            <div className="flex items-start gap-2">
+                                <IconWarning className="text-warning shrink-0 mt-0.5" />
+                                <p className="text-xs">
+                                    The import duration depends on your customer base size. Large imports (100k+
+                                    customers) may take several minutes to complete.
+                                </p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </Form>
@@ -202,8 +248,8 @@ export function CustomerIOImportModal(): JSX.Element {
                 isImporting ||
                 (importProgress &&
                     importProgress.status !== 'completed' &&
-                    importProgress.status !== 'failed') ? // Hide all buttons during import
-                null : importProgress?.status === 'completed' || importProgress?.status === 'failed' ? (
+                    importProgress.status !== 'failed') ? null : importProgress?.status === 'completed' || // Hide all buttons during import
+                  importProgress?.status === 'failed' ? (
                     <LemonButton type="primary" onClick={closeImportModal}>
                         Close
                     </LemonButton>

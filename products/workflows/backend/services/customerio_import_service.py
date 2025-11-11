@@ -32,6 +32,7 @@ class CustomerIOImportService:
             "customers_in_current_batch": 0,
             "errors": [],
             "details": "",
+            "categories_list": [],  # List of all categories with their status
         }
 
     def import_all(self) -> dict[str, Any]:
@@ -122,8 +123,8 @@ class CustomerIOImportService:
                 # Store the topic name for display purposes
                 self.topic_names[str(topic_id)] = topic_name
 
-                if created:
-                    self.progress["categories_created"] += 1
+                # Always increment for categories that were successfully imported (created or updated)
+                self.progress["categories_created"] += 1
 
             except Exception as e:
                 self.progress["errors"].append(f"Failed to import topic {topic_id}: {str(e)}")
@@ -134,12 +135,17 @@ class CustomerIOImportService:
         for key in self.topic_mapping.keys():
             # Extract numeric IDs (skip the "topic_N" format duplicates)
             if not key.startswith("topic_"):
+                topic_name = self.topic_names.get(key, f"Category {key}")
                 topics_to_process.append(
                     {
                         "id": key,
                         "category_id": self.topic_mapping[key],
-                        "name": self.topic_names.get(key, f"Category {key}"),
+                        "name": topic_name,
                     }
+                )
+                # Add to categories list for progress tracking
+                self.progress["categories_list"].append(
+                    {"name": topic_name, "status": "pending", "preferences_count": 0}
                 )
 
         self.progress["total_categories"] = len(topics_to_process)
@@ -159,8 +165,19 @@ class CustomerIOImportService:
             self.progress["status"] = f"processing_category_{idx + 1}_of_{len(topics_to_process)}"
             self.progress["details"] = f"Importing preferences for {topic_name}"
 
+            # Update category status to processing
+            if idx < len(self.progress["categories_list"]):
+                self.progress["categories_list"][idx]["status"] = "processing"
+
             # Process this topic in batches
-            self._import_topic_preferences_in_batches(topic_id, category_id, unique_customers, batch_size=500)
+            preferences_count = self._import_topic_preferences_in_batches(
+                topic_id, category_id, unique_customers, batch_size=500
+            )
+
+            # Update category status to completed
+            if idx < len(self.progress["categories_list"]):
+                self.progress["categories_list"][idx]["status"] = "completed"
+                self.progress["categories_list"][idx]["preferences_count"] = preferences_count
 
         self.progress["customers_processed"] = len(unique_customers)
         self.progress["status"] = "completed"
@@ -168,8 +185,9 @@ class CustomerIOImportService:
 
     def _import_topic_preferences_in_batches(
         self, topic_id: str, category_id: str, unique_customers: set, batch_size: int = 500
-    ) -> None:
-        """Import preferences for a single topic in batches for better progress tracking"""
+    ) -> int:
+        """Import preferences for a single topic in batches for better progress tracking
+        Returns the total number of preferences processed for this topic"""
 
         start = None
         batch_num = 0
@@ -192,7 +210,7 @@ class CustomerIOImportService:
 
                 self.progress["customers_in_current_batch"] = len(identifiers)
                 self.progress["details"] = (
-                    f"Processing {len(identifiers)} preferences for {self.topic_names.get(topic_id, f'Category {topic_id}')}"
+                    f"Processing preferences for {self.topic_names.get(topic_id, f'Category {topic_id}')}"
                 )
 
                 # Collect batch data for bulk operations
@@ -229,6 +247,7 @@ class CustomerIOImportService:
         self.progress["details"] = (
             f"{self.topic_names.get(topic_id, f'Category {topic_id}')} complete: {topic_total} preferences processed"
         )
+        return topic_total
 
     def _bulk_update_preferences(self, emails: list[str], category_id: str) -> None:
         """Bulk update preferences for multiple emails"""
