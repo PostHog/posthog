@@ -15,7 +15,7 @@ import { PropertyFilterType, PropertyOperator, RecordingUniversalFilters } from 
 import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
 import { playlistLogic } from '../../playlist/playlistLogic'
 import { sessionRecordingsPlaylistLogic } from '../../playlist/sessionRecordingsPlaylistLogic'
-import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSidebarEditPinnedPropertiesPopover } from './PlayerSidebarEditPinnedPropertiesPopover'
 
 // Exported for testing
@@ -78,8 +78,13 @@ export function handleFilterByProperty(
     })
 }
 
-export function PlayerSidebarOverviewGrid(): JSX.Element {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+export function PlayerSidebarOverviewGrid({
+    logicPropsOverride,
+}: {
+    logicPropsOverride?: SessionRecordingPlayerLogicProps
+} = {}): JSX.Element {
+    const { logicProps: contextLogicProps } = useValues(sessionRecordingPlayerLogic)
+    const logicProps = logicPropsOverride || contextLogicProps
     const { displayOverviewItems, loading, isPropertyPopoverOpen } = useValues(playerMetaLogic(logicProps))
     const { setIsPropertyPopoverOpen } = useActions(playerMetaLogic(logicProps))
     const { filters } = useValues(sessionRecordingsPlaylistLogic)
