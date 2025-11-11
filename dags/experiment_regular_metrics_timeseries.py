@@ -159,6 +159,7 @@ def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext
         }
 
     except (StatisticError, ZeroDivisionError) as e:
+        # Insufficient data - do not fail so that real failures are visible
         ExperimentMetricResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -201,7 +202,6 @@ def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext
         }
 
     except Exception as e:
-        # Insufficient data - do not fail so that real failures are visible
         ExperimentMetricResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
