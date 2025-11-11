@@ -6,7 +6,7 @@ from posthog.schema import AgentMode
 
 from ee.hogai.tools.replay.summarize_sessions import SummarizeSessionsTool
 
-from ..factory import AgentDefinition
+from ..factory import AgentModeDefinition
 from ..nodes import AgentToolkit
 
 if TYPE_CHECKING:
@@ -37,7 +37,7 @@ class SessionReplayAgentToolkit(AgentToolkit):
         )
 
 
-session_replay_agent = AgentDefinition(
+session_replay_agent = AgentModeDefinition(
     mode=AgentMode.SESSION_REPLAY,
     mode_description="Specialized mode for analyzing session recordings and user behavior. This mode allows you to get summaries of session recordings and insights about them in natural language.",
     toolkit_class=SessionReplayAgentToolkit,

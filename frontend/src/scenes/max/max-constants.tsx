@@ -394,7 +394,7 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         description: 'Switch the chat to a different mode',
         icon: <IconShuffle />,
         displayFormatter: (toolCall) => {
-            const modeName = isAgentMode(toolCall.args.mode) ? MODE_DEFINITIONS[toolCall.args.mode].name : null
+            const modeName = isAgentMode(toolCall.args.new_mode) ? MODE_DEFINITIONS[toolCall.args.new_mode].name : null
             const modeText = modeName ? ` to ${modeName}` : ''
 
             if (toolCall.status === 'completed') {
@@ -412,6 +412,9 @@ export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
     },
     [AgentMode.SQL]: {
         name: 'SQL',
+    },
+    [AgentMode.SessionReplay]: {
+        name: 'Session replay',
     },
 }
 

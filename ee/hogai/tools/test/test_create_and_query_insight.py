@@ -16,9 +16,9 @@ from posthog.schema import (
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.tool_errors import MaxToolRetryableError
-from ee.hogai.tools.create_and_query_insight import (
+from ee.hogai.tools.legacy_create_and_query_insight import (
     INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT,
-    CreateAndQueryInsightTool,
+    LegacyCreateAndQueryInsightTool,
 )
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
@@ -46,7 +46,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         context_manager = AssistantContextManager(team=self.team, user=self.user, config=config)
 
-        return CreateAndQueryInsightTool(
+        return LegacyCreateAndQueryInsightTool(
             team=self.team,
             user=self.user,
             state=state,
@@ -243,14 +243,14 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             configurable={"contextual_tools": {AssistantTool.CREATE_AND_QUERY_INSIGHT.value: {}}}
         )
         context_manager_editing = AssistantContextManager(team=self.team, user=self.user, config=config_editing)
-        self.assertTrue(CreateAndQueryInsightTool.is_editing_mode(context_manager_editing))
+        self.assertTrue(LegacyCreateAndQueryInsightTool.is_editing_mode(context_manager_editing))
 
         # Test with editing mode disabled
         config_not_editing = RunnableConfig(configurable={"contextual_tools": {}})
         context_manager_not_editing = AssistantContextManager(team=self.team, user=self.user, config=config_not_editing)
-        self.assertFalse(CreateAndQueryInsightTool.is_editing_mode(context_manager_not_editing))
+        self.assertFalse(LegacyCreateAndQueryInsightTool.is_editing_mode(context_manager_not_editing))
 
         # Test with other contextual tools but not create_and_query_insight
         config_other = RunnableConfig(configurable={"contextual_tools": {"some_other_tool": {}}})
         context_manager_other = AssistantContextManager(team=self.team, user=self.user, config=config_other)
-        self.assertFalse(CreateAndQueryInsightTool.is_editing_mode(context_manager_other))
+        self.assertFalse(LegacyCreateAndQueryInsightTool.is_editing_mode(context_manager_other))

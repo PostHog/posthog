@@ -69,6 +69,7 @@ from .prompts import (
     TOOL_USAGE_POLICY_PROMPT,
     WRITING_STYLE_PROMPT,
 )
+from .utils import has_agent_modes_feature_flag
 
 if TYPE_CHECKING:
     from ee.hogai.tool import MaxTool
@@ -79,6 +80,14 @@ RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantT
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
 logger = structlog.get_logger(__name__)
+
+# Remove with the full modes release
+LAGACY_DEFAULT_TOOLS: list[type["MaxTool"]] = [
+    ReadTaxonomyTool,
+    ReadDataTool,
+    SearchTool,
+    TodoWriteTool,
+]
 
 DEFAULT_TOOLS: list[type["MaxTool"]] = [
     ReadTaxonomyTool,
@@ -122,7 +131,9 @@ class AgentToolkit:
 
     @property
     def default_tools(self) -> list[type["MaxTool"]]:
-        return DEFAULT_TOOLS.copy()
+        if has_agent_modes_feature_flag(self._team, self._user):
+            return DEFAULT_TOOLS.copy()
+        return LAGACY_DEFAULT_TOOLS.copy()
 
     @property
     def custom_tools(self) -> list[type["MaxTool"]]:
@@ -348,7 +359,7 @@ class AgentExecutable(BaseAgentExecutable):
             writing_style=WRITING_STYLE_PROMPT,
             proactiveness=PROACTIVENESS_PROMPT,
             basic_functionality=BASIC_FUNCTIONALITY_PROMPT,
-            switching_modes=SWITCHING_MODES_PROMPT,
+            switching_modes=SWITCHING_MODES_PROMPT if has_agent_modes_feature_flag(self._team, self._user) else "",
             task_management=TASK_MANAGEMENT_PROMPT,
             doing_tasks=DOING_TASKS_PROMPT,
             tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,

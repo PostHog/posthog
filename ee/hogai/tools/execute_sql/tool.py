@@ -20,8 +20,6 @@ from ee.hogai.graph.sql.prompts import (
     SQL_SUPPORTED_FUNCTIONS_DOCS,
 )
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
-
-# from ee.hogai.graph.sql.prompts import
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath

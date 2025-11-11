@@ -4,10 +4,11 @@ import posthoganalytics
 
 from posthog.schema import AgentMode
 
-from ee.hogai.tools import CreateAndQueryInsightTool, CreateDashboardTool
+from ee.hogai.tools import CreateAndQueryInsightTool, CreateDashboardTool, CreateInsightTool
 
 from ..factory import AgentModeDefinition
 from ..nodes import AgentToolkit
+from ..utils import has_agent_modes_feature_flag
 
 if TYPE_CHECKING:
     from ee.hogai.tool import MaxTool
@@ -18,9 +19,12 @@ class ProductAnalyticsAgentToolkit(AgentToolkit):
     def custom_tools(self) -> list[type["MaxTool"]]:
         tools: list[type[MaxTool]] = []
 
-        # The contextual insights tool overrides the static tool. Only inject if it's injected.
-        if not CreateAndQueryInsightTool.is_editing_mode(self._context_manager):
-            tools.append(CreateAndQueryInsightTool)
+        if has_agent_modes_feature_flag(self._team, self._user):
+            tools.append(CreateInsightTool)
+        else:
+            # The contextual insights tool overrides the static tool. Only inject if it's injected.
+            if not CreateAndQueryInsightTool.is_editing_mode(self._context_manager):
+                tools.append(CreateAndQueryInsightTool)
 
         # Add other lower-priority tools
         tools.append(CreateDashboardTool)

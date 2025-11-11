@@ -1,5 +1,6 @@
 from .create_and_query_insight import CreateAndQueryInsightTool, CreateAndQueryInsightToolArgs
 from .create_dashboard import CreateDashboardTool, CreateDashboardToolArgs
+from .create_insight import CreateInsightTool, CreateInsightToolArgs
 from .execute_sql.tool import ExecuteSQLTool, ExecuteSQLToolArgs
 from .read_data import ReadDataTool, ReadDataToolArgs
 from .read_taxonomy import ReadTaxonomyTool
@@ -25,4 +26,6 @@ __all__ = [
     "ExecuteSQLTool",
     "ExecuteSQLToolArgs",
     "SwitchModeTool",
+    "CreateInsightTool",
+    "CreateInsightToolArgs",
 ]
