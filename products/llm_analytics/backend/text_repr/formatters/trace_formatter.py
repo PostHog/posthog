@@ -141,6 +141,95 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
         return ["", f"{label}:", "", f"[UNABLE_TO_PARSE: {type(state).__name__}]"]
 
 
+def _get_node_prefix(event_type: str) -> str:
+    """Get the display prefix for an event type."""
+    if event_type == "$ai_generation":
+        return "[GEN]"
+    elif event_type == "$ai_span":
+        return "[SPAN]"
+    elif event_type == "$ai_embedding":
+        return "[EMBED]"
+    else:
+        return "[EVENT]"
+
+
+def _is_expandable_event(event_type: str) -> bool:
+    """Check if event type supports expandable content."""
+    return event_type in ("$ai_generation", "$ai_span", "$ai_embedding")
+
+
+def _render_collapsed_node(prefix: str, current_prefix: str, node_prefix: str, summary: str) -> str:
+    """Render a collapsed node showing only summary."""
+    return f"{prefix}{current_prefix}{node_prefix} {summary}"
+
+
+def _render_expandable_node_with_markers(
+    prefix: str,
+    current_prefix: str,
+    node_prefix: str,
+    summary: str,
+    event_id: str,
+    content: str,
+) -> str:
+    """Render expandable node with markers for frontend."""
+    encoded_content = base64.b64encode(content.encode()).decode()
+    display_text = f"{node_prefix} {summary}"
+    expandable_marker = f"<<<GEN_EXPANDABLE|{event_id}|{display_text}|{encoded_content}>>>"
+    return f"{prefix}{current_prefix}{expandable_marker}"
+
+
+def _render_expandable_node_plain(
+    prefix: str,
+    current_prefix: str,
+    child_prefix: str,
+    node_prefix: str,
+    summary: str,
+    content: str,
+) -> list[str]:
+    """Render expandable node as plain text with full content inline."""
+    lines = [f"{prefix}{current_prefix}[+] {node_prefix} {summary}"]
+    for line in content.split("\n"):
+        lines.append(f"{prefix}{child_prefix}    {line}")
+    return lines
+
+
+def _render_event_node(
+    event: dict[str, Any],
+    summary: str,
+    prefix: str,
+    current_prefix: str,
+    child_prefix: str,
+    options: FormatterOptions,
+    collapsed: bool,
+    include_markers: bool,
+) -> list[str]:
+    """Render a single event node based on its type and options."""
+    event_type = event.get("event", "unknown")
+    event_id = event.get("id", "unknown")
+    node_prefix = _get_node_prefix(event_type)
+
+    if collapsed:
+        return [_render_collapsed_node(prefix, current_prefix, node_prefix, summary)]
+
+    if not _is_expandable_event(event_type):
+        if include_markers:
+            clickable_prefix = f"<<<EVENT_LINK|{event_id}|{node_prefix}>>>"
+            return [f"{prefix}{current_prefix}{clickable_prefix} {summary}"]
+        return [f"{prefix}{current_prefix}{node_prefix} {summary}"]
+
+    # Expandable event - disable line numbers for embedded content
+    event_options: FormatterOptions = (
+        {**options, "include_line_numbers": False} if options else {"include_line_numbers": False}
+    )
+    event_content = format_event_text_repr(event, event_options)
+
+    if include_markers:
+        return [
+            _render_expandable_node_with_markers(prefix, current_prefix, node_prefix, summary, event_id, event_content)
+        ]
+    return _render_expandable_node_plain(prefix, current_prefix, child_prefix, node_prefix, summary, event_content)
+
+
 def _render_tree(
     nodes: list[dict[str, Any]],
     options: FormatterOptions | None = None,
@@ -148,8 +237,7 @@ def _render_tree(
     is_last: bool = True,
     depth: int = 0,
 ) -> list[str]:
-    """
-    Render tree structure with ASCII art.
+    """Render tree structure with ASCII art.
 
     Creates expandable nodes using:
     - <<<GEN_EXPANDABLE|eventId|displayText|encodedContent>>> for include_markers=True
@@ -170,105 +258,16 @@ def _render_tree(
         current_prefix = "└─ " if is_last_node else "├─ "
         child_prefix = "   " if is_last_node else "│  "
 
-        event = node.get("event", node)  # Handle both {event: ..., children: ...} and plain event
+        event = node.get("event", node)
         children = node.get("children", [])
 
         summary = _get_event_summary(event)
-        event_type = event.get("event", "unknown")
-        event_id = event.get("id", "unknown")
 
-        # Format the node line with event type prefix
-        if event_type == "$ai_generation":
-            node_prefix = "[GEN]"
+        node_lines = _render_event_node(
+            event, summary, prefix, current_prefix, child_prefix, options, collapsed, include_markers
+        )
+        lines.extend(node_lines)
 
-            if collapsed:
-                # Just show summary, no expandable content
-                lines.append(f"{prefix}{current_prefix}{node_prefix} {summary}")
-            else:
-                # Create expandable generation content
-                # Disable line numbers for embedded content - they'll be added at trace level
-                gen_event_options: FormatterOptions = (
-                    {**options, "include_line_numbers": False} if options else {"include_line_numbers": False}
-                )
-                gen_content = format_event_text_repr(event, gen_event_options)
-
-                if include_markers:
-                    # Encode content for frontend to expand
-                    encoded_content = base64.b64encode(gen_content.encode()).decode()
-                    display_text = f"{node_prefix} {summary}"
-                    expandable_marker = f"<<<GEN_EXPANDABLE|{event_id}|{display_text}|{encoded_content}>>>"
-                    lines.append(f"{prefix}{current_prefix}{expandable_marker}")
-                else:
-                    # Plain text for backend/LLM - show fully expanded content inline
-                    lines.append(f"{prefix}{current_prefix}[+] {node_prefix} {summary}")
-                    # Indent and append the full content
-                    for line in gen_content.split("\n"):
-                        lines.append(f"{prefix}{child_prefix}    {line}")
-
-        elif event_type == "$ai_span":
-            node_prefix = "[SPAN]"
-
-            if collapsed:
-                # Just show summary, no expandable content
-                lines.append(f"{prefix}{current_prefix}{node_prefix} {summary}")
-            else:
-                # Create expandable span content
-                # Disable line numbers for embedded content - they'll be added at trace level
-                span_event_options: FormatterOptions = (
-                    {**options, "include_line_numbers": False} if options else {"include_line_numbers": False}
-                )
-                span_content = format_event_text_repr(event, span_event_options)
-
-                if include_markers:
-                    # Encode content for frontend to expand
-                    encoded_content = base64.b64encode(span_content.encode()).decode()
-                    display_text = f"{node_prefix} {summary}"
-                    expandable_marker = f"<<<GEN_EXPANDABLE|{event_id}|{display_text}|{encoded_content}>>>"
-                    lines.append(f"{prefix}{current_prefix}{expandable_marker}")
-                else:
-                    # Plain text for backend/LLM - show fully expanded content inline
-                    lines.append(f"{prefix}{current_prefix}[+] {node_prefix} {summary}")
-                    # Indent and append the full content
-                    for line in span_content.split("\n"):
-                        lines.append(f"{prefix}{child_prefix}    {line}")
-
-        elif event_type == "$ai_embedding":
-            node_prefix = "[EMBED]"
-
-            if collapsed:
-                # Just show summary, no expandable content
-                lines.append(f"{prefix}{current_prefix}{node_prefix} {summary}")
-            else:
-                # Create expandable embedding content
-                # Disable line numbers for embedded content - they'll be added at trace level
-                embedding_event_options: FormatterOptions = (
-                    {**options, "include_line_numbers": False} if options else {"include_line_numbers": False}
-                )
-                embedding_content = format_event_text_repr(event, embedding_event_options)
-
-                if include_markers:
-                    # Encode content for frontend to expand
-                    encoded_content = base64.b64encode(embedding_content.encode()).decode()
-                    display_text = f"{node_prefix} {summary}"
-                    expandable_marker = f"<<<GEN_EXPANDABLE|{event_id}|{display_text}|{encoded_content}>>>"
-                    lines.append(f"{prefix}{current_prefix}{expandable_marker}")
-                else:
-                    # Plain text for backend/LLM - show fully expanded content inline
-                    lines.append(f"{prefix}{current_prefix}[+] {node_prefix} {summary}")
-                    # Indent and append the full content
-                    for line in embedding_content.split("\n"):
-                        lines.append(f"{prefix}{child_prefix}    {line}")
-
-        else:
-            # For other events, use event link marker
-            node_prefix = "[EVENT]"
-            if include_markers:
-                clickable_prefix = f"<<<EVENT_LINK|{event_id}|{node_prefix}>>>"
-                lines.append(f"{prefix}{current_prefix}{clickable_prefix} {summary}")
-            else:
-                lines.append(f"{prefix}{current_prefix}{node_prefix} {summary}")
-
-        # Recursively render children
         if children:
             child_lines = _render_tree(
                 children, options=options, prefix=prefix + child_prefix, is_last=is_last_node, depth=depth + 1
