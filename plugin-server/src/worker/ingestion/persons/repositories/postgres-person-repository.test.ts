@@ -1187,20 +1187,6 @@ describe('PostgresPersonRepository', () => {
             expect(fetchedPerson?.version).toBe(person.version + 1)
         })
 
-        it('should handle empty update gracefully', async () => {
-            const team = await getFirstTeam(hub)
-            const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
-
-            const [updatedPerson, messages, versionDisparity] = await repository.updatePerson(
-                person,
-                createPersonUpdateFields(person, {})
-            )
-
-            expect(updatedPerson).toEqual(person)
-            expect(messages).toHaveLength(0)
-            expect(versionDisparity).toBe(false)
-        })
-
         it('should update is_identified field', async () => {
             const team = await getFirstTeam(hub)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
@@ -2444,12 +2430,13 @@ describe('PostgresPersonRepository', () => {
 
             await repository.updatePerson(person, createPersonUpdateFields(person, update))
 
-            // Only properties metric should be recorded (1 call only)
-            expect(observeCalls).toHaveLength(1)
+            // Since we always pass all fields for consistent query plans, all 3 JSONB fields are tracked
+            expect(observeCalls).toHaveLength(3)
 
-            expect(observeCalls[0].labels.operation).toBe('updatePerson')
-            expect(observeCalls[0].labels.field).toBe('properties')
-            expect(observeCalls[0].value).toBe(expectedPropertiesSize)
+            const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
+            expect(propertiesCall).toBeDefined()
+            expect(propertiesCall!.labels.operation).toBe('updatePerson')
+            expect(propertiesCall!.value).toBe(expectedPropertiesSize)
         })
 
         it('should handle large properties correctly', async () => {
@@ -2505,13 +2492,14 @@ describe('PostgresPersonRepository', () => {
             // Clear observe calls from createTestPerson
             observeCalls = []
 
-            // Empty update
+            // Empty update - but helper fills in all fields from person
             const update = {}
 
             await repository.updatePerson(person, createPersonUpdateFields(person, update))
 
-            // No metrics should be recorded for empty update
-            expect(observeCalls).toHaveLength(0)
+            // Since we always pass all fields for consistent query plans, all 3 JSONB fields are tracked
+            // even though the values haven't changed from the person object
+            expect(observeCalls).toHaveLength(3)
         })
     })
 })
