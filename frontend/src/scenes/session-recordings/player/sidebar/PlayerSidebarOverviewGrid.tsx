@@ -8,9 +8,46 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 
+import { PropertyFilterType, PropertyOperator } from '~/types'
+
 import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSidebarEditPinnedPropertiesPopover } from './PlayerSidebarEditPinnedPropertiesPopover'
+
+// Exported for testing
+export function handleFilterByProperty(
+    propertyKey: string,
+    propertyValue: string | undefined,
+    setFilters: (filters: any) => void
+): void {
+    // Validate property value
+    if (propertyValue === undefined || propertyValue === null) {
+        return
+    }
+
+    // Determine property filter type
+    const isPersonProperty =
+        propertyKey.startsWith('$geoip_') ||
+        ['$browser', '$os', '$device_type', '$initial_device_type'].includes(propertyKey) ||
+        !propertyKey.startsWith('$')
+
+    const filterType = isPersonProperty ? PropertyFilterType.Person : PropertyFilterType.Event
+
+    // Create property filter object
+    const filter = {
+        type: filterType,
+        key: propertyKey,
+        value: propertyValue,
+        operator: PropertyOperator.Exact,
+    }
+
+    // Apply filter
+    if (isPersonProperty) {
+        setFilters({ person_properties: [filter] })
+    } else {
+        setFilters({ session_properties: [filter] })
+    }
+}
 
 export function PlayerSidebarOverviewGrid(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
