@@ -89,8 +89,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             submit: async ({ app_api_key }) => {
                 try {
                     const response = await new ApiRequest()
-                        .messagingCategories()
-                        .addPathComponent('import_from_customerio')
+                        .messagingCategoriesImportFromCustomerIO()
                         .create({ data: { app_api_key } })
 
                     // The API now returns immediately with import_id
@@ -163,8 +162,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         pollProgress: async ({ importId }) => {
             try {
                 const response = await new ApiRequest()
-                    .messagingCategories()
-                    .addPathComponent('import_progress')
+                    .messagingCategoriesImportProgress()
                     .withQueryString({ import_id: importId })
                     .get()
 
