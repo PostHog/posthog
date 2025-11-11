@@ -422,9 +422,6 @@ export function PageHeaderCustom(): JSX.Element {
 
     useOnMountEffect(() => {
         setHogfettiTrigger(trigger)
-        return () => {
-            setHogfettiTrigger(null)
-        }
     })
 
     const exposureCohortId = experiment?.exposure_cohort
