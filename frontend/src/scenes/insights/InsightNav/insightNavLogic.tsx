@@ -407,15 +407,17 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     }
 
     // insight specific filter
-    const filterKey = filterKeyForQuery(mergedQuery)
+    const filterKey = filterKeyForQuery(mergedQuery as InsightQueryNode)
     if (cache[filterKey] || cache.commonFilter) {
-        const node = { kind: mergedQuery.kind, [filterKey]: cache.commonFilter } as unknown as InsightQueryNode
-        const nodeTrendsStickiness = (isTrendsQuery(mergedQuery) || isStickinessQuery(mergedQuery)
-            ? {
-                  kind: mergedQuery.kind,
-                  [filterKey]: cache.commonFilterTrendsStickiness,
-              }
-            : {}) as unknown as InsightQueryNode
+        const node = { kind: mergedQuery.kind, [filterKey]: cache.commonFilter } as InsightQueryNode
+        const nodeTrendsStickiness = (
+            isTrendsQuery(mergedQuery) || isStickinessQuery(mergedQuery)
+                ? {
+                      kind: mergedQuery.kind,
+                      [filterKey]: cache.commonFilterTrendsStickiness,
+                  }
+                : {}
+        ) as InsightQueryNode
         mergedQuery[filterKey] = {
             ...query[filterKey],
             ...cache[filterKey],
@@ -431,5 +433,5 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         }
     }
 
-    return mergedQuery
+    return mergedQuery as InsightQueryNode
 }

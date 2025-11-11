@@ -48,12 +48,16 @@ export function WebAnalyticsEditorFilters({ query, embedded }: WebAnalyticsEdito
                             />
                             <WebConversionGoal
                                 value={query.conversionGoal ?? null}
-                                onChange={(conversionGoal) => updateQuerySource({ conversionGoal } as any)}
+                                onChange={(conversionGoal) =>
+                                    updateQuerySource({ conversionGoal } as Partial<typeof query>)
+                                }
                             />
                             {isPathBased && (
                                 <PathCleaningToggle
                                     value={query.doPathCleaning ?? false}
-                                    onChange={(doPathCleaning) => updateQuerySource({ doPathCleaning })}
+                                    onChange={(doPathCleaning) =>
+                                        updateQuerySource({ doPathCleaning } as Partial<typeof query>)
+                                    }
                                 />
                             )}
                             <FilterTestAccountsToggle query={query} updateQuerySource={updateQuerySource} />

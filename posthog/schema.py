@@ -11928,8 +11928,15 @@ class WebExternalClicksTableQuery(BaseModel):
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
 ||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+||||||| parent of 95cf51109f6 (type coercion)
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -11945,6 +11952,19 @@ class WebExternalClicksTableQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+||||||| parent of 95cf51109f6 (type coercion)
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[WebExternalClicksTableQueryResponse] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    stripQueryParams: Optional[bool] = None
+    tags: Optional[QueryLogTags] = None
+    useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebGoalsQuery(BaseModel):
@@ -11958,8 +11978,15 @@ class WebGoalsQuery(BaseModel):
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
 ||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+||||||| parent of 95cf51109f6 (type coercion)
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -11974,6 +12001,18 @@ class WebGoalsQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+||||||| parent of 95cf51109f6 (type coercion)
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[WebGoalsQueryResponse] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    tags: Optional[QueryLogTags] = None
+    useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebOverviewQuery(BaseModel):
@@ -11987,8 +12026,15 @@ class WebOverviewQuery(BaseModel):
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
 ||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+||||||| parent of 95cf51109f6 (type coercion)
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -12002,6 +12048,17 @@ class WebOverviewQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+||||||| parent of 95cf51109f6 (type coercion)
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[WebOverviewQueryResponse] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    tags: Optional[QueryLogTags] = None
+    useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebPageURLSearchQuery(BaseModel):
@@ -12015,8 +12072,15 @@ class WebPageURLSearchQuery(BaseModel):
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
 ||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+||||||| parent of 95cf51109f6 (type coercion)
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -12033,11 +12097,28 @@ class WebPageURLSearchQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+||||||| parent of 95cf51109f6 (type coercion)
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[WebPageURLSearchQueryResponse] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    searchTerm: Optional[str] = None
+    stripQueryParams: Optional[bool] = None
+    tags: Optional[QueryLogTags] = None
+    useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebStatsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
     )
     breakdownBy: WebStatsBreakdown
     compareFilter: CompareFilter | None = None
@@ -12051,6 +12132,12 @@ class WebStatsTableQuery(BaseModel):
 ||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -12068,6 +12155,19 @@ class WebStatsTableQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+||||||| parent of 95cf51109f6 (type coercion)
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[WebStatsTableQueryResponse] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    tags: Optional[QueryLogTags] = None
+    useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebTrendsQueryResponse(BaseModel):
@@ -12949,6 +13049,12 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     draftConversionGoal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | None = Field(
+||||||| parent of 95cf51109f6 (type coercion)
+    compareFilter: Optional[CompareFilter] = None
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    draftConversionGoal: Optional[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]] = Field(
         default=None, description="Draft conversion goal that can be set in the UI without saving"
     )
     filterTestAccounts: bool | None = None
@@ -12964,6 +13070,14 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     response: MarketingAnalyticsAggregatedQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     select: list[str] | None = Field(
+||||||| parent of 95cf51109f6 (type coercion)
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[MarketingAnalyticsAggregatedQueryResponse] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    select: Optional[list[str]] = Field(
         default=None, description="Return a limited set of data. Will use default columns if empty."
     )
     tags: QueryLogTags | None = None
@@ -12980,6 +13094,12 @@ class MarketingAnalyticsTableQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     draftConversionGoal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | None = Field(
+||||||| parent of 95cf51109f6 (type coercion)
+    compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    draftConversionGoal: Optional[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]] = Field(
         default=None, description="Draft conversion goal that can be set in the UI without saving"
     )
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
@@ -13002,6 +13122,11 @@ class MarketingAnalyticsTableQuery(BaseModel):
     response: MarketingAnalyticsTableQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     select: list[str] | None = Field(
+||||||| parent of 95cf51109f6 (type coercion)
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[MarketingAnalyticsTableQueryResponse] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    select: Optional[list[str]] = Field(
         default=None, description="Return a limited set of data. Will use default columns if empty."
     )
     tags: QueryLogTags | None = None
@@ -13367,8 +13492,15 @@ class WebTrendsQuery(BaseModel):
     includeRevenue: bool | None = None
     interval: IntervalType
 ||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+||||||| parent of 95cf51109f6 (type coercion)
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -13386,6 +13518,18 @@ class WebTrendsQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+||||||| parent of 95cf51109f6 (type coercion)
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[WebTrendsQueryResponse] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    tags: Optional[QueryLogTags] = None
+    useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebVitalsPathBreakdownQuery(BaseModel):
@@ -13399,8 +13543,15 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
 ||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+||||||| parent of 95cf51109f6 (type coercion)
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -13414,6 +13565,11 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     response: WebVitalsPathBreakdownQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     tags: QueryLogTags | None = None
+||||||| parent of 95cf51109f6 (type coercion)
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[WebVitalsPathBreakdownQueryResponse] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    tags: Optional[QueryLogTags] = None
     thresholds: list[float] = Field(..., max_length=2, min_length=2)
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -15085,8 +15241,15 @@ class WebVitalsQuery(BaseModel):
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
 ||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+||||||| parent of 95cf51109f6 (type coercion)
     compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dataColorTheme: Optional[float] = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
@@ -15114,6 +15277,17 @@ class WebVitalsQuery(BaseModel):
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
         ..., discriminator="kind"
     )
+||||||| parent of 95cf51109f6 (type coercion)
+    source: Union[
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        WebStatsTableQuery,
+        WebOverviewQuery,
+    ] = Field(..., discriminator="kind")
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
