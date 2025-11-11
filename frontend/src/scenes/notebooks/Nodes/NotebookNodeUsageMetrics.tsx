@@ -1,10 +1,12 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { UsageMetricsConfig } from 'scenes/settings/environment/UsageMetricsConfig'
 import { usageMetricsConfigLogic } from 'scenes/settings/environment/usageMetricsConfigLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind, UsageMetric, UsageMetricsQueryResponse } from '~/queries/schema/schema-general'
+import { ProductKey } from '~/types'
 
 import {
     UsageMetricCard,
@@ -56,7 +58,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     const hasResults = results.length > 0
 
     if (!hasResults) {
-        return <div className="text-muted text-center p-4">No usage metrics available</div>
+        return <UsageMetricsEmptyState />
     }
 
     return (
@@ -67,6 +69,21 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
                 ))}
             </div>
         </div>
+    )
+}
+
+function UsageMetricsEmptyState(): JSX.Element {
+    const { toggleEditing } = useActions(notebookNodeLogic)
+    return (
+        <ProductIntroduction
+            productName="Customer analytics"
+            thingName="usage metric"
+            description="Once created, usage metrics will be displayed here."
+            isEmpty={true}
+            productKey={ProductKey.CUSTOMER_ANALYTICS}
+            className="border-none"
+            action={() => toggleEditing(true)}
+        />
     )
 }
 
