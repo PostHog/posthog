@@ -1914,7 +1914,8 @@
                                                                                                                                                                                                                                                                                  LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2023-01-04 00:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1961,7 +1962,8 @@
                                                                                                                                                                                                                                                                                  LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2023-01-04 00:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2008,7 +2010,8 @@
                                                                                                                                                                                                                                                                                  LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2023-01-04 00:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2055,7 +2058,8 @@
                                                                                                                                                                                                                                                                                  LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2023-01-04 00:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2118,7 +2122,8 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            LIMIT 1000000))))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(greater(duration, 60.0), 0))
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2165,7 +2170,8 @@
                                                                                                                                                                                                                                                                                  LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2212,7 +2218,8 @@
                                                                                                                                                                                                                                                                                  LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2259,7 +2266,8 @@
                                                                                                                                                                                                                                                                                  LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2306,7 +2314,8 @@
                                                                                                                                                                                                                                                                                  LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2353,7 +2362,8 @@
                                                                                                                                                                                                                                                                                  LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2400,7 +2410,8 @@
                                                                                                                                                                                                                                                                                  LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2440,7 +2451,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2480,7 +2492,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(greater(duration, 60.0), 0))
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2520,7 +2533,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(greater(active_seconds, '60'), 0))
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2560,7 +2574,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(greater(inactive_seconds, '60'), 0))
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2600,7 +2615,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY active_seconds DESC
+  ORDER BY active_seconds DESC,
+           s.session_id DESC
   LIMIT 4
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2640,7 +2656,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY console_error_count DESC
+  ORDER BY console_error_count DESC,
+           s.session_id DESC
   LIMIT 4
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2680,7 +2697,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 4
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2722,16 +2740,17 @@
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
            s.session_id DESC
-  LIMIT 2 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   format_csv_allow_double_quotes=0,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+  LIMIT 2
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_basic_query_with_paging.1
@@ -2842,7 +2861,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2882,7 +2902,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-30 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2922,7 +2943,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-04 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -2962,7 +2984,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-03 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3002,7 +3025,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3042,7 +3066,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-28 23:59:59.999999', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3082,7 +3107,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 12:46:00.000000', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3122,7 +3148,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(greater(duration, 60.0), 0))
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3162,7 +3189,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(less(duration, 60.0), 0))
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3209,7 +3237,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3256,7 +3285,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3303,7 +3333,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3343,7 +3374,8 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3390,7 +3422,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(greater(duration, 60.0), 0))
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3437,7 +3470,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(greater(active_seconds, 60.0), 0))
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3489,7 +3523,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3541,7 +3576,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3593,7 +3629,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3640,7 +3677,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3709,7 +3747,8 @@
                                                                                                                                                                                                                                                                                               LIMIT 1000000))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3778,7 +3817,8 @@
                                                                                                                                                                                                                                                                                               LIMIT 1000000))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3825,7 +3865,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3894,7 +3935,8 @@
                                                                                                                                                                                                                                                                                               LIMIT 1000000))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -3963,7 +4005,8 @@
                                                                                                                                                                                                                                                                                               LIMIT 1000000))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4025,7 +4068,8 @@
                                                                                                                                                                                                                                                              LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4087,7 +4131,8 @@
                                                                                                                                                                                                                                                              LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4134,7 +4179,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4181,7 +4227,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4228,7 +4275,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4275,7 +4323,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4322,7 +4371,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4369,7 +4419,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4416,7 +4467,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4463,7 +4515,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4510,7 +4563,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4557,7 +4611,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4604,7 +4659,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4651,7 +4707,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4698,7 +4755,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4745,7 +4803,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4828,7 +4887,8 @@
                                                                                                                                                                                                                                                                                                                                                         LIMIT 1000000))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4875,7 +4935,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -4958,7 +5019,8 @@
                                                                                                                                                                                                                                                                                                                                                         LIMIT 1000000))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -5005,7 +5067,8 @@
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -5059,7 +5122,8 @@
                                                                                                                                                                                                                                                                                              LIMIT 1000000))))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
