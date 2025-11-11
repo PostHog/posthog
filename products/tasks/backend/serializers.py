@@ -293,9 +293,3 @@ class TaskListQuerySerializer(serializers.Serializer):
     repository = serializers.CharField(
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
-
-
-class TaskRunPathSerializer(serializers.Serializer):
-    """Path parameters for task run endpoints"""
-
-    parent_lookup_task_id = serializers.UUIDField(required=True, help_text="The task ID this run belongs to")

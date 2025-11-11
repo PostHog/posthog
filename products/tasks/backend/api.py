@@ -24,7 +24,6 @@ from .serializers import (
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunDetailSerializer,
-    TaskRunPathSerializer,
     TaskSerializer,
     TaskUpdatePositionRequestSerializer,
 )
@@ -215,7 +214,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_rewrite_rules = {"team_id": "team_id"}
 
     @validated_request(
-        path_serializer=TaskRunPathSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="List of task runs"),
         },
@@ -226,7 +224,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().list(request, *args, **kwargs)
 
     @validated_request(
-        path_serializer=TaskRunPathSerializer,
         responses={
             201: OpenApiResponse(response=TaskRunDetailSerializer, description="Created task run"),
         },
@@ -260,7 +257,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @validated_request(
         request_serializer=None,
-        path_serializer=TaskRunPathSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated output"),
             404: OpenApiResponse(description="Run not found"),
@@ -287,7 +283,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @validated_request(
         request_serializer=TaskRunAppendLogRequestSerializer,
-        path_serializer=TaskRunPathSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated log"),
             400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid log entries"),

@@ -671,126 +671,6 @@ class TestValidatedRequestDecorator(APIBaseTest):
 
         assert "limit" in str(exc_info.value)
 
-    def test_path_parameter_validation_with_valid_data(self):
-        """Path parameter validation: valid path params should work"""
-
-        class PathParamSerializer(serializers.Serializer):
-            pk = serializers.IntegerField(required=True)
-            action = serializers.ChoiceField(choices=["view", "edit"], required=False)
-
-        @validated_request(
-            path_serializer=PathParamSerializer,
-            responses={
-                200: OpenApiResponse(response=EventCaptureResponseSerializer),
-            },
-        )
-        def mock_endpoint(view_self, request, **kwargs):
-            pk = kwargs["pk"]
-            action = kwargs.get("action", "view")
-            return Response(
-                {
-                    "status": "ok",
-                    "event_id": str(uuid.uuid4()),
-                    "distinct_id": "test",
-                    "pk": pk,
-                    "action": action,
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        view_instance = Mock()
-        view_instance.get_serializer_context = Mock(return_value={})
-        mock_request = Mock()
-        mock_request._full_data = {}
-        mock_request.data = {}
-
-        response = mock_endpoint(view_instance, mock_request, pk=42, action="edit")
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.data["pk"] == 42
-        assert response.data["action"] == "edit"
-
-    def test_path_parameter_validation_with_invalid_data_raises(self):
-        """Path parameter validation: invalid path params should raise exception"""
-
-        class PathParamSerializer(serializers.Serializer):
-            pk = serializers.IntegerField(required=True)
-
-        @validated_request(
-            path_serializer=PathParamSerializer,
-            responses={
-                200: OpenApiResponse(response=EventCaptureResponseSerializer),
-            },
-        )
-        def mock_endpoint(view_self, request, **kwargs):
-            return Response(
-                {
-                    "status": "ok",
-                    "event_id": str(uuid.uuid4()),
-                    "distinct_id": "test",
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        view_instance = Mock()
-        view_instance.get_serializer_context = Mock(return_value={})
-        mock_request = Mock()
-        mock_request._full_data = {}
-        mock_request.data = {}
-
-        with pytest.raises(serializers.ValidationError) as exc_info:
-            mock_endpoint(view_instance, mock_request, pk="not_an_int")
-
-        assert "pk" in str(exc_info.value)
-
-    def test_query_and_path_parameter_validation_together(self):
-        """Query and path parameter validation: both should work together"""
-
-        class QueryParamSerializer(serializers.Serializer):
-            page = serializers.IntegerField(required=False, default=1)
-
-        class PathParamSerializer(serializers.Serializer):
-            pk = serializers.IntegerField(required=True)
-
-        @validated_request(
-            query_serializer=QueryParamSerializer,
-            path_serializer=PathParamSerializer,
-            responses={
-                200: OpenApiResponse(response=EventCaptureResponseSerializer),
-            },
-        )
-        def mock_endpoint(view_self, request, **kwargs):
-            page = request.query_params.get("page", 1)
-            pk = kwargs["pk"]
-            return Response(
-                {
-                    "status": "ok",
-                    "event_id": str(uuid.uuid4()),
-                    "distinct_id": "test",
-                    "page": int(page),
-                    "pk": pk,
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        view_instance = Mock()
-        view_instance.get_serializer_context = Mock(return_value={})
-        mock_request = Mock()
-        mock_request._full_data = {}
-        mock_request.data = {}
-        from django.http import QueryDict
-
-        mock_get = QueryDict("page=3")
-        mock_request._request = Mock()
-        mock_request._request.GET = mock_get
-        mock_request.query_params = mock_get
-
-        response = mock_endpoint(view_instance, mock_request, pk=99)
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.data["page"] == 3
-        assert response.data["pk"] == 99
-
     def test_post_request_with_query_parameters(self):
         """POST request with query parameters: both should be validated"""
 
@@ -800,7 +680,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
 
         class PostRequestSerializer(serializers.Serializer):
             action = serializers.ChoiceField(choices=["create", "update", "delete"])
-            data = serializers.DictField(required=False)
+            payload = serializers.DictField(required=False)
 
         @validated_request(
             request_serializer=PostRequestSerializer,
@@ -830,7 +710,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         view_instance.get_serializer_context = Mock(return_value={})
         mock_request = Mock()
         mock_request._full_data = {}
-        mock_request.data = {"action": "create", "data": {"key": "value"}}
+        mock_request.data = {"action": "create", "payload": {"key": "value"}}
         from django.http import QueryDict
 
         mock_get = QueryDict("dry_run=true&force=false")

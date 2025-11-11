@@ -43,7 +43,6 @@ def validated_request(
     request_serializer: type[serializers.Serializer] | None = None,
     *,
     query_serializer: type[serializers.Serializer] | None = None,
-    path_serializer: type[serializers.Serializer] | None = None,
     responses: dict[int, OpenApiResponse | None] | None = None,
     summary: str | None = None,
     description: str | None = None,
@@ -60,7 +59,6 @@ def validated_request(
         @validated_request(
             request_serializer=RequestBodySerializer,
             query_serializer=QuerySerializer,
-            path_serializer=PathSerializer,
             responses={
                 200: Response(response=SuccessResponseSerializer, ...),
             },
@@ -68,15 +66,13 @@ def validated_request(
         )
         def my_action(self, request: Request, **kwargs):
             # request.validated_data contains validated body data (if request_serializer provided)
-            # Query and path params are validated but not mutated
+            # Query params are validated but not mutated
     """
 
     def decorator(view_func: Callable) -> Callable:
         parameters = []
         if query_serializer is not None:
             parameters.append(query_serializer)
-        if path_serializer is not None:
-            parameters.append(path_serializer)
 
         @extend_schema(
             request=request_serializer,
@@ -93,10 +89,6 @@ def validated_request(
             if query_serializer is not None:
                 query_serializer_instance = query_serializer(data=request.query_params)
                 query_serializer_instance.is_valid(raise_exception=True)
-
-            if path_serializer is not None:
-                path_serializer_instance = path_serializer(data=kwargs)
-                path_serializer_instance.is_valid(raise_exception=True)
 
             if request_serializer is not None:
                 serializer = request_serializer(data=request.data)
