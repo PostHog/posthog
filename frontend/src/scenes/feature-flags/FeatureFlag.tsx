@@ -11,7 +11,6 @@ import {
     IconCollapse,
     IconCopy,
     IconExpand,
-    IconFlask,
     IconGlobe,
     IconInfo,
     IconLaptop,
@@ -414,6 +413,15 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         />
 
                         <SceneContent>
+                            {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
+                                <LemonBanner type="warning">
+                                    This feature flag is linked to{' '}
+                                    <Link target="_blank" to={urls.experiment(featureFlag.experiment_set[0])}>
+                                        {experiment?.name || `experiment ${featureFlag.experiment_set[0]}`}
+                                    </Link>
+                                    . Make changes from the experiment page unless you need advanced flag settings.
+                                </LemonBanner>
+                            )}
                             <div className="max-w-1/2 deprecated-space-y-4">
                                 <LemonField
                                     name="key"
@@ -467,28 +475,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         defaultValue={featureFlag.name || ''}
                                     />
                                 </LemonField>
-                                {experiment && (
-                                    <div className="mb-4 p-3 border rounded bg-bg-3000">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <div className="text-xs text-muted uppercase tracking-wide mb-1">
-                                                    Linked Experiment
-                                                </div>
-                                                <div className="text-sm">
-                                                    This feature flag is powering <strong>{experiment.name}</strong>
-                                                </div>
-                                            </div>
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                icon={<IconFlask />}
-                                                to={urls.experiment(experiment.id)}
-                                            >
-                                                View Experiment
-                                            </LemonButton>
-                                        </div>
-                                    </div>
-                                )}
                                 {hasAvailableFeature(AvailableFeature.TAGGING) && (
                                     <LemonField name="tags" label="Tags">
                                         {({ value: formTags, onChange: onChangeTags }) => (
@@ -673,20 +659,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     <>
                         <ScenePanel>
                             <ScenePanelInfoSection>
-                                {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
-                                    <div className="mb-2">
-                                        <div className="text-xs text-muted uppercase tracking-wide mb-1">
-                                            Linked Experiment
-                                        </div>
-                                        <Link
-                                            to={urls.experiment(featureFlag.experiment_set[0])}
-                                            className="flex items-center gap-1 text-link hover:underline"
-                                        >
-                                            <IconFlask className="text-sm" />
-                                            View Experiment
-                                        </Link>
-                                    </div>
-                                )}
                                 {hasAvailableFeature(AvailableFeature.TAGGING) && (
                                     <>
                                         {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
