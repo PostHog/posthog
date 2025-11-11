@@ -147,6 +147,31 @@ export const retentionLogic = kea<retentionLogicType>([
             (s) => [s.insightQuery, s.insightData, s.retentionFilter, s.timezone],
             (insightQuery, insightData, retentionFilter, timezone): ProcessedRetentionPayload[] => {
                 const rawResults = isRetentionQuery(insightQuery) ? (insightData?.result ?? []) : []
+                const customBrackets = retentionFilter?.retentionCustomBrackets
+                const period = retentionFilter?.period ?? RetentionPeriod.Day
+
+                // Generate labels for intervals based on custom brackets or regular periods
+                const intervalLabels: string[] = []
+                if (customBrackets && customBrackets.length > 0) {
+                    intervalLabels.push(`${period} 0`)
+                    let cumulativeTotal = 1
+                    for (const bracketSize of customBrackets) {
+                        const start = cumulativeTotal
+                        const end = cumulativeTotal + bracketSize - 1
+                        if (start === end) {
+                            intervalLabels.push(`${period} ${start}`)
+                        } else {
+                            intervalLabels.push(`${period} ${start}-${end}`)
+                        }
+                        cumulativeTotal += bracketSize
+                    }
+                } else {
+                    // Regular intervals - generate as many labels as we have in the first result
+                    const maxIntervals = rawResults.length > 0 ? rawResults[0].values.length : 0
+                    for (let i = 0; i < maxIntervals; i++) {
+                        intervalLabels.push(`${period} ${i}`)
+                    }
+                }
 
                 const results: ProcessedRetentionPayload[] = rawResults.map((result: RetentionResult) => ({
                     ...result,
@@ -166,6 +191,7 @@ export const retentionLogic = kea<retentionLogicType>([
 
                         return {
                             ...value,
+                            label: intervalLabels[index] || `${period} ${index}`,
                             percentage,
                             cellDate,
                             isCurrentPeriod: cellDate.isSame(now, periodUnit),
