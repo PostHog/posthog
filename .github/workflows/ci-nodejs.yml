@@ -188,6 +188,8 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Ensure SeaweedFS bucket exists
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   python manage.py ensure_object_storage_bucket
 
