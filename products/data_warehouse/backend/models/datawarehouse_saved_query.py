@@ -131,11 +131,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
     def enable_materialization(self, unpause: bool = False):
         """
-        Should be called for an already saved query with model paths already setup - see `setup_model_paths`.
         It will schedule the saved query workflow to run at the configured frequency.
         If unpause is True, it will unpause the saved query workflow if it already exists.
 
         If the workflow fails to schedule, it will disable materialization for this view.
+        This also guarantees model paths are properly created or updated.
         """
         from products.data_warehouse.backend.data_load.saved_query_service import (
             saved_query_workflow_exists,
@@ -144,6 +144,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         )
 
         try:
+            self.setup_model_paths()
+
             schedule_exists = saved_query_workflow_exists(str(self.id))
             if schedule_exists and unpause:
                 unpause_saved_query_schedule(str(self.id))

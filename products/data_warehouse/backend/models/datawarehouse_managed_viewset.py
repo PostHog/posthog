@@ -104,9 +104,8 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 saved_query.external_tables = saved_query.s3_tables
                 saved_query.is_materialized = True
                 saved_query.sync_frequency_interval = timedelta(hours=12)
-                saved_query.save()
 
-                saved_query.setup_model_paths()
+                saved_query.save()
                 saved_query.enable_materialization()
 
                 if created:
