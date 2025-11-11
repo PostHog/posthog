@@ -5,19 +5,28 @@ import { FileSystemIconColor, FileSystemIconType, ProductManifest } from '../../
 export const manifest: ProductManifest = {
     name: 'Session summaries',
     scenes: {
-        SessionSummaries: {
+        SessionGroupSummariesTable: {
             name: 'Session summaries',
-            import: () => import('./frontend/SessionSummariesScene'),
+            import: () => import('./frontend/SessionGroupSummariesTable'),
             projectBased: true,
             description: 'View and analyze session summaries.',
             iconType: 'insight/hog',
         },
+        SessionGroupSummary: {
+            name: 'Session summary',
+            import: () => import('./frontend/SessionGroupSummaryScene'),
+            projectBased: true,
+            description: 'View detailed session group summary.',
+            iconType: 'insight/hog',
+        },
     },
     routes: {
-        '/session-summaries': ['SessionSummaries', 'sessionSummaries'],
+        '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
+        '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
     },
     urls: {
         sessionSummaries: (): string => '/session-summaries',
+        sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
     },
     fileSystemTypes: {
         session_summaries: {

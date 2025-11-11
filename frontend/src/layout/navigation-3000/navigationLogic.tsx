@@ -20,7 +20,6 @@ import {
     IconPeople,
     IconPieChart,
     IconPiggyBank,
-    IconPlaylist,
     IconPlug,
     IconPlusSmall,
     IconRewindPlay,
@@ -519,7 +518,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             },
                         },
                         {
-                            identifier: Scene.SessionSummaries,
+                            identifier: Scene.SessionGroupSummariesTable,
                             label: 'Session summaries',
                             icon: <IconBinary />,
                             to: urls.sessionSummaries(),

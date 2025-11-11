@@ -12,7 +12,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SessionDetailsModal } from './SessionDetailsModal'
 
 export const scene: SceneExport = {
-    component: SessionSummariesScene,
+    component: SessionGroupSummary,
 }
 
 // Type definitions
@@ -60,7 +60,7 @@ interface Pattern {
     stats: PatternStats
 }
 
-interface PatternsData {
+interface SessionGroupSummaryData {
     patterns: Pattern[]
 }
 
@@ -85,7 +85,7 @@ function capitalizeFirst(str: string): string {
     return str.charAt(0).toUpperCase() + str.slice(1)
 }
 
-const samplePatternsData: PatternsData = {
+const sampleSessionGroupSummaryData: SessionGroupSummaryData = {
     patterns: [
         {
             pattern_id: 1,
@@ -1416,11 +1416,14 @@ function PatternCard({
 }
 
 // Main Scene Component
-export function SessionSummariesScene(): JSX.Element {
+export function SessionGroupSummary(): JSX.Element {
     const [selectedEvent, setSelectedEvent] = useState<SessionEvent | null>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
 
-    const totalSessions = samplePatternsData.patterns.reduce((sum, pattern) => sum + pattern.stats.sessions_affected, 0)
+    const totalSessions = sampleSessionGroupSummaryData.patterns.reduce(
+        (sum, pattern) => sum + pattern.stats.sessions_affected,
+        0
+    )
 
     const handleViewDetails = (event: SessionEvent): void => {
         setSelectedEvent(event)
@@ -1437,7 +1440,7 @@ export function SessionSummariesScene(): JSX.Element {
             <SceneTitleSection
                 name="Session Summaries Report - Active sessions (last 3 days) "
                 resourceType={{
-                    type: sceneConfigurations[Scene.SessionSummaries]?.iconType || 'default_icon_type',
+                    type: sceneConfigurations[Scene.SessionGroupSummary]?.iconType || 'default_icon_type',
                 }}
                 actions={
                     <LemonButton type="secondary" icon={<IconDownload />}>
@@ -1457,7 +1460,7 @@ export function SessionSummariesScene(): JSX.Element {
             <div className="space-y-4">
                 <FilterBar />
                 <div className="flex flex-col gap-2">
-                    {samplePatternsData.patterns.map((pattern) => (
+                    {sampleSessionGroupSummaryData.patterns.map((pattern) => (
                         <PatternCard key={pattern.pattern_id} pattern={pattern} onViewDetails={handleViewDetails} />
                     ))}
                 </div>
