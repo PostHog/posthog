@@ -58,6 +58,7 @@ class BigQuerySourceConfig(config.Config):
     temporary_dataset: BigQueryTemporaryDatasetConfig | None = config.value(
         alias="temporary-dataset", default_factory=lambda: None
     )
+    location: str | None = None
     dataset_project: BigQueryDatasetProjectConfig | None = None
 
 

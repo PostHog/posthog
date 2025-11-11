@@ -73,6 +73,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
                 "token_uri": config.key_file.token_uri,
             },
             config.dataset_project.dataset_project_id if config.dataset_project else None,
+            config.location,
         ):
             return True, None
 
@@ -114,6 +115,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
             dataset_id=destination_table_dataset_id,
             table_prefix=destination_table_prefix,
             project_id=config.key_file.project_id,
+            location=config.location,
             dataset_project_id=dataset_project_id,
             private_key=config.key_file.private_key,
             private_key_id=config.key_file.private_key_id,
@@ -126,6 +128,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
             return bigquery_source(
                 dataset_id=config.dataset_id,
                 project_id=config.key_file.project_id,
+                location=config.location,
                 dataset_project_id=dataset_project_id,
                 private_key=config.key_file.private_key,
                 private_key_id=config.key_file.private_key_id,
@@ -146,6 +149,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
             delete_table(
                 table_id=destination_table,
                 project_id=config.key_file.project_id,
+                location=config.location,
                 private_key=config.key_file.private_key,
                 private_key_id=config.key_file.private_key_id,
                 client_email=config.key_file.client_email,
@@ -170,6 +174,13 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
                             keys=["project_id", "private_key", "private_key_id", "client_email", "token_uri"],
                         ),
                         required=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="location",
+                        label="Location",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="us-east1",
                     ),
                     SourceFieldInputConfig(
                         name="dataset_id",
