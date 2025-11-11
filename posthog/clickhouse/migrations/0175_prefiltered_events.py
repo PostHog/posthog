@@ -6,7 +6,7 @@ from posthog.models.cohortmembership.sql import (
     COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL,
     KAFKA_COHORT_MEMBERSHIP_TABLE_SQL,
 )
-from posthog.models.prefiltered_events.sql import (
+from posthog.models.precalculated_events.sql import (
     KAFKA_PRECALCULATED_EVENTS_TABLE_SQL,
     PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL,
     PRECALCULATED_EVENTS_MV_SQL,

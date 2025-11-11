@@ -116,7 +116,7 @@ from posthog.models.person_overrides.sql import (
     PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL,
     PERSON_OVERRIDES_CREATE_TABLE_SQL,
 )
-from posthog.models.prefiltered_events.sql import (
+from posthog.models.precalculated_events.sql import (
     KAFKA_PRECALCULATED_EVENTS_TABLE_SQL,
     PRECALCULATED_EVENTS_MV_SQL,
     PRECALCULATED_EVENTS_SHARDED_TABLE_SQL,
