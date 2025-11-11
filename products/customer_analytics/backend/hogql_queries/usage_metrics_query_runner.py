@@ -153,3 +153,13 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                 right=ast.Constant(value=date_to),
             ),
         ]
+
+    def get_cache_payload(self) -> dict:
+        """
+        Override to include metric IDs in cache key.
+        This ensures cache is invalidated when metrics are created/deleted.
+        """
+        payload = super().get_cache_payload()
+        metric_ids = sorted(str(metric.id) for metric in self._get_usage_metrics())
+        payload["usage_metric_ids"] = metric_ids
+        return payload
