@@ -223,7 +223,10 @@ class TestEmailIntegration:
         mock_ses_provider_class.return_value = mock_client
 
         integration = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"}, self.team.id, self.user
+            {**self.valid_config, "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
         )
         assert integration.kind == "email"
         assert integration.integration_id == self.valid_config["email"]
@@ -275,7 +278,10 @@ class TestEmailIntegration:
         mock_client.verify_email_domain.return_value = expected_result
 
         integration = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"}, self.team.id, self.user
+            {**self.valid_config, "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
         )
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
@@ -306,7 +312,10 @@ class TestEmailIntegration:
         mock_client.verify_email_domain.return_value = expected_result
 
         integration = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"}, self.team.id, self.user
+            {**self.valid_config, "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
         )
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
@@ -339,10 +348,16 @@ class TestEmailIntegration:
         mock_client.verify_email_domain.return_value = expected_result
 
         integration1 = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"}, self.team.id, self.user
+            {**self.valid_config, "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
         )
         integration2 = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"}, self.team.id, self.user
+            {**self.valid_config, "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
         )
         integrationOtherDomain = EmailIntegration.create_native_integration(
             {
@@ -350,8 +365,9 @@ class TestEmailIntegration:
                 "name": "Me",
                 "provider": "ses",
             },
-            self.team.id,
-            self.user,
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
         )
 
         assert not integration1.config["verified"]

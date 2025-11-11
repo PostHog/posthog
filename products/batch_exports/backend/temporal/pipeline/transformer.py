@@ -15,8 +15,11 @@ from django.conf import settings
 
 import brotli
 import orjson
+import psycopg
 import pyarrow as pa
+import psycopg.adapt
 import pyarrow.parquet as pq
+import psycopg.types.array
 from psycopg import sql
 
 from posthog.temporal.common.logger import get_write_only_logger
@@ -606,13 +609,21 @@ def remove_escaped_whitespace_recursive(value):
             return value
 
 
-def ensure_curly_brackets_array(v: list[typing.Any]) -> str:
-    """Convert list to str and replace ends with curly braces for PostgreSQL arrays.
+def _ensure_curly_brackets_array(v: list[typing.Any]) -> str:
+    """Convert list to PostgreSQL array literal format with proper escaping.
 
-    NOTE: This doesn't support nested arrays (i.e. multi-dimensional arrays).
+    Supports nested arrays and properly escapes special characters.
+    Uses psycopg3's ListDumper for correct PostgreSQL array formatting.
     """
-    str_list = str(v)
-    return f"{{{str_list[1:len(str_list)-1]}}}"
+
+    tx = psycopg.adapt.Transformer()
+    dumper = psycopg.types.array.ListDumper(list, tx)
+    result = dumper.dump(v)
+    assert result is not None
+    # Result can be bytes or memoryview, convert to string
+    if isinstance(result, memoryview):
+        result = bytes(result)
+    return result.decode("utf-8")
 
 
 class CSVStreamTransformer:
@@ -685,7 +696,7 @@ class CSVStreamTransformer:
 
         rows = []
         for record in record_batch.select(column_names).to_pylist():
-            rows.append({k: ensure_curly_brackets_array(v) if isinstance(v, list) else v for k, v in record.items()})
+            rows.append({k: _ensure_curly_brackets_array(v) if isinstance(v, list) else v for k, v in record.items()})
 
         writer.writerows(rows)
         text_wrapper.flush()

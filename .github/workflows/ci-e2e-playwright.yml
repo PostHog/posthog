@@ -43,9 +43,9 @@ env:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # This is so that the workflow run isn't canceled when a screenshot update is pushed within it by posthog-bot
-    # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
-    cancel-in-progress: false
+    # Cancel in-progress runs when new commits are pushed
+    # SHA verification ensures we don't commit stale snapshots if runs aren't cancelled in time
+    cancel-in-progress: true
 
 jobs:
     changes:
@@ -120,7 +120,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.ref }}
+                  ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   fetch-depth: 50 # Need enough history for flap detection to find last human commit
@@ -495,7 +495,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.ref }}
+                  ref: ${{ github.event.pull_request.head.sha }}
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
 
             - name: Download screenshot patches
@@ -535,8 +535,33 @@ jobs:
                   workflow-type: playwright
                   patch-path: /tmp/screenshot-patches/
                   snapshot-path: playwright/
-                  commit-message: Update E2E screenshots (Playwright)
+                  commit-message: 'test(e2e): update screenshots'
                   pr-number: ${{ github.event.pull_request.number }}
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
+                  branch-name: ${{ github.event.pull_request.head.ref }}
                   github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+
+    # Job to collate the status of the matrix jobs for requiring passing status
+    # Must depend on handle-screenshots to prevent auto-merge before commits complete
+    playwright_tests:
+        needs: [playwright, handle-screenshots]
+        name: Playwright tests pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check matrix outcome
+              run: |
+                  # Check playwright matrix result
+                  if [[ "${{ needs.playwright.result }}" != "success" && "${{ needs.playwright.result }}" != "skipped" ]]; then
+                    echo "One or more jobs in the Playwright test matrix failed."
+                    exit 1
+                  fi
+
+                  # Check handle-screenshots result (OK if skipped, but fail if it failed)
+                  if [[ "${{ needs.handle-screenshots.result }}" == "failure" ]]; then
+                    echo "Screenshot commit job failed."
+                    exit 1
+                  fi
+
+                  echo "All jobs passed or were skipped successfully."

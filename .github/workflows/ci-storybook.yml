@@ -4,9 +4,9 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # This is so that the workflow run isn't canceled when a snapshot update is pushed within it by posthog-bot
-    # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
-    cancel-in-progress: false
+    # Cancel in-progress runs when new commits are pushed
+    # SHA verification ensures we don't commit stale snapshots if runs aren't cancelled in time
+    cancel-in-progress: true
 
 permissions:
     contents: write
@@ -48,7 +48,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.ref }}
+                  ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
@@ -124,7 +124,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.ref }}
+                  ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
@@ -232,7 +232,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.ref }}
+                  ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
@@ -413,21 +413,28 @@ jobs:
                   if-no-files-found: ignore
 
     # Job to collate the status of the matrix jobs for requiring passing status
+    # Must depend on handle-snapshots to prevent auto-merge before commits complete
     visual_regression_tests:
-        needs: [visual-regression]
+        needs: [visual-regression, handle-snapshots]
         name: Visual regression tests pass
         runs-on: ubuntu-latest
         if: always()
         steps:
             - name: Check matrix outcome
               run: |
-                  # The `needs.visual-regression.result` will be 'success' only if all jobs in the matrix succeeded.
-                  # Otherwise, it will be 'failure'.
+                  # Check visual-regression matrix result
                   if [[ "${{ needs.visual-regression.result }}" != "success" && "${{ needs.visual-regression.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the visual-regression test matrix failed."
                     exit 1
                   fi
-                  echo "All jobs in the visual-regression test matrix passed."
+
+                  # Check handle-snapshots result (OK if skipped, but fail if it failed)
+                  if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
+                    echo "Snapshot commit job failed."
+                    exit 1
+                  fi
+
+                  echo "All jobs passed or were skipped successfully."
 
     handle-snapshots:
         name: Handle snapshot changes
@@ -437,7 +444,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.ref }}
+                  ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   fetch-depth: 1
@@ -479,10 +486,11 @@ jobs:
                   workflow-type: storybook
                   patch-path: /tmp/snapshot-patches/
                   snapshot-path: frontend/__snapshots__/
-                  commit-message: Update UI snapshots (all browsers)
+                  commit-message: 'test(storybook): update UI snapshots'
                   pr-number: ${{ github.event.pull_request.number }}
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
+                  branch-name: ${{ github.event.pull_request.head.ref }}
                   github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
 
     calculate-running-time:
