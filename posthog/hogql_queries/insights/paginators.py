@@ -127,7 +127,15 @@ class HogQLCursorPaginator:
         if self.after:
             try:
                 decoded = base64.b64decode(self.after).decode("utf-8")
-                self.cursor_data = json.loads(decoded)
+                cursor_data = json.loads(decoded)
+                # Parse datetime strings back to datetime objects
+                if "order_value" in cursor_data and isinstance(cursor_data["order_value"], str):
+                    try:
+                        cursor_data["order_value"] = datetime.fromisoformat(cursor_data["order_value"])
+                    except (ValueError, TypeError):
+                        # If it's not a datetime string, keep it as is
+                        pass
+                self.cursor_data = cursor_data
             except (ValueError, json.JSONDecodeError):
                 raise ValueError("Invalid cursor format")
 

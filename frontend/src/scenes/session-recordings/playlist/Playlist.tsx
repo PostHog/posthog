@@ -203,13 +203,7 @@ export function Playlist({
                                         <LemonTableLoader loading={loading} />
                                     </div>
                                 </DraggableToNotebook>
-                                <div
-                                    className="overflow-y-auto flex-1"
-                                    onScroll={(e) => {
-                                        handleScroll(e)
-                                    }}
-                                    ref={contentRef}
-                                >
+                                <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
                                     {sectionCount > 1 ? (
                                         <LemonCollapse
                                             defaultActiveKeys={openSections}
