@@ -254,3 +254,26 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         )
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch("posthog.api.github.requests.get")
+    def test_request_body_accessible_for_signature_verification(self, mock_get):
+        """Test that request.body is accessible for signature verification."""
+        # Set up mock GitHub response
+        mock_response = MagicMock()
+        mock_response.json.return_value = self.mock_github_response
+        mock_get.return_value = mock_response
+
+        # This test doesn't mock verify_github_signature, so it actually tests the full flow
+        # The signature will fail, but we're testing that we don't get RawPostDataException
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(self.valid_payload),
+            content_type="application/json",
+            HTTP_GITHUB_PUBLIC_KEY_IDENTIFIER="test_kid",
+            HTTP_GITHUB_PUBLIC_KEY_SIGNATURE="invalid_signature",
+        )
+
+        # Should get 401 for invalid signature, not 500 for RawPostDataException
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        # Verify the response is about signature, not about body access
+        self.assertEqual(response.json(), {"detail": "Invalid signature"})

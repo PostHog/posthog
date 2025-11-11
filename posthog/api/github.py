@@ -1,3 +1,4 @@
+import json
 import base64
 from hashlib import sha256
 from typing import Any
@@ -10,7 +11,6 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
-from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -90,9 +90,15 @@ class SecretAlertSerializer(serializers.Serializer):
 class SecretAlert(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
-    parser_classes = [JSONParser]
+    # parse body manually so we can access the raw body for signature verification
+    parser_classes = []
 
     def post(self, request):
+        try:
+            raw_body = request.body.decode("utf-8")
+        except Exception:
+            raise ValidationError(detail="Unable to read request body")
+
         kid = (request.headers.get("Github-Public-Key-Identifier") or "").strip()
         sig = (request.headers.get("Github-Public-Key-Signature") or "").strip()
 
@@ -114,16 +120,21 @@ class SecretAlert(APIView):
             )
 
         try:
-            verify_github_signature(request.body.decode("utf-8"), kid, sig)
+            verify_github_signature(raw_body, kid, sig)
         except SignatureVerificationError:
             return Response({"detail": "Invalid signature"}, status=401)
 
-        if not isinstance(request.data, list):
+        try:
+            data = json.loads(raw_body)
+        except json.JSONDecodeError:
+            raise ValidationError(detail="Invalid JSON in request body")
+
+        if not isinstance(data, list):
             raise ValidationError(detail="Expected a JSON array")
-        if len(request.data) < 1:
+        if len(data) < 1:
             raise ValidationError(detail="Array must contain at least one item")
 
-        secret_alert = SecretAlertSerializer(data=request.data, many=True)
+        secret_alert = SecretAlertSerializer(data=data, many=True)
         secret_alert.is_valid(raise_exception=True)
         items = secret_alert.validated_data
 
