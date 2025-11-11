@@ -25,6 +25,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     ],
 }
 
+# CLUDGE: refactor this to EndpointConfig like in tiktok_ads/settings.py
 PARTITION_FIELDS: dict[str, str] = {
     "brands": "created_at",
     "groups": "created_at",
