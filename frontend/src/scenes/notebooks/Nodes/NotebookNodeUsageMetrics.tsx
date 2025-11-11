@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall, IconRefresh } from '@posthog/icons'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { UsageMetricsConfig } from 'scenes/settings/environment/UsageMetricsConfig'
@@ -51,6 +51,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
                 text: 'Add metric',
                 icon: <IconPlusSmall />,
                 onClick: () => toggleEditing(true),
+            },
+            {
+                text: 'Refresh',
+                icon: <IconRefresh />,
+                onClick: loadData,
             },
         ])
     }, [])
