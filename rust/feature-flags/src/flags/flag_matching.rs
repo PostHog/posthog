@@ -11,7 +11,9 @@ use crate::flags::flag_matching_utils::{
     fetch_and_locally_cache_all_relevant_properties, get_feature_flag_hash_key_overrides,
     set_feature_flag_hash_key_overrides, should_write_hash_key_override,
 };
-use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FeatureFlagList, FlagPropertyGroup};
+use crate::flags::flag_models::{
+    BucketingIdentifier, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagPropertyGroup,
+};
 use crate::flags::flag_operations::flags_require_db_preparation;
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
@@ -230,15 +232,16 @@ impl FeatureFlagMatcher {
         flag_keys: Option<Vec<String>>,
     ) -> FlagsResponse {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
-        let flags_have_experience_continuity_enabled = feature_flags
-            .flags
-            .iter()
-            .any(|flag| flag.ensure_experience_continuity.unwrap_or(false));
+        let flags_need_hash_key_override = feature_flags.flags.iter().any(|flag| {
+            flag.ensure_experience_continuity.unwrap_or(false)
+                && flag.get_group_type_index().is_none()
+                && flag.get_bucketing_identifier() == BucketingIdentifier::DistinctId
+        });
 
         // Process any hash key overrides
         let (hash_key_overrides, flag_hash_key_override_error) = self
             .process_hash_key_override_if_needed(
-                flags_have_experience_continuity_enabled,
+                flags_need_hash_key_override,
                 hash_key_override,
             )
             .await;
