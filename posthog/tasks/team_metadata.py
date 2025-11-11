@@ -224,7 +224,7 @@ def sync_team_metadata_cache_intelligent() -> None:
 def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
     """Update team metadata cache when a Team is saved."""
 
-    def enqueue_task():
+    def enqueue_task() -> None:
         try:
             update_team_metadata_cache_task.delay(instance.id)
         except Exception as e:
