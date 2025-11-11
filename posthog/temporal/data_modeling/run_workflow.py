@@ -974,6 +974,7 @@ def _get_credentials():
             "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
             "AWS_ALLOW_HTTP": "true",
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+            "force_path_style": "true",
         }
 
     if TEST:
@@ -985,6 +986,7 @@ def _get_credentials():
             "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
             "AWS_ALLOW_HTTP": "true",
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+            "force_path_style": "true",
         }
 
     return {
@@ -993,6 +995,7 @@ def _get_credentials():
         "region_name": settings.AIRBYTE_BUCKET_REGION,
         "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        "force_path_style": "true",
     }
 
 
