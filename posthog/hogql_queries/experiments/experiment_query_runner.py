@@ -611,27 +611,16 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Process breakdowns or extract variants
         if self._has_breakdown(variant_results):
-<<<<<<< HEAD
             breakdown_results, variants = self._process_breakdown_results(variant_results)
         else:
             breakdown_results = None
-=======
-            breakdown_values, breakdown_results, variants = self._process_breakdown_results(variant_results)
-        else:
-            breakdown_values, breakdown_results = None, None
->>>>>>> aef1e90ecc (feat(experiments): updating the query runner to support breakdowns.)
             variants = [v for _, v in variant_results]
 
         # Calculate final statistics
         result = self._calculate_statistics_for_variants(variants)
 
         # Attach breakdown data if present
-<<<<<<< HEAD
         if breakdown_results is not None:
-=======
-        if breakdown_values is not None:
-            result.breakdown_values = breakdown_values
->>>>>>> aef1e90ecc (feat(experiments): updating the query runner to support breakdowns.)
             result.breakdown_results = breakdown_results
 
         return result
@@ -655,29 +644,19 @@ class ExperimentQueryRunner(QueryRunner):
                 metric=self.metric,
                 control_variant=control_variant,
                 test_variants=test_variants,
-<<<<<<< HEAD
                 stats_config=self.experiment.stats_config,
-=======
->>>>>>> aef1e90ecc (feat(experiments): updating the query runner to support breakdowns.)
             )
 
         return get_bayesian_experiment_result(
             metric=self.metric,
             control_variant=control_variant,
             test_variants=test_variants,
-<<<<<<< HEAD
             stats_config=self.experiment.stats_config,
-=======
->>>>>>> aef1e90ecc (feat(experiments): updating the query runner to support breakdowns.)
         )
 
     def _process_breakdown_results(
         self, variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]
-<<<<<<< HEAD
     ) -> tuple[list[ExperimentBreakdownResult], list[ExperimentStatsBase]]:
-=======
-    ) -> tuple[list[list[str]], list, list[ExperimentStatsBase]]:
->>>>>>> aef1e90ecc (feat(experiments): updating the query runner to support breakdowns.)
         """Compute per-breakdown statistics and aggregate across breakdowns."""
         breakdown_tuples = sorted({bv for bv, _ in variant_results if bv is not None})
 
@@ -685,30 +664,16 @@ class ExperimentQueryRunner(QueryRunner):
             self._compute_breakdown_statistics(breakdown_tuple, variant_results) for breakdown_tuple in breakdown_tuples
         ]
 
-<<<<<<< HEAD
         aggregated_variants = aggregate_variants_across_breakdowns(variant_results)
 
         return breakdown_results, aggregated_variants
-=======
-        breakdown_values = [list(bt) for bt in breakdown_tuples]
-        aggregated_variants = aggregate_variants_across_breakdowns(variant_results)
-
-        return breakdown_values, breakdown_results, aggregated_variants
->>>>>>> aef1e90ecc (feat(experiments): updating the query runner to support breakdowns.)
 
     def _compute_breakdown_statistics(
         self,
         breakdown_tuple: tuple[str, ...],
         variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]],
-<<<<<<< HEAD
     ) -> ExperimentBreakdownResult:
         """Compute statistics for a single breakdown combination."""
-=======
-    ):
-        """Compute statistics for a single breakdown combination."""
-        from posthog.schema import ExperimentBreakdownResult
-
->>>>>>> aef1e90ecc (feat(experiments): updating the query runner to support breakdowns.)
         breakdown_variants = [v for bv, v in variant_results if bv == breakdown_tuple]
         stats = self._calculate_statistics_for_variants(breakdown_variants)
 
@@ -740,7 +705,6 @@ class ExperimentQueryRunner(QueryRunner):
         for key in self.variants:
             if key not in variants_seen:
                 if has_breakdown:
-<<<<<<< HEAD
                     # Extract all breakdown value combinations that exist in the results
                     breakdown_tuples = {bv for bv, _ in variants if bv is not None}
                     # Use extend to add MULTIPLE tuples - one for each breakdown combination
@@ -754,14 +718,6 @@ class ExperimentQueryRunner(QueryRunner):
                 else:
                     # Use append to add a SINGLE tuple with None as the breakdown value
                     # Without breakdowns, we only need one entry per missing variant
-=======
-                    breakdown_tuples = {bv for bv, _ in variants if bv is not None}
-                    variants_missing.extend(
-                        (bv, ExperimentStatsBase(key=key, number_of_samples=0, sum=0, sum_squares=0))
-                        for bv in breakdown_tuples
-                    )
-                else:
->>>>>>> aef1e90ecc (feat(experiments): updating the query runner to support breakdowns.)
                     variants_missing.append(
                         (None, ExperimentStatsBase(key=key, number_of_samples=0, sum=0, sum_squares=0))
                     )
