@@ -38,7 +38,7 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, prettifyJson, processedLogs, sparklineData, logsLoading, sparklineLoading, timestampFormat } =
+    const { wrapBody, prettifyJson, parsedLogs, sparklineData, logsLoading, sparklineLoading, timestampFormat } =
         useValues(logsLogic)
     const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
 
@@ -88,7 +88,7 @@ export function LogsScene(): JSX.Element {
             <div className="flex-1 overflow-y-auto border rounded bg-bg-light">
                 <LemonTable
                     hideScrollbar
-                    dataSource={processedLogs}
+                    dataSource={parsedLogs}
                     loading={logsLoading}
                     size="small"
                     embedded
