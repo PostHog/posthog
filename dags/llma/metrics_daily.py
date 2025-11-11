@@ -17,28 +17,18 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 
 from dags.common import JobOwners, dagster_tags
-
-# Start date for LLMA metrics (when AI events were introduced)
-PARTITION_START_DATE = "2025-01-01"
+from dags.llma.config import AI_EVENT_TYPES, config
 
 # Partition definition for daily aggregations
-partition_def = DailyPartitionsDefinition(start_date=PARTITION_START_DATE)
+partition_def = DailyPartitionsDefinition(start_date=config.partition_start_date)
 
-# Backfill policy: process 14 days (2 weeks) per run
-backfill_policy_def = BackfillPolicy.multi_run(max_partitions_per_run=14)
+# Backfill policy: process N days per run
+backfill_policy_def = BackfillPolicy.multi_run(max_partitions_per_run=config.max_partitions_per_run)
 
 # ClickHouse settings for aggregation queries
 LLMA_CLICKHOUSE_SETTINGS = {
-    "max_execution_time": "300",  # 5 minutes
+    "max_execution_time": str(config.clickhouse_max_execution_time),
 }
-
-# AI event types to track
-AI_EVENT_TYPES = [
-    "$ai_trace",
-    "$ai_generation",
-    "$ai_span",
-    "$ai_embedding",
-]
 
 # SQL template directory
 SQL_DIR = Path(__file__).parent / "sql"
@@ -77,7 +67,7 @@ def get_delete_query(date_start: str, date_end: str) -> str:
     group_name="llma",
     partitions_def=partition_def,
     backfill_policy=backfill_policy_def,
-    metadata={"table": "llma_metrics_daily"},
+    metadata={"table": config.table_name},
     tags={"owner": JobOwners.TEAM_LLMA.value},
 )
 def llma_metrics_daily(
@@ -126,21 +116,22 @@ llma_metrics_daily_job = dagster.define_asset_job(
     selection=["llma_metrics_daily"],
     tags={
         "owner": JobOwners.TEAM_LLMA.value,
-        "dagster/max_runtime": "1800",  # 30 minutes
+        "dagster/max_runtime": str(config.job_timeout),
     },
 )
 
 
 @dagster.schedule(
-    cron_schedule="0 6 * * *",  # 6 AM UTC daily
+    cron_schedule=config.cron_schedule,
     job=llma_metrics_daily_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_LLMA.value},
 )
 def llma_metrics_daily_schedule(context: dagster.ScheduleEvaluationContext):
     """
-    Runs daily at 6 AM UTC for the previous day's partition.
+    Runs daily for the previous day's partition.
 
+    Schedule configured in dags.llma.config.
     This aggregates AI event metrics from the events table into the
     llma_metrics_daily table for efficient querying.
     """
