@@ -3744,9 +3744,7 @@ const api = {
                 .withAction('descendants')
                 .create({ data: { level } })
         },
-        async dependencies(
-            viewId: DataWarehouseSavedQuery['id']
-        ): Promise<DataWarehouseSavedQueryDependencies> {
+        async dependencies(viewId: DataWarehouseSavedQuery['id']): Promise<DataWarehouseSavedQueryDependencies> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('dependencies').get()
         },
         async runHistory(
