@@ -110,8 +110,7 @@ ORDER BY occurrences DESC""",
                     "Error 550e8400-e29b-41d4-a716-446655440000 occurred",
                     "Error 123e4567-e89b-12d3-a456-426614174000 occurred",
                 ],
-                # UUID gets replaced by Step 3, then Step 9 catches the last 12 digits
-                "Error <N>e<N>-e<N>b-<N>d<N>-a<N>-<ID> occurred",
+                "Error <ID> occurred",
             ),
             # Test Step 4: ISO timestamps
             (
@@ -149,14 +148,16 @@ ORDER BY occurrences DESC""",
                 ],
                 "tool_call_id='<TOOL_CALL_ID>' failed",
             ),
-            # Test Step 8: Hex IDs (MD5, SHA, etc.)
+            # Test Step 8: Generic IDs (any alphanumeric pattern in id='...')
             (
-                "Hex ID normalization",
+                "Generic ID normalization",
                 [
                     "Error with id='e8631f8c4650120cd5848570185bbcd7' occurred",
                     "Error with id='a1b2c3d4e5f6a0b1c2d3e4f5abcdef01' occurred",
+                    "Error with id='s1' occurred",
+                    "Error with id='user_abc123' occurred",
                 ],
-                "Error with id='<HEX_ID>' occurred",
+                "Error with id='<ID>' occurred",
             ),
             # Test Step 9: Token counts
             (

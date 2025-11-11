@@ -1,5 +1,20 @@
--- Error normalization pipeline: extract -> normalize IDs -> normalize UUIDs -> normalize timestamps -> normalize paths -> normalize response IDs -> normalize tool call IDs -> normalize hex IDs -> normalize token counts -> normalize all remaining numbers
+/*
+-- Error normalization pipeline:
+
+extract
+--> normalize UUIDs
+--> normalize timestamps
+--> normalize paths
+--> normalize response IDs
+--> normalize tool call IDs
+--> normalize generic IDs
+--> normalize token counts
+--> normalize large numeric IDs
+--> normalize all remaining numbers
+
 -- This multi-step CTE approach makes it easy to understand and maintain each normalization step
+-- Ordered from most specific to least specific to prevent pattern interference
+*/
 
 WITH extracted_errors AS (
     -- Step 1: Extract error messages from various JSON structures in $ai_error
@@ -28,30 +43,19 @@ WITH extracted_errors AS (
         AND properties.$ai_is_error = 'true'
         AND {filters}
 ),
-ids_normalized AS (
-    -- Step 2: Normalize large numeric IDs (9+ digits)
+uuids_normalized AS (
+    -- Step 2: Normalize UUIDs and request IDs
     SELECT
         distinct_id,
         timestamp,
         event,
         ai_trace_id,
         ai_session_id,
-        replaceRegexpAll(raw_error, '[0-9]{{9,}}', '<ID>') as error_text
+        replaceRegexpAll(raw_error, '(req_[a-zA-Z0-9]+|[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}})', '<ID>') as error_text
     FROM extracted_errors
 ),
-uuids_normalized AS (
-    -- Step 3: Normalize UUIDs and request IDs
-    SELECT
-        distinct_id,
-        timestamp,
-        event,
-        ai_trace_id,
-        ai_session_id,
-        replaceRegexpAll(error_text, '(req_[a-zA-Z0-9]+|[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}})', '<ID>') as error_text
-    FROM ids_normalized
-),
 timestamps_normalized AS (
-    -- Step 4: Normalize ISO timestamps
+    -- Step 3: Normalize ISO timestamps
     SELECT
         distinct_id,
         timestamp,
@@ -62,7 +66,7 @@ timestamps_normalized AS (
     FROM uuids_normalized
 ),
 paths_normalized AS (
-    -- Step 5: Normalize cloud resource paths
+    -- Step 4: Normalize cloud resource paths
     SELECT
         distinct_id,
         timestamp,
@@ -73,7 +77,7 @@ paths_normalized AS (
     FROM timestamps_normalized
 ),
 response_ids_normalized AS (
-    -- Step 6: Normalize responseId fields in error payloads
+    -- Step 5: Normalize responseId fields in error payloads
     SELECT
         distinct_id,
         timestamp,
@@ -84,7 +88,7 @@ response_ids_normalized AS (
     FROM paths_normalized
 ),
 tool_call_ids_normalized AS (
-    -- Step 7: Normalize tool_call_id values
+    -- Step 6: Normalize tool_call_id values
     SELECT
         distinct_id,
         timestamp,
@@ -94,19 +98,19 @@ tool_call_ids_normalized AS (
         replaceRegexpAll(error_text, 'tool_call_id=[''"][a-zA-Z0-9_-]+[''"]', 'tool_call_id=''<TOOL_CALL_ID>''') as error_text
     FROM response_ids_normalized
 ),
-hex_ids_normalized AS (
-    -- Step 8: Normalize hex IDs (MD5, SHA hashes, etc.) - catches patterns like id='e8631f8c4650120cd5848570185bbcd7'
+generic_ids_normalized AS (
+    -- Step 7: Normalize generic ID patterns - catches any id='...' or id="..." pattern
     SELECT
         distinct_id,
         timestamp,
         event,
         ai_trace_id,
         ai_session_id,
-        replaceRegexpAll(error_text, '(?i)id=[''"][a-f0-9]{{32}}[''"]', 'id=''<HEX_ID>''') as error_text
+        replaceRegexpAll(error_text, '(?i)id=[''"][a-zA-Z0-9_-]+[''"]', 'id=''<ID>''') as error_text
     FROM tool_call_ids_normalized
 ),
 token_counts_normalized AS (
-    -- Step 9: Normalize token count values
+    -- Step 8: Normalize token count values
     SELECT
         distinct_id,
         timestamp,
@@ -114,7 +118,18 @@ token_counts_normalized AS (
         ai_trace_id,
         ai_session_id,
         replaceRegexpAll(error_text, '"tokenCount":[0-9]+', '"tokenCount":<TOKEN_COUNT>') as error_text
-    FROM hex_ids_normalized
+    FROM generic_ids_normalized
+),
+ids_normalized AS (
+    -- Step 9: Normalize large numeric IDs (9+ digits)
+    SELECT
+        distinct_id,
+        timestamp,
+        event,
+        ai_trace_id,
+        ai_session_id,
+        replaceRegexpAll(error_text, '[0-9]{{9,}}', '<ID>') as error_text
+    FROM token_counts_normalized
 ),
 all_numbers_normalized AS (
     -- Step 10: Normalize all remaining numbers as final fallback
@@ -125,7 +140,7 @@ all_numbers_normalized AS (
         ai_trace_id,
         ai_session_id,
         replaceRegexpAll(error_text, '[0-9]+', '<N>') as normalized_error
-    FROM token_counts_normalized
+    FROM ids_normalized
 )
 SELECT
     normalized_error as error,
