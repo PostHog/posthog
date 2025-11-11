@@ -457,7 +457,7 @@ def wait_for_backup(
             elif most_recent_status and most_recent_status.created():
                 context.log.info(f"Backup for table {backup.table} in path {backup.path} finished successfully")
                 done = True
-            else:
+            elif most_recent_status and not most_recent_status.created():
                 raise ValueError(
                     f"Backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}."
                 )
