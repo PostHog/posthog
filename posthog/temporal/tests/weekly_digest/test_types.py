@@ -329,7 +329,7 @@ def test_organization_digest_render_payload():
     assert payload["template_name"] == "weekly_digest_report"
     teams = payload["teams"]
     assert isinstance(teams, list)
-    assert len(teams) == 1
+    assert [t["team_id"] for t in teams] == [1]
     assert payload["nonempty_items"] == 1
     assert "period" in payload
 
