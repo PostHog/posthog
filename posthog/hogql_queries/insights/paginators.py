@@ -1,5 +1,6 @@
 import json
 import base64
+from datetime import datetime
 from typing import Any, Union, cast
 
 from posthog.schema import HogQLQueryResponse
@@ -110,6 +111,7 @@ class HogQLCursorPaginator:
         order_direction: str = "DESC",
         limit_context: LimitContext | None = None,
         field_indices: dict[str, int] | None = None,
+        use_having_clause: bool = False,
     ):
         self.response: HogQLQueryResponse | None = None
         self.results: list[Any] = []
@@ -119,12 +121,21 @@ class HogQLCursorPaginator:
         self.order_direction = order_direction
         self.limit_context = limit_context
         self.field_indices = field_indices or {}
+        self.use_having_clause = use_having_clause
         self.cursor_data: dict[str, Any] | None = None
 
         if self.after:
             try:
                 decoded = base64.b64decode(self.after).decode("utf-8")
-                self.cursor_data = json.loads(decoded)
+                cursor_data = json.loads(decoded)
+                # Parse datetime strings back to datetime objects
+                if "order_value" in cursor_data and isinstance(cursor_data["order_value"], str):
+                    try:
+                        cursor_data["order_value"] = datetime.fromisoformat(cursor_data["order_value"])
+                    except (ValueError, TypeError):
+                        # If it's not a datetime string, keep it as is
+                        pass
+                self.cursor_data = cursor_data
             except (ValueError, json.JSONDecodeError):
                 raise ValueError("Invalid cursor format")
 
@@ -138,6 +149,7 @@ class HogQLCursorPaginator:
         order_field: str = "start_time",
         order_direction: str = "DESC",
         field_indices: dict[str, int] | None = None,
+        use_having_clause: bool = False,
     ) -> "HogQLCursorPaginator":
         max_rows = get_max_limit_for_context(limit_context)
         default_rows = get_default_limit_for_context(limit_context)
@@ -149,6 +161,7 @@ class HogQLCursorPaginator:
             order_direction=order_direction,
             limit_context=limit_context,
             field_indices=field_indices,
+            use_having_clause=use_having_clause,
         )
 
     def paginate(self, query: Union[ast.SelectQuery, ast.SelectSetQuery]) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
@@ -189,11 +202,17 @@ class HogQLCursorPaginator:
                         right=right_tuple,
                     )
 
-                    # Add to WHERE clause
-                    if query.where:
-                        query.where = ast.And(exprs=[query.where, cursor_condition])
+                    # Add to HAVING clause for aggregated queries, WHERE clause for non-aggregated
+                    if self.use_having_clause:
+                        if query.having:
+                            query.having = ast.And(exprs=[query.having, cursor_condition])
+                        else:
+                            query.having = cursor_condition
                     else:
-                        query.where = cursor_condition
+                        if query.where:
+                            query.where = ast.And(exprs=[query.where, cursor_condition])
+                        else:
+                            query.where = cursor_condition
 
             return query
         elif isinstance(query, ast.SelectSetQuery):
@@ -244,13 +263,17 @@ class HogQLCursorPaginator:
             order_value = getattr(last_result, self.order_field, None)
             session_id = getattr(last_result, "session_id", None)
 
+        # Serialize datetime objects to ISO format strings
+        if isinstance(order_value, datetime):
+            order_value = order_value.isoformat()
+
         cursor_data = {
             "order_value": order_value,
             "session_id": session_id,
         }
 
         # Encode as base64
-        json_str = json.dumps(cursor_data, default=str)  # default=str to handle datetime objects
+        json_str = json.dumps(cursor_data)
         return base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
 
     def execute_hogql_query(

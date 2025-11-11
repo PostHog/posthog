@@ -128,24 +128,28 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         super().__init__(team, expanded_query)
 
-        # Use cursor-based pagination if 'after' is provided, otherwise fall back to offset-based
-        if expanded_query.after:
+        # Use offset-based pagination only when offset is explicitly provided, otherwise use cursor-based
+        # This provides backward compatibility while making cursor-based the default
+        if expanded_query.offset is not None:
+            # Backward compatibility: use offset-based pagination when offset is explicitly provided
+            self._paginator: Union[HogQLCursorPaginator, HogQLHasMorePaginator] = HogQLHasMorePaginator(
+                limit=expanded_query.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=expanded_query.offset
+            )
+        else:
+            # Default: use cursor-based pagination (even on first page without 'after')
             order_field = expanded_query.order.value if expanded_query.order else RecordingOrder.START_TIME
             order_direction = expanded_query.order_direction or "DESC"
 
             # Create field index mapping for cursor extraction from tuple results
             field_indices = {field: idx for idx, field in enumerate(self._get_result_columns())}
 
-            self._paginator: Union[HogQLCursorPaginator, HogQLHasMorePaginator] = HogQLCursorPaginator(
+            self._paginator = HogQLCursorPaginator(
                 limit=expanded_query.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT,
                 after=expanded_query.after,
                 order_field=order_field,
                 order_direction=order_direction,
                 field_indices=field_indices,
-            )
-        else:
-            self._paginator = HogQLHasMorePaginator(
-                limit=expanded_query.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=expanded_query.offset or 0
+                use_having_clause=True,  # Session recordings query uses GROUP BY, so cursor conditions must be in HAVING
             )
         self._hogql_query_modifiers = hogql_query_modifiers
         self._allow_event_property_expansion = allow_event_property_expansion
