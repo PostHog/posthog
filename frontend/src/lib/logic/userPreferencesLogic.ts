@@ -23,7 +23,7 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
         ],
         hideNullValues: [true, { persist: true }, { setHideNullValues: (_, { enabled }) => enabled }],
         pinnedPersonProperties: [
-            [] as string[],
+            ['email', '$browser', '$browser_version'] as string[],
             { persist: true },
             {
                 pinPersonProperty: (state, { prop }) => (state.includes(prop) ? state : [...state, prop]),
@@ -31,7 +31,7 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
             },
         ],
         pinnedGroupProperties: [
-            [] as string[],
+            ['name'] as string[],
             { persist: true },
             {
                 pinGroupProperty: (state, { prop }) => (state.includes(prop) ? state : [...state, prop]),
