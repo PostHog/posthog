@@ -127,17 +127,25 @@ class HogQLCursorPaginator:
         if self.after:
             try:
                 decoded = base64.b64decode(self.after).decode("utf-8")
-                cursor_data = json.loads(decoded)
-                # Parse datetime strings back to datetime objects
-                if "order_value" in cursor_data and isinstance(cursor_data["order_value"], str):
-                    try:
-                        cursor_data["order_value"] = datetime.fromisoformat(cursor_data["order_value"])
-                    except (ValueError, TypeError):
-                        # If it's not a datetime string, keep it as is
-                        pass
-                self.cursor_data = cursor_data
-            except (ValueError, json.JSONDecodeError):
-                raise ValueError("Invalid cursor format")
+                self.cursor_data = json.loads(decoded)
+
+                # Parse datetime string back to datetime object for proper type comparison
+                if self.cursor_data and "order_value" in self.cursor_data:
+                    order_value = self.cursor_data["order_value"]
+                    if isinstance(order_value, str):
+                        # Try to parse ISO format datetime string
+                        try:
+                            # fromisoformat() can handle formats like '2025-10-23 14:45:08.740000+00:00'
+                            parsed_dt = datetime.fromisoformat(order_value.replace(" ", "T"))
+                            self.cursor_data["order_value"] = parsed_dt
+                        except (ValueError, AttributeError) as e:
+                            # If parsing fails, log and keep as string - ClickHouse may still handle it
+                            import logging
+
+                            logging.warning(f"Failed to parse cursor datetime value '{order_value}': {e}")
+                            # Keep as string
+            except (ValueError, json.JSONDecodeError) as e:
+                raise ValueError(f"Invalid cursor format: {e}")
 
     @classmethod
     def from_limit_context(

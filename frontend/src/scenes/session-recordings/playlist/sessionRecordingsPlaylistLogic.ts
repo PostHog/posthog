@@ -798,6 +798,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             if (values.sessionRecordingsResponseLoading) {
                 return // We don't want to load if we are currently loading
             }
+
             actions.loadSessionRecordings(direction)
         },
 

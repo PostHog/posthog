@@ -122,7 +122,9 @@ export function Playlist({
         // If we are scrolling down then check if we are at the bottom of the list
         if (e.currentTarget.scrollTop > lastScrollPositionRef.current) {
             const scrollPosition = e.currentTarget.scrollTop + e.currentTarget.clientHeight
-            if (e.currentTarget.scrollHeight - scrollPosition < SCROLL_TRIGGER_OFFSET) {
+            const distanceFromBottom = e.currentTarget.scrollHeight - scrollPosition
+
+            if (distanceFromBottom < SCROLL_TRIGGER_OFFSET) {
                 onScrollListEdge?.('bottom')
             }
         }
@@ -203,7 +205,13 @@ export function Playlist({
                                         <LemonTableLoader loading={loading} />
                                     </div>
                                 </DraggableToNotebook>
-                                <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
+                                <div
+                                    className="overflow-y-auto flex-1"
+                                    onScroll={(e) => {
+                                        handleScroll(e)
+                                    }}
+                                    ref={contentRef}
+                                >
                                     {sectionCount > 1 ? (
                                         <LemonCollapse
                                             defaultActiveKeys={openSections}
