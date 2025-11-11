@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.sources.generated_configs import ZendeskSourc
 from posthog.temporal.data_imports.sources.zendesk.settings import (
     BASE_ENDPOINTS,
     INCREMENTAL_FIELDS as ZENDESK_INCREMENTAL_FIELDS,
+    PARTITION_FIELDS,
     SUPPORT_ENDPOINTS,
 )
 from posthog.temporal.data_imports.sources.zendesk.zendesk import validate_credentials, zendesk_source
@@ -103,12 +104,14 @@ class ZendeskSource(BaseSource[ZendeskSourceConfig]):
             )
         )
 
+        partition_key = PARTITION_FIELDS.get(inputs.schema_name, None)
+
         # assumes datetime as all incremental zendesk fields are datetime based
-        if inputs.should_use_incremental_field and inputs.incremental_field:
+        if partition_key:
             zendesk_source_response.partition_count = 1
             zendesk_source_response.partition_size = 1
             zendesk_source_response.partition_mode = "datetime"
             zendesk_source_response.partition_format = "week"
-            zendesk_source_response.partition_keys = [inputs.incremental_field]
+            zendesk_source_response.partition_keys = [partition_key]
 
         return zendesk_source_response

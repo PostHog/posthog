@@ -18,11 +18,23 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "tickets": [
         {
             "label": "generated_timestamp",
-            "type": IncrementalFieldType.DateTime,
+            "type": IncrementalFieldType.Integer,
             "field": "generated_timestamp",
-            "field_type": IncrementalFieldType.DateTime,
+            "field_type": IncrementalFieldType.Integer,
         }
     ],
+}
+
+PARTITION_FIELDS: dict[str, str] = {
+    "brands": "created_at",
+    "groups": "created_at",
+    "organizations": "created_at",
+    "sla_policies": "created_at",
+    "ticket_events": "created_at",
+    "ticket_fields": "created_at",
+    "ticket_metric_events": "time",
+    "tickets": "created_at",
+    "users": "created_at",
 }
 
 # Tuples of (Resource name, endpoint URL, data_key, supports pagination)
