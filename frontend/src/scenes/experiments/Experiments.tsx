@@ -430,19 +430,21 @@ export function Experiments(): JSX.Element {
                     type: 'experiment',
                 }}
                 actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Experiment}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="primary"
-                            data-attr="create-experiment"
-                            to={urls.experiment('new')}
+                    tab !== ExperimentsTabs.SharedMetrics && tab !== ExperimentsTabs.Holdouts ? (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Experiment}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            New experiment
-                        </LemonButton>
-                    </AccessControlAction>
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                data-attr="create-experiment"
+                                to={urls.experiment('new')}
+                            >
+                                New experiment
+                            </LemonButton>
+                        </AccessControlAction>
+                    ) : undefined
                 }
             />
             <LemonTabs
