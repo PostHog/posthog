@@ -214,7 +214,7 @@ export function SceneShortcutsMenu(): JSX.Element | null {
     const paletteContent = (
         <div className="fixed inset-0 z-top flex items-end justify-center p-6 backdrop-blur-[var(--modal-backdrop-blur)]">
             <div
-                className="bg-surface-secondary border-3 border-tertiary rounded-lg shadow-2xl w-96 max-h-96 overflow-hidden backdrop-blur-sm"
+                className="bg-surface-secondary border-3 border-tertiary rounded-lg shadow-2xl w-96 max-h-[calc(100vh-(var(--spacing)*6))] overflow-x-hidden overflow-y-auto backdrop-blur-sm"
                 id="scene-action-palette"
                 onKeyDown={handleKeyDown}
             >
@@ -273,6 +273,7 @@ export function SceneShortcutsMenu(): JSX.Element | null {
                         placeholder="Search actions... escape to close"
                         autoFocus
                         className="border-0 focus:ring-0 focus:border-0"
+                        wrapperClassName="sticky bottom-0"
                     />
                 </Combobox>
             </div>
