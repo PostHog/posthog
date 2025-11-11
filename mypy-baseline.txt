@@ -519,7 +519,6 @@ posthog/api/user.py:0: error: "User" has no attribute "social_auth"  [attr-defin
 posthog/api/utils.py:0: error: "_validate_conn" undefined in superclass  [misc]
 posthog/api/utils.py:0: error: "_validate_conn" undefined in superclass  [misc]
 posthog/api/utils.py:0: error: Argument 1 to "UUID" has incompatible type "int | str"; expected "str | None"  [arg-type]
-posthog/apps.py:0: error: Module has no attribute "capture_exception_code_variables"  [attr-defined]
 posthog/async_migrations/migrations/0002_events_sample_by.py:0: error: Argument 1 to "generate_insert_into_op" has incompatible type "Any | None"; expected "int"  [arg-type]
 posthog/async_migrations/migrations/0002_events_sample_by.py:0: error: Cannot override writeable attribute with read-only property  [override]
 posthog/async_migrations/migrations/0003_fill_person_distinct_id2.py:0: error: Cannot override writeable attribute with read-only property  [override]
