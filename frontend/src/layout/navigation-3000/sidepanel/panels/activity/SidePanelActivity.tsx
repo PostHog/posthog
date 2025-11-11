@@ -141,55 +141,77 @@ export const SidePanelActivity = (): JSX.Element => {
                                     <LemonMenu
                                         placement="bottom-start"
                                         items={
-                                            HOG_FUNCTION_SUB_TEMPLATES['activity-log'].map((subTemplate) => {
-                                                // Build property filters based on context
-                                                const properties: CyclotronJobFilterPropertyFilter[] = [
-                                                    {
-                                                        key: 'scope',
-                                                        type: PropertyFilterType.Event,
-                                                        value: contextFromPage!.scope!,
-                                                        operator: PropertyOperator.Exact,
-                                                    },
-                                                ]
+                                            [
+                                                {
+                                                    items: HOG_FUNCTION_SUB_TEMPLATES['activity-log'].map(
+                                                        (subTemplate) => {
+                                                            // Build property filters based on context
+                                                            const properties: CyclotronJobFilterPropertyFilter[] = [
+                                                                {
+                                                                    key: 'scope',
+                                                                    type: PropertyFilterType.Event,
+                                                                    value: contextFromPage!.scope!,
+                                                                    operator: PropertyOperator.Exact,
+                                                                },
+                                                            ]
 
-                                                // If we have item_id, add it to filters
-                                                if (hasItemContext) {
-                                                    properties.push({
-                                                        key: 'item_id',
-                                                        type: PropertyFilterType.Event,
-                                                        value: contextFromPage!.item_id,
-                                                        operator: PropertyOperator.Exact,
-                                                    })
-                                                }
+                                                            // If we have item_id, add it to filters
+                                                            if (hasItemContext) {
+                                                                properties.push({
+                                                                    key: 'item_id',
+                                                                    type: PropertyFilterType.Event,
+                                                                    value: contextFromPage!.item_id,
+                                                                    operator: PropertyOperator.Exact,
+                                                                })
+                                                            }
 
-                                                // Create filters with properties at the top level
-                                                // HogFunctionFiltersInternal expects filters.properties, not filters.events[0].properties
-                                                const filters = {
-                                                    events: subTemplate.filters?.events || [],
-                                                    properties,
-                                                }
+                                                            // Create filters with properties at the top level
+                                                            // HogFunctionFiltersInternal expects filters.properties, not filters.events[0].properties
+                                                            const filters = {
+                                                                events: subTemplate.filters?.events || [],
+                                                                properties,
+                                                            }
 
-                                                const configurationOverrides = { filters }
+                                                            const configurationOverrides = { filters }
 
-                                                const configuration: Record<string, any> = {
-                                                    ...subTemplate,
-                                                    ...configurationOverrides,
-                                                }
+                                                            const configuration: Record<string, any> = {
+                                                                ...subTemplate,
+                                                                ...configurationOverrides,
+                                                            }
 
-                                                const url = combineUrl(
-                                                    urls.hogFunctionNew(subTemplate.template_id),
-                                                    {},
-                                                    { configuration }
-                                                ).url
+                                                            const url = combineUrl(
+                                                                urls.hogFunctionNew(subTemplate.template_id),
+                                                                {},
+                                                                { configuration }
+                                                            ).url
 
-                                                return {
-                                                    label: subTemplate.name || 'Subscribe',
-                                                    onClick: () => {
-                                                        closeSidePanel()
-                                                        router.actions.push(url)
-                                                    },
-                                                }
-                                            }) as LemonMenuItems
+                                                            return {
+                                                                label: subTemplate.name || 'Subscribe',
+                                                                onClick: () => {
+                                                                    closeSidePanel()
+                                                                    router.actions.push(url)
+                                                                },
+                                                            }
+                                                        }
+                                                    ),
+                                                },
+                                                {
+                                                    items: [
+                                                        {
+                                                            label: 'View all notifications',
+                                                            onClick: () => {
+                                                                closeSidePanel()
+                                                                router.actions.push(
+                                                                    urls.settings(
+                                                                        'environment-activity-logs',
+                                                                        'activity-log-notifications'
+                                                                    )
+                                                                )
+                                                            },
+                                                        },
+                                                    ],
+                                                },
+                                            ] as LemonMenuItems
                                         }
                                     >
                                         <LemonButton size="xsmall" type="secondary" tooltip="Subscribe">
