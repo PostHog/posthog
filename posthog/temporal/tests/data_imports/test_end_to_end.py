@@ -328,7 +328,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
             DATA_WAREHOUSE_REDIS_HOST="localhost",
             DATA_WAREHOUSE_REDIS_PORT="6379",
         ),

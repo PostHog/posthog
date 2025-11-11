@@ -101,7 +101,7 @@ async def run_external_data_job_workflow(
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         ),
         mock.patch.object(DeltaTableHelper, "compact_table") as mock_compact_table,
         mock.patch(

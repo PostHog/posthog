@@ -346,7 +346,7 @@ def test_bigquery_source_full_refresh_table(
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
@@ -411,7 +411,7 @@ def test_bigquery_source_full_refresh_view(
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
@@ -479,7 +479,7 @@ def test_bigquery_source_incremental_integer(
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
@@ -526,7 +526,7 @@ def test_bigquery_source_incremental_integer(
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
@@ -597,7 +597,7 @@ def test_bigquery_source_incremental_timestamp(
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
@@ -645,7 +645,7 @@ def test_bigquery_source_incremental_timestamp(
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
@@ -720,7 +720,7 @@ def test_bigquery_source_incremental_custom_primary_key(
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
@@ -768,7 +768,7 @@ def test_bigquery_source_incremental_custom_primary_key(
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):

@@ -696,7 +696,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                 AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
                 AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
                 AIRBYTE_BUCKET_REGION="us-east-1",
-                AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+                AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
             ),
         ):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -792,7 +792,7 @@ async def test_run_postgres_job(
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
     ):
         await sync_to_async(activity_environment.run)(import_data_activity_sync, job_1_inputs)
 

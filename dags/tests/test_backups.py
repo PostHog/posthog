@@ -68,7 +68,7 @@ def run_backup_test(
         client.execute(
             """
             BACKUP TABLE person_distinct_id_overrides
-            TO S3('http://objectstorage:19000/{bucket_name}/{database}/person_distinct_id_overrides/{shard}/{date}')
+            TO S3('http://seaweedfs:8333/{bucket_name}/{database}/person_distinct_id_overrides/{shard}/{date}')
             """.format(
                 bucket_name=bucket_name,
                 database=settings.CLICKHOUSE_DATABASE,
@@ -99,13 +99,13 @@ def run_backup_test(
     run_id = uuid.uuid4()
     s3_client = boto3.client(
         "s3",
-        endpoint_url="http://localhost:19000",
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
+        endpoint_url="http://localhost:8333",
+        aws_access_key_id="any",
+        aws_secret_access_key="any",
     )
     with (
         patch("django.conf.settings.CLICKHOUSE_BACKUPS_BUCKET", bucket_name),
-        patch.object(Backup, "_bucket_base_path", return_value=f"http://objectstorage:19000/{bucket_name}"),
+        patch.object(Backup, "_bucket_base_path", return_value=f"http://seaweedfs:8333/{bucket_name}"),
     ):
         # Prepare needed data before running the job
         # Insert some data and create the backup log table flushing the logs
@@ -123,9 +123,9 @@ def run_backup_test(
             resources={
                 "cluster": cluster,
                 "s3": S3Resource(
-                    endpoint_url="http://localhost:19000",
-                    aws_access_key_id="object_storage_root_user",
-                    aws_secret_access_key="object_storage_root_password",
+                    endpoint_url="http://localhost:8333",
+                    aws_access_key_id="any",
+                    aws_secret_access_key="any",
                 ),
             },
             run_id=str(run_id),

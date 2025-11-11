@@ -44,7 +44,7 @@ class TestWebAnalyticsS3(BaseTest):
 
         url = get_s3_url(table_name=table_name, team_id=team_id)
 
-        expected_url = "http://objectstorage:19000/posthog/web_stats_daily_export/2/data.native"
+        expected_url = "http://seaweedfs:8333/posthog/web_stats_daily_export/2/data.native"
 
         assert url == expected_url
 
@@ -73,7 +73,7 @@ class TestWebAnalyticsS3(BaseTest):
 
     @patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", True)
     def test_get_s3_function_args_debug(self):
-        s3_path = "http://objectstorage:19000/posthog/path/to/file.native"
+        s3_path = "http://seaweedfs:8333/posthog/path/to/file.native"
 
         args = get_s3_function_args(s3_path)
 

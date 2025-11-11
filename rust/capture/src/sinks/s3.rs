@@ -308,7 +308,7 @@ mod tests {
         S3Sink::new(
             "capture".to_string(),
             "".to_string(),
-            Some("http://localhost:19000".to_string()),
+            Some("http://localhost:8333".to_string()),
             handle,
         )
         .await

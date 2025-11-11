@@ -314,7 +314,7 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -377,7 +377,7 @@ async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pa
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -428,7 +428,7 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -759,7 +759,7 @@ async def test_run_workflow_with_minio_bucket(
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         ),
         freeze_time(TEST_TIME),
     ):
@@ -876,7 +876,7 @@ async def test_run_workflow_with_minio_bucket_with_errors(
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         ),
         freeze_time(TEST_TIME),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.materialize_model", mock_materialize_model),
@@ -932,7 +932,7 @@ async def test_run_workflow_revert_materialization(
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         ),
         freeze_time(TEST_TIME),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
@@ -999,7 +999,7 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         ),
         unittest.mock.patch.dict(os.environ, {"SCHEMA__NAMING": "direct"}, clear=True),
     ):
@@ -1066,7 +1066,7 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         ),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
     ):
@@ -1139,7 +1139,7 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         ),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
     ):
@@ -1272,7 +1272,7 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
         ),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_query_row_count", return_value=6),
@@ -1319,7 +1319,7 @@ async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, mini
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -1368,7 +1368,7 @@ async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_cl
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -1417,7 +1417,7 @@ async def test_materialize_model_with_date(ateam, bucket_name, minio_client, tru
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -1466,7 +1466,7 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        AIRBYTE_BUCKET_DOMAIN="seaweedfs:8333",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,

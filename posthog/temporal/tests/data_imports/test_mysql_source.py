@@ -12,7 +12,7 @@ docker run -d --name mysql-test -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=te
 Then you can run these tests using:
 
 ```
-OBJECT_STORAGE_ENDPOINT=http://localhost:19000 \
+OBJECT_STORAGE_ENDPOINT=http://localhost:8333 \
     MYSQL_HOST=localhost \
     MYSQL_USER=root \
     MYSQL_PASSWORD=root \

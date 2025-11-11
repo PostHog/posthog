@@ -38,7 +38,7 @@ async fn setup_integration_clients() -> anyhow::Result<TestClients> {
         "us-east-1".to_string(),
         "posthog".to_string(),
     );
-    config.s3_endpoint = Some("http://localhost:19000".to_string());
+    config.s3_endpoint = Some("http://localhost:8333".to_string());
 
     let redis_client = RedisClient::new("redis://localhost:6379".to_string()).await?;
     let mut aws_config_builder = aws_config::defaults(aws_config::BehaviorVersion::latest())
@@ -266,7 +266,7 @@ async fn test_hypercache_token_based_cache_key() -> anyhow::Result<()> {
         "posthog".to_string(),
     );
     config.token_based = true;
-    config.s3_endpoint = Some("http://localhost:19000".to_string());
+    config.s3_endpoint = Some("http://localhost:8333".to_string());
 
     let redis_client_for_cache = RedisClient::new("redis://localhost:6379".to_string()).await?;
     let token_based_hypercache =
@@ -340,7 +340,7 @@ async fn test_hypercache_keytype_variants() -> anyhow::Result<()> {
         "posthog".to_string(),
     );
     config_token.token_based = true;
-    config_token.s3_endpoint = Some("http://localhost:19000".to_string());
+    config_token.s3_endpoint = Some("http://localhost:8333".to_string());
 
     let redis_client_token = RedisClient::new("redis://localhost:6379".to_string()).await?;
     let hypercache_token = HyperCacheReader::new(

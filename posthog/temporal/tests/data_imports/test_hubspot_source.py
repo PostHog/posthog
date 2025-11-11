@@ -12,7 +12,7 @@ To run these tests you'll need:
 Then you can run the tests using:
 
 ```
-OBJECT_STORAGE_ENDPOINT=http://localhost:19000 \
+OBJECT_STORAGE_ENDPOINT=http://localhost:8333 \
     HUBSPOT_SECRET_KEY="..." \
     HUBSPOT_REFRESH_TOKEN="..." \
     HUBSPOT_APP_CLIENT_SECRET="..." \

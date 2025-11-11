@@ -6,14 +6,14 @@ from posthog.settings.utils import get_from_env, str_to_bool
 
 AIRBYTE_BUCKET_REGION = os.getenv("AIRBYTE_BUCKET_REGION", "us-east-1")
 AIRBYTE_BUCKET_KEY = os.getenv("AIRBYTE_BUCKET_KEY", "object_storage_root_user")
-AIRBYTE_BUCKET_SECRET = os.getenv("AIRBYTE_BUCKET_SECRET", "object_storage_root_password")
-AIRBYTE_BUCKET_DOMAIN = os.getenv("AIRBYTE_BUCKET_DOMAIN", "objectstorage:19000")
+AIRBYTE_BUCKET_SECRET = os.getenv("AIRBYTE_BUCKET_SECRET", "any")
+AIRBYTE_BUCKET_DOMAIN = os.getenv("AIRBYTE_BUCKET_DOMAIN", "seaweedfs:8333")
 
 DATAWAREHOUSE_BUCKET = os.getenv("DATAWAREHOUSE_BUCKET", "data-warehouse")
 BUCKET_URL = os.getenv("BUCKET_URL", "s3://data-warehouse")
 BUCKET_PATH = os.getenv("BUCKET_PATH", "data-warehouse")
 
-USE_LOCAL_SETUP = TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000")) > 0)
+USE_LOCAL_SETUP = TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "http://seaweedfs:8333")) > 0)
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 

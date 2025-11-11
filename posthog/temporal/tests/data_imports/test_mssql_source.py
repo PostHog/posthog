@@ -6,7 +6,7 @@ Therefore these tests will only run if the required environment variables are se
 You can run these tests using:
 
 ```
-OBJECT_STORAGE_ENDPOINT=http://localhost:19000 \
+OBJECT_STORAGE_ENDPOINT=http://localhost:8333 \
     MSSQL_HOST=localhost \
     MSSQL_USER=username \
     MSSQL_PASSWORD=password \
