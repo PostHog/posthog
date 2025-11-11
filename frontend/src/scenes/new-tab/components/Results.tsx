@@ -172,7 +172,7 @@ function Category({
                 key={category}
             >
                 <div className="mb-2 @xl/main-content:min-w-[200px]">
-                    <div className="flex items-baseline gap-0">
+                    <div className="flex items-baseline gap-0 sticky top-0">
                         <Label intent="menu" className="px-2">
                             {getCategoryDisplayName(category)}
                         </Label>

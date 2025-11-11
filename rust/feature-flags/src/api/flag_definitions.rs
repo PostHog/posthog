@@ -159,6 +159,7 @@ async fn get_from_cache(
     let source_name = match source {
         CacheSource::Redis => "Redis",
         CacheSource::S3 => "S3",
+        CacheSource::Fallback => "Fallback",
     };
     info!(
         team_id = team.id,

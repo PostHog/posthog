@@ -473,11 +473,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
     USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: boolean
 
-    // Workflows
-    MAILJET_PUBLIC_KEY: string
-    MAILJET_SECRET_KEY: string
-
-    // SES
+    // SES (Workflows email sending)
     SES_ENDPOINT: string
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string

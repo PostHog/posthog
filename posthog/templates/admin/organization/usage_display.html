@@ -1,0 +1,44 @@
+{% if period_info %}
+<div style="margin-bottom: 12px; padding: 8px; border-left: 3px solid #007bff;">
+    <strong>Billing Period:</strong> {{ period_info.start }} to {{ period_info.end }}
+    <span style="margin-left: 12px;">({{ period_info.days_remaining }} days remaining)</span>
+</div>
+{% endif %}
+
+<table style="border-collapse: collapse; width: 100%;">
+    <thead>
+        <tr>
+            <th style="padding: 8px; text-align: left;">Product</th>
+            <th style="padding: 8px; text-align: right;">Usage</th>
+            <th style="padding: 8px; text-align: right;">Limit</th>
+            <th style="padding: 8px; text-align: right;">Today's Usage</th>
+            <th style="padding: 8px; text-align: center;">% Used</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for product, data in usage_data.items %}
+        <tr style="border-top: 1px solid;">
+            <td style="padding: 8px;">{{ product }}</td>
+            <td style="padding: 8px; text-align: right;">{{ data.usage }}</td>
+            <td style="padding: 8px; text-align: right;">
+                {% if data.limit %}
+                    {{ data.limit }}
+                {% else %}
+                    <span style="color: #28a745;">∞ Unlimited</span>
+                {% endif %}
+            </td>
+            <td style="padding: 8px; text-align: right;">{{ data.todays_usage }}</td>
+            <td style="padding: 8px; text-align: center;">
+                {% if data.limit_raw and data.usage_raw is not None %}
+                    {% widthratio data.usage_raw data.limit_raw 100 as percentage %}
+                    <span style="color: {% if percentage >= 90 %}#dc3545{% elif percentage >= 75 %}#fd7e14{% else %}#28a745{% endif %};">
+                        {{ percentage }}%
+                    </span>
+                {% else %}
+                    -
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
