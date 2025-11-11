@@ -66,7 +66,7 @@ export function OverviewGridItem({
                     {showFilter && onFilterClick && (
                         <IconFilter
                             data-testid="filter-button"
-                            className="cursor-pointer text-secondary hover:text-primary transition-colors text-sm opacity-0 group-hover:opacity-100"
+                            className="cursor-pointer text-secondary hover:text-primary transition-colors text-sm"
                             onClick={(e) => {
                                 e.stopPropagation()
                                 onFilterClick()
