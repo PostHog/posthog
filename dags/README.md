@@ -20,6 +20,10 @@ Dagster is an open-source data orchestration tool designed to help you define an
 - Individual DAG files (e.g., `exchange_rate.py`, `deletes.py`, `person_overrides.py`)
 - `tests/`: Tests for the DAGs
 
+### Cloud access for posthog employees
+
+Ask someone on the #team-infrastructure or #team-clickhouse to add you to Dagster Cloud. You might also want to join the #dagster-posthog slack channel.
+
 ### Adding a New Team
 
 To set up a new team with their own Dagster definitions and Slack alerts, follow these steps:
