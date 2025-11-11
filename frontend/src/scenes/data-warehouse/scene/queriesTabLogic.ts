@@ -39,11 +39,11 @@ export const queriesTabLogic = kea<queriesTabLogicType>([
             (s) => [s.dataWarehouseSavedQueriesLoading],
             (loading): boolean => loading,
         ],
-        // Mock dependency counts for all views
+        // Mock dependency counts and run history for all views
         enrichedQueries: [
             (s) => [s.dataWarehouseSavedQueries],
             (queries): DataWarehouseSavedQuery[] => {
-                // Add mocked dependency counts to each query
+                // Add mocked dependency counts and run history to each query
                 return queries.map((query) => ({
                     ...query,
                     // Mock: Generate semi-random but consistent dependency counts
@@ -51,6 +51,10 @@ export const queriesTabLogic = kea<queriesTabLogicType>([
                         query.upstream_dependency_count ?? Math.floor(Math.abs(hashString(query.id)) % 5),
                     downstream_dependency_count:
                         query.downstream_dependency_count ?? Math.floor(Math.abs(hashString(query.id + 'down')) % 4),
+                    // Mock: Generate run history for materialized views (up to 5 runs)
+                    run_history:
+                        query.run_history ??
+                        (query.is_materialized ? generateMockRunHistory(query.id) : undefined),
                 }))
             },
         ],
@@ -108,4 +112,22 @@ function hashString(str: string): number {
         hash = hash & hash
     }
     return hash
+}
+
+// Generate mock run history with 1-5 runs
+function generateMockRunHistory(id: string): Array<{ status: 'Completed' | 'Failed'; timestamp?: string }> {
+    const hash = Math.abs(hashString(id + 'history'))
+    const numRuns = Math.min((hash % 5) + 1, 5) // 1 to 5 runs
+    const runs: Array<{ status: 'Completed' | 'Failed'; timestamp?: string }> = []
+
+    for (let i = 0; i < numRuns; i++) {
+        // Use different hash for each run to get varied results
+        const runHash = Math.abs(hashString(id + 'run' + i))
+        // ~80% success rate
+        const status = runHash % 10 < 8 ? 'Completed' : 'Failed'
+        runs.push({ status })
+    }
+
+    // Reverse so most recent is first
+    return runs.reverse()
 }
