@@ -6,6 +6,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CachedExperimentQueryResponse,
+    ExperimentBreakdownResult,
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
@@ -610,17 +611,16 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Process breakdowns or extract variants
         if self._has_breakdown(variant_results):
-            breakdown_values, breakdown_results, variants = self._process_breakdown_results(variant_results)
+            breakdown_results, variants = self._process_breakdown_results(variant_results)
         else:
-            breakdown_values, breakdown_results = None, None
+            breakdown_results = None
             variants = [v for _, v in variant_results]
 
         # Calculate final statistics
         result = self._calculate_statistics_for_variants(variants)
 
         # Attach breakdown data if present
-        if breakdown_values is not None:
-            result.breakdown_values = breakdown_values
+        if breakdown_results is not None:
             result.breakdown_results = breakdown_results
 
         return result
@@ -656,7 +656,7 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _process_breakdown_results(
         self, variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]
-    ) -> tuple[list[list[str]], list, list[ExperimentStatsBase]]:
+    ) -> tuple[list[ExperimentBreakdownResult], list[ExperimentStatsBase]]:
         """Compute per-breakdown statistics and aggregate across breakdowns."""
         breakdown_tuples = sorted({bv for bv, _ in variant_results if bv is not None})
 
@@ -664,19 +664,16 @@ class ExperimentQueryRunner(QueryRunner):
             self._compute_breakdown_statistics(breakdown_tuple, variant_results) for breakdown_tuple in breakdown_tuples
         ]
 
-        breakdown_values = [list(bt) for bt in breakdown_tuples]
         aggregated_variants = aggregate_variants_across_breakdowns(variant_results)
 
-        return breakdown_values, breakdown_results, aggregated_variants
+        return breakdown_results, aggregated_variants
 
     def _compute_breakdown_statistics(
         self,
         breakdown_tuple: tuple[str, ...],
         variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]],
-    ):
+    ) -> ExperimentBreakdownResult:
         """Compute statistics for a single breakdown combination."""
-        from posthog.schema import ExperimentBreakdownResult
-
         breakdown_variants = [v for bv, v in variant_results if bv == breakdown_tuple]
         stats = self._calculate_statistics_for_variants(breakdown_variants)
 

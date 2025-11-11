@@ -3593,16 +3593,6 @@
                     },
                     "type": "array"
                 },
-                "breakdown_values": {
-                    "description": "List of all breakdown combinations found in the results (e.g., [[\"MacOS\", \"Chrome\"], [\"Windows\", \"Safari\"]])",
-                    "items": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array"
-                    },
-                    "type": "array"
-                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -4794,15 +4784,6 @@
                 "breakdown_results": {
                     "items": {
                         "$ref": "#/definitions/ExperimentBreakdownResult"
-                    },
-                    "type": "array"
-                },
-                "breakdown_values": {
-                    "items": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -12351,7 +12332,7 @@
                 "breakdown_value": {
                     "description": "The breakdown values as an array (e.g., [\"MacOS\", \"Chrome\"] for multi-breakdown, [\"Chrome\"] for single)",
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/BreakdownKeyType"
                     },
                     "type": "array"
                 },
@@ -13200,16 +13181,6 @@
                     "description": "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.",
                     "items": {
                         "$ref": "#/definitions/ExperimentBreakdownResult"
-                    },
-                    "type": "array"
-                },
-                "breakdown_values": {
-                    "description": "List of all breakdown combinations found in the results (e.g., [[\"MacOS\", \"Chrome\"], [\"Windows\", \"Safari\"]])",
-                    "items": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -18414,15 +18385,6 @@
                     },
                     "type": "array"
                 },
-                "breakdown_values": {
-                    "items": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array"
-                    },
-                    "type": "array"
-                },
                 "variant_results": {
                     "anyOf": [
                         {
@@ -20336,16 +20298,6 @@
                             "description": "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.",
                             "items": {
                                 "$ref": "#/definitions/ExperimentBreakdownResult"
-                            },
-                            "type": "array"
-                        },
-                        "breakdown_values": {
-                            "description": "List of all breakdown combinations found in the results (e.g., [[\"MacOS\", \"Chrome\"], [\"Windows\", \"Safari\"]])",
-                            "items": {
-                                "items": {
-                                    "type": "string"
-                                },
-                                "type": "array"
                             },
                             "type": "array"
                         },

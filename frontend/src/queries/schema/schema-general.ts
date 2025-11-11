@@ -2915,8 +2915,6 @@ export interface ExperimentQueryResponse {
     // Breakdown fields
     /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
     breakdown_results?: ExperimentBreakdownResult[]
-    /** List of all breakdown combinations found in the results (e.g., [["MacOS", "Chrome"], ["Windows", "Safari"]]) */
-    breakdown_values?: string[][]
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -2983,7 +2981,7 @@ export interface ExperimentVariantResultBayesian extends ExperimentStatsBaseVali
  */
 export interface ExperimentBreakdownResult {
     /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) */
-    breakdown_value: string[]
+    breakdown_value: BreakdownKeyType[]
     /** Control variant stats for this breakdown */
     baseline: ExperimentStatsBaseValidated
     /** Test variant results with statistical comparisons for this breakdown */
@@ -2994,7 +2992,6 @@ export interface NewExperimentQueryResponse {
     baseline: ExperimentStatsBaseValidated
     variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
     breakdown_results?: ExperimentBreakdownResult[]
-    breakdown_values?: string[][]
 }
 
 export interface ExperimentExposureTimeSeries {
