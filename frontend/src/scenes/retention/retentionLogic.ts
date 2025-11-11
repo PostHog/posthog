@@ -4,7 +4,7 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
-import { QuerySourceUpdate, insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { BREAKDOWN_OTHER_DISPLAY, BREAKDOWN_OTHER_STRING_LABEL, formatBreakdownLabel } from 'scenes/insights/utils'
 import { ProcessedRetentionPayload } from 'scenes/retention/types'

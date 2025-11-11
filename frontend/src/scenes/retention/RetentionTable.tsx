@@ -34,8 +34,9 @@ export function RetentionTable({
         retentionMeans,
         breakdownDisplayNames,
         tableHeaders,
+        retentionFilter,
     } = useValues(retentionTableLogic(insightProps))
-    const { toggleBreakdown, setSelectedInterval, setHoveredColumn } = useActions(retentionTableLogic(insightProps))
+    const { toggleBreakdown } = useActions(retentionTableLogic(insightProps))
     const { hoveredColumn } = useValues(retentionTableLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
@@ -150,7 +151,7 @@ export function RetentionTable({
                                                 <span className="RetentionTable__TextTab">{row.cohortSize}</span>
                                             </td>
                                         )}
-                                        {range(0, totalIntervals).map((columnIndex) => {
+                                        {tableHeaders.map((_, columnIndex) => {
                                             const column = row.values[columnIndex]
                                             return (
                                                 <td
