@@ -56,7 +56,7 @@ def _get_s3_endpoint_url() -> str:
     localhost URL rather than the hostname of the container.
     """
     if settings.DEBUG or settings.TEST:
-        # Use configured local object storage endpoint (SeaweedFS in dev by default)
+        # Host-side botocore client should use host endpoint (localhost in dev/CI)
         return settings.OBJECT_STORAGE_ENDPOINT
     return settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
 
@@ -324,9 +324,10 @@ def _get_clickhouse_s3_staging_folder_url(
     """
     bucket = settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET
     region = settings.BATCH_EXPORT_OBJECT_STORAGE_REGION
-    # in these environments this will be a URL for MinIO
+    # In dev/test, ClickHouse runs in Docker and must talk to the container hostname
+    # Use the dedicated batch export object storage endpoint (e.g. http://seaweedfs:8333)
     if settings.DEBUG or settings.TEST:
-        base_url = f"{settings.OBJECT_STORAGE_ENDPOINT}/{bucket}/"
+        base_url = f"{settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT}/{bucket}/"
     else:
         base_url = f"https://{bucket}.s3.{region}.amazonaws.com/"
 
