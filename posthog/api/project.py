@@ -265,6 +265,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     def validate_session_replay_ai_summary_config(value: dict | None) -> dict | None:
         return TeamSerializer.validate_session_replay_ai_summary_config(value)
 
+    def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
+        return TeamSerializer.validate_receive_org_level_activity_logs(cast(TeamSerializer, self), value)
+
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
         return super().validate(attrs)
