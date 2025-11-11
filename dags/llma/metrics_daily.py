@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 import dagster
 from dagster import BackfillPolicy, DailyPartitionsDefinition
+from jinja2 import Template
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
@@ -38,6 +39,37 @@ AI_EVENT_TYPES = [
     "$ai_embedding",
 ]
 
+# Jinja template for the INSERT query
+INSERT_QUERY_TEMPLATE = Template(
+    """
+INSERT INTO llma_metrics_daily (date, team_id, metric_name, metric_value)
+{% for event_type in event_types %}
+SELECT
+    date(timestamp) as date,
+    team_id,
+    '{{ event_type.lstrip('$') }}_count' as metric_name,
+    count(distinct uuid) as metric_value
+FROM events
+WHERE event = '{{ event_type }}'
+  AND timestamp >= toDateTime('{{ date_start }}', 'UTC')
+  AND timestamp < toDateTime('{{ date_end }}', 'UTC')
+GROUP BY date, team_id
+HAVING metric_value > 0
+{% if not loop.last %}
+UNION ALL
+{% endif %}
+{% endfor %}
+"""
+)
+
+# Jinja template for the DELETE query
+DELETE_QUERY_TEMPLATE = Template(
+    """
+ALTER TABLE llma_metrics_daily
+DELETE WHERE date >= '{{ date_start }}' AND date < '{{ date_end }}'
+"""
+)
+
 
 def get_insert_query(date_start: str, date_end: str) -> str:
     """
@@ -45,31 +77,19 @@ def get_insert_query(date_start: str, date_end: str) -> str:
 
     Uses long format: each metric_name is a separate row for easy schema evolution.
     """
-    # Generate UNION ALL for each metric type
-    metric_queries = []
-    for event_type in AI_EVENT_TYPES:
-        # Convert event name to metric name (remove $ prefix, add _count suffix)
-        metric_name = f"{event_type.lstrip('$')}_count"
-        metric_queries.append(f"""
-            SELECT
-                date(timestamp) as date,
-                team_id,
-                '{metric_name}' as metric_name,
-                count(distinct uuid) as metric_value
-            FROM events
-            WHERE event = '{event_type}'
-              AND timestamp >= toDateTime('{date_start}', 'UTC')
-              AND timestamp < toDateTime('{date_end}', 'UTC')
-            GROUP BY date, team_id
-            HAVING metric_value > 0
-        """)
+    return INSERT_QUERY_TEMPLATE.render(
+        event_types=AI_EVENT_TYPES,
+        date_start=date_start,
+        date_end=date_end,
+    )
 
-    union_query = "\nUNION ALL\n".join(metric_queries)
 
-    return f"""
-        INSERT INTO llma_metrics_daily (date, team_id, metric_name, metric_value)
-        {union_query}
-    """
+def get_delete_query(date_start: str, date_end: str) -> str:
+    """Generate SQL to delete existing data for the date range."""
+    return DELETE_QUERY_TEMPLATE.render(
+        date_start=date_start,
+        date_end=date_end,
+    )
 
 
 @dagster.asset(
@@ -105,11 +125,7 @@ def llma_metrics_daily(
 
     try:
         # Delete existing data for this date range to ensure idempotency
-        # Since we're using long format, delete all metrics for the date range
-        delete_query = f"""
-            ALTER TABLE llma_metrics_daily
-            DELETE WHERE date >= '{date_start}' AND date < '{date_end}'
-        """
+        delete_query = get_delete_query(date_start, date_end)
         context.log.info(f"Deleting existing metrics: {delete_query}")
         sync_execute(delete_query, settings=LLMA_CLICKHOUSE_SETTINGS)
 
