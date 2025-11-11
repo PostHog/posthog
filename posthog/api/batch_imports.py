@@ -427,7 +427,7 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=True)
-    def pause(self, request: Request, pk=None) -> Response:
+    def pause(self, request: Request, **kwargs) -> Response:
         """Pause a running batch import."""
         batch_import = self.get_object()
 
@@ -444,7 +444,7 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response({"status": "paused"})
 
     @action(methods=["POST"], detail=True)
-    def resume(self, request: Request, pk=None) -> Response:
+    def resume(self, request: Request, **kwargs) -> Response:
         """Resume a paused batch import."""
         batch_import = self.get_object()
 

@@ -21,8 +21,6 @@ from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyErrorM
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
-from ee.hogai.utils.types.base import AssistantNodeName
-from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     DATE_FIELDS_PROMPT,
@@ -105,10 +103,6 @@ class RevenueAnalyticsFilterNode(
     def __init__(self, team: Team, user: User, toolkit_class: type[RevenueAnalyticsFilterOptionsToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.REVENUE_ANALYTICS_FILTER
-
     def _get_system_prompt(self) -> ChatPromptTemplate:
         """Get default system prompts. Override in subclasses for custom prompts."""
         all_messages = [
@@ -142,10 +136,6 @@ class RevenueAnalyticsFilterOptionsToolsNode(
 
     def __init__(self, team: Team, user: User, toolkit_class: type[RevenueAnalyticsFilterOptionsToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.REVENUE_ANALYTICS_FILTER_OPTIONS_TOOLS
 
 
 class RevenueAnalyticsFilterOptionsGraph(
