@@ -387,6 +387,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setValidExistingFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
         setFeatureFlagValidationError: (error: string) => ({ error }),
         validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
+        setHogfettiTrigger: (trigger: (() => void) | null) => ({ trigger }),
         // METRICS
         setMetric: ({
             uuid,
@@ -840,6 +841,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 setCreateExperimentLoading: (_, { loading }) => loading,
             },
         ],
+        hogfettiTrigger: [
+            null as (() => void) | null,
+            {
+                setHogfettiTrigger: (_, { trigger }) => trigger,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft, folder }) => {
@@ -1093,7 +1100,19 @@ export const experimentLogic = kea<experimentLogicType>([
             }
             actions.reportExperimentVariantShipped(values.experiment)
 
-            actions.openStopExperimentModal()
+            // Trigger Hogfetti celebration with cascading delays
+            const trigger = values.hogfettiTrigger
+            if (trigger) {
+                setTimeout(() => {
+                    trigger()
+                    setTimeout(() => {
+                        trigger()
+                        setTimeout(() => {
+                            trigger()
+                        }, 400)
+                    }, 400)
+                }, 400)
+            }
         },
         shipVariantFailure: ({ error }) => {
             lemonToast.error(error)
