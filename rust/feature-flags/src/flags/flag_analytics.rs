@@ -26,10 +26,10 @@ pub fn get_team_request_library_key(
 ) -> String {
     match request_type {
         FlagRequestType::Decide => {
-            format!("posthog:decide_requests:sdk:{team_id}:{}", library.to_string())
+            format!("posthog:decide_requests:sdk:{team_id}:{library}")
         }
         FlagRequestType::FlagDefinitions => {
-            format!("posthog:local_evaluation_requests:sdk:{team_id}:{}", library.to_string())
+            format!("posthog:local_evaluation_requests:sdk:{team_id}:{library}")
         }
     }
 }
@@ -49,7 +49,7 @@ pub async fn increment_request_count(
 
     let key_name = get_team_request_key(team_id, request_type);
     redis_client
-        .hincrby(key_name.clone(), time_bucket.to_string(), Some(count))
+        .hincrby(key_name, time_bucket.to_string(), Some(count))
         .await?;
 
     if let Some(lib) = library {
