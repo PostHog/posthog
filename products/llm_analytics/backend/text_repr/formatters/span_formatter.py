@@ -18,8 +18,107 @@ from .message_formatter import (
 )
 
 
+def _format_string_state(state: str, options: FormatterOptions | None) -> list[str]:
+    """Format string state, attempting to parse as Python literal first."""
+    try:
+        parsed = ast.literal_eval(state)
+        if isinstance(parsed, dict | list):
+            json_str = json.dumps(parsed, indent=2)
+            content_lines, _ = truncate_content(json_str, options)
+            return content_lines
+    except (ValueError, SyntaxError):
+        pass
+
+    content_lines, _ = truncate_content(state, options)
+    return content_lines
+
+
+def _format_messages_array_state(state: list, options: FormatterOptions | None) -> list[str] | None:
+    """Format state as messages array if it matches the pattern."""
+    if len(state) > 0 and isinstance(state[0], dict):
+        first_item = state[0]
+        if "role" in first_item or "content" in first_item:
+            return format_messages_array(state, options)
+    return None
+
+
+def _format_tool_call_with_context(state: dict, options: FormatterOptions | None) -> list[str] | None:
+    """Format tool_call_with_context structure."""
+    if state.get("__type") != "tool_call_with_context":
+        return None
+
+    lines: list[str] = []
+    nested_state = state.get("state", {})
+    tool_call = state.get("tool_call", {})
+
+    if isinstance(nested_state, dict):
+        messages = nested_state.get("messages", [])
+        if isinstance(messages, list) and len(messages) > 0:
+            lines.extend(format_messages_array(messages, options))
+
+        remaining_steps = nested_state.get("remaining_steps")
+        if remaining_steps is not None:
+            lines.append("")
+            lines.append(f"Remaining steps: {remaining_steps}")
+
+    if isinstance(tool_call, dict) and tool_call:
+        lines.append("")
+        lines.append("Tool Call:")
+        tool_name = tool_call.get("name", "unknown")
+        tool_args = tool_call.get("args", {})
+        lines.append(f"  {format_single_tool_call(tool_name, tool_args)}")
+
+    return lines
+
+
+def _format_dict_with_messages(state: dict, options: FormatterOptions | None) -> list[str] | None:
+    """Format dict containing a messages array."""
+    if "messages" not in state:
+        return None
+
+    messages = state.get("messages")
+    if isinstance(messages, list) and len(messages) > 0:
+        return format_messages_array(messages, options)
+    return None
+
+
+def _format_tool_result(state: dict, options: FormatterOptions | None) -> list[str] | None:
+    """Format tool result structure."""
+    if state.get("type") != "tool":
+        return None
+
+    lines: list[str] = []
+    tool_name = state.get("name")
+    status = state.get("status")
+    content = state.get("content", "")
+
+    header_parts = ["[TOOL RESULT]"]
+    if tool_name:
+        header_parts.append(tool_name)
+    if status:
+        header_parts.append(f"({status})")
+    lines.append(" ".join(header_parts))
+
+    if content:
+        lines.append("")
+        content_lines, _ = truncate_content(str(content), options)
+        lines.extend(content_lines)
+
+    return lines
+
+
+def _format_generic_json(state: dict | list, options: FormatterOptions | None) -> list[str]:
+    """Format generic dict or list as JSON."""
+    json_str = json.dumps(state, indent=2)
+    content_lines, _ = truncate_content(json_str, options)
+    return content_lines
+
+
 def _format_state(state: Any, label: str, options: FormatterOptions | None = None) -> list[str]:
-    """Format a state object (input or output) for display."""
+    """Format a state object (input or output) for display.
+
+    Dispatches to specialized formatters based on state type and structure.
+    """
     if not state:
         return []
 
@@ -29,101 +128,40 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
     lines.append("")
 
     try:
-        # Handle string state - try parsing as Python literal first for better formatting
         if isinstance(state, str):
-            # Try to parse as Python literal (dict, list, etc.)
-            try:
-                parsed = ast.literal_eval(state)
-                # If successfully parsed, format as JSON for readability
-                if isinstance(parsed, dict | list):
-                    json_str = json.dumps(parsed, indent=2)
-                    content_lines, _ = truncate_content(json_str, options)
-                    lines.extend(content_lines)
-                    return lines
-            except (ValueError, SyntaxError):
-                pass
-
-            # Fallback to raw string
-            content_lines, _ = truncate_content(state, options)
-            lines.extend(content_lines)
+            lines.extend(_format_string_state(state, options))
             return lines
 
-        # Check if state is a messages array (list of dicts with role/content)
-        if isinstance(state, list) and len(state) > 0 and isinstance(state[0], dict):
-            first_item = state[0]
-            if "role" in first_item or "content" in first_item:
-                # Format as messages using shared formatter
-                lines.extend(format_messages_array(state, options))
-                return lines
-
-        # Handle tool_call_with_context structure
-        if isinstance(state, dict) and state.get("__type") == "tool_call_with_context":
-            # Extract nested state and tool_call
-            nested_state = state.get("state", {})
-            tool_call = state.get("tool_call", {})
-
-            # Format messages from nested state
-            if isinstance(nested_state, dict):
-                messages = nested_state.get("messages", [])
-                if isinstance(messages, list) and len(messages) > 0:
-                    lines.extend(format_messages_array(messages, options))
-
-                # Show remaining steps if present
-                remaining_steps = nested_state.get("remaining_steps")
-                if remaining_steps is not None:
-                    lines.append("")
-                    lines.append(f"Remaining steps: {remaining_steps}")
-
-            # Format tool call
-            if isinstance(tool_call, dict) and tool_call:
-                lines.append("")
-                lines.append("Tool Call:")
-                tool_name = tool_call.get("name", "unknown")
-                tool_args = tool_call.get("args", {})
-                lines.append(f"  {format_single_tool_call(tool_name, tool_args)}")
-
-            return lines
-
-        # Check if state is a dict containing a messages array
-        if isinstance(state, dict) and "messages" in state:
-            messages = state.get("messages")
-            if isinstance(messages, list) and len(messages) > 0:
-                # Format the messages array using shared formatter
-                lines.extend(format_messages_array(messages, options))
-                return lines
-
-        # Handle tool result format (common pattern: {type: "tool", name, content, status})
-        if isinstance(state, dict) and state.get("type") == "tool":
-            tool_name = state.get("name")
-            status = state.get("status")
-            content = state.get("content", "")
-
-            # Format as tool result with key info up front
-            header_parts = ["[TOOL RESULT]"]
-            if tool_name:
-                header_parts.append(tool_name)
-            if status:
-                header_parts.append(f"({status})")
-            lines.append(" ".join(header_parts))
-
-            if content:
-                lines.append("")
-                content_lines, _ = truncate_content(str(content), options)
+        if isinstance(state, list):
+            content_lines = _format_messages_array_state(state, options)
+            if content_lines is not None:
                 lines.extend(content_lines)
+                return lines
+            lines.extend(_format_generic_json(state, options))
             return lines
 
-        # Handle generic object state - dump as JSON
-        if isinstance(state, dict) or isinstance(state, list):
-            json_str = json.dumps(state, indent=2)
-            content_lines, _ = truncate_content(json_str, options)
-            lines.extend(content_lines)
+        if isinstance(state, dict):
+            content_lines = _format_tool_call_with_context(state, options)
+            if content_lines is not None:
+                lines.extend(content_lines)
+                return lines
+
+            content_lines = _format_dict_with_messages(state, options)
+            if content_lines is not None:
+                lines.extend(content_lines)
+                return lines
+
+            content_lines = _format_tool_result(state, options)
+            if content_lines is not None:
+                lines.extend(content_lines)
+                return lines
+
+            lines.extend(_format_generic_json(state, options))
             return lines
 
-        # Fallback for other types
         lines.append(str(state))
         return lines
     except Exception:
-        # Safe fallback if JSON.dumps fails (circular refs, etc.)
         lines.append(f"[UNABLE_TO_PARSE: {type(state).__name__}]")
         return lines
 
