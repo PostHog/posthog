@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
-from ee.hogai.graph.agent_modes.factory import AgentDefinition
+from ee.hogai.graph.agent_modes.factory import AgentModeDefinition
 from ee.hogai.graph.agent_modes.nodes import AgentToolkit
 from ee.hogai.tools import ExecuteSQLTool
 
@@ -19,7 +19,7 @@ class SQLAgentToolkit(AgentToolkit):
         ]
 
 
-sql_agent = AgentDefinition(
+sql_agent = AgentModeDefinition(
     mode=AgentMode.SQL,
     mode_description="Specialized mode capable of generating and executing SQL queries.",
     toolkit_class=SQLAgentToolkit,

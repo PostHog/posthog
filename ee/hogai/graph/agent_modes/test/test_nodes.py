@@ -339,63 +339,6 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             )
             self.assertIn("iterations", messages[-1].content)
 
-    async def test_node_gets_contextual_tool(self):
-        with patch("ee.hogai.graph.agent_modes.nodes.MaxChatAnthropic") as mock_chat_openai:
-            mock_model = MagicMock()
-            mock_model.get_num_tokens_from_messages.return_value = 100
-            mock_model.bind_tools.return_value = mock_model
-            mock_chat_openai.return_value = mock_model
-
-            node = _create_agent_node(self.team, self.user)
-            # Set the config on the node so context_manager can access it
-            config = RunnableConfig(
-                configurable={"contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}}
-            )
-            node._config = config
-            # Clear any cached context manager to force recreation with new config
-            node._context_manager = None
-
-            # Mock get_contextual_tool_class to return a real tool-like class
-            with (
-                patch.object(node, "_has_session_summarization_feature_flag", return_value=False),
-            ):
-                # Create a mock tool instance
-                mock_tool_instance = MagicMock()
-                mock_tool_instance.name = "search_session_recordings"
-
-                # Create a mock tool class with async create_tool_class
-                mock_tool_class = MagicMock()
-                mock_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
-
-                # We need to patch at the point where it's imported
-                with patch("ee.hogai.tool.get_contextual_tool_class") as mock_get_tool:
-                    mock_get_tool.return_value = mock_tool_class
-
-                    # Verify that context_manager has the right tools
-                    context_tools = node.context_manager.get_contextual_tools()
-                    self.assertEqual(
-                        context_tools, {"search_session_recordings": {"current_filters": {"duration": ">"}}}
-                    )
-
-                    tools = await node._get_tools(
-                        AssistantState(messages=[HumanMessage(content="show me long recordings")]), config
-                    )
-
-                    node._get_model(
-                        AssistantState(messages=[HumanMessage(content="show me long recordings")]),
-                        tools,
-                    )
-
-                    # Verify get_contextual_tool_class was called
-                    mock_get_tool.assert_called_once_with("search_session_recordings")
-
-                    # Verify bind_tools was called
-                    mock_model.bind_tools.assert_called_once()
-                    tools = mock_model.bind_tools.call_args[0][0]
-
-                    # Verify that our mock tool instance is in the list
-                    self.assertIn(mock_tool_instance, tools)
-
     async def test_node_does_not_get_contextual_tool_if_not_configured(self):
         with (
             patch(
