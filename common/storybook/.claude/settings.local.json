@@ -1,0 +1,12 @@
+{
+    "permissions": {
+        "allow": [
+            "Read(//Users/joshua/dev/posthog/frontend/src/scenes/session-recordings/playlist/**)",
+            "Read(//Users/joshua/dev/posthog/frontend/src/scenes/session-recordings/**)",
+            "Read(//Users/joshua/dev/posthog/frontend/src/**)",
+            "Read(//Users/joshua/dev/posthog/**)"
+        ],
+        "deny": [],
+        "ask": []
+    }
+}

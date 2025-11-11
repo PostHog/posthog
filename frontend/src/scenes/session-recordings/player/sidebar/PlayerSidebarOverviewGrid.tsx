@@ -8,7 +8,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator, RecordingUniversalFilters } from '~/types'
 
 import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
 import { sessionRecordingsPlaylistLogic } from '../../playlist/sessionRecordingsPlaylistLogic'
@@ -19,7 +19,8 @@ import { PlayerSidebarEditPinnedPropertiesPopover } from './PlayerSidebarEditPin
 export function handleFilterByProperty(
     propertyKey: string,
     propertyValue: string | undefined,
-    setFilters: (filters: any) => void
+    filters: RecordingUniversalFilters,
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 ): void {
     // Validate property value
     if (propertyValue === undefined || propertyValue === null) {
@@ -32,7 +33,7 @@ export function handleFilterByProperty(
         ['$browser', '$os', '$device_type', '$initial_device_type'].includes(propertyKey) ||
         !propertyKey.startsWith('$')
 
-    const filterType = isPersonProperty ? PropertyFilterType.Person : PropertyFilterType.Event
+    const filterType = isPersonProperty ? PropertyFilterType.Person : PropertyFilterType.Session
 
     // Create property filter object
     const filter = {
@@ -42,18 +43,30 @@ export function handleFilterByProperty(
         operator: PropertyOperator.Exact,
     }
 
-    // Apply filter
-    if (isPersonProperty) {
-        setFilters({ person_properties: [filter] })
-    } else {
-        setFilters({ session_properties: [filter] })
+    // Clone the current filter group structure and add to the first nested group
+    const currentGroup = filters.filter_group
+    const newGroup = {
+        ...currentGroup,
+        values: currentGroup.values.map((nestedGroup, index) => {
+            // Add to the first nested group (index 0)
+            if (index === 0 && 'values' in nestedGroup) {
+                return {
+                    ...nestedGroup,
+                    values: [...nestedGroup.values, filter],
+                }
+            }
+            return nestedGroup
+        }),
     }
+
+    setFilters({ filter_group: newGroup })
 }
 
 export function PlayerSidebarOverviewGrid(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { displayOverviewItems, loading, isPropertyPopoverOpen } = useValues(playerMetaLogic(logicProps))
     const { setIsPropertyPopoverOpen } = useActions(playerMetaLogic(logicProps))
+    const { filters } = useValues(sessionRecordingsPlaylistLogic)
     const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
 
     return (
@@ -93,7 +106,8 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                                     showFilter={item.type === 'property' && item.value !== undefined}
                                     onFilterClick={
                                         item.type === 'property' && item.value !== undefined
-                                            ? () => handleFilterByProperty(item.property, item.value, setFilters)
+                                            ? () =>
+                                                  handleFilterByProperty(item.property, item.value, filters, setFilters)
                                             : undefined
                                     }
                                 >
