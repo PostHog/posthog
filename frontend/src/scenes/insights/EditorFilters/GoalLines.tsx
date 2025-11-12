@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEye, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { IconEyeHidden } from 'lib/lemon-ui/icons'
@@ -20,7 +20,7 @@ export function GoalLines({ insightProps }: GoalLinesProps): JSX.Element {
 
     return (
         <div className="mt-1 mb-2">
-            {goalLines.map(({ label, value = 0, displayLabel = true }, goalLineIndex) => (
+            {goalLines.map(({ label, value = 0, displayLabel = true, position }, goalLineIndex) => (
                 <div className="flex flex-1 gap-1 mb-1" key={`${goalLineIndex}`}>
                     <SeriesLetter className="self-center" hasBreakdown={false} seriesIndex={goalLineIndex} />
                     <LemonInput
@@ -48,11 +48,21 @@ export function GoalLines({ insightProps }: GoalLinesProps): JSX.Element {
                         inputMode="numeric"
                         onChange={(value) => updateGoalLine(goalLineIndex, 'value', parseInt(value))}
                     />
+                    <LemonSegmentedButton
+                        value={position ?? 'end'}
+                        onChange={(value) => updateGoalLine(goalLineIndex, 'position', value as 'start' | 'end')}
+                        options={[
+                            { value: 'start', label: 'Start' },
+                            { value: 'end', label: 'End' },
+                        ]}
+                        size="small"
+                        data-attr="goal-line-position-selector"
+                    />
                     <LemonButton
                         key="delete"
                         icon={<IconTrash />}
                         status="danger"
-                        title="Delete Goal Line"
+                        title="Delete goal line"
                         noPadding
                         onClick={() => removeGoalLine(goalLineIndex)}
                     />

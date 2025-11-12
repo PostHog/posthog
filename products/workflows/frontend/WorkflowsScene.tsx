@@ -142,7 +142,7 @@ export function WorkflowsScene(): JSX.Element {
             key: 'workflows',
             content: (
                 <>
-                    <p>Create automated workflows workflows triggered by events</p>
+                    <p>Create and manage your workflows</p>
                     <WorkflowsTable />
                 </>
             ),

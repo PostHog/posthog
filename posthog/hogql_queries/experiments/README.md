@@ -103,3 +103,49 @@ We don't care about breakdown values so there will only be one element in the ar
 filter the array first to only keep the element if the funnel was completed,
 i.e `step_reached >= num_steps - 1` (`step_reached` is 0-indexed).
 Finally, if the list is not empty (`length > 0`), we return 1, otherwise 0.
+
+## Parameter configurability
+
+Experiments support configurable statistical parameters through the `stats_config` field. This allows users to customize the behavior of both Bayesian and Frequentist statistical methods.
+
+### Configuration structure
+
+The `stats_config` field is a JSON object with method-specific keys:
+
+```json
+{
+  "bayesian": {
+    "ci_level": 0.95,
+    "difference_type": "RELATIVE",
+    "prior_type": "RELATIVE"
+  },
+  "frequentist": {
+    "alpha": 0.05,
+    "difference_type": "RELATIVE"
+  }
+}
+```
+
+### Bayesian parameters
+
+- **`ci_level`** (float, default: 0.95): Credible interval level, must be between 0 and 1
+- **`difference_type`** (string, default: "RELATIVE"): Type of difference calculation
+  - `"RELATIVE"`: Percentage change from baseline
+  - `"ABSOLUTE"`: Absolute difference from baseline
+- **`prior_type`** (string, default: "RELATIVE"): Type of prior to use
+  - `"RELATIVE"`: Prior relative to baseline
+  - `"ABSOLUTE"`: Absolute prior
+
+### Frequentist parameters
+
+- **`alpha`** (float, default: 0.05): Significance level, must be between 0 and 1
+- **`difference_type`** (string, default: "RELATIVE"): Type of difference calculation
+  - `"RELATIVE"`: Percentage change from baseline
+  - `"ABSOLUTE"`: Absolute difference from baseline
+
+### Validation and defaults
+
+- Invalid numeric values (out of range or non-numeric) fall back to defaults
+- Invalid enum values (typos or wrong types) fall back to defaults
+- Missing parameters use defaults
+- `null` or empty config uses all defaults

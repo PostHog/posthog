@@ -35,6 +35,7 @@ export const ApiEventDefinitionSchema = z.object({
     tags: z.array(z.string().nullish()).nullish(),
 })
 
+// oxlint-disable-next-line @typescript-eslint/explicit-function-return-type
 export const ApiListResponseSchema = <T extends z.ZodType>(dataSchema: T) =>
     z.object({
         count: z.number().nullish(),

@@ -28,7 +28,6 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
 
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { openNotebook } from '~/models/notebooksModel'
 import {
     AssistantEventType,
@@ -808,14 +807,6 @@ async function onEventImplementation(
         } else if (isAssistantToolCallMessage(parsedResponse)) {
             for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
                 await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
-                // The `navigate` tool is the only one doing client-side formatting currently
-                if (toolName === 'navigate') {
-                    parsedResponse.content = parsedResponse.content.replace(
-                        toolResult.page_key,
-                        breadcrumbsLogic.values.sceneBreadcrumbsDisplayString
-                    )
-                    actions.setForAnotherAgenticIteration(true) // Let's iterate after applying the navigate tool
-                }
             }
             actions.addMessage({
                 ...parsedResponse,
