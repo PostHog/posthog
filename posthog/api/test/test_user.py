@@ -1,5 +1,6 @@
 import uuid
 import datetime
+from datetime import timedelta
 from typing import cast
 from urllib.parse import quote, unquote
 
@@ -8,9 +9,11 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
+from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -19,8 +22,10 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
+from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
@@ -1477,6 +1482,16 @@ class TestEmailVerificationAPI(APIBaseTest):
 
         # assert events were captured
         mock_capture.assert_any_call(
+            event="user logged in",
+            distinct_id=self.user.distinct_id,
+            properties={"social_provider": ""},
+            groups={
+                "instance": ANY,
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.uuid),
+            },
+        )
+        mock_capture.assert_any_call(
             event="user verified email",
             distinct_id=self.user.distinct_id,
             properties={"$set": ANY},
@@ -1489,7 +1504,7 @@ class TestEmailVerificationAPI(APIBaseTest):
                 "organization": str(self.team.organization_id),
             },
         )
-        self.assertEqual(mock_capture.call_count, 2)
+        self.assertEqual(mock_capture.call_count, 3)
 
     def test_cant_verify_if_email_is_not_configured(self):
         set_instance_setting("EMAIL_HOST", "")
@@ -1593,7 +1608,7 @@ class TestEmailVerificationAPI(APIBaseTest):
             },
         )
 
-    def test_email_verification_does_not_log_in_user(self):
+    def test_email_verification_logs_in_user(self):
         token = email_verification_token_generator.make_token(self.user)
 
         self.client.logout()
@@ -1604,7 +1619,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         # NOTE: Posting sets the session user id but doesn't log in the test client hence we just check the session id
         self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         session_user_id = self.client.session.get("_auth_user_id")
-        assert session_user_id is None
+        assert session_user_id == str(self.user.id)
 
     def test_email_verification_logs_in_correctuser(self):
         other_token = email_verification_token_generator.make_token(self.other_user)
@@ -1614,8 +1629,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         # NOTE: The user id in path should basically be ignored
         self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": other_token})
         session_user_id = self.client.session.get("_auth_user_id")
-        # user should still be logged out
-        assert session_user_id is None
+        assert session_user_id == str(self.other_user.id)
 
     def test_email_verification_does_not_apply_to_current_logged_in_user(self):
         other_token = email_verification_token_generator.make_token(self.other_user)
@@ -1625,7 +1639,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.other_user.refresh_from_db()
         # Should now be logged in as other user
-        assert self.client.session.get("_auth_user_id") is None
+        assert self.client.session.get("_auth_user_id") == str(self.other_user.id)
         assert not self.user.is_email_verified
         assert self.other_user.is_email_verified
 
@@ -1809,3 +1823,35 @@ class TestUserTwoFactor(APIBaseTest):
 
         # Verify email was triggered
         mock_send_email.delay.assert_called_once_with(self.user.id)
+
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+    )
+    def test_team_scoped_oauth_token_with_user_read_can_access_me_endpoint(self):
+        oauth_app = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_id="test_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="test_oauth_token",
+            scope="user:read project:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+
+        response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["uuid"], str(self.user.uuid))

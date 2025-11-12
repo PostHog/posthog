@@ -1,19 +1,11 @@
+use crate::parsing::u64_or_string;
 use crate::unordered_trends::AggregateFunnelRowUnordered;
 use crate::PropVal;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::str::FromStr;
 use uuid::Uuid;
-
-fn deserialize_number_from_string<'de, D>(deserializer: D) -> Result<u64, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    u64::from_str(&s).map_err(serde::de::Error::custom)
-}
 
 #[derive(Clone, Deserialize)]
 pub struct EnteredTimestamp {
@@ -24,7 +16,7 @@ pub struct EnteredTimestamp {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Event {
     pub timestamp: f64,
-    #[serde(deserialize_with = "deserialize_number_from_string")]
+    #[serde(deserialize_with = "u64_or_string")]
     pub interval_start: u64,
     pub uuid: Uuid,
     pub breakdown: PropVal,
@@ -36,6 +28,7 @@ pub struct Args {
     pub from_step: usize,
     pub to_step: usize,
     pub num_steps: usize,
+    #[serde(deserialize_with = "u64_or_string")]
     pub conversion_window_limit: u64, // In seconds
     pub breakdown_attribution_type: String,
     pub funnel_order_type: String,

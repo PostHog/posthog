@@ -18,8 +18,7 @@ export async function processPersonsStep(
     team: Team,
     timestamp: DateTime,
     processPerson: boolean,
-    personStoreBatch: PersonsStoreForBatch,
-    forceDisablePersonProcessing: boolean = false
+    personStoreBatch: PersonsStoreForBatch
 ): Promise<PipelineResult<[PluginEvent, Person, Promise<void>]>> {
     const context = new PersonContext(
         event,
@@ -36,8 +35,7 @@ export async function processPersonsStep(
     const processor = new PersonEventProcessor(
         context,
         new PersonPropertyService(context),
-        new PersonMergeService(context),
-        forceDisablePersonProcessing
+        new PersonMergeService(context)
     )
     const [result, kafkaAck] = await processor.processEvent()
 

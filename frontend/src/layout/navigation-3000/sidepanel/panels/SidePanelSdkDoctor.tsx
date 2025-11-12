@@ -149,7 +149,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
 ]
 
 export function SidePanelSdkDoctor(): JSX.Element | null {
-    const { sdkVersionsMap, sdkVersionsLoading, teamSdkVersionsLoading, outdatedSdkCount, hasErrors, snoozedUntil } =
+    const { sdkVersionsMap, sdkVersionsLoading, teamSdkVersionsLoading, needsUpdatingCount, hasErrors, snoozedUntil } =
         useValues(sidePanelSdkDoctorLogic)
     const { isDev } = useValues(preflightLogic)
 
@@ -160,7 +160,7 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
 
     useOnMountEffect(() => {
-        posthog.capture('sdk doctor loaded', { outdatedSdkCount })
+        posthog.capture('sdk doctor loaded', { needsUpdatingCount })
     })
 
     const scanEvents = (): void => {
@@ -248,7 +248,7 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                         No SDK information found. Are you sure you have our SDK installed? You can scan events to get
                         started.
                     </div>
-                ) : outdatedSdkCount === 0 ? (
+                ) : needsUpdatingCount === 0 ? (
                     <section className="mb-2">
                         <h3>SDK health is good</h3>
                         <LemonBanner type="success" hideIcon={false}>
@@ -269,7 +269,7 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                             }}
                         >
                             <p className="font-semibold">
-                                An outdated SDK means you're missing out on bug fixes and enhacements.
+                                An outdated SDK means you're missing out on bug fixes and enhancements.
                             </p>
                             <p className="text-sm mt-1">Check the links below to get caught up.</p>
                         </LemonBanner>
@@ -285,14 +285,18 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
 }
 
 export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Element => {
-    const { sdkHealth, outdatedSdkCount } = useValues(sidePanelSdkDoctorLogic)
+    const { needsAttention, needsUpdatingCount, sdkHealth } = useValues(sidePanelSdkDoctorLogic)
 
-    const title = outdatedSdkCount > 0 ? 'Outdated SDKs found' : 'SDK health is good'
+    const title = needsAttention
+        ? 'Needs attention'
+        : needsUpdatingCount > 0
+          ? 'Outdated SDKs found'
+          : 'SDK health is good'
 
     return (
         <Tooltip title={title} placement="left">
             <span {...props}>
-                <IconWithBadge content={outdatedSdkCount > 0 ? '!' : '✓'} status={sdkHealth}>
+                <IconWithBadge content={needsUpdatingCount > 0 ? '!' : '✓'} status={sdkHealth}>
                     <IconStethoscope />
                 </IconWithBadge>
             </span>
@@ -311,19 +315,27 @@ function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
         <div className="flex flex-col mb-4 p-2">
             <div className="flex flex-row justify-between items-center gap-2 mb-4">
                 <div>
-                    <div className="flex flex-row gap-2">
+                    <div className="flex flex-row items-center gap-2">
                         <h3 className="mb-0">{sdkName}</h3>
-                        <span>
-                            <LemonTag type={sdk.isOutdated ? 'warning' : 'success'}>
+                        <span className="inline-flex gap-1">
+                            <LemonTag type={sdk.isOutdated ? 'danger' : 'success'}>
                                 {sdk.isOutdated ? 'Outdated' : 'Up to date'}
                             </LemonTag>
-                        </span>
 
-                        {sdk.isOld && (
-                            <LemonTag type="warning" className="shrink-0">
-                                Old
-                            </LemonTag>
-                        )}
+                            {sdk.isOld && (
+                                <Tooltip
+                                    title={
+                                        sdk.allReleases[0]!.daysSinceRelease
+                                            ? `This SDK is ${Math.floor(sdk.allReleases[0]!.daysSinceRelease / 7)} weeks old`
+                                            : 'This SDK is old and we suggest upgrading'
+                                    }
+                                    delayMs={0}
+                                    placement="right"
+                                >
+                                    <LemonTag type="warning">Old</LemonTag>
+                                </Tooltip>
+                            )}
+                        </span>
                     </div>
                     <small>Current version: {sdk.currentVersion}</small>
                 </div>

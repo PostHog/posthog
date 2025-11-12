@@ -71,10 +71,10 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
         # Sort 'changes' lists for order-insensitive comparison
         for item in activity:
-            if "detail" in item and "changes" in item["detail"]:
+            if "detail" in item and item["detail"].get("changes") is not None:
                 item["detail"]["changes"].sort(key=lambda x: x.get("field", ""))
         for item in expected:
-            if "detail" in item and "changes" in item["detail"]:
+            if "detail" in item and item["detail"].get("changes") is not None:
                 item["detail"]["changes"].sort(key=lambda x: x.get("field", ""))
 
         assert activity == expected
@@ -1413,7 +1413,7 @@ email@example.org,
                     "activity": "created",
                     "scope": "Cohort",
                     "item_id": str(cohort.pk),
-                    "detail": {"changes": [], "trigger": None, "name": "whatever", "short_id": None, "type": None},
+                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
                     "created_at": mock.ANY,
                 }
             ],
@@ -1475,9 +1475,52 @@ email@example.org,
                     "activity": "created",
                     "scope": "Cohort",
                     "item_id": str(cohort.pk),
-                    "detail": {"changes": [], "trigger": None, "name": "whatever", "short_id": None, "type": None},
+                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
                     "created_at": mock.ANY,
                 },
+            ],
+        )
+
+    def test_create_static_cohort_activity_log(self):
+        """
+        Test that creating a static cohort creates an activity log entry that does not include 'changes' in the detail.
+        Previously, 'changes' included all the users added to the cohort, which could be very large and cause exceptions
+        while propagating the activity log entry.
+        """
+
+        num_people = 3
+        person_uuids = []
+        for i in range(num_people):
+            person = Person.objects.create(
+                team=self.team, distinct_ids=[f"user_{i}"], properties={"email": f"user{i}@example.com"}
+            )
+            person_uuids.append(str(person.uuid))
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "my static cohort", "is_static": True, "_create_static_person_ids": person_uuids[:num_people]},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort_id = response.json()["id"]
+
+        self.assert_cohort_activity(
+            cohort_id=cohort_id,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "created",
+                    "scope": "Cohort",
+                    "item_id": str(cohort_id),
+                    "detail": {
+                        "trigger": None,
+                        "changes": None,
+                        "name": "my static cohort",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": mock.ANY,
+                }
             ],
         )
 
@@ -2489,6 +2532,37 @@ email@example.org,
         self.assertEqual(new_cohort.name, "cohort A (static copy)")
         self.assertEqual(new_cohort.is_calculating, False)
         self.assertEqual(new_cohort.errors_calculating, 0)
+        self.assertEqual(new_cohort.count, 2)
+
+    def test_duplicating_static_cohort_as_static(self):
+        p1 = _create_person(distinct_ids=["p1"], team_id=self.team.pk)
+        p2 = _create_person(distinct_ids=["p2"], team_id=self.team.pk)
+
+        flush_persons_and_events()
+
+        # Create static cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort A",
+            is_static=True,
+        )
+        cohort.insert_users_list_by_uuid([str(p1.uuid), str(p2.uuid)], team_id=self.team.pk)
+
+        # Verify original cohort has people
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.count, 2, "Original cohort should have 2 people")
+
+        # Duplicate static cohort as static
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}/duplicate_as_static_cohort")
+        self.assertEqual(response.status_code, 200, response.content)
+
+        new_cohort_id = response.json()["id"]
+        new_cohort = Cohort.objects.get(pk=new_cohort_id)
+
+        # Verify the duplicated cohort
+        self.assertEqual(new_cohort.name, "static cohort A (static copy)")
+        self.assertEqual(new_cohort.is_static, True)
+        new_cohort.refresh_from_db()
         self.assertEqual(new_cohort.count, 2)
 
     def test_duplicating_dynamic_cohort_as_dynamic(self):
@@ -3580,9 +3654,9 @@ class TestCohortTypeIntegration(APIBaseTest):
 
         self.assertEqual(response.status_code, 201)
         cohort = Cohort.objects.get(id=response.data["id"])
-        # Should be None since no explicit type was provided
-        self.assertIsNone(cohort.cohort_type)
-        self.assertIsNone(response.data["cohort_type"])
+        # cohort_type is auto-computed for realtime-capable filters
+        self.assertEqual(cohort.cohort_type, "realtime")
+        self.assertEqual(response.data["cohort_type"], "realtime")
 
     def test_api_response_includes_cohort_type(self):
         """API responses should include the cohort_type field"""
@@ -3659,8 +3733,9 @@ class TestCohortTypeIntegration(APIBaseTest):
 
         self.assertEqual(response.status_code, 201)
         cohort = Cohort.objects.get(id=response.data["id"])
-        self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)
-        self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
+        # cohort_type is auto-computed and stored as 'realtime'
+        self.assertEqual(cohort.cohort_type, "realtime")
+        self.assertEqual(response.data["cohort_type"], "realtime")
 
     def test_explicit_cohort_type_validation_failure(self):
         """Should reject mismatched explicit cohort types"""
@@ -3752,7 +3827,8 @@ class TestCohortTypeIntegration(APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
         cohort.refresh_from_db()
-        self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)
+        # cohort_type is auto-computed and stored as 'realtime'
+        self.assertEqual(cohort.cohort_type, "realtime")
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
     def test_static_cohort_csv_upload_with_email_column_only(self, patch_calculate_cohort_from_list):

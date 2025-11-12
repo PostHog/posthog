@@ -879,12 +879,6 @@ class ConversionGoalProcessor:
             group_by=[ast.Field(chain=[field]) for field in self.config.group_by_fields],
         )
 
-    def generate_cte_query_expr(self, additional_conditions: list[ast.Expr]) -> ast.Expr:
-        """Generate CTE query expression"""
-        cte_name = self.get_cte_name()
-        select_query = self.generate_cte_query(additional_conditions)
-        return ast.Alias(alias=cte_name, expr=select_query)
-
     def generate_join_clause(self, use_full_outer_join: bool = False) -> ast.JoinExpr:
         """Generate JOIN clause for this conversion goal"""
         cte_name = self.get_cte_name()

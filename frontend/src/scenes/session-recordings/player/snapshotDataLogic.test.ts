@@ -73,7 +73,7 @@ describe('snapshotDataLogic', () => {
                 .toFinishAllListeners()
 
             const snapshotsBySources = logic.values.snapshotsBySources
-            expect(Object.keys(snapshotsBySources).length).toBe(2)
+            expect(Object.keys(snapshotsBySources)).toEqual(['blob_v2-0', 'blob_v2-1', '_count'])
         })
 
         it('fetch metadata success and snapshots error', async () => {

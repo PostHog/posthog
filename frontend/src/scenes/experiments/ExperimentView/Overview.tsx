@@ -5,7 +5,6 @@ import {
     CachedExperimentTrendsQueryResponse,
     CachedLegacyExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
-import { ExperimentIdType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { getHighestProbabilityVariant, getIndexForVariant } from '../legacyExperimentCalculations'
@@ -13,13 +12,11 @@ import { VariantTag } from './components'
 
 export function WinningVariantText({
     result,
-    experimentId,
 }: {
     result:
         | CachedLegacyExperimentQueryResponse
         | CachedExperimentFunnelsQueryResponse
         | CachedExperimentTrendsQueryResponse
-    experimentId: ExperimentIdType
 }): JSX.Element {
     const { getInsightType, experiment } = useValues(experimentLogic)
 
@@ -30,7 +27,7 @@ export function WinningVariantText({
 
         return (
             <div className="items-center inline-flex flex-wrap">
-                <VariantTag experimentId={experimentId} variantKey={highestProbabilityVariant} />
+                <VariantTag variantKey={highestProbabilityVariant} />
                 <span>&nbsp;is winning with a&nbsp;</span>
                 <span className="font-semibold items-center">
                     {`${(probability[highestProbabilityVariant] * 100).toFixed(2)}% probability`}&nbsp;
@@ -71,7 +68,7 @@ export function SignificanceText({
 }
 
 export function Overview({ metricUuid }: { metricUuid: string }): JSX.Element {
-    const { experimentId, legacyPrimaryMetricsResults, experiment } = useValues(experimentLogic)
+    const { legacyPrimaryMetricsResults, experiment } = useValues(experimentLogic)
 
     // Find metric index by UUID
     const index = experiment.metrics.findIndex((m) => m.uuid === metricUuid)
@@ -83,7 +80,7 @@ export function Overview({ metricUuid }: { metricUuid: string }): JSX.Element {
     return (
         <div>
             <div className="items-center inline-flex flex-wrap">
-                <WinningVariantText result={result} experimentId={experimentId} />
+                <WinningVariantText result={result} />
                 <SignificanceText metricUuid={metricUuid} />
             </div>
         </div>

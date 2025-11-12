@@ -96,6 +96,9 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(
             recalculateFocusableElements: () => listboxRef.current?.recalculateFocusableElements(),
             focusFirstItem: () => listboxRef.current?.focusFirstItem(),
             getFocusableElementsCount: () => listboxRef.current?.getFocusableElementsCount() ?? 0,
+            focusItemByKey: (key: string) => listboxRef.current?.focusItemByKey(key) ?? false,
+            focusPrevious: (stepsBack?: number) => listboxRef.current?.focusPrevious(stepsBack) ?? false,
+            getFocusHistory: () => listboxRef.current?.getFocusHistory() ?? [],
         }))
 
         useEffect(() => {
@@ -242,11 +245,13 @@ export type ComboboxType = React.ForwardRefExoticComponent<ComboboxProps & React
     Empty: typeof Empty
     Content: typeof Content
     Item: typeof ListBox.Item
+    ListGroup: typeof ListBox.Group
 }
 ;(InnerCombobox as ComboboxType).Search = Search
 ;(InnerCombobox as ComboboxType).Group = Group
 ;(InnerCombobox as ComboboxType).Empty = Empty
 ;(InnerCombobox as ComboboxType).Content = Content
 ;(InnerCombobox as ComboboxType).Item = ListBox.Item
+;(InnerCombobox as ComboboxType).ListGroup = ListBox.Group
 
 export const Combobox = InnerCombobox as ComboboxType

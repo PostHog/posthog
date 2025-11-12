@@ -16,6 +16,8 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.query_runner import AR, QueryRunnerWithHogQLContext
@@ -23,9 +25,9 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.rbac.user_access_control import UserAccessControl
-from posthog.warehouse.models import ExternalDataSchema
-from posthog.warehouse.types import ExternalDataSourceType
 
+from products.data_warehouse.backend.models import ExternalDataSchema
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsBaseView,
     RevenueAnalyticsChargeView,
@@ -34,7 +36,10 @@ from products.revenue_analytics.backend.views import (
     RevenueAnalyticsRevenueItemView,
     RevenueAnalyticsSubscriptionView,
 )
-from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
+from products.revenue_analytics.backend.views.schemas import (
+    SCHEMAS as VIEW_SCHEMAS,
+    Schema as RevenueAnalyticsSchema,
+)
 
 # This is the placeholder that we use for the breakdown_by field when the breakdown is not present
 NO_BREAKDOWN_PLACEHOLDER = "<none>"
@@ -302,18 +307,73 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
 
         return initial_join
 
-    def revenue_subqueries(
-        self,
-        ViewKind: Optional[type[RevenueAnalyticsBaseView]] = None,
-        union: bool = False,
-    ) -> Iterable[RevenueAnalyticsBaseView]:
-        for view_name in self.database.get_views():
-            view = self.database.get_table(view_name)
-            if isinstance(view, RevenueAnalyticsBaseView):
-                if ViewKind is None:
-                    yield view
-                elif isinstance(view, ViewKind) and view.union_all == union:
-                    yield view
+    @staticmethod
+    def revenue_subqueries(schema: RevenueAnalyticsSchema, database: Database) -> Iterable[RevenueAnalyticsBaseView]:
+        for view_name in database.get_view_names():
+            if view_name.endswith(schema.source_suffix) or view_name.endswith(schema.events_suffix):
+                # Handle both the old way (`RevenueAnalyticsBaseView`) and the feature-flagged way (`SavedQuery` via managed viewsets)
+                # Once the `managed-viewsets` feature flag is fully rolled out we can remove the first check
+                # To be extra sure we aren't including user-defined queries we also assert they're managed by the Revenue Analytics managed viewset
+                table = database.get_table(view_name)
+                if isinstance(table, RevenueAnalyticsBaseView):
+                    yield table
+                elif (
+                    isinstance(table, SavedQuery)
+                    and table.metadata.get("managed_viewset_kind") == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+                ):
+                    yield RevenueAnalyticsQueryRunner.saved_query_to_revenue_analytics_base_view(table)
+
+    # This is pretty complex right now and it's doing a lot of string matching to determine the class
+    # This will become simpler once we don't need to support the old way anymore
+    @staticmethod
+    def saved_query_to_revenue_analytics_base_view(saved_query: SavedQuery) -> RevenueAnalyticsBaseView:
+        Klass: type[RevenueAnalyticsBaseView] | None = None
+        if saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE].source_suffix
+        ) or saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE].events_suffix
+        ):
+            Klass = RevenueAnalyticsChargeView
+        elif saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER].source_suffix
+        ) or saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER].events_suffix
+        ):
+            Klass = RevenueAnalyticsCustomerView
+        elif saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT].source_suffix
+        ) or saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT].events_suffix
+        ):
+            Klass = RevenueAnalyticsProductView
+        elif saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM].source_suffix
+        ) or saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM].events_suffix
+        ):
+            Klass = RevenueAnalyticsRevenueItemView
+        elif saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION].source_suffix
+        ) or saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION].events_suffix
+        ):
+            Klass = RevenueAnalyticsSubscriptionView
+        else:
+            raise ValueError(f"Saved query {saved_query.name} is not a revenue analytics view")
+
+        is_event_view = "revenue_analytics.events" in saved_query.name
+        return Klass(
+            id=saved_query.id,
+            query=saved_query.query,
+            name=saved_query.name,
+            fields=saved_query.fields,
+            metadata=saved_query.metadata,
+            # :KLUTCH: None of these properties below are great but it's all we can do to figure this one out for now
+            # We'll be able to come up with a better solution we don't need to support the old managed views anymore
+            prefix=".".join(saved_query.name.split(".")[:-1]),
+            source_id=None,  # Not used so just ignore it
+            event_name=saved_query.name.split(".")[2] if is_event_view else None,
+        )
 
     @cached_property
     def query_date_range(self):

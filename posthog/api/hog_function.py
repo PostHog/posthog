@@ -290,7 +290,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         encrypted_inputs = data.encrypted_inputs or {} if isinstance(data, HogFunction) else {}
         data = super().to_representation(data)
 
-        inputs_schema = data.get("inputs_schema", [])
+        inputs_schema = data.get("inputs_schema", []) or []
         inputs = data.get("inputs") or {}
 
         for schema in inputs_schema:
@@ -387,7 +387,11 @@ class HogFunctionFilterSet(FilterSet):
 
 
 class HogFunctionViewSet(
-    TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet
+    TeamAndOrgViewSetMixin,
+    LogEntryMixin,
+    AppMetricsMixin,
+    ForbidDestroyModel,
+    viewsets.ModelViewSet,
 ):
     scope_object = "hog_function"
     queryset = HogFunction.objects.all()

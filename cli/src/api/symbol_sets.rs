@@ -65,10 +65,7 @@ pub fn upload(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<()> {
         info!("Starting upload of batch {i}, {} symbol sets", batch.len());
         let start_response = start_upload(batch)?;
 
-        let id_map: HashMap<_, _> = batch
-            .into_iter()
-            .map(|u| (u.chunk_id.as_str(), u))
-            .collect();
+        let id_map: HashMap<_, _> = batch.iter().map(|u| (u.chunk_id.as_str(), u)).collect();
 
         info!(
             "Server returned {} upload keys ({} skipped as already present)",
@@ -99,16 +96,8 @@ pub fn upload(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<()> {
     Ok(())
 }
 
-fn start_upload<'a>(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartResponse> {
-    let base_url = format!(
-        "{}/api/environments/{}/error_tracking/symbol_sets",
-        context().token.get_host(),
-        context().token.env_id
-    );
+fn start_upload(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartResponse> {
     let client = &context().client;
-    let auth_token = &context().token.token;
-
-    let start_upload_url: String = format!("{}{}", base_url, "/bulk_start_upload");
 
     let request = BulkUploadStartRequest {
         symbol_sets: symbol_sets
@@ -118,19 +107,16 @@ fn start_upload<'a>(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartR
     };
 
     let res = client
-        .post(&start_upload_url)
-        .header("Authorization", format!("Bearer {auth_token}"))
-        .json(&request)
-        .send()
-        .context(format!("While starting upload to {start_upload_url}"))?;
-
-    let res = raise_for_err(res)?;
+        .send_post("error_tracking/symbol_sets/bulk_start_upload", |req| {
+            req.json(&request)
+        })
+        .context("Failed to start upload")?;
 
     Ok(res.json()?)
 }
 
 fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
-    let client = &context().client;
+    let client = &context().build_http_client()?;
     let mut last_err = None;
     let mut delay = std::time::Duration::from_millis(500);
     for attempt in 1..=3 {
@@ -151,14 +137,11 @@ fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
                 }
             }
             Result::Err(e) => {
-                last_err = Some(anyhow!("Failed to upload chunk: {}", e));
+                last_err = Some(anyhow!("Failed to upload chunk: {e:?}"));
             }
         }
         if attempt < 3 {
-            warn!(
-                "Upload attempt {} failed, retrying in {:?}...",
-                attempt, delay
-            );
+            warn!("Upload attempt {attempt} failed, retrying in {delay:?}...",);
             std::thread::sleep(delay);
             delay *= 2;
         }
@@ -167,26 +150,14 @@ fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
 }
 
 fn finish_upload(content_hashes: HashMap<String, String>) -> Result<()> {
-    let base_url = format!(
-        "{}/api/environments/{}/error_tracking/symbol_sets",
-        context().token.get_host(),
-        context().token.env_id
-    );
     let client = &context().client;
-    let auth_token = &context().token.token;
-
-    let finish_upload_url: String = format!("{}/{}", base_url, "bulk_finish_upload");
     let request = BulkUploadFinishRequest { content_hashes };
 
-    let res = client
-        .post(finish_upload_url)
-        .header("Authorization", format!("Bearer {auth_token}"))
-        .header("Content-Type", "application/json")
-        .json(&request)
-        .send()
-        .context(format!("While finishing upload to {base_url}"))?;
-
-    raise_for_err(res)?;
+    client
+        .send_post("error_tracking/symbol_sets/bulk_finish_upload", |req| {
+            req.json(&request)
+        })
+        .context("Failed to finish upload")?;
 
     Ok(())
 }

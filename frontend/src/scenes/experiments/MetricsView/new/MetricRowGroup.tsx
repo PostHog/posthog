@@ -293,7 +293,7 @@ export function MetricRowGroup({
                             visibility: tooltipState.isPositioned ? 'visible' : 'hidden',
                         }}
                     >
-                        {renderTooltipContent(experiment.id, tooltipState.variantResult, metric)}
+                        {renderTooltipContent(tooltipState.variantResult, metric)}
                     </div>,
                     document.body
                 )}
@@ -331,7 +331,7 @@ export function MetricRowGroup({
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    <VariantTag experimentId={experiment.id} variantKey={baselineResult.key} />
+                    <VariantTag variantKey={baselineResult.key} />
                 </td>
 
                 {/* Value */}
@@ -441,7 +441,7 @@ export function MetricRowGroup({
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
-                            <VariantTag experimentId={experiment.id} variantKey={variant.key} />
+                            <VariantTag variantKey={variant.key} />
                         </td>
 
                         {/* Value */}

@@ -12,4 +12,10 @@ export default defineConfig({
     clean: true,
     splitting: false,
     treeshake: true,
+    esbuildOptions(options) {
+        options.loader = {
+            ...options.loader,
+            '.md': 'text',
+        }
+    },
 })

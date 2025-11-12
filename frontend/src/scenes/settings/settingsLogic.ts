@@ -1,5 +1,5 @@
 import FuseClass from 'fuse.js'
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -127,6 +127,17 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
     })),
+
+    listeners({
+        selectSection: () => {
+            setTimeout(() => {
+                const mainElement = document.querySelector('main')
+                if (mainElement) {
+                    mainElement.scrollTo({ top: 0, behavior: 'smooth' })
+                }
+            }, 100)
+        },
+    }),
 
     selectors({
         levels: [

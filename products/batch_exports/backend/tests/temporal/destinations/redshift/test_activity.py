@@ -7,10 +7,6 @@ from psycopg import sql
 
 from posthog.batch_exports.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.persons import (
-    generate_test_person_distinct_id2_in_clickhouse,
-    generate_test_persons_in_clickhouse,
-)
 
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     ConnectionParameters,
@@ -28,6 +24,10 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
+)
+from products.batch_exports.backend.tests.temporal.utils.persons import (
+    generate_test_person_distinct_id2_in_clickhouse,
+    generate_test_persons_in_clickhouse,
 )
 
 pytestmark = [
@@ -56,6 +56,7 @@ async def _run_activity(
     expected_fields=None,
     expect_duplicates: bool = False,
     use_internal_stage: bool = False,
+    extra_fields=None,
 ):
     """Helper function to run Redshift main activity and assert records are exported.
 
@@ -133,6 +134,7 @@ async def _run_activity(
         properties_data_type=properties_data_type,
         sort_key=sort_key,
         expected_fields=expected_fields,
+        extra_fields=extra_fields,
     )
 
     return result
@@ -544,4 +546,83 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
         sort_key="person_id",
         use_internal_stage=use_internal_stage,
         expected_fields=expected_fields,
+    )
+
+
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("properties_data_type", ["super"], indirect=True)
+@pytest.mark.parametrize("model", [TEST_MODELS[1]])
+async def test_insert_into_redshift_activity_inserts_data_with_extra_columns(
+    clickhouse_client,
+    activity_environment,
+    psycopg_connection,
+    redshift_config,
+    exclude_events,
+    model: BatchExportModel,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    properties_data_type,
+    ateam,
+    use_internal_stage,
+):
+    """Test data is inserted even in the presence of additional columns.
+
+    Redshift's "MERGE" command can run in a simplified mode which performs better and
+    cleans up duplicates, but this requires a matching schema. We should assert we don't
+    fail when we can't use this mode.
+
+    This test only runs for `use_internal_stage=True` as we don't merge the events model
+    with the old activity. Once we clean up the old activity, this disclaimer, together
+    with the `use_internal_stage` parameter, can be deleted.
+    """
+    if properties_data_type == "super" and MISSING_REQUIRED_ENV_VARS:
+        pytest.skip("SUPER type is only available in Redshift")
+
+    if not use_internal_stage:
+        pytest.skip("MERGE of events only happens in internal stage activity")
+
+    batch_export_model = model
+    table_name = f"test_insert_activity_extra_column_table__{ateam.pk}"
+    sort_key = "event"
+
+    await _run_activity(
+        activity_environment,
+        redshift_connection=psycopg_connection,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_name=table_name,
+        properties_data_type=properties_data_type,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        batch_export_model=batch_export_model,
+        redshift_config=redshift_config,
+        sort_key=sort_key,
+        use_internal_stage=use_internal_stage,
+    )
+
+    async with psycopg_connection.transaction():
+        async with psycopg_connection.cursor() as cursor:
+            await cursor.execute(
+                sql.SQL("ALTER TABLE {} ADD COLUMN test INT DEFAULT NULL;").format(
+                    sql.Identifier(redshift_config["schema"], table_name)
+                )
+            )
+
+    await _run_activity(
+        activity_environment,
+        redshift_connection=psycopg_connection,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_name=table_name,
+        properties_data_type=properties_data_type,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        batch_export_model=batch_export_model,
+        redshift_config=redshift_config,
+        sort_key=sort_key,
+        use_internal_stage=use_internal_stage,
+        extra_fields=["test"],
     )

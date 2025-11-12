@@ -43,9 +43,6 @@ pub enum QueryCommand {
 }
 
 pub fn query_command(query: &QueryCommand) -> Result<(), Error> {
-    let creds = context().token.clone();
-    let host = creds.get_host();
-
     match query {
         QueryCommand::Editor {
             no_print,
@@ -54,13 +51,12 @@ pub fn query_command(query: &QueryCommand) -> Result<(), Error> {
         } => {
             // Given this is an interactive command, we're happy enough to not join the capture handle
             context().capture_command_invoked("query_editor");
-            let res = start_query_editor(&host, creds.clone(), *debug)?;
+            let res = start_query_editor(*debug)?;
             if !no_print {
                 println!("Final query: {res}");
             }
             if *execute {
-                let query_endpoint = format!("{}/api/environments/{}/query", host, creds.env_id);
-                let res = run_query(&query_endpoint, &creds.token, &res)??;
+                let res = run_query(&res)??;
                 for result in res.results {
                     println!("{}", serde_json::to_string(&result)?);
                 }
@@ -69,8 +65,7 @@ pub fn query_command(query: &QueryCommand) -> Result<(), Error> {
         QueryCommand::Run { query, debug } => {
             // Given this is an interactive command, we're happy enough to not join the capture handle
             context().capture_command_invoked("query_run");
-            let query_endpoint = format!("{}/api/environments/{}/query", host, creds.env_id);
-            let res = run_query(&query_endpoint, &creds.token, query)??;
+            let res = run_query(query)??;
             if *debug {
                 println!("{}", serde_json::to_string_pretty(&res)?);
             } else {
@@ -81,8 +76,7 @@ pub fn query_command(query: &QueryCommand) -> Result<(), Error> {
         }
         QueryCommand::Check { query, raw } => {
             context().capture_command_invoked("query_check");
-            let query_endpoint = format!("{}/api/environments/{}/query", host, creds.env_id);
-            let res = check_query(&query_endpoint, &creds.token, query)?;
+            let res = check_query(query)?;
             if *raw {
                 println!("{}", serde_json::to_string_pretty(&res)?);
             } else {

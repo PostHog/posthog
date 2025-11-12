@@ -243,7 +243,6 @@
         "$sent_at": "2025-04-04T23:42:40.262Z",
         "$feature/settings-bounce-rate-page-view-mode": true,
         "$sdk_debug_replay_internal_buffer_length": 16,
-        "$feature/sessions-batch-exports": true,
         "$feature/insight-funnels-use-udf-trends": true,
         "$feature/billing-usage-dashboard": true,
         "$groups": {
@@ -375,7 +374,6 @@
             "hedgehog-mode-debug",
             "high-frequency-batch-exports",
             "person-batch-exports",
-            "sessions-batch-exports",
             "ff-dashboard-templates",
             "artificial-hog",
             "cs-dashboards",

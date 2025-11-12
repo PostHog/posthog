@@ -31,12 +31,7 @@ export async function docsSearch(apiKey: string, userQuery: string): Promise<str
 
     const data = (await response.json()) as InkeepResponse
 
-    if (
-        data.choices &&
-        data.choices.length > 0 &&
-        data.choices[0]?.message &&
-        data.choices[0].message.content
-    ) {
+    if (data.choices && data.choices.length > 0 && data.choices[0]?.message && data.choices[0].message.content) {
         return data.choices[0].message.content
     }
     console.error('Inkeep API response format unexpected:', data)

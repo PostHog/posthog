@@ -118,6 +118,22 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
                 />
             </LemonLabel>
             <LemonLabel className={labelClassName}>
+                <div>Projection pushdown:</div>
+                <LemonSelect
+                    options={[
+                        { value: true, label: 'true' },
+                        { value: false, label: 'false' },
+                    ]}
+                    onChange={(value) =>
+                        setQuery({
+                            ...query,
+                            modifiers: { ...query.modifiers, optimizeProjections: value },
+                        })
+                    }
+                    value={query.modifiers?.optimizeProjections ?? response?.modifiers?.optimizeProjections}
+                />
+            </LemonLabel>
+            <LemonLabel className={labelClassName}>
                 <div>Property Groups:</div>
                 <LemonSelect
                     options={[

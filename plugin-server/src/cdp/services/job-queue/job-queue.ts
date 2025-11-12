@@ -185,7 +185,7 @@ export class CyclotronJobQueue {
             this.producerForceScheduledToPostgres &&
             invocation.queueScheduledAt &&
             invocation.queueScheduledAt > DateTime.now().plus({ milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS }) &&
-            invocation.queue !== 'hog_overflow' // overflow is always sent to kafka
+            invocation.queue !== 'hogoverflow' // overflow is always sent to kafka
         ) {
             // Kafka doesn't support delays so if enabled we should force scheduled jobs to postgres
             return 'postgres'

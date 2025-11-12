@@ -24,6 +24,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { urls } from 'scenes/urls'
 
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import {
@@ -32,6 +33,7 @@ import {
     SessionSegment,
     SessionSegmentKeyActions,
     SessionSegmentOutcome,
+    SessionSummaryContent,
 } from '../player-meta/types'
 
 function formatEventMetaInfo(event: SessionKeyAction): JSX.Element {
@@ -405,11 +407,120 @@ function SessionSummaryLoadingState({ operation, counter, name, outOf }: Session
     )
 }
 
+function SessionSummaryRoot({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="flex flex-col">{children}</div>
+}
+
+function SessionSummaryTitle(): JSX.Element {
+    return (
+        <h3 className="text-lg font-semibold mt-2 flex items-center gap-2">
+            <IconAIText />
+            AI Replay Research
+            <LemonTag type="completion" size="medium">
+                ALPHA
+            </LemonTag>
+        </h3>
+    )
+}
+
+function SessionSummarySubtitle({ sessionId }: { sessionId: string }): JSX.Element {
+    return (
+        <div className="flex align-center text-md gap-1">
+            <p className="text-md ">Session ID: </p>
+            <Tooltip title="View recording">
+                <Link to={urls.replaySingle(sessionId)} target="_new">
+                    {sessionId}
+                </Link>
+            </Tooltip>
+        </div>
+    )
+}
+
+function SessionSummaryOutcomeBanner({ sessionSummary }: { sessionSummary: SessionSummaryContent }): JSX.Element {
+    return (
+        <LemonBanner type={sessionSummary?.session_outcome?.success ? 'success' : 'error'} className="mb-4">
+            <div className="text-sm font-normal">
+                <div>{sessionSummary?.session_outcome?.description}</div>
+            </div>
+        </LemonBanner>
+    )
+}
+
+function SessionSummarySegments({ sessionSummary }: { sessionSummary: SessionSummaryContent }): JSX.Element | null {
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
+
+    if (!sessionSummary?.segments) {
+        return null
+    }
+
+    return (
+        <div>
+            {sessionSummary?.segments?.map((segment) => {
+                const matchingSegmentOutcome = sessionSummary?.segment_outcomes?.find(
+                    (outcome) => outcome.segment_index === segment.index
+                )
+                const matchingKeyActions = sessionSummary?.key_actions?.filter(
+                    (keyAction) => keyAction.segment_index === segment.index
+                )
+                return (
+                    <SessionSegmentView
+                        key={segment.name}
+                        segment={segment}
+                        segmentOutcome={matchingSegmentOutcome}
+                        keyActions={matchingKeyActions || []}
+                        onSeekToTime={seekToTime}
+                    />
+                )
+            })}
+        </div>
+    )
+}
+
+function SessionSummaryFeedback(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { summaryHasHadFeedback } = useValues(playerMetaLogic(logicProps))
+    const { sessionSummaryFeedback } = useActions(playerMetaLogic(logicProps))
+
+    return (
+        <div className="text-right mb-2 mt-4">
+            <p>Is this a good summary?</p>
+            <div className="flex flex-row gap-2 justify-end">
+                <LemonButton
+                    size="xsmall"
+                    type="primary"
+                    icon={<IconThumbsUp />}
+                    disabledReason={summaryHasHadFeedback ? 'Thanks for your feedback!' : undefined}
+                    onClick={() => {
+                        sessionSummaryFeedback('good')
+                    }}
+                />
+                <LemonButton
+                    size="xsmall"
+                    type="primary"
+                    icon={<IconThumbsDown />}
+                    disabledReason={summaryHasHadFeedback ? 'Thanks for your feedback!' : undefined}
+                    onClick={() => {
+                        sessionSummaryFeedback('bad')
+                    }}
+                />
+            </div>
+        </div>
+    )
+}
+
+export const SessionSummaryComponent = {
+    Root: SessionSummaryRoot,
+    Title: SessionSummaryTitle,
+    OutcomeBanner: SessionSummaryOutcomeBanner,
+    LoadingState: SessionSummaryLoadingState,
+    Segments: SessionSummarySegments,
+    Feedback: SessionSummaryFeedback,
+    Subtitle: SessionSummarySubtitle,
+}
+
 function SessionSummary(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
-    const { sessionSummary, summaryHasHadFeedback } = useValues(playerMetaLogic(logicProps))
-    const { sessionSummaryFeedback } = useActions(playerMetaLogic(logicProps))
+    const { sessionSummary } = useValues(playerMetaLogic(logicProps))
 
     const getSessionSummaryLoadingState = (): SessionSummaryLoadingStateProps => {
         if (!sessionSummary) {
@@ -485,16 +596,10 @@ function SessionSummary(): JSX.Element {
     const sessionSummaryLoadingState = getSessionSummaryLoadingState()
 
     return (
-        <div className="flex flex-col">
+        <SessionSummaryComponent.Root>
             {sessionSummary ? (
                 <>
-                    <h3 className="text-lg font-semibold mb-4 mt-2 flex items-center gap-2">
-                        <IconAIText />
-                        AI Replay Research
-                        <LemonTag type="completion" size="medium">
-                            ALPHA
-                        </LemonTag>
-                    </h3>
+                    <SessionSummaryComponent.Title />
 
                     <div className="mb-2">
                         {sessionSummaryLoadingState.finished &&
@@ -502,17 +607,10 @@ function SessionSummary(): JSX.Element {
                         sessionSummary.session_outcome.success !== null &&
                         sessionSummary.session_outcome.success !== undefined &&
                         sessionSummary.session_outcome.description ? (
-                            <LemonBanner
-                                type={sessionSummary.session_outcome.success ? 'success' : 'error'}
-                                className="mb-4"
-                            >
-                                <div className="text-sm font-normal">
-                                    <div>{sessionSummary.session_outcome.description}</div>
-                                </div>
-                            </LemonBanner>
+                            <SessionSummaryComponent.OutcomeBanner sessionSummary={sessionSummary} />
                         ) : (
                             <div className="mb-4">
-                                <SessionSummaryLoadingState
+                                <SessionSummaryComponent.LoadingState
                                     finished={sessionSummaryLoadingState.finished}
                                     operation={sessionSummaryLoadingState.operation}
                                     counter={sessionSummaryLoadingState.counter}
@@ -523,53 +621,13 @@ function SessionSummary(): JSX.Element {
                         )}
                         <LemonDivider />
                     </div>
-
-                    {sessionSummary?.segments?.map((segment) => {
-                        const matchingSegmentOutcome = sessionSummary?.segment_outcomes?.find(
-                            (outcome) => outcome.segment_index === segment.index
-                        )
-                        const matchingKeyActions = sessionSummary?.key_actions?.filter(
-                            (keyAction) => keyAction.segment_index === segment.index
-                        )
-                        return (
-                            <SessionSegmentView
-                                key={segment.name}
-                                segment={segment}
-                                segmentOutcome={matchingSegmentOutcome}
-                                keyActions={matchingKeyActions || []}
-                                onSeekToTime={seekToTime}
-                            />
-                        )
-                    })}
-
-                    <div className="text-right mb-2 mt-4">
-                        <p>Is this a good summary?</p>
-                        <div className="flex flex-row gap-2 justify-end">
-                            <LemonButton
-                                size="xsmall"
-                                type="primary"
-                                icon={<IconThumbsUp />}
-                                disabledReason={summaryHasHadFeedback ? 'Thanks for your feedback!' : undefined}
-                                onClick={() => {
-                                    sessionSummaryFeedback('good')
-                                }}
-                            />
-                            <LemonButton
-                                size="xsmall"
-                                type="primary"
-                                icon={<IconThumbsDown />}
-                                disabledReason={summaryHasHadFeedback ? 'Thanks for your feedback!' : undefined}
-                                onClick={() => {
-                                    sessionSummaryFeedback('bad')
-                                }}
-                            />
-                        </div>
-                    </div>
+                    <SessionSummaryComponent.Segments sessionSummary={sessionSummary} />
+                    <SessionSummaryComponent.Feedback />
                 </>
             ) : (
                 <div className="text-center text-muted-alt">No summary available for this session</div>
             )}
-        </div>
+        </SessionSummaryComponent.Root>
     )
 }
 

@@ -36,6 +36,17 @@ class TaxonomyAgentState(BaseStateWithIntermediateSteps, BaseStateWithMessages, 
     The messages with tool calls to collect tool progress.
     """
 
+    iteration_count: int | None = Field(default=None)
+    """
+    The number of iterations the taxonomy agent has gone through.
+    """
+
+    billable: bool = Field(default=False)
+    """
+    Whether LLM generations in this taxonomy agent should count toward billing.
+    Set by the calling tool.
+    """
+
 
 class TaxonomyNodeName(StrEnum):
     """Generic node names for taxonomy agents."""
@@ -44,6 +55,7 @@ class TaxonomyNodeName(StrEnum):
     TOOLS_NODE = "taxonomy_tools_node"
     START = START
     END = END
+    TASK_EXECUTOR = "taxonomy_task_executor"
 
 
 class EntityType(str, Enum):

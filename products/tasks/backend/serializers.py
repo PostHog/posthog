@@ -1,10 +1,15 @@
+from typing import Optional
+
 from django.utils import timezone
 
 from rest_framework import serializers
 
+from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
+from posthog.storage import object_storage
 
 from .models import Task, TaskRun
+from .services.title_generator import generate_task_title
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -12,6 +17,9 @@ class TaskSerializer(serializers.ModelSerializer):
     repository_list = serializers.SerializerMethodField()
     primary_repository = serializers.SerializerMethodField()
     latest_run = serializers.SerializerMethodField()
+    created_by = UserBasicSerializer(read_only=True)
+
+    title = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
     class Meta:
         model = Task
@@ -32,6 +40,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "latest_run",
             "created_at",
             "updated_at",
+            "created_by",
         ]
         read_only_fields = [
             "id",
@@ -39,6 +48,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "slug",
             "created_at",
             "updated_at",
+            "created_by",
             "repository_list",
             "primary_repository",
             "latest_run",
@@ -93,6 +103,11 @@ class TaskSerializer(serializers.ModelSerializer):
             default_integration = Integration.objects.filter(team=self.context["team"], kind="github").first()
             if default_integration:
                 validated_data["github_integration"] = default_integration
+
+        # Auto-generate title from description if not provided or empty
+        title = validated_data.get("title", "").strip()
+        if not title and validated_data.get("description"):
+            validated_data["title"] = generate_task_title(validated_data["description"])
 
         return super().create(validated_data)
 
@@ -194,6 +209,8 @@ class TaskAttachPullRequestRequestSerializer(serializers.Serializer):
 
 
 class TaskRunDetailSerializer(serializers.ModelSerializer):
+    log_url = serializers.SerializerMethodField(help_text="Presigned S3 URL for log access (valid for 1 hour).")
+
     class Meta:
         model = TaskRun
         fields = [
@@ -202,7 +219,7 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
             "stage",
             "branch",
             "status",
-            "log",
+            "log_url",
             "error_message",
             "output",
             "state",
@@ -213,10 +230,18 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "task",
+            "log_url",
             "created_at",
             "updated_at",
             "completed_at",
         ]
+
+    def get_log_url(self, obj: TaskRun) -> Optional[str]:
+        """Return presigned S3 URL for log access."""
+
+        if obj.log_storage_path:
+            return object_storage.get_presigned_url(obj.log_storage_path, expiration=3600)
+        return None
 
     def validate_task(self, value):
         team = self.context.get("team")

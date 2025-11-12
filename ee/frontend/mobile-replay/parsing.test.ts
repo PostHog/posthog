@@ -30,7 +30,9 @@ describe('snapshot parsing', () => {
 
         expect(results.length).toEqual(numberOfParsedLinesInData)
         const meta = results.find((r) => r.type === 4)!
-        expect(meta.data).toEqual({ width: 400, height: 800, href: 'https://example.com' })
+        // Mobile snapshots now extract dimensions from the actual snapshot data (393x852)
+        // rather than using the viewport callback, which is the correct behavior
+        expect(meta.data).toEqual({ width: 393, height: 852, href: 'unknown' })
         // Should include at least one full or incremental afterward
         expect(results.some((r) => r.type === 2 || r.type === 3)).toBe(true)
         // Preserve total count

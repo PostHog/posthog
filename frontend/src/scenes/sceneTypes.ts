@@ -20,6 +20,7 @@ export enum Scene {
     BillingAuthorizationStatus = 'BillingAuthorizationStatus',
     BillingSection = 'BillingSection',
     Canvas = 'Canvas',
+    CLIAuthorize = 'CLIAuthorize',
     Cohort = 'Cohort',
     CohortCalculationHistory = 'CohortCalculationHistory',
     Cohorts = 'Cohorts',
@@ -62,6 +63,9 @@ export enum Scene {
     Groups = 'Groups',
     GroupsNew = 'GroupsNew',
     Heatmaps = 'Heatmaps',
+    Heatmap = 'Heatmap',
+    HeatmapNew = 'HeatmapNew',
+    HeatmapRecording = 'HeatmapRecording',
     HogFunction = 'HogFunction',
     Insight = 'Insight',
     IntegrationsRedirect = 'IntegrationsRedirect',
@@ -70,9 +74,12 @@ export enum Scene {
     LegacyPlugin = 'LegacyPlugin',
     Link = 'Link',
     Links = 'Links',
+    LiveDebugger = 'LiveDebugger',
+    Activity = 'Activity',
     LiveEvents = 'LiveEvents',
     Login = 'Login',
     Login2FA = 'Login2FA',
+    EmailMFAVerify = 'EmailMFAVerify',
     Max = 'Max',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     NewTab = 'NewTab',
@@ -182,6 +189,7 @@ export interface SceneTab {
     active: boolean
     customTitle?: string
     iconType: FileSystemIconType | 'loading' | 'blank'
+    pinned?: boolean
 
     sceneId?: string
     sceneKey?: string

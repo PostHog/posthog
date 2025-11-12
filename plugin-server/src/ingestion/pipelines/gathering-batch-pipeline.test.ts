@@ -6,19 +6,19 @@ import { createContext, createNewBatchPipeline } from './helpers'
 import { dlq, drop, ok, redirect } from './results'
 
 // Mock batch processing pipeline for testing
-class MockBatchProcessingPipeline<T> implements BatchPipeline<T, T> {
-    private results: BatchPipelineResultWithContext<T>[] = []
+class MockBatchProcessingPipeline<T, C> implements BatchPipeline<T, T, C> {
+    private results: BatchPipelineResultWithContext<T, C>[] = []
     private currentIndex = 0
 
-    constructor(results: BatchPipelineResultWithContext<T>[]) {
+    constructor(results: BatchPipelineResultWithContext<T, C>[]) {
         this.results = results
     }
 
-    feed(elements: BatchPipelineResultWithContext<T>): void {
+    feed(elements: BatchPipelineResultWithContext<T, C>): void {
         this.results.push(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<T> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<T, C> | null> {
         if (this.currentIndex >= this.results.length) {
             return Promise.resolve(null)
         }
@@ -70,7 +70,7 @@ describe('GatheringBatchPipeline', () => {
 
     describe('constructor', () => {
         it('should create instance with sub-pipeline', () => {
-            const subPipeline = createNewBatchPipeline<string>()
+            const subPipeline = createNewBatchPipeline<string>().build()
             const gatherPipeline = new GatheringBatchPipeline(subPipeline)
 
             expect(gatherPipeline).toBeInstanceOf(GatheringBatchPipeline)
@@ -79,11 +79,11 @@ describe('GatheringBatchPipeline', () => {
 
     describe('feed', () => {
         it('should delegate to sub-pipeline', () => {
-            const subPipeline = createNewBatchPipeline<string>()
+            const subPipeline = createNewBatchPipeline<string>().build()
             const spy = jest.spyOn(subPipeline, 'feed')
             const gatherPipeline = new GatheringBatchPipeline(subPipeline)
 
-            const testBatch: BatchPipelineResultWithContext<string> = [createContext(ok('test'), context1)]
+            const testBatch = [createContext(ok('test'), context1)]
 
             gatherPipeline.feed(testBatch)
 
@@ -93,7 +93,7 @@ describe('GatheringBatchPipeline', () => {
 
     describe('next', () => {
         it('should return null when no results available', async () => {
-            const subPipeline = createNewBatchPipeline<string>()
+            const subPipeline = createNewBatchPipeline<string>().build()
             const gatherPipeline = new GatheringBatchPipeline(subPipeline)
 
             const result = await gatherPipeline.next()
@@ -214,7 +214,7 @@ describe('GatheringBatchPipeline', () => {
         })
 
         it('should handle large number of batches', async () => {
-            const batches: BatchPipelineResultWithContext<string>[] = []
+            const batches: BatchPipelineResultWithContext<string, any>[] = []
             for (let i = 0; i < 10; i++) {
                 batches.push([createContext(ok(`item${i}`), context1)])
             }

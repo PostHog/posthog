@@ -5,6 +5,8 @@ import collections.abc
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
+from django.conf import settings
+
 import structlog
 import temporalio
 import temporalio.common
@@ -20,12 +22,11 @@ from temporalio.client import (
     ScheduleState,
 )
 
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
-from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, SYNC_BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -309,7 +310,6 @@ class DatabricksBatchExportInputs(BaseBatchExportInputs):
     table_name: str
     use_variant_type: bool = True
     use_automatic_schema_evolution: bool = True
-    table_partition_field: str | None = None
 
 
 @dataclass(kw_only=True)
@@ -614,7 +614,7 @@ async def start_backfill_batch_export_workflow(
         "backfill-batch-export",
         inputs,
         id=workflow_id,
-        task_queue=BATCH_EXPORTS_TASK_QUEUE,
+        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
     )
 
     return workflow_id
@@ -736,14 +736,18 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
 
     destination_config_fields = {field.name for field in fields(workflow_inputs)}
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
-    task_queue = SYNC_BATCH_EXPORTS_TASK_QUEUE if batch_export.destination.type == "HTTP" else BATCH_EXPORTS_TASK_QUEUE
+    task_queue = (
+        settings.SYNC_BATCH_EXPORTS_TASK_QUEUE
+        if batch_export.destination.type == "HTTP"
+        else settings.BATCH_EXPORTS_TASK_QUEUE
+    )
 
     context = HogQLContext(
         team_id=batch_export.team.id,
         enable_select_queries=True,
         limit_top_select=False,
     )
-    context.database = create_hogql_database(team=batch_export.team, modifiers=context.modifiers)
+    context.database = Database.create_for(team=batch_export.team, modifiers=context.modifiers)
 
     temporal = sync_connect()
     schedule = Schedule(

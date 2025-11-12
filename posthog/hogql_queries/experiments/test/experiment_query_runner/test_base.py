@@ -32,11 +32,13 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_includes_date_range(self):
+    def test_query_runner_includes_date_range(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag, end_date=datetime(2020, 2, 1, 12, 0, 0))
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -137,11 +139,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_includes_event_property_filters(self):
+    def test_query_runner_includes_event_property_filters(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -216,11 +220,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 11)
         self.assertEqual(test_variant.number_of_samples, 11)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_using_action(self):
+    def test_query_runner_using_action(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
 
         action = Action.objects.create(name="purchase", team=self.team, steps_json=[{"event": "purchase"}])
         action.save()
@@ -276,13 +282,15 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_group_aggregation_mean_metric(self):
+    def test_query_runner_group_aggregation_mean_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         feature_flag.filters["aggregation_group_type_index"] = 0
         feature_flag.save()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
 
         metric = ExperimentMeanMetric(
             source=EventsNode(event="purchase"),
@@ -315,13 +323,15 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.sum, 6)
         self.assertEqual(test_variant.sum, 8)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_group_aggregation_mean_property_sum_metric(self):
+    def test_query_runner_group_aggregation_mean_property_sum_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         feature_flag.filters["aggregation_group_type_index"] = 0
         feature_flag.save()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
 
         metric = ExperimentMeanMetric(
             source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
@@ -354,11 +364,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.sum, 60)
         self.assertEqual(test_variant.sum, 120)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_standard_flow_v2_stats(self):
+    def test_query_runner_standard_flow_v2_stats(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -450,12 +462,14 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 2)
         self.assertEqual(test_variant.number_of_samples, 2)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @snapshot_clickhouse_queries
-    def test_query_runner_with_custom_exposure(self):
+    def test_query_runner_with_custom_exposure(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
         )
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
@@ -523,12 +537,14 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @snapshot_clickhouse_queries
-    def test_query_runner_with_custom_exposure_without_properties(self):
+    def test_query_runner_with_custom_exposure_without_properties(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
         )
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
@@ -594,12 +610,14 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 11)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @snapshot_clickhouse_queries
-    def test_query_runner_with_custom_exposure_on_feature_flag_called_event(self):
+    def test_query_runner_with_custom_exposure_on_feature_flag_called_event(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
         )
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
 
         feature_flag_property = "$feature_flag_response"
 
@@ -676,12 +694,14 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @snapshot_clickhouse_queries
-    def test_query_runner_with_action_as_exposure_criteria(self):
+    def test_query_runner_with_action_as_exposure_criteria(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
         )
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
@@ -757,11 +777,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 3)
         self.assertEqual(test_variant.number_of_samples, 4)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_without_feature_flag_property(self):
+    def test_query_runner_without_feature_flag_property(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag, end_date=datetime(2020, 2, 1, 12, 0, 0))
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         metric = ExperimentMeanMetric(
@@ -807,11 +829,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 11)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_no_exposures(self):
+    def test_query_runner_no_exposures(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
 
         metric = ExperimentMeanMetric(
             source=EventsNode(event="purchase"),
@@ -840,11 +864,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 0)
         self.assertEqual(test_variant.number_of_samples, 0)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_no_variant_exposures(self):
+    def test_query_runner_no_variant_exposures(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
@@ -893,11 +919,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 0)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_no_control_variant(self):
+    def test_query_runner_no_control_variant(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
@@ -1054,21 +1082,23 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         ]
     )
     @snapshot_clickhouse_queries
-    def test_query_runner_with_internal_filters(self, name: str, filter: dict, expected_results: dict):
+    def test_query_runner_with_internal_filters(self, filter_name: str, filter: dict, expected_results: dict):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
         )
+        # Note: This test doesn't need query builder parameterization as it tests the same logic
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": False}
 
         cohort = None
-        if name == "cohort_static":
+        if filter_name == "cohort_static":
             cohort = Cohort.objects.create(
                 team=self.team,
                 name="cohort_static",
                 is_static=True,
             )
             filter["value"] = cohort.pk
-        elif name == "cohort_dynamic":
+        elif filter_name == "cohort_dynamic":
             cohort = Cohort.objects.create(
                 team=self.team,
                 name="cohort_dynamic",
@@ -1081,7 +1111,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 ],
             )
             filter["value"] = cohort.pk
-        elif name == "group":
+        elif filter_name == "group":
             create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
             )
@@ -1168,10 +1198,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        if name == "cohort_static" and cohort:
+        if filter_name == "cohort_static" and cohort:
             cohort.insert_users_by_list(["user_control_1", "user_control_2", "user_test_2"])
             self.assertEqual(cohort.people.count(), 3)
-        elif name == "cohort_dynamic" and cohort:
+        elif filter_name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
@@ -1262,14 +1292,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
     )
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_with_time_window(self, name, time_window_hours, expected_results):
+    def test_query_runner_with_time_window(self, time_window_name, time_window_hours, expected_results):
         feature_flag = self.create_feature_flag()
+        # Note: This test doesn't need query builder parameterization as it tests the same logic
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 5, 12, 0, 0)
         )
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": False}
 
         metric = ExperimentMeanMetric(
             source=EventsNode(event="purchase"),
@@ -1331,11 +1363,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.sum, expected_results["control_count"])
         self.assertEqual(test_variant.sum, expected_results["test_count"])
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_excludes_multiple_variants(self):
+    def test_query_runner_excludes_multiple_variants(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -1477,9 +1511,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
     )
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_multiple_variant_handling_options(self, name, multiple_variant_handling, expected_results):
+    def test_query_runner_multiple_variant_handling_options(
+        self, handling_name, multiple_variant_handling, expected_results
+    ):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        # Note: This test doesn't need query builder parameterization as it tests the same logic
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": False}
 
         # Set the multiple_variant_handling configuration
         experiment.exposure_criteria = {"multiple_variant_handling": multiple_variant_handling}
@@ -1652,26 +1690,32 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # Verify the expected behavior based on multiple_variant_handling setting
         self.assertEqual(
-            control_variant.sum, expected_results["control_count"], f"Control count mismatch for {name} handling"
+            control_variant.sum,
+            expected_results["control_count"],
+            f"Control count mismatch for {handling_name} handling",
         )
-        self.assertEqual(test_variant.sum, expected_results["test_count"], f"Test count mismatch for {name} handling")
+        self.assertEqual(
+            test_variant.sum, expected_results["test_count"], f"Test count mismatch for {handling_name} handling"
+        )
         self.assertEqual(
             control_variant.number_of_samples,
             expected_results["control_exposure"],
-            f"Control exposure mismatch for {name} handling",
+            f"Control exposure mismatch for {handling_name} handling",
         )
         self.assertEqual(
             test_variant.number_of_samples,
             expected_results["test_exposure"],
-            f"Test exposure mismatch for {name} handling",
+            f"Test exposure mismatch for {handling_name} handling",
         )
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_with_none_event_filters_all_events(self):
+    def test_query_runner_with_none_event_filters_all_events(self, name, use_new_query_builder):
         """Test that when event is None, all events are selected (no event name filter applied)."""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -1773,12 +1817,14 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 5)
         self.assertEqual(test_variant.number_of_samples, 5)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_with_hogql_aggregation_expressions(self):
+    def test_query_runner_with_hogql_aggregation_expressions(self, name, use_new_query_builder):
         """Test that HogQL aggregation expressions work end-to-end."""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -1861,12 +1907,14 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, expected_test_sum)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_with_hogql_aggregation_end_to_end(self):
+    def test_query_runner_with_hogql_aggregation_end_to_end(self, name, use_new_query_builder):
         """Test that HogQL aggregation expressions work end-to-end with the experiment query runner."""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -1935,12 +1983,14 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 3)
         self.assertEqual(test_variant.number_of_samples, 4)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_with_hogql_fallback_to_sum(self):
+    def test_query_runner_with_hogql_fallback_to_sum(self, name, use_new_query_builder):
         """Test that HogQL expressions without aggregation functions default to sum."""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -2011,14 +2061,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 240)
         self.assertEqual(test_variant.number_of_samples, 3)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_with_unique_users_metric(self):
+    def test_query_runner_with_unique_users_metric(self, name, use_new_query_builder):
         """Test that unique users metric correctly counts unique users, not total events."""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 10)
         )
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -2120,9 +2172,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 4)
         self.assertEqual(test_variant.number_of_samples, 4)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_with_unique_group_metric(self):
+    def test_query_runner_with_unique_group_metric(self, name, use_new_query_builder):
         """Test unique group metric counts unique groups that performed the target event."""
         feature_flag = self.create_feature_flag()
         feature_flag.filters["aggregation_group_type_index"] = 0
@@ -2130,6 +2183,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 10)
         )
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         metric = ExperimentMeanMetric(

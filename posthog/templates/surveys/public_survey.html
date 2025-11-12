@@ -966,6 +966,11 @@
 
         posthog.init(projectConfig.token, {
             ...config,
+            surveys: {
+                prefillFromUrl: true,
+                autoSubmitIfComplete: true,
+                autoSubmitDelay: 800,
+            },
             loaded: (instance) => {
                 instance.surveys["_surveyManager"].renderSurvey(survey, document.getElementById('posthog-survey-container'));
             }

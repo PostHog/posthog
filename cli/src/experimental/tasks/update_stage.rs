@@ -1,12 +1,12 @@
 use anyhow::{Context, Result};
 use inquire::Select;
-use reqwest::blocking::Client;
 use serde::Serialize;
 use uuid::Uuid;
 
 use super::{Task, TaskWorkflow, WorkflowStage};
 use crate::{
-    experimental::tasks::utils::select_task, invocation_context::context, utils::raise_for_err,
+    api::client::PHClient, experimental::tasks::utils::select_task, invocation_context::context,
+    utils::raise_for_err,
 };
 
 struct StageChoice(WorkflowStage);
@@ -23,12 +23,10 @@ struct UpdateStageRequest {
 }
 
 pub fn update_stage(task_id: Option<&Uuid>) -> Result<()> {
-    let token = context().token.clone();
-    let host = token.get_host();
     let client = context().client.clone();
 
     let task = match task_id {
-        Some(id) => fetch_task(&client, &host, &token, id)?,
+        Some(id) => fetch_task(&client, id)?,
         None => select_task("Select a task to update stage:")?,
     };
 
@@ -41,7 +39,7 @@ pub fn update_stage(task_id: Option<&Uuid>) -> Result<()> {
         }
     };
 
-    let workflow = fetch_workflow(&client, &host, &token, &workflow_id)?;
+    let workflow = fetch_workflow(&client, &workflow_id)?;
 
     if workflow.stages.is_empty() {
         anyhow::bail!("The workflow '{}' has no stages defined.", workflow.name);
@@ -75,7 +73,7 @@ pub fn update_stage(task_id: Option<&Uuid>) -> Result<()> {
         .prompt()
         .context("Failed to get stage selection")?;
 
-    update_task_stage(&client, &host, &token, &task.id, &selected_stage.0.id)?;
+    update_task_stage(&client, &task.id, &selected_stage.0.id)?;
 
     println!(
         "\n✓ Successfully updated task stage to: {} ({})",
@@ -85,20 +83,9 @@ pub fn update_stage(task_id: Option<&Uuid>) -> Result<()> {
     Ok(())
 }
 
-fn fetch_task(
-    client: &Client,
-    host: &str,
-    token: &crate::utils::auth::Token,
-    task_id: &Uuid,
-) -> Result<Task> {
-    let url = format!(
-        "{}/api/environments/{}/tasks/{}/",
-        host, token.env_id, task_id
-    );
-
+fn fetch_task(client: &PHClient, task_id: &Uuid) -> Result<Task> {
     let response = client
-        .get(&url)
-        .header("Authorization", format!("Bearer {}", token.token))
+        .get(&format!("tasks/{task_id}/"))?
         .send()
         .context("Failed to send request")?;
 
@@ -109,23 +96,11 @@ fn fetch_task(
     Ok(task)
 }
 
-fn fetch_workflow(
-    client: &Client,
-    host: &str,
-    token: &crate::utils::auth::Token,
-    workflow_id: &Uuid,
-) -> Result<TaskWorkflow> {
-    let url = format!(
-        "{}/api/environments/{}/task_workflows/{}/",
-        host, token.env_id, workflow_id
-    );
-
+fn fetch_workflow(client: &PHClient, workflow_id: &Uuid) -> Result<TaskWorkflow> {
     let response = client
-        .get(&url)
-        .header("Authorization", format!("Bearer {}", token.token))
+        .get(&format!("task_workflows/{workflow_id}/"))?
         .send()
         .context("Failed to send request")?;
-
     let response = raise_for_err(response)?;
 
     let workflow: TaskWorkflow = response
@@ -135,29 +110,16 @@ fn fetch_workflow(
     Ok(workflow)
 }
 
-fn update_task_stage(
-    client: &Client,
-    host: &str,
-    token: &crate::utils::auth::Token,
-    task_id: &Uuid,
-    stage_id: &Uuid,
-) -> Result<()> {
-    let url = format!(
-        "{}/api/environments/{}/tasks/{}/update_stage/",
-        host, token.env_id, task_id
-    );
-
+fn update_task_stage(client: &PHClient, task_id: &Uuid, stage_id: &Uuid) -> Result<()> {
     let request_body = UpdateStageRequest {
         current_stage: *stage_id,
     };
 
     let response = client
-        .patch(&url)
-        .header("Authorization", format!("Bearer {}", token.token))
-        .header("Content-Type", "application/json")
+        .patch(&format!("tasks/{task_id}/update_stage/"))?
         .json(&request_body)
         .send()
-        .context("Failed to send request")?;
+        .context("Failed to update task stage")?;
 
     raise_for_err(response)?;
 

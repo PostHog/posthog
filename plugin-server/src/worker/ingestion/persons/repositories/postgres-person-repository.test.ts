@@ -1,13 +1,14 @@
 import { DateTime } from 'luxon'
 
 import { createTeam, insertRow, resetTestDatabase } from '../../../../../tests/helpers/sql'
-import { Hub, InternalPerson, Team } from '../../../../types'
+import { Hub, InternalPerson, PropertyUpdateOperation, Team } from '../../../../types'
 import { closeHub, createHub } from '../../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { parseJSON } from '../../../../utils/json-parse'
 import { NoRowsUpdatedError, UUIDT } from '../../../../utils/utils'
 import { PersonPropertiesSizeViolationError } from './person-repository'
 import { PostgresPersonRepository } from './postgres-person-repository'
+import { createPersonUpdateFields, fetchDistinctIdValues, fetchDistinctIds } from './test-helpers'
 
 jest.mock('../../../../utils/logger')
 
@@ -244,6 +245,14 @@ describe('PostgresPersonRepository', () => {
             expect(kafkaMessages[0].topic).toBe('clickhouse_person_test')
             expect(kafkaMessages[1].topic).toBe('clickhouse_person_distinct_id_test')
             expect(kafkaMessages[2].topic).toBe('clickhouse_person_distinct_id_test')
+
+            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person)
+            expect(distinctIds).toHaveLength(2)
+            expect(distinctIds).toEqual(expect.arrayContaining(['distinct-1', 'distinct-2']))
+
+            const distinctIdRecords = await fetchDistinctIds(hub.db.postgres, person)
+            expect(distinctIdRecords.find((d) => d.distinct_id === 'distinct-1')?.version).toBe('0')
+            expect(distinctIdRecords.find((d) => d.distinct_id === 'distinct-2')?.version).toBe('1')
         })
 
         it('creates a person without distinct IDs', async () => {
@@ -1162,7 +1171,10 @@ describe('PostgresPersonRepository', () => {
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John', age: 25 })
 
             const update = { properties: { name: 'Jane', age: 30, city: 'New York' } }
-            const [updatedPerson, messages, versionDisparity] = await repository.updatePerson(person, update)
+            const [updatedPerson, messages, versionDisparity] = await repository.updatePerson(
+                person,
+                createPersonUpdateFields(person, update)
+            )
 
             expect(updatedPerson.properties).toEqual({ name: 'Jane', age: 30, city: 'New York' })
             expect(updatedPerson.version).toBe(person.version + 1)
@@ -1175,23 +1187,15 @@ describe('PostgresPersonRepository', () => {
             expect(fetchedPerson?.version).toBe(person.version + 1)
         })
 
-        it('should handle empty update gracefully', async () => {
-            const team = await getFirstTeam(hub)
-            const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
-
-            const [updatedPerson, messages, versionDisparity] = await repository.updatePerson(person, {})
-
-            expect(updatedPerson).toEqual(person)
-            expect(messages).toHaveLength(0)
-            expect(versionDisparity).toBe(false)
-        })
-
         it('should update is_identified field', async () => {
             const team = await getFirstTeam(hub)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             const update = { is_identified: true }
-            const [updatedPerson, messages] = await repository.updatePerson(person, update)
+            const [updatedPerson, messages] = await repository.updatePerson(
+                person,
+                createPersonUpdateFields(person, update)
+            )
 
             expect(updatedPerson.is_identified).toBe(true)
             expect(updatedPerson.version).toBe(person.version + 1)
@@ -1204,11 +1208,17 @@ describe('PostgresPersonRepository', () => {
 
             // First update
             const update1 = { properties: { name: 'Jane' } }
-            const [updatedPerson1, _messages1] = await repository.updatePerson(person, update1)
+            const [updatedPerson1, _messages1] = await repository.updatePerson(
+                person,
+                createPersonUpdateFields(person, update1)
+            )
 
             // Second update with the updated person (should succeed since we're using the latest version)
             const update2 = { properties: { age: 30 } }
-            const [updatedPerson2, messages2] = await repository.updatePerson(updatedPerson1, update2)
+            const [updatedPerson2, messages2] = await repository.updatePerson(
+                updatedPerson1,
+                createPersonUpdateFields(updatedPerson1, update2)
+            )
 
             // updatePerson replaces properties entirely, so we expect only the age property
             expect(updatedPerson2.properties).toEqual({ age: 30 })
@@ -1222,7 +1232,12 @@ describe('PostgresPersonRepository', () => {
 
             await postgres.transaction(PostgresUse.PERSONS_WRITE, 'test-transaction', async (tx) => {
                 const update = { properties: { name: 'Jane' } }
-                const [updatedPerson, messages] = await repository.updatePerson(person, update, 'tx', tx)
+                const [updatedPerson, messages] = await repository.updatePerson(
+                    person,
+                    createPersonUpdateFields(person, update),
+                    'tx',
+                    tx
+                )
 
                 expect(updatedPerson.properties).toEqual({ name: 'Jane' })
                 expect(messages).toHaveLength(1)
@@ -1238,7 +1253,11 @@ describe('PostgresPersonRepository', () => {
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             const update = { properties: { name: 'Jane' } }
-            const [updatedPerson, messages] = await repository.updatePerson(person, update, 'test-tag')
+            const [updatedPerson, messages] = await repository.updatePerson(
+                person,
+                createPersonUpdateFields(person, update),
+                'test-tag'
+            )
 
             expect(updatedPerson.properties).toEqual({ name: 'Jane' })
             expect(messages).toHaveLength(1)
@@ -1260,7 +1279,9 @@ describe('PostgresPersonRepository', () => {
             }
 
             const update = { properties: { name: 'Jane' } }
-            await expect(repository.updatePerson(nonExistentPerson, update)).rejects.toThrow(NoRowsUpdatedError)
+            await expect(
+                repository.updatePerson(nonExistentPerson, createPersonUpdateFields(nonExistentPerson, update))
+            ).rejects.toThrow(NoRowsUpdatedError)
         })
 
         it('should handle updatePersonAssertVersion with optimistic concurrency control', async () => {
@@ -1283,6 +1304,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             }
 
             // First update should succeed
@@ -1317,6 +1340,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             }
 
             // Update should fail due to version mismatch
@@ -1350,6 +1375,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane' },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             }
 
             // Update should fail because person doesn't exist
@@ -1719,7 +1746,10 @@ describe('PostgresPersonRepository', () => {
                     },
                 }
 
-                const [updatedPerson, messages] = await oversizedRepository.updatePerson(normalPerson, oversizedUpdate)
+                const [updatedPerson, messages] = await oversizedRepository.updatePerson(
+                    normalPerson,
+                    createPersonUpdateFields(normalPerson, oversizedUpdate)
+                )
 
                 expect(updatedPerson).toBeDefined()
                 expect(updatedPerson.version).toBe(normalPerson.version + 1)
@@ -1754,12 +1784,18 @@ describe('PostgresPersonRepository', () => {
                     },
                 }
 
-                await expect(oversizedRepository.updatePerson(normalPerson, oversizedUpdate)).rejects.toThrow(
-                    PersonPropertiesSizeViolationError
-                )
-                await expect(oversizedRepository.updatePerson(normalPerson, oversizedUpdate)).rejects.toThrow(
-                    'Person properties update would exceed size limit'
-                )
+                await expect(
+                    oversizedRepository.updatePerson(
+                        normalPerson,
+                        createPersonUpdateFields(normalPerson, oversizedUpdate)
+                    )
+                ).rejects.toThrow(PersonPropertiesSizeViolationError)
+                await expect(
+                    oversizedRepository.updatePerson(
+                        normalPerson,
+                        createPersonUpdateFields(normalPerson, oversizedUpdate)
+                    )
+                ).rejects.toThrow('Person properties update would exceed size limit')
 
                 mockPersonPropertiesSize.mockRestore()
                 mockQuery.mockRestore()
@@ -1801,14 +1837,20 @@ describe('PostgresPersonRepository', () => {
                     },
                 }
 
-                await expect(oversizedRepository.updatePerson(normalPerson, oversizedUpdate)).rejects.toThrow(
-                    PersonPropertiesSizeViolationError
-                )
+                await expect(
+                    oversizedRepository.updatePerson(
+                        normalPerson,
+                        createPersonUpdateFields(normalPerson, oversizedUpdate)
+                    )
+                ).rejects.toThrow(PersonPropertiesSizeViolationError)
 
                 updateCallCount = 0
-                await expect(oversizedRepository.updatePerson(normalPerson, oversizedUpdate)).rejects.toThrow(
-                    'Person properties update failed after trying to trim oversized properties'
-                )
+                await expect(
+                    oversizedRepository.updatePerson(
+                        normalPerson,
+                        createPersonUpdateFields(normalPerson, oversizedUpdate)
+                    )
+                ).rejects.toThrow('Person properties update failed after trying to trim oversized properties')
 
                 mockPersonPropertiesSize.mockRestore()
                 mockQuery.mockRestore()
@@ -1868,16 +1910,16 @@ describe('PostgresPersonRepository', () => {
                     },
                 }
 
-                await expect(oversizedRepository.updatePerson(oversizedPerson, update)).rejects.toThrow(
-                    PersonPropertiesSizeViolationError
-                )
+                await expect(
+                    oversizedRepository.updatePerson(oversizedPerson, createPersonUpdateFields(oversizedPerson, update))
+                ).rejects.toThrow(PersonPropertiesSizeViolationError)
 
                 expect(updateCallCount).toBe(2)
 
                 updateCallCount = 0
-                await expect(oversizedRepository.updatePerson(oversizedPerson, update)).rejects.toThrow(
-                    'Person properties update failed after trying to trim oversized properties'
-                )
+                await expect(
+                    oversizedRepository.updatePerson(oversizedPerson, createPersonUpdateFields(oversizedPerson, update))
+                ).rejects.toThrow('Person properties update failed after trying to trim oversized properties')
 
                 expect(updateCallCount).toBe(2)
 
@@ -1949,6 +1991,8 @@ describe('PostgresPersonRepository', () => {
                     needs_write: true,
                     properties_to_set: { description: 'x'.repeat(150) },
                     properties_to_unset: [],
+                    original_is_identified: false,
+                    original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 }
 
                 await expect(oversizedRepository.updatePersonAssertVersion(personUpdate)).rejects.toThrow(
@@ -2033,7 +2077,7 @@ describe('PostgresPersonRepository', () => {
                 }
 
                 try {
-                    await oversizedRepository.updatePerson(person, oversizedUpdate)
+                    await oversizedRepository.updatePerson(person, createPersonUpdateFields(person, oversizedUpdate))
                     expect(mockInc).toHaveBeenCalledWith({ result: 'success' })
                 } catch (error) {}
 
@@ -2147,12 +2191,12 @@ describe('PostgresPersonRepository', () => {
 
             const [updatedPerson1, messages1, versionDisparity1] = await repositoryWithCalculation.updatePerson(
                 person1,
-                update,
+                createPersonUpdateFields(person1, update),
                 'test-with-logging'
             )
             const [updatedPerson2, messages2, versionDisparity2] = await repositoryWithoutCalculation.updatePerson(
                 person2,
-                update,
+                createPersonUpdateFields(person2, update),
                 'test-without-logging'
             )
 
@@ -2201,6 +2245,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30, data: 'y'.repeat(2500) },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             })
 
             const personUpdate1 = createPersonUpdate(person1, 'test-assert-1')
@@ -2234,12 +2280,226 @@ describe('PostgresPersonRepository', () => {
             const person = await createTestPerson(team.id, 'test-default', { name: 'John' })
             const update = { properties: { name: 'Jane', city: 'Boston' } }
 
-            const [updatedPerson, messages, versionDisparity] = await defaultRepository.updatePerson(person, update)
+            const [updatedPerson, messages, versionDisparity] = await defaultRepository.updatePerson(
+                person,
+                createPersonUpdateFields(person, update)
+            )
 
             expect(updatedPerson.properties).toEqual({ name: 'Jane', city: 'Boston' })
             expect(updatedPerson.version).toBe(person.version + 1)
             expect(messages).toHaveLength(1)
             expect(versionDisparity).toBe(false)
+        })
+    })
+
+    describe('JSON field size metrics', () => {
+        let personJsonFieldSizeHistogram: any
+        let labelsSpy: jest.SpyInstance
+        let observeCalls: any[]
+
+        beforeEach(() => {
+            // Import the histogram
+            const metricsModule = require('../metrics')
+            personJsonFieldSizeHistogram = metricsModule.personJsonFieldSizeHistogram
+
+            // Track observe calls
+            observeCalls = []
+
+            // Spy on labels to intercept and spy on observe
+            const originalLabels = personJsonFieldSizeHistogram.labels.bind(personJsonFieldSizeHistogram)
+            labelsSpy = jest.spyOn(personJsonFieldSizeHistogram, 'labels').mockImplementation(function (labels: any) {
+                const labeledInstance = originalLabels(labels)
+                const originalObserve = labeledInstance.observe.bind(labeledInstance)
+                labeledInstance.observe = jest.fn((value: number) => {
+                    observeCalls.push({ labels, value })
+                    return originalObserve(value)
+                })
+                return labeledInstance
+            })
+        })
+
+        afterEach(() => {
+            if (labelsSpy) {
+                labelsSpy.mockRestore()
+            }
+            observeCalls = []
+        })
+
+        it('should track JSON field sizes on createPerson', async () => {
+            const team = await getFirstTeam(hub)
+            const properties = { name: 'Alice', email: 'alice@example.com', age: 25 }
+            const propertiesLastUpdatedAt = { name: '2024-01-15T10:30:00.000Z', email: '2024-01-15T10:30:00.000Z' }
+            const propertiesLastOperation = { name: PropertyUpdateOperation.Set, email: PropertyUpdateOperation.Set }
+
+            // Pre-serialize to calculate expected sizes
+            const expectedPropertiesSize = JSON.stringify(properties).length
+            const expectedPropertiesLastUpdatedAtSize = JSON.stringify(propertiesLastUpdatedAt).length
+            const expectedPropertiesLastOperationSize = JSON.stringify(propertiesLastOperation).length
+
+            await repository.createPerson(
+                TIMESTAMP,
+                properties,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                team.id,
+                null,
+                true,
+                new UUIDT().toString(),
+                [{ distinctId: 'test-metrics-create' }]
+            )
+
+            // Verify metrics were recorded for all three fields (3 calls total)
+            expect(observeCalls).toHaveLength(3)
+
+            // Verify each field was recorded with operation='createPerson' and exact size
+            const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
+            const propertiesLastUpdatedAtCall = observeCalls.find(
+                (c) => c.labels.field === 'properties_last_updated_at'
+            )
+            const propertiesLastOperationCall = observeCalls.find((c) => c.labels.field === 'properties_last_operation')
+
+            expect(propertiesCall).toBeDefined()
+            expect(propertiesCall!.labels.operation).toBe('createPerson')
+            expect(propertiesCall!.value).toBe(expectedPropertiesSize)
+
+            expect(propertiesLastUpdatedAtCall).toBeDefined()
+            expect(propertiesLastUpdatedAtCall!.labels.operation).toBe('createPerson')
+            expect(propertiesLastUpdatedAtCall!.value).toBe(expectedPropertiesLastUpdatedAtSize)
+
+            expect(propertiesLastOperationCall).toBeDefined()
+            expect(propertiesLastOperationCall!.labels.operation).toBe('createPerson')
+            expect(propertiesLastOperationCall!.value).toBe(expectedPropertiesLastOperationSize)
+        })
+
+        it('should track JSON field sizes on updatePerson with properties', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-metrics-update', { name: 'Bob' })
+
+            // Clear observe calls from createTestPerson
+            observeCalls = []
+
+            const update = {
+                properties: { name: 'Bob Updated', city: 'San Francisco', data: 'x'.repeat(1000) },
+                properties_last_updated_at: { name: '2024-01-16T10:30:00.000Z', city: '2024-01-16T10:30:00.000Z' },
+                properties_last_operation: { name: PropertyUpdateOperation.Set, city: PropertyUpdateOperation.Set },
+            }
+
+            // Pre-serialize to calculate expected sizes
+            const expectedPropertiesSize = JSON.stringify(update.properties).length
+            const expectedPropertiesLastUpdatedAtSize = JSON.stringify(update.properties_last_updated_at).length
+            const expectedPropertiesLastOperationSize = JSON.stringify(update.properties_last_operation).length
+
+            await repository.updatePerson(person, createPersonUpdateFields(person, update))
+
+            // Verify metrics were recorded for all updated fields (3 calls total)
+            expect(observeCalls).toHaveLength(3)
+
+            // Verify each field was recorded with exact size
+            const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
+            const propertiesLastUpdatedAtCall = observeCalls.find(
+                (c) => c.labels.field === 'properties_last_updated_at'
+            )
+            const propertiesLastOperationCall = observeCalls.find((c) => c.labels.field === 'properties_last_operation')
+
+            expect(propertiesCall).toBeDefined()
+            expect(propertiesCall!.labels.operation).toBe('updatePerson')
+            expect(propertiesCall!.value).toBe(expectedPropertiesSize)
+
+            expect(propertiesLastUpdatedAtCall).toBeDefined()
+            expect(propertiesLastUpdatedAtCall!.labels.operation).toBe('updatePerson')
+            expect(propertiesLastUpdatedAtCall!.value).toBe(expectedPropertiesLastUpdatedAtSize)
+
+            expect(propertiesLastOperationCall).toBeDefined()
+            expect(propertiesLastOperationCall!.labels.operation).toBe('updatePerson')
+            expect(propertiesLastOperationCall!.value).toBe(expectedPropertiesLastOperationSize)
+        })
+
+        it('should only track metrics for fields being updated', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-metrics-partial', { name: 'Charlie' })
+
+            // Clear observe calls from createTestPerson
+            observeCalls = []
+
+            // Only update properties, not the other fields
+            const update = {
+                properties: { name: 'Charlie Updated' },
+            }
+
+            const expectedPropertiesSize = JSON.stringify(update.properties).length
+
+            await repository.updatePerson(person, createPersonUpdateFields(person, update))
+
+            // Since we always pass all fields for consistent query plans, all 3 JSONB fields are tracked
+            expect(observeCalls).toHaveLength(3)
+
+            const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
+            expect(propertiesCall).toBeDefined()
+            expect(propertiesCall!.labels.operation).toBe('updatePerson')
+            expect(propertiesCall!.value).toBe(expectedPropertiesSize)
+        })
+
+        it('should handle large properties correctly', async () => {
+            const team = await getFirstTeam(hub)
+            const largeProperties = {
+                name: 'David',
+                large_field: 'z'.repeat(100000), // 100KB of data
+            }
+
+            // Pre-serialize to calculate expected sizes
+            const expectedPropertiesSize = JSON.stringify(largeProperties).length
+            const expectedPropertiesLastUpdatedAtSize = JSON.stringify({}).length
+            const expectedPropertiesLastOperationSize = JSON.stringify({}).length
+
+            await repository.createPerson(
+                TIMESTAMP,
+                largeProperties,
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                new UUIDT().toString(),
+                [{ distinctId: 'test-metrics-large' }]
+            )
+
+            // Should have 3 calls (properties, properties_last_updated_at, properties_last_operation)
+            expect(observeCalls).toHaveLength(3)
+
+            // Verify exact sizes
+            const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
+            const propertiesLastUpdatedAtCall = observeCalls.find(
+                (c) => c.labels.field === 'properties_last_updated_at'
+            )
+            const propertiesLastOperationCall = observeCalls.find((c) => c.labels.field === 'properties_last_operation')
+
+            expect(propertiesCall).toBeDefined()
+            expect(propertiesCall!.labels.operation).toBe('createPerson')
+            expect(propertiesCall!.value).toBe(expectedPropertiesSize)
+            expect(propertiesCall!.value).toBeGreaterThan(100000) // Sanity check
+
+            expect(propertiesLastUpdatedAtCall).toBeDefined()
+            expect(propertiesLastUpdatedAtCall!.value).toBe(expectedPropertiesLastUpdatedAtSize)
+
+            expect(propertiesLastOperationCall).toBeDefined()
+            expect(propertiesLastOperationCall!.value).toBe(expectedPropertiesLastOperationSize)
+        })
+
+        it('should not record metrics when update is empty', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-metrics-empty', { name: 'Eve' })
+
+            // Clear observe calls from createTestPerson
+            observeCalls = []
+
+            // Empty update - but helper fills in all fields from person
+            const update = {}
+
+            await repository.updatePerson(person, createPersonUpdateFields(person, update))
+
+            // Since we always pass all fields for consistent query plans, all 3 JSONB fields are tracked
+            // even though the values haven't changed from the person object
+            expect(observeCalls).toHaveLength(3)
         })
     })
 })

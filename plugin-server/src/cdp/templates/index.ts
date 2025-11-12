@@ -6,6 +6,7 @@ import { template as clickupTemplate } from './_destinations/clickup/clickup.tem
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as emailTemplate } from './_destinations/email/email.template'
 import { template as githubTemplate } from './_destinations/github/github.template'
+import { template as gitlabTemplate } from './_destinations/gitlab/gitlab.template'
 import { template as googleTagManagerTemplate } from './_destinations/google-tag-manager/google-tag-manager.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as googleSheetsTemplate } from './_destinations/google_sheets/google_sheets.template'
@@ -16,6 +17,7 @@ import { template as nativeWebhookTemplate } from './_destinations/native_webhoo
 import { template as posthogCaptureTemplate } from './_destinations/posthog_capture/posthog-capture.template'
 import { template as posthogGroupIdentifyTemplate } from './_destinations/posthog_capture/posthog-group-identify.template'
 import { template as posthogUpdatePersonPropertiesTemplate } from './_destinations/posthog_capture/posthog-update-person-properties.template'
+import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
@@ -44,6 +46,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     snapchatAdsTemplate,
     linearTemplate,
     githubTemplate,
+    gitlabTemplate,
     googleAdsTemplate,
     linkedinAdsTemplate,
     redditAdsTemplate,
@@ -55,6 +58,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogCaptureTemplate,
     posthogGroupIdentifyTemplate,
     posthogUpdatePersonPropertiesTemplate,
+    posthogSetHogflowVariableTemplate,
     hubspotCompanyTemplate,
     accoilTemplate,
 ]

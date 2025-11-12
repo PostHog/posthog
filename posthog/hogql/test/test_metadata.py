@@ -16,7 +16,8 @@ from posthog.schema import (
 from posthog.hogql.metadata import get_hogql_metadata
 
 from posthog.models import Cohort, PropertyDefinition
-from posthog.warehouse.models import ExternalDataSource, ExternalDataSourceType
+
+from products.data_warehouse.backend.models import ExternalDataSource, ExternalDataSourceType
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):

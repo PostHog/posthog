@@ -730,7 +730,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
                     try {
+                        // Get the flag first to check if it has an experiment
                         const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
+
+                        // If there's an experiment, load it concurrently before returning to prevent UI flicker
+                        if (retrievedFlag.experiment_set && retrievedFlag.experiment_set.length > 0) {
+                            try {
+                                const experiment = await api.experiments.get(retrievedFlag.experiment_set[0])
+                                actions.loadExperimentSuccess(experiment)
+                            } catch (error) {
+                                // If experiment load fails, don't block the flag from loading
+                                console.warn('Failed to load experiment:', error)
+                            }
+                        }
+
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                     } catch (e: any) {
                         if (e.status === 403 && e.code === 'permission_denied') {
@@ -1146,7 +1159,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadFeatureFlagSuccess: async () => {
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
-            actions.loadExperiment()
+            // Experiment is now loaded inline during loadFeatureFlag, not here
         },
         loadInsightAtIndex: async ({ index, filters }) => {
             if (filters) {
@@ -1344,7 +1357,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 {
                     key: [Scene.FeatureFlag, featureFlag.id || 'unknown'],
                     name: featureFlag.key || (!featureFlag.id ? 'New feature flag' : 'Unnamed'),
-                    iconType: 'feature_flag',
+                    iconType: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                 },
             ],
         ],
@@ -1472,6 +1485,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
+                // Reset editing state when navigating to prevent it from persisting across flags
+                actions.editFeatureFlag(false)
+
                 if (props.id) {
                     // When there is sourceId, we load the feature flag
                     if (props.id === 'new' && searchParams.sourceId != null) {

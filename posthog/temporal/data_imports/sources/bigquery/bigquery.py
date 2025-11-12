@@ -19,7 +19,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABL
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
-from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+
+from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 
 def get_schemas(
@@ -502,7 +503,7 @@ def bigquery_source(
 
     return SourceResponse(
         name=name,
-        items=get_rows(DEFAULT_TABLE_SIZE_BYTES),
+        items=lambda: get_rows(DEFAULT_TABLE_SIZE_BYTES),
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,

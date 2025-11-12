@@ -134,43 +134,43 @@
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
             sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
      FROM
-       (SELECT NULL AS id,
-               NULL AS source_label,
-               NULL AS plan_id,
-               NULL AS product_id,
-               NULL AS customer_id,
-               NULL AS status,
-               NULL AS started_at,
-               NULL AS ended_at,
-               NULL AS metadata
+       (SELECT '' AS id,
+               '' AS source_label,
+               '' AS plan_id,
+               '' AS product_id,
+               '' AS customer_id,
+               '' AS status,
+               toDateTime64('1970-01-01 00:00:00.000000', 6, 'UTC') AS started_at,
+               toDateTime64('1970-01-01 00:00:00.000000', 6, 'UTC') AS ended_at,
+               '' AS metadata
         WHERE 0) AS revenue_analytics_subscription
      LEFT JOIN
-       (SELECT NULL AS id,
-               NULL AS invoice_item_id,
-               NULL AS source_label,
-               NULL AS timestamp,
-               NULL AS created_at,
-               NULL AS is_recurring,
-               NULL AS product_id,
-               NULL AS customer_id,
-               NULL AS group_0_key,
-               NULL AS group_1_key,
-               NULL AS group_2_key,
-               NULL AS group_3_key,
-               NULL AS group_4_key,
-               NULL AS invoice_id,
-               NULL AS subscription_id,
-               NULL AS session_id,
-               NULL AS event_name,
-               NULL AS coupon,
-               NULL AS coupon_id,
-               NULL AS original_currency,
-               NULL AS original_amount,
-               NULL AS enable_currency_aware_divider,
-               NULL AS currency_aware_divider,
-               NULL AS currency_aware_amount,
-               NULL AS currency,
-               NULL AS amount
+       (SELECT '' AS id,
+               '' AS invoice_item_id,
+               '' AS source_label,
+               toDateTime64('1970-01-01 00:00:00.000000', 6, 'UTC') AS timestamp,
+               toDateTime64('1970-01-01 00:00:00.000000', 6, 'UTC') AS created_at,
+               0 AS is_recurring,
+               '' AS product_id,
+               '' AS customer_id,
+               '' AS group_0_key,
+               '' AS group_1_key,
+               '' AS group_2_key,
+               '' AS group_3_key,
+               '' AS group_4_key,
+               '' AS invoice_id,
+               '' AS subscription_id,
+               '' AS session_id,
+               '' AS event_name,
+               '' AS coupon,
+               '' AS coupon_id,
+               '' AS original_currency,
+               0 AS original_amount,
+               0 AS enable_currency_aware_divider,
+               0 AS currency_aware_divider,
+               0 AS currency_aware_amount,
+               '' AS currency,
+               0 AS amount
         WHERE 0) AS revenue_analytics_revenue_item ON equals(revenue_analytics_subscription.id, revenue_analytics_revenue_item.subscription_id)
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
@@ -1508,6 +1508,251 @@
                        allow_experimental_join_condition=1
   '''
 # ---
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_data_with_managed_viewsets_ff
+  '''
+  SELECT subquery.breakdown_by AS breakdown_by,
+         subquery.period_start AS period_start,
+         sum(subquery.subscription_count) AS subscription_count,
+         sum(subquery.new_subscription_count) AS new_subscription_count,
+         sum(subquery.churned_subscription_count) AS churned_subscription_count,
+         countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
+         countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
+         countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
+  FROM
+    (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
+            revenue_analytics_subscription.customer_id AS customer_id,
+            toStartOfMonth(parseDateTime64BestEffortOrNull(arrayJoin(['2024-11-01 00:00:00', '2024-12-01 00:00:00', '2025-01-01 00:00:00', '2025-02-01 00:00:00', '2025-03-01 00:00:00', '2025-04-01 00:00:00', '2025-05-01 00:00:00', '2025-06-01 00:00:00', '2025-07-01 00:00:00', '2025-08-01 00:00:00', '2025-09-01 00:00:00', '2025-10-01 00:00:00', '2025-11-01 00:00:00', '2025-12-01 00:00:00', '2026-01-01 00:00:00', '2026-02-01 00:00:00', '2026-03-01 00:00:00', '2026-04-01 00:00:00', '2026-05-01 00:00:00']), 6, 'UTC')) AS period_start,
+            countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), period_start), 0), or(isNull(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), ifNull(greaterOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), period_start), 0)))) AS subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), 0), or(isNull(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), ifNull(greaterOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), 0)))) AS prev_subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')))
+                                                                       and isNull(period_start))) AS new_subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), isNull(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')))
+                                                                       and isNull(date_add(period_start, toIntervalMonth(-1))))) AS churned_subscription_count,
+            and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
+            and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
+                                                                          and isNull(prev_subscription_count))) AS is_churned_customer,
+            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+     FROM
+       (SELECT subscription_id AS id,
+               'revenue_analytics.events.purchase' AS source_label,
+               NULL AS plan_id,
+               product_id AS product_id,
+               toString(person_id) AS customer_id,
+               NULL AS status,
+               min_timestamp AS started_at,
+               if(ifNull(greater(max_timestamp_plus_dropoff_days, today()), 0), NULL, max_timestamp) AS ended_at,
+               NULL AS metadata
+        FROM
+          (SELECT events__person.id AS person_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
+                  min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
+                  max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp,
+                  addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           INNER JOIN
+             (SELECT person.id AS id
+              FROM person
+              WHERE equals(person.team_id, 99999)
+              GROUP BY person.id
+              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           WHERE equals(events.team_id, 99999)
+           GROUP BY subscription_id,
+                    person_id)
+        ORDER BY started_at DESC) AS revenue_analytics_subscription
+     LEFT JOIN
+       (SELECT toString(events.uuid) AS id,
+               toString(events.uuid) AS invoice_item_id,
+               'revenue_analytics.events.purchase' AS source_label,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               timestamp AS created_at,
+               isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '')) AS is_recurring,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id,
+               toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
+               events.`$group_0` AS group_0_key,
+               events.`$group_1` AS group_1_key,
+               events.`$group_2` AS group_2_key,
+               events.`$group_3` AS group_3_key,
+               events.`$group_4` AS group_4_key,
+               NULL AS invoice_id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
+               toString(events.`$session_id`) AS session_id,
+               events.event AS event_name,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
+               coupon AS coupon_id,
+               upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
+               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
+               1 AS enable_currency_aware_divider,
+               if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+               divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+               'GBP' AS currency,
+               if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+        ORDER BY timestamp DESC) AS revenue_analytics_revenue_item ON equals(revenue_analytics_subscription.id, revenue_analytics_revenue_item.subscription_id)
+     GROUP BY revenue_analytics_subscription.customer_id,
+              breakdown_by,
+              period_start
+     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+  GROUP BY subquery.breakdown_by,
+           subquery.period_start
+  ORDER BY subquery.breakdown_by ASC,
+           subquery.period_start ASC,
+           subscription_count DESC,
+           customer_count DESC
+  LIMIT 10000
+  UNION ALL
+  SELECT subquery.breakdown_by AS breakdown_by,
+         subquery.period_start AS period_start,
+         sum(subquery.subscription_count) AS subscription_count,
+         sum(subquery.new_subscription_count) AS new_subscription_count,
+         sum(subquery.churned_subscription_count) AS churned_subscription_count,
+         countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
+         countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
+         countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
+  FROM
+    (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
+            revenue_analytics_subscription.customer_id AS customer_id,
+            toStartOfMonth(parseDateTime64BestEffortOrNull(arrayJoin(['2024-11-01 00:00:00', '2024-12-01 00:00:00', '2025-01-01 00:00:00', '2025-02-01 00:00:00', '2025-03-01 00:00:00', '2025-04-01 00:00:00', '2025-05-01 00:00:00', '2025-06-01 00:00:00', '2025-07-01 00:00:00', '2025-08-01 00:00:00', '2025-09-01 00:00:00', '2025-10-01 00:00:00', '2025-11-01 00:00:00', '2025-12-01 00:00:00', '2026-01-01 00:00:00', '2026-02-01 00:00:00', '2026-03-01 00:00:00', '2026-04-01 00:00:00', '2026-05-01 00:00:00']), 6, 'UTC')) AS period_start,
+            countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), period_start), 0), or(isNull(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), ifNull(greaterOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), period_start), 0)))) AS subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), 0), or(isNull(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), ifNull(greaterOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), 0)))) AS prev_subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')))
+                                                                       and isNull(period_start))) AS new_subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), isNull(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')))
+                                                                       and isNull(date_add(period_start, toIntervalMonth(-1))))) AS churned_subscription_count,
+            and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
+            and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
+                                                                          and isNull(prev_subscription_count))) AS is_churned_customer,
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(revenue_analytics_revenue_item.timestamp), period_start), isNull(toStartOfMonth(revenue_analytics_revenue_item.timestamp))
+                                                                and isNull(period_start))) AS revenue
+     FROM
+       (SELECT posthog_test_stripe_subscription.id AS id,
+               'stripe.posthog_test' AS source_label,
+               JSONExtractString(posthog_test_stripe_subscription.plan, 'id') AS plan_id,
+               JSONExtractString(posthog_test_stripe_subscription.plan, 'product') AS product_id,
+               posthog_test_stripe_subscription.customer AS customer_id,
+               posthog_test_stripe_subscription.status AS status,
+               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.created), 6, 'UTC') AS started_at,
+               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
+               posthog_test_stripe_subscription.metadata AS metadata
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS revenue_analytics_subscription
+     LEFT JOIN
+       (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
+               invoice.invoice_item_id AS invoice_item_id,
+               'stripe.posthog_test' AS source_label,
+               addMonths(invoice.timestamp, invoice.month_index) AS timestamp,
+               invoice.created_at AS created_at,
+               ifNull(notEmpty(invoice.subscription_id), 0) AS is_recurring,
+               invoice.product_id AS product_id,
+               invoice.customer_id AS customer_id,
+               NULL AS group_0_key,
+               NULL AS group_1_key,
+               NULL AS group_2_key,
+               NULL AS group_3_key,
+               NULL AS group_4_key,
+               invoice.id AS invoice_id,
+               invoice.subscription_id AS subscription_id,
+               NULL AS session_id,
+               NULL AS event_name,
+               JSONExtractString(invoice.discount, 'coupon', 'name') AS coupon,
+               JSONExtractString(invoice.discount, 'coupon', 'id') AS coupon_id,
+               upper(invoice.currency) AS original_currency,
+               accurateCastOrNull(invoice.amount_captured, 'Decimal64(10)') AS original_amount,
+               in(original_currency,
+                  ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+                 if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+                 divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+                 'GBP' AS currency,
+                 divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+        FROM
+          (SELECT posthog_test_stripe_invoice.id AS id,
+                  parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
+                  posthog_test_stripe_invoice.customer AS customer_id,
+                  posthog_test_stripe_invoice.subscription AS subscription_id,
+                  posthog_test_stripe_invoice.discount AS discount,
+                  arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
+                  JSONExtractString(data, 'id') AS invoice_item_id,
+                  JSONExtractUInt(data, 'amount') AS amount_before_discount,
+                  coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+                  greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
+                  JSONExtractString(data, 'currency') AS currency,
+                  JSONExtractString(data, 'price', 'product') AS product_id,
+                  fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
+                  fromUnixTimestamp(JSONExtractUInt(data, 'period', 'end')) AS period_end,
+                  greatest(toInt16(round(divide(dateDiff('day', ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')), ifNull(period_end, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC'))), 30.44))), 1) AS period_months,
+                  arrayJoin(range(0, period_months)) AS month_index,
+                  ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')) AS timestamp
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+           WHERE posthog_test_stripe_invoice.paid) AS invoice
+        UNION ALL SELECT posthog_test_stripe_charge.id AS id,
+                         id AS invoice_item_id,
+                         'stripe.posthog_test' AS source_label,
+                         parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_charge.created), 6, 'UTC') AS timestamp,
+                         parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_charge.created), 6, 'UTC') AS created_at,
+                         0 AS is_recurring,
+                         NULL AS product_id,
+                         posthog_test_stripe_charge.customer AS customer_id,
+                         NULL AS group_0_key,
+                         NULL AS group_1_key,
+                         NULL AS group_2_key,
+                         NULL AS group_3_key,
+                         NULL AS group_4_key,
+                         posthog_test_stripe_charge.invoice AS invoice_id,
+                         NULL AS subscription_id,
+                         NULL AS session_id,
+                         NULL AS event_name,
+                         NULL AS coupon,
+                         NULL AS coupon_id,
+                         upper(posthog_test_stripe_charge.currency) AS original_currency,
+                         accurateCastOrNull(posthog_test_stripe_charge.amount_captured, 'Decimal64(10)') AS original_amount,
+                         in(original_currency,
+                            ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+                           if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+                           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+                           'GBP' AS currency,
+                           if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
+        WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS revenue_analytics_revenue_item ON equals(revenue_analytics_subscription.id, revenue_analytics_revenue_item.subscription_id)
+     GROUP BY revenue_analytics_subscription.customer_id,
+              breakdown_by,
+              period_start
+     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+  GROUP BY subquery.breakdown_by,
+           subquery.period_start
+  ORDER BY subquery.breakdown_by ASC,
+           subquery.period_start ASC,
+           subscription_count DESC,
+           customer_count DESC
+  LIMIT 10000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---
 # name: TestRevenueAnalyticsMetricsQueryRunner.test_with_empty_date_range
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
@@ -2052,6 +2297,500 @@
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            LEFT JOIN
+             (SELECT person.id AS id
+              FROM person
+              WHERE equals(person.team_id, 99999)
+              GROUP BY person.id
+              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           WHERE and(equals(events.team_id, 99999), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1))
+           GROUP BY subscription_id,
+                    person_id)
+        ORDER BY started_at DESC) AS revenue_analytics_subscription
+     LEFT JOIN
+       (SELECT toString(events.uuid) AS id,
+               toString(events.uuid) AS invoice_item_id,
+               'revenue_analytics.events.purchase' AS source_label,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               timestamp AS created_at,
+               isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '')) AS is_recurring,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id,
+               toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
+               events.`$group_0` AS group_0_key,
+               events.`$group_1` AS group_1_key,
+               events.`$group_2` AS group_2_key,
+               events.`$group_3` AS group_3_key,
+               events.`$group_4` AS group_4_key,
+               NULL AS invoice_id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
+               toString(events.`$session_id`) AS session_id,
+               events.event AS event_name,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
+               coupon AS coupon_id,
+               upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
+               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
+               1 AS enable_currency_aware_divider,
+               if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+               divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+               'GBP' AS currency,
+               if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1), isNotNull(amount)))
+        ORDER BY timestamp DESC) AS revenue_analytics_revenue_item ON equals(revenue_analytics_subscription.id, revenue_analytics_revenue_item.subscription_id)
+     WHERE equals(revenue_analytics_subscription.source_label, 'revenue_analytics.events.purchase')
+     GROUP BY revenue_analytics_subscription.customer_id,
+              breakdown_by,
+              period_start
+     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+  GROUP BY subquery.breakdown_by,
+           subquery.period_start
+  ORDER BY subquery.breakdown_by ASC,
+           subquery.period_start ASC,
+           subscription_count DESC,
+           customer_count DESC
+  LIMIT 10000
+  UNION ALL
+  SELECT subquery.breakdown_by AS breakdown_by,
+         subquery.period_start AS period_start,
+         sum(subquery.subscription_count) AS subscription_count,
+         sum(subquery.new_subscription_count) AS new_subscription_count,
+         sum(subquery.churned_subscription_count) AS churned_subscription_count,
+         countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
+         countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
+         countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
+  FROM
+    (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
+            revenue_analytics_subscription.customer_id AS customer_id,
+            toStartOfMonth(parseDateTime64BestEffortOrNull(arrayJoin(['2024-11-01 00:00:00', '2024-12-01 00:00:00', '2025-01-01 00:00:00', '2025-02-01 00:00:00', '2025-03-01 00:00:00', '2025-04-01 00:00:00', '2025-05-01 00:00:00']), 6, 'UTC')) AS period_start,
+            countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), period_start), 0), or(isNull(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), ifNull(greaterOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), period_start), 0)))) AS subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), 0), or(isNull(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), ifNull(greaterOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), 0)))) AS prev_subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')))
+                                                                       and isNull(period_start))) AS new_subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), isNull(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')))
+                                                                       and isNull(date_add(period_start, toIntervalMonth(-1))))) AS churned_subscription_count,
+            and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
+            and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
+                                                                          and isNull(prev_subscription_count))) AS is_churned_customer,
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(revenue_analytics_revenue_item.timestamp), period_start), isNull(toStartOfMonth(revenue_analytics_revenue_item.timestamp))
+                                                                and isNull(period_start))) AS revenue
+     FROM
+       (SELECT posthog_test_stripe_subscription.id AS id,
+               'stripe.posthog_test' AS source_label,
+               JSONExtractString(posthog_test_stripe_subscription.plan, 'id') AS plan_id,
+               JSONExtractString(posthog_test_stripe_subscription.plan, 'product') AS product_id,
+               posthog_test_stripe_subscription.customer AS customer_id,
+               posthog_test_stripe_subscription.status AS status,
+               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.created), 6, 'UTC') AS started_at,
+               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
+               posthog_test_stripe_subscription.metadata AS metadata
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS revenue_analytics_subscription
+     LEFT JOIN
+       (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
+               invoice.invoice_item_id AS invoice_item_id,
+               'stripe.posthog_test' AS source_label,
+               addMonths(invoice.timestamp, invoice.month_index) AS timestamp,
+               invoice.created_at AS created_at,
+               ifNull(notEmpty(invoice.subscription_id), 0) AS is_recurring,
+               invoice.product_id AS product_id,
+               invoice.customer_id AS customer_id,
+               NULL AS group_0_key,
+               NULL AS group_1_key,
+               NULL AS group_2_key,
+               NULL AS group_3_key,
+               NULL AS group_4_key,
+               invoice.id AS invoice_id,
+               invoice.subscription_id AS subscription_id,
+               NULL AS session_id,
+               NULL AS event_name,
+               JSONExtractString(invoice.discount, 'coupon', 'name') AS coupon,
+               JSONExtractString(invoice.discount, 'coupon', 'id') AS coupon_id,
+               upper(invoice.currency) AS original_currency,
+               accurateCastOrNull(invoice.amount_captured, 'Decimal64(10)') AS original_amount,
+               in(original_currency,
+                  ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+                 if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+                 divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+                 'GBP' AS currency,
+                 divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+        FROM
+          (SELECT posthog_test_stripe_invoice.id AS id,
+                  parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
+                  posthog_test_stripe_invoice.customer AS customer_id,
+                  posthog_test_stripe_invoice.subscription AS subscription_id,
+                  posthog_test_stripe_invoice.discount AS discount,
+                  arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
+                  JSONExtractString(data, 'id') AS invoice_item_id,
+                  JSONExtractUInt(data, 'amount') AS amount_before_discount,
+                  coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+                  greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
+                  JSONExtractString(data, 'currency') AS currency,
+                  JSONExtractString(data, 'price', 'product') AS product_id,
+                  fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
+                  fromUnixTimestamp(JSONExtractUInt(data, 'period', 'end')) AS period_end,
+                  greatest(toInt16(round(divide(dateDiff('day', ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')), ifNull(period_end, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC'))), 30.44))), 1) AS period_months,
+                  arrayJoin(range(0, period_months)) AS month_index,
+                  ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')) AS timestamp
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+           WHERE posthog_test_stripe_invoice.paid) AS invoice
+        UNION ALL SELECT posthog_test_stripe_charge.id AS id,
+                         id AS invoice_item_id,
+                         'stripe.posthog_test' AS source_label,
+                         parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_charge.created), 6, 'UTC') AS timestamp,
+                         parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_charge.created), 6, 'UTC') AS created_at,
+                         0 AS is_recurring,
+                         NULL AS product_id,
+                         posthog_test_stripe_charge.customer AS customer_id,
+                         NULL AS group_0_key,
+                         NULL AS group_1_key,
+                         NULL AS group_2_key,
+                         NULL AS group_3_key,
+                         NULL AS group_4_key,
+                         posthog_test_stripe_charge.invoice AS invoice_id,
+                         NULL AS subscription_id,
+                         NULL AS session_id,
+                         NULL AS event_name,
+                         NULL AS coupon,
+                         NULL AS coupon_id,
+                         upper(posthog_test_stripe_charge.currency) AS original_currency,
+                         accurateCastOrNull(posthog_test_stripe_charge.amount_captured, 'Decimal64(10)') AS original_amount,
+                         in(original_currency,
+                            ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+                           if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+                           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+                           'GBP' AS currency,
+                           if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
+        WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS revenue_analytics_revenue_item ON equals(revenue_analytics_subscription.id, revenue_analytics_revenue_item.subscription_id)
+     WHERE equals(revenue_analytics_subscription.source_label, 'revenue_analytics.events.purchase')
+     GROUP BY revenue_analytics_subscription.customer_id,
+              breakdown_by,
+              period_start
+     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+  GROUP BY subquery.breakdown_by,
+           subquery.period_start
+  ORDER BY subquery.breakdown_by ASC,
+           subquery.period_start ASC,
+           subscription_count DESC,
+           customer_count DESC
+  LIMIT 10000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_events_data_with_managed_viewsets_ff
+  '''
+  SELECT subquery.breakdown_by AS breakdown_by,
+         subquery.period_start AS period_start,
+         sum(subquery.subscription_count) AS subscription_count,
+         sum(subquery.new_subscription_count) AS new_subscription_count,
+         sum(subquery.churned_subscription_count) AS churned_subscription_count,
+         countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
+         countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
+         countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
+  FROM
+    (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
+            revenue_analytics_subscription.customer_id AS customer_id,
+            toStartOfMonth(parseDateTime64BestEffortOrNull(arrayJoin(['2024-11-01 00:00:00', '2024-12-01 00:00:00', '2025-01-01 00:00:00', '2025-02-01 00:00:00', '2025-03-01 00:00:00', '2025-04-01 00:00:00', '2025-05-01 00:00:00']), 6, 'UTC')) AS period_start,
+            countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), period_start), 0), or(isNull(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), ifNull(greaterOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), period_start), 0)))) AS subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), 0), or(isNull(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), ifNull(greaterOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), 0)))) AS prev_subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')))
+                                                                       and isNull(period_start))) AS new_subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), isNull(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')))
+                                                                       and isNull(date_add(period_start, toIntervalMonth(-1))))) AS churned_subscription_count,
+            and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
+            and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
+                                                                          and isNull(prev_subscription_count))) AS is_churned_customer,
+            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+     FROM
+       (SELECT subscription_id AS id,
+               'revenue_analytics.events.purchase' AS source_label,
+               NULL AS plan_id,
+               product_id AS product_id,
+               toString(person_id) AS customer_id,
+               NULL AS status,
+               min_timestamp AS started_at,
+               if(ifNull(greater(max_timestamp_plus_dropoff_days, today()), 0), NULL, max_timestamp) AS ended_at,
+               NULL AS metadata
+        FROM
+          (SELECT events__person.id AS person_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
+                  min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
+                  max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp,
+                  addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           INNER JOIN
+             (SELECT person.id AS id
+              FROM person
+              WHERE equals(person.team_id, 99999)
+              GROUP BY person.id
+              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           WHERE and(equals(events.team_id, 99999), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1))
+           GROUP BY subscription_id,
+                    person_id)
+        ORDER BY started_at DESC) AS revenue_analytics_subscription
+     LEFT JOIN
+       (SELECT toString(events.uuid) AS id,
+               toString(events.uuid) AS invoice_item_id,
+               'revenue_analytics.events.purchase' AS source_label,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               timestamp AS created_at,
+               isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '')) AS is_recurring,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id,
+               toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
+               events.`$group_0` AS group_0_key,
+               events.`$group_1` AS group_1_key,
+               events.`$group_2` AS group_2_key,
+               events.`$group_3` AS group_3_key,
+               events.`$group_4` AS group_4_key,
+               NULL AS invoice_id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
+               toString(events.`$session_id`) AS session_id,
+               events.event AS event_name,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
+               coupon AS coupon_id,
+               upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
+               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
+               1 AS enable_currency_aware_divider,
+               if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+               divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+               'GBP' AS currency,
+               if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1), isNotNull(amount)))
+        ORDER BY timestamp DESC) AS revenue_analytics_revenue_item ON equals(revenue_analytics_subscription.id, revenue_analytics_revenue_item.subscription_id)
+     WHERE equals(revenue_analytics_subscription.source_label, 'revenue_analytics.events.purchase')
+     GROUP BY revenue_analytics_subscription.customer_id,
+              breakdown_by,
+              period_start
+     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+  GROUP BY subquery.breakdown_by,
+           subquery.period_start
+  ORDER BY subquery.breakdown_by ASC,
+           subquery.period_start ASC,
+           subscription_count DESC,
+           customer_count DESC
+  LIMIT 10000
+  UNION ALL
+  SELECT subquery.breakdown_by AS breakdown_by,
+         subquery.period_start AS period_start,
+         sum(subquery.subscription_count) AS subscription_count,
+         sum(subquery.new_subscription_count) AS new_subscription_count,
+         sum(subquery.churned_subscription_count) AS churned_subscription_count,
+         countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
+         countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
+         countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
+  FROM
+    (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
+            revenue_analytics_subscription.customer_id AS customer_id,
+            toStartOfMonth(parseDateTime64BestEffortOrNull(arrayJoin(['2024-11-01 00:00:00', '2024-12-01 00:00:00', '2025-01-01 00:00:00', '2025-02-01 00:00:00', '2025-03-01 00:00:00', '2025-04-01 00:00:00', '2025-05-01 00:00:00']), 6, 'UTC')) AS period_start,
+            countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), period_start), 0), or(isNull(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), ifNull(greaterOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), period_start), 0)))) AS subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), 0), or(isNull(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), ifNull(greaterOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), 0)))) AS prev_subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')))
+                                                                       and isNull(period_start))) AS new_subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), isNull(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')))
+                                                                       and isNull(date_add(period_start, toIntervalMonth(-1))))) AS churned_subscription_count,
+            and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
+            and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
+                                                                          and isNull(prev_subscription_count))) AS is_churned_customer,
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(revenue_analytics_revenue_item.timestamp), period_start), isNull(toStartOfMonth(revenue_analytics_revenue_item.timestamp))
+                                                                and isNull(period_start))) AS revenue
+     FROM
+       (SELECT posthog_test_stripe_subscription.id AS id,
+               'stripe.posthog_test' AS source_label,
+               JSONExtractString(posthog_test_stripe_subscription.plan, 'id') AS plan_id,
+               JSONExtractString(posthog_test_stripe_subscription.plan, 'product') AS product_id,
+               posthog_test_stripe_subscription.customer AS customer_id,
+               posthog_test_stripe_subscription.status AS status,
+               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.created), 6, 'UTC') AS started_at,
+               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
+               posthog_test_stripe_subscription.metadata AS metadata
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS revenue_analytics_subscription
+     LEFT JOIN
+       (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
+               invoice.invoice_item_id AS invoice_item_id,
+               'stripe.posthog_test' AS source_label,
+               addMonths(invoice.timestamp, invoice.month_index) AS timestamp,
+               invoice.created_at AS created_at,
+               ifNull(notEmpty(invoice.subscription_id), 0) AS is_recurring,
+               invoice.product_id AS product_id,
+               invoice.customer_id AS customer_id,
+               NULL AS group_0_key,
+               NULL AS group_1_key,
+               NULL AS group_2_key,
+               NULL AS group_3_key,
+               NULL AS group_4_key,
+               invoice.id AS invoice_id,
+               invoice.subscription_id AS subscription_id,
+               NULL AS session_id,
+               NULL AS event_name,
+               JSONExtractString(invoice.discount, 'coupon', 'name') AS coupon,
+               JSONExtractString(invoice.discount, 'coupon', 'id') AS coupon_id,
+               upper(invoice.currency) AS original_currency,
+               accurateCastOrNull(invoice.amount_captured, 'Decimal64(10)') AS original_amount,
+               in(original_currency,
+                  ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+                 if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+                 divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+                 'GBP' AS currency,
+                 divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+        FROM
+          (SELECT posthog_test_stripe_invoice.id AS id,
+                  parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
+                  posthog_test_stripe_invoice.customer AS customer_id,
+                  posthog_test_stripe_invoice.subscription AS subscription_id,
+                  posthog_test_stripe_invoice.discount AS discount,
+                  arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
+                  JSONExtractString(data, 'id') AS invoice_item_id,
+                  JSONExtractUInt(data, 'amount') AS amount_before_discount,
+                  coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+                  greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
+                  JSONExtractString(data, 'currency') AS currency,
+                  JSONExtractString(data, 'price', 'product') AS product_id,
+                  fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
+                  fromUnixTimestamp(JSONExtractUInt(data, 'period', 'end')) AS period_end,
+                  greatest(toInt16(round(divide(dateDiff('day', ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')), ifNull(period_end, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC'))), 30.44))), 1) AS period_months,
+                  arrayJoin(range(0, period_months)) AS month_index,
+                  ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')) AS timestamp
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+           WHERE posthog_test_stripe_invoice.paid) AS invoice
+        UNION ALL SELECT posthog_test_stripe_charge.id AS id,
+                         id AS invoice_item_id,
+                         'stripe.posthog_test' AS source_label,
+                         parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_charge.created), 6, 'UTC') AS timestamp,
+                         parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_charge.created), 6, 'UTC') AS created_at,
+                         0 AS is_recurring,
+                         NULL AS product_id,
+                         posthog_test_stripe_charge.customer AS customer_id,
+                         NULL AS group_0_key,
+                         NULL AS group_1_key,
+                         NULL AS group_2_key,
+                         NULL AS group_3_key,
+                         NULL AS group_4_key,
+                         posthog_test_stripe_charge.invoice AS invoice_id,
+                         NULL AS subscription_id,
+                         NULL AS session_id,
+                         NULL AS event_name,
+                         NULL AS coupon,
+                         NULL AS coupon_id,
+                         upper(posthog_test_stripe_charge.currency) AS original_currency,
+                         accurateCastOrNull(posthog_test_stripe_charge.amount_captured, 'Decimal64(10)') AS original_amount,
+                         in(original_currency,
+                            ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+                           if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+                           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+                           'GBP' AS currency,
+                           if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
+        WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS revenue_analytics_revenue_item ON equals(revenue_analytics_subscription.id, revenue_analytics_revenue_item.subscription_id)
+     WHERE equals(revenue_analytics_subscription.source_label, 'revenue_analytics.events.purchase')
+     GROUP BY revenue_analytics_subscription.customer_id,
+              breakdown_by,
+              period_start
+     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+  GROUP BY subquery.breakdown_by,
+           subquery.period_start
+  ORDER BY subquery.breakdown_by ASC,
+           subquery.period_start ASC,
+           subscription_count DESC,
+           customer_count DESC
+  LIMIT 10000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_events_data_with_managed_viewsets_ff.1
+  '''
+  SELECT subquery.breakdown_by AS breakdown_by,
+         subquery.period_start AS period_start,
+         sum(subquery.subscription_count) AS subscription_count,
+         sum(subquery.new_subscription_count) AS new_subscription_count,
+         sum(subquery.churned_subscription_count) AS churned_subscription_count,
+         countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
+         countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
+         countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
+         multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
+  FROM
+    (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
+            revenue_analytics_subscription.customer_id AS customer_id,
+            toStartOfMonth(parseDateTime64BestEffortOrNull(arrayJoin(['2024-11-01 00:00:00', '2024-12-01 00:00:00', '2025-01-01 00:00:00', '2025-02-01 00:00:00', '2025-03-01 00:00:00', '2025-04-01 00:00:00', '2025-05-01 00:00:00']), 6, 'UTC')) AS period_start,
+            countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), period_start), 0), or(isNull(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), ifNull(greaterOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), period_start), 0)))) AS subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), 0), or(isNull(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), ifNull(greaterOrEquals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), 0)))) AS prev_subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_subscription.started_at, 'UTC')))
+                                                                       and isNull(period_start))) AS new_subscription_count,
+            countIf(DISTINCT revenue_analytics_subscription.id, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')), date_add(period_start, toIntervalMonth(-1))), isNull(toStartOfMonth(toTimeZone(revenue_analytics_subscription.ended_at, 'UTC')))
+                                                                       and isNull(date_add(period_start, toIntervalMonth(-1))))) AS churned_subscription_count,
+            and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
+            and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
+                                                                          and isNull(prev_subscription_count))) AS is_churned_customer,
+            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+     FROM
+       (SELECT subscription_id AS id,
+               'revenue_analytics.events.purchase' AS source_label,
+               NULL AS plan_id,
+               product_id AS product_id,
+               toString(person_id) AS customer_id,
+               NULL AS status,
+               min_timestamp AS started_at,
+               if(ifNull(greater(max_timestamp_plus_dropoff_days, today()), 0), NULL, max_timestamp_plus_dropoff_days) AS ended_at,
+               NULL AS metadata
+        FROM
+          (SELECT events__person.id AS person_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
+                  min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
+                  max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp,
+                  addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           INNER JOIN
              (SELECT person.id AS id
               FROM person
               WHERE equals(person.team_id, 99999)

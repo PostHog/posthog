@@ -1,10 +1,14 @@
-import { useMemo } from 'react'
+import { ReactNode, createElement, useMemo } from 'react'
+import { P, match } from 'ts-pattern'
 
-import { IconCommit, IconExternal, IconGitBranch, IconGitRepository, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconCommit, IconGitBranch, IconGitRepository, IconShare } from '@posthog/icons'
+import { IconComponent, IconProps } from '@posthog/icons/dist/src/types/icon-types'
+import { LemonTag, LemonTagProps, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { ErrorTrackingRelease } from 'lib/components/Errors/types'
+import { ErrorTrackingRelease, ReleaseGitMetadata } from 'lib/components/Errors/types'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 
 import { GitMetadataParser } from './gitMetadataParser'
 
@@ -13,71 +17,108 @@ export interface ReleasesPopoverContentProps {
 }
 
 export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps): JSX.Element {
-    const viewCommitLink = useMemo(() => GitMetadataParser.getViewCommitLink(release), [release])
-
     return (
         <div className="overflow-hidden">
-            <div className="border-b-1 p-2 flex items-center justify-between gap-3">
-                <h4 className="mb-0">Related release</h4>
-                {viewCommitLink && (
-                    <LemonButton to={viewCommitLink} targetBlank size="xsmall" type="secondary" icon={<IconExternal />}>
-                        View commit
-                    </LemonButton>
-                )}
-            </div>
             <div className="p-2">
-                {release?.metadata?.git ? <GitContent release={release} /> : <GitlessContent release={release} />}
+                <div className="pb-1 text-secondary text-xs">Release</div>
+                <table className="justify-between w-full text-left items-center min-w-[180px]">
+                    <tr>
+                        <th className="pb-1">Project</th>
+                        <td className="pb-1 text-right">{release.project ?? 'Unknown'}</td>
+                    </tr>
+                    <tr>
+                        <th>Version</th>
+                        <td className="text-right">{release.version.slice(0, 10)}</td>
+                    </tr>
+                </table>
             </div>
+            {match(release?.metadata?.git)
+                .with(P.nullish, () => <></>)
+                .otherwise((git) => (
+                    <GitFooter git={git} />
+                ))}
         </div>
     )
 }
 
-function GitContent({ release }: { release: ErrorTrackingRelease }): JSX.Element {
+function GitFooter({ git }: { git: ReleaseGitMetadata }): JSX.Element {
+    let { commit_id, branch, remote_url } = git
+    const viewCommitLink = useMemo(() => GitMetadataParser.getViewCommitLink(git), [git])
+    const parsedRemoteUrl = useMemo(
+        () => (remote_url ? GitMetadataParser.parseRemoteUrl(remote_url) : null),
+        [remote_url]
+    )
     return (
-        <div>
-            <div className="flex items-center gap-2 flex-wrap">
-                <Tooltip title="Click to copy full commit SHA to clipboard">
-                    <LemonTag
-                        className="bg-fill-primary font-mono text-xs cursor-pointer hover:bg-fill-secondary"
-                        onClick={() => copyToClipboard(release.metadata?.git?.commit_id ?? '', 'full commit SHA')}
+        <div className="border-t-1 p-1 bg-fill-primary">
+            <div className="flex items-center gap-1 flex-wrap">
+                {commit_id && (
+                    <PropertyDisplay
+                        icon={IconCommit}
+                        tooltip="Copy commit SHA"
+                        onClick={() => copyToClipboard(commit_id!, 'full commit SHA')}
                     >
-                        <IconCommit className="text-sm text-secondary" />
-                        <span title={`${release.metadata?.git?.commit_id ?? ''} (click to copy)`}>
-                            {release.metadata?.git?.commit_id?.slice(0, 7)}
-                        </span>
-                    </LemonTag>
-                </Tooltip>
-                {release.metadata?.git?.branch && (
-                    <Tooltip title="Git branch name">
-                        <LemonTag className="bg-fill-primary text-xs">
-                            <IconGitBranch className="text-sm text-secondary" />
-                            <span title={release.metadata?.git?.branch}>{release.metadata?.git?.branch}</span>
-                        </LemonTag>
-                    </Tooltip>
+                        {commitDisplay(commit_id)}
+                    </PropertyDisplay>
                 )}
-                {release.metadata?.git?.repo_name && (
-                    <Tooltip title="Git repository name">
-                        <LemonTag className="bg-fill-primary text-xs">
-                            <IconGitRepository className="text-sm text-secondary" />
-                            <span title={release.metadata?.git?.repo_name}>{release.metadata?.git?.repo_name}</span>
-                        </LemonTag>
-                    </Tooltip>
+                {branch && (
+                    <PropertyDisplay
+                        icon={IconGitBranch}
+                        tooltip="Copy branch name"
+                        onClick={() => copyToClipboard(branch!, 'branch name')}
+                    >
+                        {branch}
+                    </PropertyDisplay>
+                )}
+                {remote_url && parsedRemoteUrl && (
+                    <PropertyDisplay
+                        icon={IconGitRepository}
+                        tooltip="Copy remote URL"
+                        onClick={() => copyToClipboard(remote_url!, 'remote url')}
+                    >
+                        {`${parsedRemoteUrl.owner}/${parsedRemoteUrl.repository}`}
+                    </PropertyDisplay>
+                )}
+                {viewCommitLink && (
+                    <Link to={viewCommitLink} target="_blank">
+                        <ButtonPrimitive size="xs" tooltip="Open commit in GitHub" className="text-accent">
+                            <IconShare />
+                        </ButtonPrimitive>
+                    </Link>
                 )}
             </div>
         </div>
     )
 }
 
-function GitlessContent({ release }: { release: ErrorTrackingRelease }): JSX.Element {
-    return (
-        <div className="flex items-center justify-between gap-2">
-            <LemonTag className="bg-fill-primary text-xs">
-                <IconCommit className="text-sm text-secondary" />
-                <span>{release.version}</span>
+function PropertyDisplay({
+    icon,
+    children,
+    tooltip,
+    ...tagProps
+}: {
+    icon: IconComponent<IconProps>
+    children: ReactNode
+    tooltip?: string
+} & Omit<LemonTagProps, 'icon'>): JSX.Element {
+    function renderContent(): JSX.Element {
+        return (
+            <LemonTag
+                className={cn('bg-fill-primary cursor-pointer hover:bg-fill-secondary', tagProps.className)}
+                {...tagProps}
+            >
+                {icon && createElement(icon, { className: 'text-sm text-secondary' })}
+                <span>{children}</span>
             </LemonTag>
-            <Tooltip title="No git release information available. Version you see was manually provided by you using '--version' flag in the 'upload' CLI command">
-                <IconInfo className="text-muted-alt" />
-            </Tooltip>
-        </div>
-    )
+        )
+    }
+
+    function maybeWrapWithTooltip(content: JSX.Element, tooltip?: string): JSX.Element {
+        return tooltip ? <Tooltip title={tooltip}>{content}</Tooltip> : content
+    }
+
+    return maybeWrapWithTooltip(renderContent(), tooltip)
+}
+
+function commitDisplay(commit: string): string {
+    return commit.slice(0, 7)
 }

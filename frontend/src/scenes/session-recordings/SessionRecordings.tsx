@@ -5,11 +5,6 @@ import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import {
-    AuthorizedUrlListType,
-    authorizedUrlListLogic,
-    defaultAuthorizedUrlProperties,
-} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
@@ -99,14 +94,8 @@ function Warnings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
 
-    const theAuthorizedUrlsLogic = authorizedUrlListLogic({
-        ...defaultAuthorizedUrlProperties,
-        type: AuthorizedUrlListType.RECORDING_DOMAINS,
-    })
-    const { suggestions, authorizedUrls } = useValues(theAuthorizedUrlsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const mightBeRefusingRecordings = suggestions.length > 0 && authorizedUrls.length > 0
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
@@ -178,22 +167,6 @@ function Warnings(): JSX.Element {
                     customHog={FilmCameraHog}
                 />
             )}
-
-            {!recordingsDisabled && mightBeRefusingRecordings ? (
-                <LemonBanner
-                    type="warning"
-                    action={{
-                        type: 'secondary',
-                        icon: <IconGear />,
-                        to: urls.replaySettings('replay-authorized-domains'),
-                        children: 'Configure',
-                    }}
-                    dismissKey={`session-recordings-authorized-domains-warning/${suggestions.join(',')}`}
-                >
-                    You have unauthorized domains trying to send recordings. To accept recordings from these domains,
-                    please check your config.
-                </LemonBanner>
-            ) : null}
         </>
     )
 }

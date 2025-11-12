@@ -9,7 +9,7 @@ describe('StartPipeline', () => {
     it('should process single item through pipeline with success result', async () => {
         const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
-        const pipeline = new StartPipeline<{ data: string }>().pipe((input) => {
+        const pipeline = new StartPipeline<{ data: string }, unknown>().pipe((input) => {
             return Promise.resolve(ok({ processed: input.data }))
         })
 
@@ -20,7 +20,7 @@ describe('StartPipeline', () => {
     it('should process single item through pipeline with drop result', async () => {
         const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
-        const pipeline = new StartPipeline<{ data: string }>().pipe((_input) => {
+        const pipeline = new StartPipeline<{ data: string }, unknown>().pipe((_input) => {
             return Promise.resolve(drop('dropped item'))
         })
 
@@ -31,7 +31,7 @@ describe('StartPipeline', () => {
     it('should process single item through pipeline with dlq result', async () => {
         const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
-        const pipeline = new StartPipeline<{ data: string }>().pipe((_input) => {
+        const pipeline = new StartPipeline<{ data: string }, unknown>().pipe((_input) => {
             return Promise.resolve(dlq('dlq item', new Error('test error')))
         })
 
@@ -44,7 +44,7 @@ describe('StartPipeline', () => {
     it('should process single item through pipeline with redirect result', async () => {
         const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
-        const pipeline = new StartPipeline<{ data: string }>().pipe((_input) => {
+        const pipeline = new StartPipeline<{ data: string }, unknown>().pipe((_input) => {
             return Promise.resolve(redirect('redirect item', 'retry-topic'))
         })
 
@@ -58,7 +58,7 @@ describe('StartPipeline', () => {
         const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
         const step = jest.fn().mockResolvedValue(ok({ processed: 'test' }))
 
-        const pipeline = new StartPipeline<{ data: string }>()
+        const pipeline = new StartPipeline<{ data: string }, unknown>()
         const stepPipeline = pipeline.pipe(step)
 
         expect(stepPipeline).toBeInstanceOf(StepPipeline)

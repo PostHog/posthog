@@ -10,7 +10,6 @@ import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTe
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
 
@@ -48,7 +47,7 @@ function InternalNewSourceWizardScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Internal source wizard"
+                name="New data warehouse source"
                 resourceType={{ type: 'data_pipeline' }}
                 actions={
                     <LemonButton
@@ -62,7 +61,6 @@ function InternalNewSourceWizardScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <SceneDivider />
             <InternalSourcesWizard />
         </SceneContent>
     )
@@ -100,7 +98,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         selectedConnector,
         connectors,
     } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit, onClear, setInitialConnector } = useActions(sourceWizardLogic)
+    const { onBack, onSubmit, setInitialConnector } = useActions(sourceWizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
 
     // Initialize wizard with initial source if provided
@@ -112,8 +110,6 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
             }
         }
     }, [props.initialSource, connectors, setInitialConnector])
-
-    useEffect(() => onClear, [onClear])
 
     const footer = useCallback(() => {
         if (currentStep === 1) {

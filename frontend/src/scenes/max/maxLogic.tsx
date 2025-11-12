@@ -190,18 +190,6 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
 
-        description: [
-            (s) => [s.toolDescriptions],
-            (toolDescriptions): string => {
-                if (toolDescriptions.length > 0) {
-                    return `I'm Max. ${toolDescriptions[0]}`
-                }
-                return "I'm Max, here to help you build a successful product."
-            },
-            // It's important we use a deep equality check for inputs, because we want to avoid needless re-renders
-            { equalityCheck: objectsEqual },
-        ],
-
         toolHeadlines: [(s) => [s.tools], (tools) => tools.map((tool) => tool.introOverride?.headline).filter(Boolean)],
 
         toolDescriptions: [
@@ -243,18 +231,18 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         chatTitle: [
-            (s) => [s.conversation, s.conversationHistoryVisible],
-            (conversation, conversationHistoryVisible) => {
+            (s) => [s.conversationId, s.conversation, s.conversationHistoryVisible],
+            (conversationId, conversation, conversationHistoryVisible) => {
                 if (conversationHistoryVisible) {
                     return 'Chat history'
                 }
 
                 // Existing conversation or the first generation is in progress
-                if (conversation) {
-                    return conversation.title ?? 'New chat'
+                if (conversationId || conversation) {
+                    return conversation?.title ?? 'New chat'
                 }
 
-                return 'Max AI'
+                return null
             },
         ],
 
@@ -283,7 +271,7 @@ export const maxLogic = kea<maxLogicType>([
                 return [
                     {
                         key: Scene.Max,
-                        name: `Max AI`,
+                        name: 'AI',
                         path: urls.max(),
                         iconType: 'chat',
                     },
@@ -533,7 +521,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'Calculate a conversion rate for <events or actions>…',
             },
         ],
-        tooltip: 'Max can generate insights from natural language and tweak existing ones.',
+        tooltip: 'PostHog AI can generate insights from natural language and tweak existing ones.',
     },
     {
         label: 'SQL',
@@ -544,7 +532,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             },
         ],
         url: urls.sqlEditor(),
-        tooltip: 'Max can generate SQL queries for your PostHog data, both analytics and the data warehouse.',
+        tooltip: 'PostHog AI can generate SQL queries for your PostHog data, both analytics and the data warehouse.',
     },
     {
         label: 'Session replay',
@@ -555,7 +543,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             },
         ],
         url: productUrls.replay(),
-        tooltip: 'Max can find session recordings for you.',
+        tooltip: 'PostHog AI can find session recordings for you.',
     },
     {
         label: 'SDK setup',
@@ -583,7 +571,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'How can I set up the product analytics in…',
             },
         ],
-        tooltip: 'Max can help you set up PostHog SDKs in your stack.',
+        tooltip: 'PostHog AI can help you set up PostHog SDKs in your stack.',
     },
     {
         label: 'Surveys',
@@ -603,7 +591,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             },
         ],
         url: urls.surveys(),
-        tooltip: 'Max can help you create surveys to collect feedback from your users.',
+        tooltip: 'PostHog AI can help you create surveys to collect feedback from your users.',
     },
     {
         label: 'Docs',
@@ -625,7 +613,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'How can I capture an exception?',
             },
         ],
-        tooltip: 'Max has access to PostHog docs and can help you get the most out of PostHog.',
+        tooltip: 'PostHog AI has access to PostHog docs and can help you get the most out of PostHog.',
     },
 ]
 

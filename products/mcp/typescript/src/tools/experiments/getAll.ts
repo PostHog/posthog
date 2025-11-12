@@ -1,12 +1,9 @@
 import { ExperimentGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = ExperimentGetAllSchema
 
-type Params = z.infer<typeof schema>
-
-export const getAllHandler = async (context: Context, _params: Params) => {
+export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context: Context) => {
     const projectId = await context.stateManager.getProjectId()
 
     const results = await context.api.experiments({ projectId }).list()

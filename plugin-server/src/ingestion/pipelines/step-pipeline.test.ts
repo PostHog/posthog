@@ -22,7 +22,7 @@ describe('StepPipeline', () => {
             const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
             const step = jest.fn().mockResolvedValue(ok({ processed: 'test' }))
-            const previous = new StartPipeline<{ data: string }>()
+            const previous = new StartPipeline<{ data: string }, unknown>()
 
             const pipeline = new StepPipeline(step, previous)
             const result = await pipeline.process(createContext(ok({ data: 'test' }), { message }))
@@ -35,7 +35,7 @@ describe('StepPipeline', () => {
             const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
             const step = jest.fn()
-            const previous = new StartPipeline<{ data: string }>()
+            const previous = new StartPipeline<{ data: string }, unknown>()
 
             const pipeline = new StepPipeline(step, previous)
             const result = await pipeline.process(createContext(drop('dropped'), { message }))
@@ -48,7 +48,7 @@ describe('StepPipeline', () => {
             const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
             const step = jest.fn().mockRejectedValue(new Error('Step failed'))
-            const previous = new StartPipeline<{ data: string }>()
+            const previous = new StartPipeline<{ data: string }, unknown>()
 
             const pipeline = new StepPipeline(step, previous)
 
@@ -80,7 +80,7 @@ describe('StepPipeline', () => {
                 await new Promise((resolve) => setTimeout(resolve, 1))
                 return ok({ value: input.value - 2 }) // Subtract 2
             })
-            const previous = new StartPipeline<{ value: number }>()
+            const previous = new StartPipeline<{ value: number }, unknown>()
 
             const pipeline1 = new StepPipeline(step1, previous)
             const pipeline2 = pipeline1.pipe(step)
@@ -107,7 +107,7 @@ describe('StepPipeline', () => {
                 return Promise.resolve(ok({ processed: input.data }))
             }
 
-            const previous = new StartPipeline<{ data: string }>()
+            const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(testStep, previous)
             const result = await pipeline.process(createContext(ok({ data: 'test' }), { message }))
 
@@ -121,7 +121,7 @@ describe('StepPipeline', () => {
                 return Promise.resolve(ok({ processed: input.data }))
             }
 
-            const previous = new StartPipeline<{ data: string }>()
+            const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(anonymousStep, previous)
             const result = await pipeline.process(createContext(ok({ data: 'test' }), { message }))
 
@@ -135,7 +135,7 @@ describe('StepPipeline', () => {
                 return Promise.resolve(ok({ processed: input.data }))
             }
 
-            const previous = new StartPipeline<{ data: string }>()
+            const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(testStep, previous)
             const result = await pipeline.process(createContext(drop('dropped'), { message }))
 
@@ -151,12 +151,11 @@ describe('StepPipeline', () => {
                 return Promise.resolve(ok({ processed: input.data }))
             }
 
-            const previous = new StartPipeline<{ data: string }>()
+            const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(testStep, previous)
-            const result = await pipeline.process({
-                result: ok({ data: 'test' }),
-                context: { message, lastStep: 'firstStep', sideEffects: [] },
-            })
+            const result = await pipeline.process(
+                createContext(ok({ data: 'test' }), { message, lastStep: 'firstStep' })
+            )
 
             expect(result).toEqual(
                 createContext(ok({ processed: 'test' }), { message, lastStep: 'testStep' }) // Should update to current step
@@ -177,13 +176,13 @@ describe('StepPipeline', () => {
             const stepSideEffect2 = Promise.resolve('step-side-effect-2')
             const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [stepSideEffect1, stepSideEffect2]))
 
-            const previous = new StartPipeline<{ data: string }>()
+            const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = {
-                result: ok({ data: 'test' }),
-                context: { message, sideEffects: [initialSideEffect1, initialSideEffect2] },
-            }
+            const input = createContext(ok({ data: 'test' }), {
+                message,
+                sideEffects: [initialSideEffect1, initialSideEffect2],
+            })
 
             const result = await pipeline.process(input)
 
@@ -201,13 +200,10 @@ describe('StepPipeline', () => {
             const existingSideEffect = Promise.resolve('existing-side-effect')
             const step = jest.fn().mockResolvedValue(ok({ processed: 'result' })) // No side effects
 
-            const previous = new StartPipeline<{ data: string }>()
+            const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = {
-                result: ok({ data: 'test' }),
-                context: { message, sideEffects: [existingSideEffect] },
-            }
+            const input = createContext(ok({ data: 'test' }), { message, sideEffects: [existingSideEffect] })
 
             const result = await pipeline.process(input)
 
@@ -220,13 +216,10 @@ describe('StepPipeline', () => {
             const stepSideEffect = Promise.resolve('step-side-effect')
             const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [stepSideEffect]))
 
-            const previous = new StartPipeline<{ data: string }>()
+            const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = {
-                result: ok({ data: 'test' }),
-                context: { message, sideEffects: [] }, // No existing side effects
-            }
+            const input = createContext(ok({ data: 'test' }), { message })
 
             const result = await pipeline.process(input)
 
@@ -239,13 +232,13 @@ describe('StepPipeline', () => {
             const existingSideEffect = Promise.resolve('existing-side-effect')
             const step = jest.fn() // Should not be called
 
-            const previous = new StartPipeline<{ data: string }>()
+            const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = {
-                result: drop<{ data: string }>('dropped'),
-                context: { message, sideEffects: [existingSideEffect] },
-            }
+            const input = createContext(drop<{ data: string }>('dropped'), {
+                message,
+                sideEffects: [existingSideEffect],
+            })
 
             const result = await pipeline.process(input)
 
@@ -264,14 +257,11 @@ describe('StepPipeline', () => {
             const step1 = jest.fn().mockResolvedValue(ok({ value: 'processed1' }, [step1SideEffect]))
             const step2 = jest.fn().mockResolvedValue(ok({ value: 'processed2' }, [step2SideEffect]))
 
-            const previous = new StartPipeline<{ data: string }>()
+            const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline1 = new StepPipeline(step1, previous)
             const pipeline2 = new StepPipeline(step2, pipeline1)
 
-            const input = {
-                result: ok({ data: 'test' }),
-                context: { message, sideEffects: [initialSideEffect] },
-            }
+            const input = createContext(ok({ data: 'test' }), { message, sideEffects: [initialSideEffect] })
 
             const result = await pipeline2.process(input)
 
@@ -283,13 +273,10 @@ describe('StepPipeline', () => {
 
             const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [])) // Empty side effects array
 
-            const previous = new StartPipeline<{ data: string }>()
+            const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = {
-                result: ok({ data: 'test' }),
-                context: { message, sideEffects: [] }, // Empty side effects array
-            }
+            const input = createContext(ok({ data: 'test' }), { message })
 
             const result = await pipeline.process(input)
 
@@ -306,13 +293,13 @@ describe('StepPipeline', () => {
 
             const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [stepSideEffect1, stepSideEffect2]))
 
-            const previous = new StartPipeline<{ data: string }>()
+            const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = {
-                result: ok({ data: 'test' }),
-                context: { message, sideEffects: [contextSideEffect1, contextSideEffect2] },
-            }
+            const input = createContext(ok({ data: 'test' }), {
+                message,
+                sideEffects: [contextSideEffect1, contextSideEffect2],
+            })
 
             const result = await pipeline.process(input)
 
@@ -323,6 +310,100 @@ describe('StepPipeline', () => {
                 stepSideEffect1,
                 stepSideEffect2,
             ])
+        })
+    })
+
+    describe('warning accumulation', () => {
+        it('should accumulate warnings from step results', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const stepWarning = { type: 'test_warning', details: { message: 'from step' } }
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [], [stepWarning]))
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createContext(ok({ data: 'test' }), { message })
+            const result = await pipeline.process(input)
+
+            expect(result.context.warnings).toEqual([stepWarning])
+        })
+
+        it('should merge context warnings with step warnings', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const contextWarning = { type: 'context_warning', details: { message: 'from context' } }
+            const stepWarning = { type: 'step_warning', details: { message: 'from step' } }
+
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [], [stepWarning]))
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createContext(ok({ data: 'test' }), {
+                message,
+                warnings: [contextWarning],
+            })
+            const result = await pipeline.process(input)
+
+            expect(result.context.warnings).toEqual([contextWarning, stepWarning])
+        })
+
+        it('should handle empty warnings arrays', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }))
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createContext(ok({ data: 'test' }), { message })
+            const result = await pipeline.process(input)
+
+            expect(result.context.warnings).toEqual([])
+        })
+
+        it('should preserve order of warnings', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const contextWarning1 = { type: 'context_warning_1', details: { idx: 1 } }
+            const contextWarning2 = { type: 'context_warning_2', details: { idx: 2 } }
+            const stepWarning1 = { type: 'step_warning_1', details: { idx: 3 } }
+            const stepWarning2 = { type: 'step_warning_2', details: { idx: 4 } }
+
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [], [stepWarning1, stepWarning2]))
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createContext(ok({ data: 'test' }), {
+                message,
+                warnings: [contextWarning1, contextWarning2],
+            })
+            const result = await pipeline.process(input)
+
+            // Should preserve order: context warnings first, then step warnings
+            expect(result.context.warnings).toEqual([contextWarning1, contextWarning2, stepWarning1, stepWarning2])
+        })
+
+        it('should not accumulate warnings when step is skipped (non-OK result)', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const contextWarning = { type: 'context_warning', details: { message: 'from context' } }
+            const step = jest.fn()
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createContext<{ data: string }, { message: Message }>(drop('dropped'), {
+                message,
+                warnings: [contextWarning],
+            })
+            const result = await pipeline.process(input)
+
+            // Should preserve context warnings but not call step
+            expect(step).not.toHaveBeenCalled()
+            expect(result.context.warnings).toEqual([contextWarning])
         })
     })
 })

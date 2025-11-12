@@ -35,7 +35,7 @@ from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import get_ip_address, label_for_team_id_to_track, load_data_from_request
 from posthog.utils_cors import cors_response
 
-from products.error_tracking.backend.api.error_tracking import get_suppression_rules
+from products.error_tracking.backend.api.suppression_rules import get_suppression_rules
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)

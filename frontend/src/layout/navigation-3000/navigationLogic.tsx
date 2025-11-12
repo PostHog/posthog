@@ -5,7 +5,6 @@ import posthog from 'posthog-js'
 import React from 'react'
 
 import {
-    IconAI,
     IconChat,
     IconCursorClick,
     IconDashboard,
@@ -14,6 +13,7 @@ import {
     IconGraph,
     IconHome,
     IconLive,
+    IconLlmAnalytics,
     IconMessage,
     IconNotebook,
     IconPeople,
@@ -371,7 +371,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.ProjectHomepage,
                             label: 'Home',
                             icon: <IconHome />,
-                            to: urls.projectHomepage(),
+                            to: urls.projectRoot(),
                         },
                         {
                             identifier: Scene.Dashboards,
@@ -556,7 +556,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         {
                             identifier: 'LLMAnalytics',
                             label: 'LLM analytics',
-                            icon: <IconAI />,
+                            icon: <IconLlmAnalytics />,
                             to: urls.llmAnalyticsDashboard(),
                             tooltipDocLink: 'https://posthog.com/docs/llm-analytics/dashboard',
                         },

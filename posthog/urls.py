@@ -35,6 +35,7 @@ from posthog.api.query import progress
 from posthog.api.slack import slack_interactivity_callback
 from posthog.api.survey import public_survey_page, surveys
 from posthog.api.team_sdk_versions import team_sdk_versions
+from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
@@ -176,6 +177,8 @@ urlpatterns = [
     path("api/team_sdk_versions/", team_sdk_versions),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
+    # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
+    path("account/two_factor/qrcode/", CacheAwareQRGeneratorView.as_view()),
     path("", include(tf_urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
@@ -244,9 +247,9 @@ urlpatterns = [
 
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
-    # that in production we expose these metrics on a separate port, to ensure
-    # external clients cannot see them. See the gunicorn setup for details on
-    # what we do.
+    # that in production we expose these metrics on a separate port (8001), to ensure
+    # external clients cannot see them. See bin/granian_metrics.py and bin/unit_metrics.py
+    # for details on the production metrics setup.
     urlpatterns.append(path("_metrics", ExportToDjangoView))
     # Temporal codec server endpoint for UI decryption - locally only for now
     urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))

@@ -1,10 +1,12 @@
 use clap::{Parser, Subcommand};
+use tracing::error;
 
 use crate::{
     error::CapturedError,
     experimental::{query::command::QueryCommand, tasks::TaskCommand},
     invocation_context::{context, init_context},
-    sourcemaps::SourcemapCommand,
+    proguard::ProguardSubcommand,
+    sourcemaps::{hermes::HermesSubcommand, plain::SourcemapCommand},
 };
 
 #[derive(Parser)]
@@ -13,6 +15,12 @@ pub struct Cli {
     /// The PostHog host to connect to
     #[arg(long)]
     host: Option<String>,
+
+    /// Disable non-zero exit codes on errors. Use with caution.
+    #[arg(long, default_value = "false")]
+    no_fail: bool,
+    #[arg(long, default_value = "false")]
+    skip_ssl_verification: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -55,45 +63,116 @@ pub enum ExpCommand {
         #[command(subcommand)]
         cmd: QueryCommand,
     },
+
+    #[command(about = "Upload hermes sourcemaps to PostHog")]
+    Hermes {
+        #[command(subcommand)]
+        cmd: HermesSubcommand,
+    },
+
+    #[command(about = "Upload proguard mapping files to PostHog")]
+    Proguard {
+        #[command(subcommand)]
+        cmd: ProguardSubcommand,
+    },
+    /// Download event definitions and generate typed SDK
+    Schema {
+        #[command(subcommand)]
+        cmd: SchemaCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SchemaCommand {
+    /// Download event definitions and generate typed SDK
+    Pull {
+        /// Output path for generated definitions (stored in posthog.json for future runs)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Show current schema sync status
+    Status,
 }
 
 impl Cli {
     pub fn run() -> Result<(), CapturedError> {
         let command = Cli::parse();
+        let no_fail = command.no_fail;
 
-        match command.command {
+        match command.run_impl() {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let msg = match &e.exception_id {
+                    Some(id) => format!("Oops! {} (ID: {})", e.inner, id),
+                    None => format!("Oops! {:?}", e.inner),
+                };
+                error!(msg);
+                if no_fail {
+                    Ok(())
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
+    fn run_impl(self) -> Result<(), CapturedError> {
+        if !matches!(self.command, Commands::Login) {
+            init_context(self.host.clone(), self.skip_ssl_verification)?;
+        }
+
+        match self.command {
             Commands::Login => {
                 // Notably login doesn't have a context set up going it - it sets one up
-                crate::login::login()?;
+                crate::login::login(self.host)?;
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
-                    init_context(command.host.clone(), false)?;
-                    crate::sourcemaps::inject::inject(&input_args)?;
+                    crate::sourcemaps::plain::inject::inject(&input_args)?;
                 }
                 SourcemapCommand::Upload(upload_args) => {
-                    init_context(command.host.clone(), upload_args.skip_ssl_verification)?;
-                    crate::sourcemaps::upload::upload_cmd(upload_args.clone())?;
+                    crate::sourcemaps::plain::upload::upload(&upload_args)?;
                 }
                 SourcemapCommand::Process(args) => {
-                    init_context(command.host.clone(), args.skip_ssl_verification)?;
                     let (inject, upload) = args.into();
-                    crate::sourcemaps::inject::inject(&inject)?;
-                    crate::sourcemaps::upload::upload_cmd(upload)?;
+                    crate::sourcemaps::plain::inject::inject(&inject)?;
+                    crate::sourcemaps::plain::upload::upload(&upload)?;
                 }
             },
             Commands::Exp { cmd } => match cmd {
                 ExpCommand::Task {
                     cmd,
-                    skip_ssl_verification,
+                    skip_ssl_verification: _,
                 } => {
-                    init_context(command.host.clone(), skip_ssl_verification)?;
                     cmd.run()?;
                 }
                 ExpCommand::Query { cmd } => {
-                    init_context(command.host.clone(), false)?;
                     crate::experimental::query::command::query_command(&cmd)?
                 }
+                ExpCommand::Hermes { cmd } => match cmd {
+                    HermesSubcommand::Inject(args) => {
+                        crate::sourcemaps::hermes::inject::inject(&args)?;
+                    }
+                    HermesSubcommand::Upload(args) => {
+                        crate::sourcemaps::hermes::upload::upload(&args)?;
+                    }
+                    HermesSubcommand::Clone(args) => {
+                        crate::sourcemaps::hermes::clone::clone(&args)?;
+                    }
+                },
+                ExpCommand::Proguard { cmd } => match cmd {
+                    ProguardSubcommand::Upload(args) => {
+                        crate::proguard::upload::upload(&args)?;
+                    }
+                },
+                ExpCommand::Schema { cmd } => match cmd {
+                    SchemaCommand::Pull { output } => {
+                        crate::experimental::schema::pull(self.host, output)?;
+                    }
+                    SchemaCommand::Status => {
+                        crate::experimental::schema::status()?;
+                    }
+                },
             },
         }
 

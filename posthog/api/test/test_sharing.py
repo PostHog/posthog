@@ -398,20 +398,20 @@ class TestSharing(APIBaseTest):
 
         target = self.insight if type == "insights" else self.dashboard
 
-        # the existing asset is stale because it is more than 3 hours old
-        time_in_the_past = now() - timedelta(hours=4)
+        # Create an asset that's past its expiry (PNG assets expire after 180 days)
+        time_in_the_past = now() - timedelta(days=181)
         with freeze_time(time_in_the_past):
             share_response = self.client.patch(
                 f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing",
                 {"enabled": True},
             )
-            # enabling creates an asset
-            assert ExportedAsset.objects.count() == 1
-            original_asset = ExportedAsset.objects.first()
+            # enabling creates an asset with expires_after set to 180 days from creation
+            assert ExportedAsset.objects_including_ttl_deleted.count() == 1
+            original_asset = ExportedAsset.objects_including_ttl_deleted.first()
 
         access_token = share_response.json()["access_token"]
 
-        # times passes and the asset is stale
+        # Asset is now expired and filtered out by the default manager
         assert ExportedAsset.objects.count() == 0
 
         item_opengraph_image = self.client.get("/shared/" + access_token + ".png")

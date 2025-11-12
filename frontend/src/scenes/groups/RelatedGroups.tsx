@@ -11,14 +11,21 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { groupsModel } from '~/models/groupsModel'
 import { ActorType } from '~/types'
 
-interface Props {
+export interface RelatedGroupsProps {
     groupTypeIndex: number | null
     id: string
     type?: 'person' | 'group'
     pageSize?: number
+    embedded?: boolean
 }
 
-export function RelatedGroups({ groupTypeIndex, id, type, pageSize }: Props): JSX.Element {
+export function RelatedGroups({
+    groupTypeIndex,
+    id,
+    type,
+    pageSize,
+    embedded = false,
+}: RelatedGroupsProps): JSX.Element {
     const { relatedActors, relatedPeople, relatedActorsLoading } = useValues(
         relatedGroupsLogic({ groupTypeIndex, id, type })
     )
@@ -59,6 +66,7 @@ export function RelatedGroups({ groupTypeIndex, id, type, pageSize }: Props): JS
         <LemonTable
             dataSource={dataSource}
             columns={columns}
+            embedded={embedded}
             rowKey="id"
             pagination={{ pageSize: pageSize || 30, hideOnSinglePage: true }}
             loading={relatedActorsLoading}

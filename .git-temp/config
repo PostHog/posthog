@@ -1,0 +1,247 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+	ignorecase = true
+	precomposeunicode = true
+	hooksPath = .husky
+[remote "origin"]
+	url = https://github.com/PostHog/posthog
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "master"]
+	remote = origin
+	vscode-merge-base = origin/master
+	merge = refs/heads/master
+[pull]
+	rebase = true
+[branch "fix/trends-formula-breakdown"]
+	remote = origin
+	merge = refs/heads/fix/trends-formula-breakdown
+[branch "fix/trends-breakdown-sort"]
+	remote = origin
+	merge = refs/heads/fix/trends-breakdown-sort
+[branch "fix/dashboard-hogql-insights"]
+	remote = origin
+	merge = refs/heads/fix/dashboard-hogql-insights
+[branch "feature/datanodelogic-fallback"]
+	remote = origin
+	merge = refs/heads/feature/datanodelogic-fallback
+[branch "fix/hogql-editor-examples"]
+	remote = origin
+	merge = refs/heads/fix/hogql-editor-examples
+[branch "fix/insights-funnel-breakdown-null"]
+	remote = origin
+	merge = refs/heads/fix/insights-funnel-breakdown-null
+[branch "fix/hogql-errors-shadowing"]
+	remote = origin
+	merge = refs/heads/fix/hogql-errors-shadowing
+[branch "fix/export-distinct-id-first"]
+	remote = origin
+	merge = refs/heads/fix/export-distinct-id-first
+[branch "14331-warning-implicit-alert-deletion"]
+	remote = https://github.com/nikitaevg/posthog.git
+	pushRemote = https://github.com/nikitaevg/posthog.git
+	merge = refs/heads/14331-warning-implicit-alert-deletion
+[branch "14331-regular-job"]
+	pushRemote = https://github.com/nikitaevg/posthog.git
+[branch "chore/backend-snake-case"]
+	remote = origin
+	merge = refs/heads/chore/backend-snake-case
+[branch "feature/days-ago-operator"]
+	remote = origin
+	merge = refs/heads/feature/days-ago-operator
+[branch "query-insight-metadata"]
+	remote = origin
+	merge = refs/heads/query-insight-metadata
+[branch "chore/Django-5-try-2"]
+	remote = origin
+	merge = refs/heads/chore/Django-5-try-2
+[branch "chore/cache-warming-legacy-remove"]
+	remote = origin
+	merge = refs/heads/chore/cache-warming-legacy-remove
+[blame]
+	ignoreRevsFile = .git-blame-ignore-revs
+[branch "chore/upgrade-to-python-3.12.11"]
+	remote = origin
+	vscode-merge-base = origin/master
+	merge = refs/heads/chore/upgrade-to-python-3.12.11
+[branch "tom/migrations-fast"]
+	remote = origin
+	merge = refs/heads/tom/migrations-fast
+[branch "chore/model-migrations"]
+	remote = origin
+	merge = refs/heads/chore/model-migrations
+[branch "chore/python3.11"]
+	remote = origin
+	merge = refs/heads/chore/python3.11
+[branch "feat/optimize-vite-startup-remove-public-assets-plugin"]
+	remote = origin
+	merge = refs/heads/feat/optimize-vite-startup-remove-public-assets-plugin
+[branch "chore/models-migrations-error-tracking"]
+	remote = origin
+	merge = refs/heads/chore/models-migrations-error-tracking
+[branch "chore/flox-ci-backend"]
+	remote = origin
+	merge = refs/heads/chore/flox-ci-backend
+[branch "feature/ty-stage-lint"]
+	remote = origin
+	merge = refs/heads/feature/ty-stage-lint
+[posthog]
+	enableTy = true
+[branch "perf/enable-pytest-xdist-parallel-execution"]
+	remote = origin
+	merge = refs/heads/perf/enable-pytest-xdist-parallel-execution
+[branch "chore/axes-upgrade"]
+	remote = origin
+	vscode-merge-base = origin/master
+	merge = refs/heads/chore/axes-upgrade
+[branch "chore/structlog-upgrade"]
+	remote = origin
+	merge = refs/heads/chore/structlog-upgrade
+[branch "chore/social-auth-upgrade"]
+	remote = origin
+	merge = refs/heads/chore/social-auth-upgrade
+[branch "fix/playwright-setup-flaky-test"]
+	remote = origin
+	merge = refs/heads/fix/playwright-setup-flaky-test
+[branch "devex/update-to-react-latest"]
+	remote = origin
+	merge = refs/heads/devex/update-to-react-latest
+[branch "fix/migrate-settings-imports-to-django-conf"]
+	remote = origin
+	merge = refs/heads/fix/migrate-settings-imports-to-django-conf
+[branch "perf/optimize-checkout-sparse"]
+	vscode-merge-base = origin/master
+	remote = origin
+	merge = refs/heads/perf/optimize-checkout-sparse
+[branch "feat/dmypy-daemon-local-dev"]
+	remote = origin
+	merge = refs/heads/feat/dmypy-daemon-local-dev
+[branch "docs/migration-safety-guide"]
+	remote = origin
+	merge = refs/heads/docs/migration-safety-guide
+	vscode-merge-base = origin/master
+[branch "aspicer/schema_management"]
+	remote = origin
+	merge = refs/heads/aspicer/schema_management
+[branch "fix/early-access-features-contenttype-cleanup"]
+	remote = origin
+	merge = refs/heads/fix/early-access-features-contenttype-cleanup
+[branch "chore/upgrade-numpy-2.1"]
+	remote = origin
+	merge = refs/heads/chore/upgrade-numpy-2.1
+[branch "chore/upgrade-ruff-mypy"]
+	remote = origin
+	merge = refs/heads/chore/upgrade-ruff-mypy
+[branch "chore/upgrade-python-313"]
+	remote = origin
+	merge = refs/heads/chore/upgrade-python-313
+[branch "chore/upgrade-setup-uv-action"]
+	remote = origin
+	merge = refs/heads/chore/upgrade-setup-uv-action
+[branch "chore/ruff-dj012-ruf005"]
+	remote = origin
+	merge = refs/heads/chore/ruff-dj012-ruf005
+[branch "fix/posthog-worktree"]
+	remote = origin
+	merge = refs/heads/fix/posthog-worktree
+[branch "chore/align-prettier-fixtures-ignore"]
+	remote = origin
+	merge = refs/heads/chore/align-prettier-fixtures-ignore
+[branch "fix/migration-analysis-drop"]
+	vscode-merge-base = origin/master
+[branch "chore/prep-social-auth-jsonfield-compat"]
+	remote = origin
+	merge = refs/heads/chore/prep-social-auth-jsonfield-compat
+[branch "chore/docker-layer-optimization"]
+	remote = origin
+	merge = refs/heads/chore/docker-layer-optimization
+[branch "chore/docker-aggressive-optimizations"]
+	remote = origin
+	merge = refs/heads/chore/docker-aggressive-optimizations
+[branch "chore/docker-cache-mounts-best-practices"]
+	remote = origin
+	merge = refs/heads/chore/docker-cache-mounts-best-practices
+[branch "chore/model-migrations-notebooks"]
+	remote = origin
+	merge = refs/heads/chore/model-migrations-notebooks
+[branch "chore/drop-named-quer"]
+	remote = origin
+	merge = refs/heads/chore/drop-named-quer
+[branch "behavioral-cohorts-migration"]
+	remote = origin
+	merge = refs/heads/behavioral-cohorts-migration
+	vscode-merge-base = origin/behavioral-cohorts-migration
+[branch "feat/improve-migration-comments"]
+	remote = origin
+	vscode-merge-base = origin/master
+	merge = refs/heads/feat/improve-migration-comments
+[branch "fix/schema-py-validation-bypass"]
+	remote = origin
+	merge = refs/heads/fix/schema-py-validation-bypass
+[branch "feat/detect-safe-rename-model-with-db-table"]
+	remote = origin
+	merge = refs/heads/feat/detect-safe-rename-model-with-db-table
+[branch "feature/local-dev-cli"]
+	vscode-merge-base = origin/master
+	remote = origin
+	merge = refs/heads/feature/local-dev-cli
+[branch "fix/backend-tests-summary-async-migrations"]
+	remote = origin
+	merge = refs/heads/fix/backend-tests-summary-async-migrations
+[branch "handle-pydantic-schemas"]
+	remote = origin
+	merge = refs/heads/handle-pydantic-schemas
+[branch "chore/delete-obvs-mistake"]
+	remote = origin
+	merge = refs/heads/chore/delete-obvs-mistake
+[branch "chore/model-migrations-baseline"]
+	vscode-merge-base = origin/chore/model-migrations
+[branch "tom/csp-again"]
+	remote = origin
+	merge = refs/heads/tom/csp-again
+[branch "fix/add-pyproject-toml-and-uv-to-filter"]
+	remote = origin
+	merge = refs/heads/fix/add-pyproject-toml-and-uv-to-filter
+[branch "improve-flox-setup-recommendation"]
+	remote = origin
+	merge = refs/heads/improve-flox-setup-recommendation
+[branch "fix/test-capture-internal-spec-import"]
+	remote = origin
+	merge = refs/heads/fix/test-capture-internal-spec-import
+[branch "feature/docs-move"]
+	vscode-merge-base = origin/master
+	remote = origin
+	merge = refs/heads/feature/docs-move
+[branch "file-system-view-log"]
+	remote = origin
+	merge = refs/heads/file-system-view-log
+[branch "chore/migrations-squash"]
+	vscode-merge-base = origin/master
+[branch "chore/python-3.12.12-upgrade"]
+	remote = origin
+	merge = refs/heads/chore/python-3.12.12-upgrade
+[branch "revert/python-3.12.12-upgrade"]
+	remote = origin
+	merge = refs/heads/revert/python-3.12.12-upgrade
+[branch "copilot/add-tox-version-check"]
+	remote = origin
+	merge = refs/heads/copilot/add-tox-version-check
+[branch "chore/dependabot-config"]
+	remote = origin
+	merge = refs/heads/chore/dependabot-config
+[branch "feat/data-warehouse-migration-no-merge"]
+	vscode-merge-base = origin/master
+[branch "fix/hogli-without-flox"]
+	remote = origin
+	merge = refs/heads/fix/hogli-without-flox
+	vscode-merge-base = origin/master
+[branch "feature/docs-integration-production"]
+	vscode-merge-base = origin/feature/docs-move
+[branch "fix/hogli-tab-completion"]
+	remote = origin
+	merge = refs/heads/fix/hogli-tab-completion
+[branch "chore/update-to-granian"]
+	remote = origin
+	merge = refs/heads/chore/update-to-granian

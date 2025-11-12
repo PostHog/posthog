@@ -184,7 +184,7 @@ const sourceFieldToElement = (
         return (
             <LemonField key={field.name} name={field.name} label={field.label}>
                 {({ value, onChange }) => (
-                    <div className="bg-[white] p-2 border rounded-[var(--radius)]">
+                    <div className="bg-fill-input p-2 border rounded-[var(--radius)]">
                         <LemonFileInput
                             value={value}
                             accept={field.fileFormat.format}
@@ -260,10 +260,25 @@ export function SourceFormComponent({
                 )}
             </Group>
             {showPrefix && (
-                <LemonField name="prefix" label="Table prefix (optional)">
+                <LemonField
+                    name="prefix"
+                    label="Table prefix (optional)"
+                    help="Use only letters, numbers, and underscores. Must start with a letter or underscore."
+                >
                     {({ value, onChange }) => {
-                        const tableName = value
-                            ? `${sourceConfig.name.toLowerCase()}.${value}.table_name`
+                        const cleaned = value ? value.trim().replace(/^_+|_+$/g, '') : ''
+                        let validationError = ''
+
+                        if (cleaned && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(cleaned)) {
+                            validationError =
+                                'Prefix must contain only letters, numbers, and underscores, and start with a letter or underscore'
+                        } else if (value && !cleaned) {
+                            validationError = 'Prefix cannot consist of only underscores'
+                        }
+
+                        const displayValue = value ? value.trim().replace(/^_+|_+$/g, '') : ''
+                        const tableName = displayValue
+                            ? `${sourceConfig.name.toLowerCase()}.${displayValue}.table_name`
                             : `${sourceConfig.name.toLowerCase()}.table_name`
                         return (
                             <>
@@ -273,7 +288,9 @@ export function SourceFormComponent({
                                     placeholder="internal"
                                     value={value}
                                     onChange={onChange}
+                                    status={validationError ? 'danger' : undefined}
                                 />
+                                {validationError && <p className="text-danger text-xs mt-1">{validationError}</p>}
                                 <p>
                                     Example table name:&nbsp;
                                     <strong>{tableName}</strong>

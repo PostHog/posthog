@@ -97,6 +97,7 @@ class TestHogFlowAPI(APIBaseTest):
                     }
                 },
             },
+            "output_variable": None,
         }
 
         assert response.status_code == 201, response.json()

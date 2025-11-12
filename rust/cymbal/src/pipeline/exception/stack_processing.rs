@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use common_types::error_tracking::FrameId;
+use common_types::error_tracking::RawFrameId;
 use uuid::Uuid;
 
 use crate::{
@@ -26,6 +26,12 @@ pub async fn do_stack_processing(
 
         for exception in props.exception_list.iter_mut() {
             exception.exception_id = Some(Uuid::now_v7().to_string());
+
+            // Lexical lifetimes goes crazy, I was fully sure this would be impossible
+            if let Some(r) = exception.stack.as_mut() {
+                r.push_exception_type(exception.exception_type.clone())
+            }
+
             let frames = match exception.stack.take() {
                 Some(Stacktrace::Raw { frames }) => {
                     if frames.is_empty() {
@@ -44,7 +50,7 @@ pub async fn do_stack_processing(
             };
 
             for frame in frames.iter() {
-                let id = frame.frame_id(team_id);
+                let id = frame.raw_id(team_id);
                 if frame_resolve_handles.contains_key(&id) {
                     // We've already spawned a task to resolve this frame, so we don't need to do it again.
                     continue;
@@ -105,7 +111,15 @@ pub async fn do_stack_processing(
                         ))
                 })
                 .transpose()
-                .map_err(|e| (index, e))?
+                .map_err(|e| (index, e))?;
+
+            if let Some(t) = exception
+                .stack
+                .as_mut()
+                .and_then(|s| s.pop_exception_type())
+            {
+                exception.exception_type = t;
+            }
         }
 
         let team_id = events[index]
@@ -131,12 +145,12 @@ pub async fn do_stack_processing(
     Ok(indexed_fingerprinted)
 }
 
-fn find_index_with_matching_frame_id(id: &FrameId, list: &[(usize, RawErrProps)]) -> usize {
+fn find_index_with_matching_frame_id(id: &RawFrameId, list: &[(usize, RawErrProps)]) -> usize {
     for (index, props) in list.iter() {
         for exception in props.exception_list.iter() {
             if let Some(Stacktrace::Raw { frames }) = &exception.stack {
                 for frame in frames {
-                    if frame.frame_id(id.team_id) == *id {
+                    if frame.raw_id(id.team_id) == *id {
                         return *index;
                     }
                 }

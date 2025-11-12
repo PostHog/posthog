@@ -228,7 +228,7 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'max-ai',
                 'data-attr': `support-form-target-area-max-ai`,
-                label: 'Max AI',
+                label: 'PostHog AI',
             },
             {
                 value: 'workflows',

@@ -58,6 +58,7 @@ async def execute_batch_export_using_internal_stage(
     maximum_attempts: int = 0,
     initial_retry_interval_seconds: int = 5,
     maximum_retry_interval_seconds: int = 120,
+    override_start_to_close_timeout_seconds: int | None = None,
 ) -> None:
     """
     This is the entrypoint for a new version of the batch export insert activity.
@@ -80,6 +81,9 @@ async def execute_batch_export_using_internal_stage(
             Assuming the error that triggered the retry is not in non_retryable_error_types.
         initial_retry_interval_seconds: When retrying, seconds until the first retry.
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
+        override_start_to_close_timeout_seconds: Optionally, override the start-to-close
+            timeout of the main activity. If this is lower than the calculated default
+            timeout for the main activity, then the default will be preferred.
     """
     get_export_started_metric().add(1)
 
@@ -104,19 +108,22 @@ async def execute_batch_export_using_internal_stage(
     if isinstance(settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS, int):
         heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
 
+    override_start_to_close_timeout_timedelta = dt.timedelta(seconds=override_start_to_close_timeout_seconds or 0)
     if interval == "hour":
         # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
         # TODO: Review timeouts for internal stage activity.
-        main_activity_start_to_close_timeout = dt.timedelta(hours=2)
+        main_activity_start_to_close_timeout = max(dt.timedelta(hours=2), override_start_to_close_timeout_timedelta)
         stage_activity_start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
-        main_activity_start_to_close_timeout = dt.timedelta(days=1)
+        main_activity_start_to_close_timeout = max(dt.timedelta(days=1), override_start_to_close_timeout_timedelta)
         stage_activity_start_to_close_timeout = main_activity_start_to_close_timeout
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
         # TODO: Consider removing this 20 minute minimum once we are more confident about hitting 5 minute or lower SLAs.
-        main_activity_start_to_close_timeout = max(dt.timedelta(minutes=20), dt.timedelta(**kwargs))
+        main_activity_start_to_close_timeout = max(
+            dt.timedelta(minutes=20), dt.timedelta(**kwargs), override_start_to_close_timeout_timedelta
+        )
         stage_activity_start_to_close_timeout = main_activity_start_to_close_timeout
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")

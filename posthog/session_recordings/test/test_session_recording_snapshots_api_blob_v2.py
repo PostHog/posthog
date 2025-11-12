@@ -59,12 +59,10 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    @patch("posthog.session_recordings.session_recording_api.get_realtime_snapshots")
     def test_snapshots_source_parameter_validation(
         self,
         source,
         expected_status,
-        mock_realtime_snapshots,
         mock_list_objects,
         mock_presigned_url,
         mock_get_session_recording,
@@ -74,7 +72,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
         # Basic mocking for successful cases
-        mock_realtime_snapshots.return_value = []
         mock_list_objects.return_value = []
         mock_presigned_url.return_value = None
 

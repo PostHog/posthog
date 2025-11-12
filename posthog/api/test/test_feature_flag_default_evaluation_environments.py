@@ -2,6 +2,7 @@ from datetime import datetime as dt
 from typing import cast
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -23,6 +24,16 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             plan="enterprise",
             valid_until=dt(future_year, 1, 19, 3, 14, 7),
         )
+
+        # Mock FLAG_EVALUATION_TAGS feature flag to be enabled by default
+        self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")
+        self.mock_feature_enabled = self.feature_flag_patcher.start()
+        # Enable the feature flag by default
+        self.mock_feature_enabled.return_value = True
+
+    def tearDown(self):
+        self.feature_flag_patcher.stop()
+        super().tearDown()
 
     def test_create_flag_without_default_environments(self):
         """Test creating a flag when default environments are disabled"""

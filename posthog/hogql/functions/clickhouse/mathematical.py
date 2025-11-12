@@ -1,6 +1,6 @@
 from ..core import HogQLFunctionMeta
 
-# mathematical
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 MATHEMATICAL_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "e": HogQLFunctionMeta("e"),
     "pi": HogQLFunctionMeta("pi"),
@@ -42,7 +42,7 @@ MATHEMATICAL_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "width_bucket": HogQLFunctionMeta("width_bucket", 4, 4),
 }
 
-# rounding
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 ROUNDING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "floor": HogQLFunctionMeta("floor", 1, 2, case_sensitive=False),
     "ceil": HogQLFunctionMeta("ceil", 1, 2, case_sensitive=False),

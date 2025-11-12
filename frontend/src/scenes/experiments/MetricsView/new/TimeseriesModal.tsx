@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 
 import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
@@ -39,6 +40,11 @@ export function TimeseriesModal({
     const processedChartData = useMemo(() => {
         return chartData(variantResult.key)
     }, [chartData, variantResult.key])
+
+    const isStaleExperiment =
+        !experiment.start_date || experiment.end_date
+            ? false
+            : dayjs(experiment.start_date).isBefore(dayjs().subtract(90, 'days'))
 
     const handleRecalculate = (): void => {
         LemonDialog.open({
@@ -78,7 +84,7 @@ export function TimeseriesModal({
                     </div>
                     <LemonDivider vertical className="h-4 self-stretch" />
                     <div className="flex items-center">
-                        <VariantTag experimentId={experiment.id} variantKey={variantResult.key} />
+                        <VariantTag variantKey={variantResult.key} />
                     </div>
                 </div>
             }
@@ -99,6 +105,29 @@ export function TimeseriesModal({
                     </div>
                 ) : (
                     <div>
+                        {isStaleExperiment && !isRecalculating && (
+                            <div className="mb-2">
+                                <LemonBanner type="warning">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex-1">
+                                            <div className="text-sm">
+                                                This experiment has been running for more than 90 days. Automatic
+                                                timeseries updates are disabled. You can still manually recalculate the
+                                                data.
+                                            </div>
+                                        </div>
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            onClick={handleRecalculate}
+                                            className="ml-4"
+                                        >
+                                            Recalculate
+                                        </LemonButton>
+                                    </div>
+                                </LemonBanner>
+                            </div>
+                        )}
                         {isRecalculating && (
                             <div className="mb-4">
                                 <LemonBanner type="info">

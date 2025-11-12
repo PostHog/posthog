@@ -42,6 +42,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -107,6 +109,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -177,6 +181,9 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -317,6 +324,9 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -339,13 +349,14 @@
          read_rows,
          read_bytes,
          written_rows,
-         memory_usage
+         memory_usage,
+  exception
   FROM query_log_archive
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type = 'QueryFinish'
-    AND query_kind = 'Insert'
+    AND type IN ('QueryFinish',
+                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
@@ -414,6 +425,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -495,6 +508,9 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -778,6 +794,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -842,6 +860,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -908,6 +928,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -976,6 +998,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -1042,6 +1066,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -1115,6 +1141,9 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -1188,6 +1217,9 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -1268,6 +1300,9 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,

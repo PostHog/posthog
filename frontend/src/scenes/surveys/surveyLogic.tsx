@@ -10,7 +10,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS, PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, debounce, hasFormErrors, isObject, objectClean } from 'lib/utils'
+import { allOperatorsMapping, debounce, hasFormErrors, isObject, objectClean, pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
@@ -721,29 +721,24 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
         duplicatedToProjectSurvey: {
-            duplicateToProject: async ({ sourceSurvey, targetTeamId }) => {
-                const payload = duplicateExistingSurvey(sourceSurvey)
-                const createdSurvey = await api.surveys.create(sanitizeSurvey(payload), targetTeamId)
+            duplicateToProject: async ({ sourceSurvey, targetTeamIds }) => {
+                const response = await api.surveys.duplicateToProjects(sourceSurvey.id, targetTeamIds)
 
-                lemonToast.success('Survey duplicated to another project.', {
-                    toastId: `survey-duplicated-to-project-${createdSurvey.id}`,
-                    button: {
-                        label: 'View Survey',
-                        action: () => {
-                            window.open(`${window.location.origin}/project/${targetTeamId}/surveys/${createdSurvey.id}`)
-                        },
-                    },
+                lemonToast.success(`Survey duplicated to ${pluralize(response.count, 'project')}.`, {
+                    toastId: `survey-bulk-duplicated-${sourceSurvey.id}`,
                 })
 
-                actions.reportSurveyCreated(createdSurvey, true)
-                actions.setIsDuplicateToProjectModalOpen(false)
                 actions.addProductIntent({
                     product_type: ProductKey.SURVEYS,
-                    intent_context: ProductIntentContext.SURVEY_DUPLICATED,
+                    intent_context: ProductIntentContext.SURVEY_BULK_DUPLICATED,
                     metadata: {
-                        survey_id: createdSurvey.id,
+                        survey_id: sourceSurvey.id,
+                        target_team_ids: targetTeamIds,
+                        bulk_operation: true,
                     },
                 })
+
+                actions.setIsDuplicateToProjectModalOpen(false)
                 return sourceSurvey
             },
         },
@@ -917,6 +912,9 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.loadSurveys()
             },
             duplicateSurveySuccess: () => {
+                actions.loadSurveys()
+            },
+            duplicatedToProjectSurveySuccess: () => {
                 actions.loadSurveys()
             },
             launchSurveySuccess: ({ survey }) => {
@@ -1975,8 +1973,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         'Your survey contains an endless cycle. Please revisit your branching rules.'
                     )
                 }
-
-                const payload = sanitizeSurvey(surveyPayload)
+                const payload = sanitizeSurvey(surveyPayload, { keepEmptyConditions: true })
 
                 // when the survey is being submitted, we should turn off editing mode
                 actions.editingSurvey(false)

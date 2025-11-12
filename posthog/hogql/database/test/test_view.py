@@ -3,7 +3,8 @@ from typing import Literal
 from posthog.test.base import BaseTest
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.test.tables import (
     create_aapl_stock_s3_table,
     create_aapl_stock_table_self_referencing,
@@ -18,14 +19,39 @@ from posthog.hogql.query import create_default_modifiers_for_team
 class TestView(BaseTest):
     maxDiff = None
 
-    def _init_database(self):
-        self.database = create_hogql_database(team=self.team)
-        self.database.add_views(
-            aapl_stock_view=create_aapl_stock_table_view(), aapl_stock_nested_view=create_nested_aapl_stock_view()
+    def setUp(self):
+        super().setUp()
+
+        self.database = Database.create_for(team=self.team)
+        self.database._add_views(
+            TableNode(
+                children={
+                    "aapl_stock_view": TableNode(
+                        name="aapl_stock_view",
+                        table=create_aapl_stock_table_view(),
+                    ),
+                    "aapl_stock_nested_view": TableNode(
+                        name="aapl_stock_nested_view",
+                        table=create_nested_aapl_stock_view(),
+                    ),
+                }
+            )
         )
-        self.database.add_warehouse_tables(
-            aapl_stock=create_aapl_stock_s3_table(), aapl_stock_self=create_aapl_stock_table_self_referencing()
+        self.database._add_warehouse_tables(
+            TableNode(
+                children={
+                    "aapl_stock": TableNode(
+                        name="aapl_stock",
+                        table=create_aapl_stock_s3_table(),
+                    ),
+                    "aapl_stock_self": TableNode(
+                        name="aapl_stock_self",
+                        table=create_aapl_stock_table_self_referencing(),
+                    ),
+                }
+            )
         )
+
         self.context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
@@ -37,8 +63,6 @@ class TestView(BaseTest):
         return prepare_and_print_ast(parse_select(query), self.context, dialect=dialect)[0]
 
     def test_view_table_select(self):
-        self._init_database()
-
         hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
         self.assertEqual(
             hogql,
@@ -58,8 +82,6 @@ class TestView(BaseTest):
         )
 
     def test_view_with_alias(self):
-        self._init_database()
-
         hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
         self.assertEqual(
             hogql,

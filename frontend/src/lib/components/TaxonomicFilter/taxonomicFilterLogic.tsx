@@ -299,6 +299,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ...eventTaxonomicGroupProps,
                     },
                     {
+                        name: 'Activity log properties',
+                        searchPlaceholder: 'activity log properties',
+                        type: TaxonomicFilterGroupType.ActivityLogProperties,
+                        options: getProductEventPropertyFilterOptions('activity-log').map((value) => ({
+                            name: value,
+                            value,
+                            group: TaxonomicFilterGroupType.EventProperties,
+                        })),
+                        getIcon: getPropertyDefinitionIcon,
+                        getPopoverHeader: () => 'Activity log properties',
+                    },
+                    {
                         name: 'Actions',
                         searchPlaceholder: 'actions',
                         type: TaxonomicFilterGroupType.Actions,

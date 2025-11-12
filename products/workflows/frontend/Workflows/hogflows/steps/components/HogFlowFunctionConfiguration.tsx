@@ -25,10 +25,11 @@ export function HogFlowFunctionConfiguration({
 
     const template = hogFunctionTemplatesById[templateId]
     useEffect(() => {
+        // oxlint-disable-next-line exhaustive-deps
         if (template && Object.keys(inputs ?? {}).length === 0) {
             setInputs(templateToConfiguration(template).inputs ?? {})
         }
-    }, [template, setInputs, inputs])
+    }, [templateId])
 
     if (hogFunctionTemplatesByIdLoading) {
         return (

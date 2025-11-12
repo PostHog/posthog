@@ -1,4 +1,3 @@
-import math
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union, cast
@@ -7,7 +6,6 @@ from django.conf import settings
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from dateutil import parser
 from rest_framework.exceptions import ValidationError
 
@@ -46,7 +44,6 @@ from posthog.queries.util import PersonPropertiesMode
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
-TARGET_CHUNK_SIZE = 5_000_000
 
 logger = structlog.get_logger(__name__)
 
@@ -107,7 +104,6 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
         return None
 
     try:
-        # Query query_log_archive using tag matcher
         result = sync_execute(
             """
             SELECT
@@ -116,14 +112,14 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
                 read_rows,
                 read_bytes,
                 written_rows,
-                memory_usage
+                memory_usage,
+                exception
             FROM query_log_archive
             WHERE
                 lc_cohort_id = %(cohort_id)s
                 AND team_id = %(team_id)s
                 AND query LIKE %(matcher)s
-                AND type = 'QueryFinish'
-                AND query_kind = 'Insert'
+                AND type IN ('QueryFinish', 'ExceptionWhileProcessing')
                 AND event_date >= %(start_date)s
                 AND event_time >= %(start_time)s
             ORDER BY event_time DESC
@@ -156,6 +152,7 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
                 "read_bytes": sum(get_column(result, 3)),
                 "written_rows": sum(get_column(result, 4)),
                 "memory_mb": int(sum(get_column(result, 5)) / 1024 / 1024) if get_column(result, 5) else 0,
+                "exception": first_row[6] if len(first_row) > 6 else None,
             }
 
     except Exception as e:
@@ -445,7 +442,7 @@ def recalculate_cohortpeople(
         tag_queries(user_id=initiating_user_id)
     for team in relevant_teams:
         tag_queries(team_id=team.id)
-        _recalculate_cohortpeople_for_team_hogql(cohort, pending_version, team)
+        _recalculate_cohortpeople_for_team(cohort, pending_version, team)
         count: Optional[int]
         if cohort.is_static:
             count = get_static_cohort_size(cohort_id=cohort.id, team_id=team.id)
@@ -456,34 +453,15 @@ def recalculate_cohortpeople(
     return count_by_team_id[cohort.team_id]
 
 
-def _recalculate_cohortpeople_for_team_hogql(cohort: Cohort, pending_version: int, team: Team) -> int:
+def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, team: Team) -> int:
     tag_queries(name="recalculate_cohortpeople_for_team_hogql")
 
     history = CohortCalculationHistory.objects.create(
         team=team, cohort=cohort, filters=cohort.properties.to_dict() if cohort.properties.values else {}
     )
 
-    estimated_size = cohort.count if cohort.count else 0
-    total_chunks = 1
-
     try:
-        total_chunks = math.ceil(estimated_size / TARGET_CHUNK_SIZE)
-        should_chunk = not cohort.is_static and cohort.properties.values and total_chunks > 1
-        if should_chunk:
-            should_chunk = posthoganalytics.feature_enabled(
-                "cohort-calculation-chunked",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={"organization": {"id": str(team.organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-
-        if should_chunk:
-            result = _recalculate_cohortpeople_chunked(cohort, pending_version, team, total_chunks, history)
-        else:
-            result = _recalculate_cohortpeople_standard(cohort, pending_version, team, history)
-
+        result = _recalculate_cohortpeople_for_team_hogql(cohort, pending_version, team, history)
         return result
 
     except Exception as e:
@@ -493,10 +471,9 @@ def _recalculate_cohortpeople_for_team_hogql(cohort: Cohort, pending_version: in
         raise
 
 
-def _recalculate_cohortpeople_standard(
+def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, history: CohortCalculationHistory
 ) -> int:
-    """Standard non-chunked cohort calculation with metrics tracking"""
     cohort_params: dict[str, Any]
     if cohort.is_static:
         cohort_query, cohort_params = format_static_cohort_query(cohort, 0, prepend="")
@@ -560,98 +537,15 @@ def _recalculate_cohortpeople_standard(
     )
 
     if history:
-        try:
-            history.finished_at = query_end_time
-            if isinstance(result, list) and len(result) == 0:
-                history.count = 0
-            else:
-                history.count = result
+        history.finished_at = query_end_time
+        if isinstance(result, list) and len(result) == 0:
+            history.count = 0
+        else:
+            history.count = result
 
-            history.save(update_fields=["finished_at", "count"])
-
-        except Exception as e:
-            history.finished_at = timezone.now()
-            history.error = str(e)
-            history.save(update_fields=["finished_at", "error"])
-            raise
+        history.save(update_fields=["finished_at", "count"])
 
     return result
-
-
-def _recalculate_cohortpeople_chunked(
-    cohort: Cohort, pending_version: int, team: Team, total_chunks: int, history: CohortCalculationHistory
-) -> int:
-    """Chunked cohort calculation to prevent OOMs with metrics tracking"""
-    total_inserted = 0
-
-    for chunk_index in range(total_chunks):
-        chunk_cohort_params: dict[str, Any]
-        from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-
-        chunk_cohort_query, hogql_context = (
-            HogQLCohortQuery(cohort=cohort, team=team, chunk_index=chunk_index, total_chunks=total_chunks)
-            .get_query_executor()
-            .generate_clickhouse_sql()
-        )
-        chunk_cohort_params = hogql_context.values
-
-        # Remove SETTINGS clause for subquery compatibility
-        chunk_cohort_query = chunk_cohort_query[: chunk_cohort_query.rfind("SETTINGS")]
-
-        chunk_recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=chunk_cohort_query)
-
-        def execute_chunk_query(sql=chunk_recalculate_cohortpeople_sql, params=chunk_cohort_params):
-            tag_queries(
-                kind="cohort_calculation_chunk",
-                query_type="CohortsQueryHogQL",
-                feature=Feature.COHORT,
-                cohort_id=cohort.pk,
-                team_id=team.id,
-            )
-            hogql_global_settings = HogQLGlobalSettings()
-
-            return sync_execute(
-                sql,
-                {
-                    **params,
-                    "cohort_id": cohort.pk,
-                    "team_id": team.id,
-                    "new_version": pending_version,
-                },
-                settings={
-                    "max_execution_time": 600,
-                    "send_timeout": 600,
-                    "receive_timeout": 600,
-                    "optimize_on_insert": 0,
-                    "max_ast_elements": hogql_global_settings.max_ast_elements,
-                    "max_expanded_ast_elements": hogql_global_settings.max_expanded_ast_elements,
-                    "max_bytes_ratio_before_external_group_by": 0.5,
-                    "max_bytes_ratio_before_external_sort": 0.5,
-                },
-                workload=Workload.OFFLINE,
-                ch_user=ClickHouseUser.COHORTS,
-            )
-
-        chunk_result, _ = run_cohort_query(
-            execute_chunk_query, cohort_id=cohort.pk, history=history, query=chunk_recalculate_cohortpeople_sql
-        )
-
-        chunk_inserted = chunk_result or 0
-        total_inserted += chunk_inserted
-
-    if history:
-        try:
-            history.finished_at = timezone.now()
-            history.count = total_inserted
-            history.save(update_fields=["finished_at", "count"])
-
-        except Exception as e:
-            history.finished_at = timezone.now()
-            history.error = str(e)
-            history.save(update_fields=["finished_at", "error"])
-            raise
-
-    return total_inserted
 
 
 def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:

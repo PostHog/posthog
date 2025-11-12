@@ -189,7 +189,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             OpenApiParameter("short_id", exclude=True),
             OpenApiParameter(
                 "created_by",
-                OpenApiTypes.INT,
+                OpenApiTypes.UUID,
                 description="The UUID of the Notebook's creator",
                 required=False,
             ),

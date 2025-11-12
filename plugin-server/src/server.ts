@@ -26,14 +26,14 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from './config/kafka-topics'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
-import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
+import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
+import { startEvaluationScheduler } from './main/ingestion-queues/evaluation-scheduler'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
-import { PostgresRouter } from './utils/db/postgres'
 import { isTestEnv } from './utils/env-utils'
 import { initializeHeapDump } from './utils/heap-dump'
 import { logger } from './utils/logger'
@@ -169,12 +169,17 @@ export class PluginServer {
                 serviceLoaders.push(() => startAsyncWebhooksHandlerConsumer(hub))
             }
 
+            if (capabilities.evaluationScheduler) {
+                serviceLoaders.push(() => startEvaluationScheduler(hub))
+            }
+
             if (capabilities.sessionRecordingBlobIngestionV2) {
                 serviceLoaders.push(async () => {
-                    const postgres = hub?.postgres ?? new PostgresRouter(this.config)
-                    const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(this.config))
+                    const actualHub = hub ?? (await createHub(this.config))
+                    const postgres = actualHub.postgres
+                    const producer = actualHub.kafkaProducer
 
-                    const ingester = new SessionRecordingIngesterV2(this.config, false, postgres, producer)
+                    const ingester = new SessionRecordingIngesterV2(actualHub, false, postgres, producer)
                     await ingester.start()
                     return ingester.service
                 })
@@ -182,10 +187,11 @@ export class PluginServer {
 
             if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
                 serviceLoaders.push(async () => {
-                    const postgres = hub?.postgres ?? new PostgresRouter(this.config)
-                    const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(this.config))
+                    const actualHub = hub ?? (await createHub(this.config))
+                    const postgres = actualHub.postgres
+                    const producer = actualHub.kafkaProducer
 
-                    const ingester = new SessionRecordingIngesterV2(this.config, true, postgres, producer)
+                    const ingester = new SessionRecordingIngesterV2(actualHub, true, postgres, producer)
                     await ingester.start()
                     return ingester.service
                 })
@@ -277,6 +283,14 @@ export class PluginServer {
             if (capabilities.cdpCohortMembership) {
                 serviceLoaders.push(async () => {
                     const consumer = new CdpCohortMembershipConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.logsIngestion) {
+                serviceLoaders.push(async () => {
+                    const consumer = new LogsIngestionConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })

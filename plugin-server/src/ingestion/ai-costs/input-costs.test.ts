@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { calculateInputCost } from './input-costs'
-import { ModelRow } from './providers/types'
+import { ResolvedModelCost } from './providers/types'
 
 // Test helper functions
 function createTestEvent(overrides: Partial<PluginEvent> = {}): PluginEvent {
@@ -19,9 +19,10 @@ function createTestEvent(overrides: Partial<PluginEvent> = {}): PluginEvent {
     }
 }
 
-function createTestModel(overrides: Partial<ModelRow> = {}): ModelRow {
+function createTestModel(overrides: Partial<ResolvedModelCost> = {}): ResolvedModelCost {
     return {
         model: 'test-model',
+        provider: 'test',
         cost: {
             prompt_token: 0.000001,
             completion_token: 0.000002,
@@ -85,7 +86,7 @@ function expectCostToBeCloseTo(actual: string | number, expected: number, precis
 }
 
 // Common test models
-const ANTHROPIC_MODEL: ModelRow = {
+const ANTHROPIC_MODEL: ResolvedModelCost = {
     model: 'claude-3-5-sonnet',
     provider: 'anthropic',
     cost: {
@@ -96,7 +97,7 @@ const ANTHROPIC_MODEL: ModelRow = {
     },
 }
 
-const OPENAI_MODEL: ModelRow = {
+const OPENAI_MODEL: ResolvedModelCost = {
     model: 'gpt-4o',
     provider: 'openai',
     cost: {
@@ -106,7 +107,7 @@ const OPENAI_MODEL: ModelRow = {
     },
 }
 
-const GEMINI_MODEL: ModelRow = {
+const GEMINI_MODEL: ResolvedModelCost = {
     model: 'gemini-2.5-pro',
     provider: 'google',
     cost: {

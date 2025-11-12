@@ -8,6 +8,10 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+    KAFKA_LOGS_CLICKHOUSE,
+    KAFKA_LOGS_INGESTION,
+    KAFKA_LOGS_INGESTION_DLQ,
+    KAFKA_LOGS_INGESTION_OVERFLOW,
     KAFKA_LOG_ENTRIES,
 } from './kafka-topics'
 
@@ -114,6 +118,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_PROPERTY_LRU_SIZE: 10000,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         SITE_URL: isDevEnv() ? 'http://localhost:8000' : '',
+        TEMPORAL_HOST: 'localhost',
+        TEMPORAL_PORT: '7233',
+        TEMPORAL_NAMESPACE: 'default',
+        TEMPORAL_CLIENT_ROOT_CA: undefined,
+        TEMPORAL_CLIENT_CERT: undefined,
+        TEMPORAL_CLIENT_KEY: undefined,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
@@ -266,15 +276,15 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0, // defaults to off
 
         // Session recording V2
-        SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
+        SESSION_RECORDING_MAX_BATCH_SIZE_KB: isDevEnv() ? 2 * 1024 : 100 * 1024, // 2MB on dev, 100MB on prod and test
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
         SESSION_RECORDING_V2_S3_BUCKET: 'posthog',
         SESSION_RECORDING_V2_S3_PREFIX: 'session_recordings',
-        SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:19000',
+        SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:8333',
         SESSION_RECORDING_V2_S3_REGION: 'us-east-1',
-        SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
-        SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
-        SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000,
+        SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any',
+        SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any',
+        SESSION_RECORDING_V2_S3_TIMEOUT_MS: isDevEnv() ? 120000 : 30000,
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
@@ -333,11 +343,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
 
-        // Workflows
-        MAILJET_PUBLIC_KEY: '',
-        MAILJET_SECRET_KEY: '',
-
-        // SES
+        // SES (Workflows email sending)
         SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
@@ -347,6 +353,13 @@ export function getDefaultConfig(): PluginsServerConfig {
         POD_TERMINATION_ENABLED: false,
         POD_TERMINATION_BASE_TIMEOUT_MINUTES: 30, // Default: 30 minutes
         POD_TERMINATION_JITTER_MINUTES: 45, // Default: 45 hour, so timeout is between 30 minutes and 1h15m
+
+        // Logs ingestion
+        LOGS_INGESTION_CONSUMER_GROUP_ID: 'ingestion-logs',
+        LOGS_INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_LOGS_INGESTION,
+        LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_LOGS_INGESTION_OVERFLOW,
+        LOGS_INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_LOGS_INGESTION_DLQ,
+        LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: KAFKA_LOGS_CLICKHOUSE,
     }
 }
 

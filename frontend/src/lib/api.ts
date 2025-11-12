@@ -13,6 +13,7 @@ import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagem
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -29,12 +30,14 @@ import {
     ExternalDataSourceType,
     FileSystemCount,
     FileSystemEntry,
+    FileSystemViewLogEntry,
     HogCompileResponse,
     HogQLQuery,
     HogQLQueryResponse,
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    MatchingEventsResponse,
     Node,
     NodeKind,
     PersistedFolder,
@@ -74,17 +77,21 @@ import {
     DataColorThemeModel,
     DataModelingJob,
     DataWarehouseActivityRecord,
+    DataWarehouseJobStats,
+    DataWarehouseJobStatsRequestPayload,
     DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
+    DataWarehouseViewLinkValidation,
     Dataset,
     DatasetItem,
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EndpointType,
+    EndpointVersion,
     EventDefinition,
     EventDefinitionMetrics,
     EventDefinitionType,
@@ -103,6 +110,10 @@ import {
     GoogleAdsConversionActionType,
     Group,
     GroupListParams,
+    HeatmapScreenshotContentResponse,
+    HeatmapScreenshotType,
+    HeatmapStatus,
+    HeatmapType,
     HogFunctionIconResponse,
     HogFunctionStatus,
     HogFunctionTemplateType,
@@ -487,6 +498,10 @@ export class ApiRequest {
 
     public fileSystemDetail(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id)
+    }
+
+    public fileSystemLogView(teamId?: TeamType['id']): ApiRequest {
+        return this.fileSystem(teamId).addPathComponent('log_view')
     }
 
     public fileSystemMove(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
@@ -1054,6 +1069,12 @@ export class ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
     }
 
+    public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId)
+            .addPathComponent('error_tracking')
+            .addPathComponent('git-provider-file-links')
+    }
+
     public errorTrackingStackFrames(): ApiRequest {
         return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
@@ -1068,6 +1089,10 @@ export class ApiRequest {
 
     public errorTrackingReorderRules(rule: ErrorTrackingRuleType): ApiRequest {
         return this.errorTrackingRules(rule).addPathComponent('reorder')
+    }
+
+    public errorTrackingIssueCohort(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingIssue(issueId, teamId).addPathComponent(`cohort`)
     }
 
     // # Warehouse
@@ -1553,6 +1578,24 @@ export class ApiRequest {
     public sessionSummary(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('session_summaries')
     }
+
+    // Heatmap screenshots
+    public heatmapScreenshots(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('heatmap_screenshots')
+    }
+
+    public heatmapScreenshot(id: number, teamId?: TeamType['id']): ApiRequest {
+        return this.heatmapScreenshots(teamId).addPathComponent(id)
+    }
+
+    public heatmapScreenshotsSaved(teamId?: TeamType['id']): ApiRequest {
+        // Deprecated path: kept for potential fallback during rollout
+        return this.environmentsDetail(teamId).addPathComponent('saved')
+    }
+
+    public heatmapScreenshotSaved(id: number | string, teamId?: TeamType['id']): ApiRequest {
+        return this.heatmapScreenshotsSaved(teamId).addPathComponent(id)
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -1694,6 +1737,12 @@ const api = {
 
             return result
         },
+        async listVersions(name: string): Promise<EndpointVersion[]> {
+            return await new ApiRequest().endpointDetail(name).withAction('versions').get()
+        },
+        async getVersion(name: string, version: number): Promise<EndpointVersion> {
+            return await new ApiRequest().endpointDetail(name).withAction(`versions/${version}`).get()
+        },
     },
 
     featureFlags: {
@@ -1804,6 +1853,19 @@ const api = {
         },
     },
 
+    fileSystemLogView: {
+        async list(params?: { type?: string; limit?: number }): Promise<FileSystemViewLogEntry[]> {
+            const request = new ApiRequest().fileSystemLogView()
+            if (params) {
+                request.withQueryString(params)
+            }
+            return await request.get()
+        },
+        async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemLogView().create({ data })
+        },
+    },
+
     fileSystemShortcuts: {
         async list(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystemShortcut().get()
@@ -1901,12 +1963,21 @@ const api = {
                 page?: number
                 page_size?: number
                 item_id?: number | string
+                include_organization_scoped?: '1'
             }>,
             projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
         ): ApiRequest {
             if (Array.isArray(filters.scopes)) {
                 filters.scopes = filters.scopes.join(',')
             }
+
+            const scopesWithOrgScopedRecords = [ActivityScope.PERSONAL_API_KEY]
+            for (const scope of scopesWithOrgScopedRecords) {
+                if (filters.scope === scope || filters.scopes?.includes(scope)) {
+                    filters.include_organization_scoped = '1'
+                }
+            }
+
             return new ApiRequest().activityLog(projectId).withQueryString(toParams(filters))
         },
 
@@ -1922,6 +1993,7 @@ const api = {
                 [
                     ActivityScope.PLUGIN,
                     ActivityScope.HOG_FUNCTION,
+                    ActivityScope.HOG_FLOW,
                     ActivityScope.EXPERIMENT,
                     ActivityScope.TAG,
                     ActivityScope.ENDPOINT,
@@ -2365,8 +2437,16 @@ const api = {
     },
 
     dashboards: {
+        async list(params: { tags?: string } = {}): Promise<PaginatedResponse<DashboardType>> {
+            return new ApiRequest().dashboards().withQueryString(toParams(params)).get()
+        },
+
         async get(id: number): Promise<DashboardType> {
             return new ApiRequest().dashboardsDetail(id).get()
+        },
+
+        async createUnlistedDashboard(tag: string): Promise<DashboardType> {
+            return new ApiRequest().dashboards().withAction('create_unlisted_dashboard').create({ data: { tag } })
         },
 
         async streamTiles(
@@ -3049,13 +3129,32 @@ const api = {
         ): Promise<Array<{ id: string; title: string; description: string }>> {
             return await new ApiRequest().errorTrackingSimilarIssues(issueId).get()
         },
+
+        async assignCohort(issueId: ErrorTrackingIssue['id'], cohortId: CohortType['id']): Promise<{ id: string }> {
+            return await new ApiRequest().errorTrackingIssueCohort(issueId).put({ data: { cohortId } })
+        },
+    },
+
+    gitProviderFileLinks: {
+        async resolveGithub(
+            owner: string,
+            repository: string,
+            codeSample: string,
+            fileName: string
+        ): Promise<{ found: boolean; url?: string }> {
+            return await new ApiRequest()
+                .gitProviderFileLinks()
+                .withAction('resolve_github')
+                .withQueryString({ owner, repository, code_sample: codeSample, file_name: fileName })
+                .get()
+        },
     },
 
     recordings: {
         async list(params: RecordingsQuery): Promise<RecordingsQueryResponse> {
             return await new ApiRequest().recordings().withQueryString(toParams(params)).get()
         },
-        async getMatchingEvents(params: string): Promise<{ results: string[] }> {
+        async getMatchingEvents(params: string): Promise<MatchingEventsResponse> {
             return await new ApiRequest().recordingMatchingEvents().withQueryString(params).get()
         },
         async get(
@@ -3561,6 +3660,18 @@ const api = {
             }
             return await apiRequest.get()
         },
+        async duplicateToProjects(
+            surveyId: Survey['id'],
+            targetTeamIds: TeamType['id'][]
+        ): Promise<{
+            created_surveys: Array<{ team_id: number; survey_id: string; name: string }>
+            count: number
+        }> {
+            return await new ApiRequest()
+                .survey(surveyId)
+                .withAction('duplicate_to_projects')
+                .create({ data: { target_team_ids: targetTeamIds } })
+        },
     },
 
     dataWarehouseTables: {
@@ -3732,13 +3843,33 @@ const api = {
             return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
         },
 
-        async recentActivity(
-            options?: ApiMethodOptions & { limit?: number; offset?: number }
+        async runningActivity(
+            options?: ApiMethodOptions & { limit?: number; offset?: number; cutoff_days?: number }
         ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
             return await new ApiRequest()
                 .dataWarehouse()
-                .withAction('recent_activity')
-                .withQueryString({ limit: options?.limit, offset: options?.offset })
+                .withAction('running_activity')
+                .withQueryString({ limit: options?.limit, offset: options?.offset, cutoff_days: options?.cutoff_days })
+                .get(options)
+        },
+
+        async completedActivity(
+            options?: ApiMethodOptions & { limit?: number; offset?: number; cutoff_days?: number }
+        ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('completed_activity')
+                .withQueryString({ limit: options?.limit, offset: options?.offset, cutoff_days: options?.cutoff_days })
+                .get(options)
+        },
+
+        async jobStats(
+            options?: ApiMethodOptions & DataWarehouseJobStatsRequestPayload
+        ): Promise<DataWarehouseJobStats> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('job_stats')
+                .withQueryString({ days: options?.days })
                 .get(options)
         },
     },
@@ -3798,6 +3929,14 @@ const api = {
             >
         ): Promise<DataWarehouseViewLink> {
             return await new ApiRequest().dataWarehouseViewLink(viewId).update({ data })
+        },
+        async validate(
+            data: Pick<
+                DataWarehouseViewLink,
+                'source_table_name' | 'source_table_key' | 'joining_table_name' | 'joining_table_key'
+            >
+        ): Promise<DataWarehouseViewLinkValidation> {
+            return await new ApiRequest().dataWarehouseViewLinks().withAction('validate').create({ data })
         },
     },
 
@@ -4261,7 +4400,7 @@ const api = {
     },
 
     evaluationRuns: {
-        async create(data: { evaluation_id: string; target_event_id: string }): Promise<{
+        async create(data: { evaluation_id: string; target_event_id: string; timestamp: string }): Promise<{
             workflow_id: string
             status: string
             evaluation: { id: string; name: string }
@@ -4459,9 +4598,76 @@ const api = {
         return results
     },
 
+    heatmapScreenshots: {
+        async getContent(id: number): Promise<HeatmapScreenshotContentResponse> {
+            const response = await new ApiRequest().heatmapScreenshot(id).withAction('content').getResponse()
+
+            if (
+                response.ok &&
+                (response.headers.get('content-type')?.includes('image/jpeg') ||
+                    response.headers.get('content-type')?.includes('image/png'))
+            ) {
+                // 200: JPEG/PNG image data
+                return { success: true, data: response }
+            }
+            // 202/404/501: JSON with screenshot metadata
+            const jsonData = await response.json()
+            return { success: false, data: jsonData }
+        },
+    },
+
+    savedHeatmaps: {
+        async list(
+            params: {
+                type?: HeatmapType
+                status?: HeatmapStatus
+                search?: string
+                limit?: number
+                offset?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<HeatmapScreenshotType>> {
+            return await new ApiRequest().heatmapScreenshotsSaved().withQueryString(params).get()
+        },
+
+        async create(data: {
+            name: string
+            url: string
+            data_url?: string | null
+            width?: number
+            type?: HeatmapType
+        }): Promise<HeatmapScreenshotType> {
+            return await new ApiRequest().heatmapScreenshotsSaved().create({ data })
+        },
+
+        async get(id: number | string): Promise<HeatmapScreenshotType> {
+            return await new ApiRequest().heatmapScreenshotSaved(id).get()
+        },
+
+        async update(
+            id: number | string,
+            data: Partial<{
+                url: string
+                data_url: string | null
+                width: number
+                type: HeatmapType
+            }>
+        ): Promise<HeatmapScreenshotType> {
+            return await new ApiRequest().heatmapScreenshotSaved(id).update({ data })
+        },
+    },
+
     sessionSummaries: {
         async create(data: { session_ids: string[]; focus_area?: string }): Promise<SessionSummaryResponse> {
             return await new ApiRequest().sessionSummary().withAction('create_session_summaries').create({ data })
+        },
+        async createIndividual(data: {
+            session_ids: string[]
+            focus_area?: string
+        }): Promise<Record<string, SessionSummaryContent>> {
+            return await new ApiRequest()
+                .sessionSummary()
+                .withAction('create_session_summaries_individually')
+                .create({ data })
         },
     },
 

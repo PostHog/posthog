@@ -374,6 +374,32 @@ class BatchExportSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
+    def validate(self, attrs: dict) -> dict:
+        """Validate the batch export configuration."""
+        # HTTP batch exports only support the events model
+        destination = attrs.get("destination")
+        if destination and destination.get("type") == BatchExportDestination.Destination.HTTP:
+            model = attrs.get("model")
+            if model is not None and model != "events":
+                raise serializers.ValidationError("HTTP batch exports only support the events model")
+
+        return attrs
+
+    def validate_filters(self, filters):
+        if filters is None:
+            return filters
+
+        if not isinstance(filters, list):
+            raise serializers.ValidationError("'filters' should be an array of filters")
+
+        for filter in filters:
+            if isinstance(filter, dict) and any(key in filter for key in ("data_interval_start", "data_interval_end")):
+                raise serializers.ValidationError(
+                    "'data_interval_start' and 'data_interval_end' are run attributes and not 'filters'."
+                    " Trigger a backfill if you wish to manually control which periods to batch export."
+                )
+        return filters
+
     # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
         destination_type = destination_attrs["type"]
@@ -455,7 +481,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 existing_config = instance.destination.config
             else:
                 existing_config = {}
-            merged_config = {**existing_config, **config}
+            merged_config = recursive_dict_merge(existing_config, config)
 
             mode = merged_config.get("mode")
 
@@ -502,23 +528,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 send_feature_flag_events=False,
             ):
                 raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
-
-        if validated_data.get("model", "events") == "sessions":
-            team = Team.objects.get(id=team_id)
-
-            if not posthoganalytics.feature_enabled(
-                "sessions-batch-exports",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={
-                    "organization": {
-                        "id": str(team.organization.id),
-                        "created_at": team.organization.created_at,
-                    }
-                },
-                send_feature_flag_events=False,
-            ):
-                raise PermissionDenied("Sessions batch exports are not enabled for this team.")
 
         hogql_query = None
         if hogql_query := validated_data.pop("hogql_query", None):
@@ -601,6 +610,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         if parsed.select_from is None:
             raise serializers.ValidationError("Query must SELECT FROM events")
+
+        if isinstance(parsed.select_from.table, ast.SelectQuery):
+            raise serializers.ValidationError("Subqueries or CTEs are not supported")
 
         # Not sure how to make mypy understand this works, hence the ignore comment.
         # And if it doesn't, it's still okay as it could mean an unsupported query.

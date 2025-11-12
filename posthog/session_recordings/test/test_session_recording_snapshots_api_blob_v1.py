@@ -1,11 +1,11 @@
 import re
-import json
 from datetime import timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, call, patch
 
+from django.test import override_settings
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -81,12 +81,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
                     "end_timestamp": "2023-01-01T00:00:00Z",
                     "blob_key": "1672531195000-1672531200000",
                 },
-                {
-                    "source": "realtime",
-                    "start_timestamp": "2022-12-31T23:59:55Z",
-                    "end_timestamp": None,
-                    "blob_key": None,
-                },
             ]
         }
         mock_list_objects.assert_called_with(f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data")
@@ -147,6 +141,70 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert mock_list_objects.call_args_list == [
             call("an lts stored object path"),
         ]
+
+    @freeze_time("2023-01-01T00:00:00Z")
+    @override_settings(DEBUG=False)
+    @patch("posthog.cloud_utils.is_cloud", return_value=False)
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
+    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
+    @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
+    def test_self_hosted_can_still_load_v1_blobs_after_redis_removal(
+        self,
+        _mock_stream_from: MagicMock,
+        mock_presigned_url: MagicMock,
+        mock_list_objects: MagicMock,
+        _mock_exists: MagicMock,
+        _mock_is_cloud: MagicMock,
+    ) -> None:
+        """
+        Smoke test for self-hosted PostHog after Redis realtime removal.
+
+        Self-hosted has blob_v1_sources_are_allowed = True, which means:
+        1. They can list v1 blob sources from S3
+        2. They can fetch those blobs for playback
+        3. No realtime sources should be added (that code was deleted)
+
+        This protects years of historical session recordings for self-hosted customers.
+        """
+        session_id = str(uuid7())
+        timestamp = round(now().timestamp() * 1000)
+        blob_key = f"{timestamp - 10000}-{timestamp - 5000}"
+
+        mock_list_objects.return_value = [
+            f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{blob_key}",
+        ]
+
+        # Test 1: List sources - should return blob sources, NOT realtime
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots")
+        response_data = response.json()
+
+        assert response.status_code == 200
+        assert response_data == {
+            "sources": [
+                {
+                    "source": "blob",
+                    "start_timestamp": "2022-12-31T23:59:50Z",
+                    "end_timestamp": "2022-12-31T23:59:55Z",
+                    "blob_key": blob_key,
+                }
+            ]
+        }
+        # Critical: no realtime source should be present
+        assert not any(s["source"] == "realtime" for s in response_data["sources"])
+
+        # Test 2: Fetch blob - self-hosted should be allowed to fetch v1 blobs
+        mock_presigned_url.return_value = "https://s3.test.com/blob"
+
+        blob_response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots/?source=blob&blob_key={blob_key}"
+        )
+        assert (
+            blob_response.status_code == 200
+        ), f"Self-hosted should be able to load v1 blobs. Got {blob_response.status_code}"
 
     @freeze_time("2023-01-01T00:00:00Z")
     @patch(
@@ -316,45 +374,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert mock_get_session_recording.call_count == 1
         assert mock_exists.call_count == 0
 
-    @parameterized.expand([("2024-04-30"), (None)])
-    @patch(
-        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
-    @patch("posthog.session_recordings.session_recording_api.get_realtime_snapshots")
-    @patch("posthog.session_recordings.session_recording_api.stream_from")
-    def test_can_get_session_recording_realtime(
-        self,
-        version_param,
-        _mock_stream_from,
-        mock_realtime_snapshots,
-        mock_get_session_recording,
-        _mock_exists,
-    ) -> None:
-        session_id = str(uuid7())
-        """
-        includes regression test to allow utf16 surrogate pairs in realtime snapshots response
-        """
-
-        expected_response = b'{"some": "\\ud801\\udc37 probably from console logs"}\n{"some": "more data"}'
-
-        version_param = f"&version={version_param}" if version_param else ""
-        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=realtime{version_param}"
-
-        # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
-        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
-
-        mock_realtime_snapshots.return_value = [
-            json.dumps({"some": "\ud801\udc37 probably from console logs"}),
-            json.dumps({"some": "more data"}),
-        ]
-
-        response = self.client.get(url)
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.headers.get("content-type") == "application/json"
-        assert response.content == expected_response
-
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     @patch("posthog.session_recordings.session_recording_api.stream_from")
@@ -429,7 +448,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     @parameterized.expand(
         [
             ("blob", True, status.HTTP_404_NOT_FOUND),  # 404 because we didn't mock the right things for a 200
-            ("realtime", True, status.HTTP_200_OK),
             (None, True, status.HTTP_200_OK),  # No source parameter
             ("invalid_source", False, status.HTTP_400_BAD_REQUEST),
             ("", False, status.HTTP_400_BAD_REQUEST),
@@ -444,13 +462,11 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    @patch("posthog.session_recordings.session_recording_api.get_realtime_snapshots")
     def test_snapshots_source_parameter_validation(
         self,
         source,
         should_work,
         expected_status,
-        mock_realtime_snapshots,
         mock_list_objects,
         mock_presigned_url,
         mock_get_session_recording,
@@ -460,7 +476,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
         # Basic mocking for successful cases
-        mock_realtime_snapshots.return_value = []
         mock_list_objects.return_value = []
         mock_presigned_url.return_value = None
 

@@ -216,7 +216,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 if (state === HogWatcherState.degraded) {
                     item.queuePriority = 2
                     if (this.hub.CDP_OVERFLOW_QUEUE_ENABLED) {
-                        item.queue = 'hog_overflow'
+                        item.queue = 'hogoverflow'
                     }
                 }
 

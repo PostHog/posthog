@@ -11,7 +11,7 @@ from django.test import override_settings
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     ExpressionField,
@@ -19,7 +19,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
-    TableGroup,
+    TableNode,
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.errors import QueryError
@@ -49,7 +49,7 @@ class TestResolver(BaseTest):
         )[0]
 
     def setUp(self):
-        self.database = create_hogql_database(team=self.team)
+        self.database = Database.create_for(team=self.team)
         self.context = HogQLContext(database=self.database, team_id=self.team.pk, enable_select_queries=True)
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -325,7 +325,7 @@ class TestResolver(BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_asterisk_expander_hidden_field(self):
-        self.database.events.fields["hidden_field"] = ExpressionField(
+        self.database.get_table("events").fields["hidden_field"] = ExpressionField(
             name="hidden_field", hidden=True, expr=ast.Field(chain=["event"])
         )
         node = self._select("select * from events")
@@ -334,10 +334,10 @@ class TestResolver(BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_expression_field_type_scope(self):
-        self.database.events.fields["some_expr"] = ExpressionField(
+        self.database.get_table("events").fields["some_expr"] = ExpressionField(
             name="some_expr", expr=ast.Field(chain=["properties"]), isolate_scope=True
         )
-        self.database.persons.fields["some_expr"] = ExpressionField(
+        self.database.get_table("persons").fields["some_expr"] = ExpressionField(
             name="some_expr", expr=ast.Field(chain=["properties"]), isolate_scope=True
         )
 
@@ -407,13 +407,13 @@ class TestResolver(BaseTest):
 
     def test_field_traverser_double_dot(self):
         # Create a condition where we want to ".." out of "events.poe." to get to a higher level prop
-        self.database.events.fields["person"] = FieldTraverser(chain=["poe"])
-        assert isinstance(self.database.events.fields["poe"], Table)
-        self.database.events.fields["poe"].fields["id"] = FieldTraverser(chain=["..", "pdi", "person_id"])
-        self.database.events.fields["poe"].fields["created_at"] = FieldTraverser(
+        self.database.get_table("events").fields["person"] = FieldTraverser(chain=["poe"])
+        assert isinstance(self.database.get_table("events").fields["poe"], Table)
+        self.database.get_table("events").fields["poe"].fields["id"] = FieldTraverser(chain=["..", "pdi", "person_id"])  # type: ignore
+        self.database.get_table("events").fields["poe"].fields["created_at"] = FieldTraverser(  # type: ignore
             chain=["..", "pdi", "person", "created_at"]
         )
-        self.database.events.fields["poe"].fields["properties"] = StringJSONDatabaseField(
+        self.database.get_table("events").fields["poe"].fields["properties"] = StringJSONDatabaseField(  # type: ignore
             name="person_properties", nullable=False
         )
 
@@ -677,7 +677,7 @@ class TestResolver(BaseTest):
         )
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
-        node2 = self._select("select recording_button('12345', 'active')")
+        node2 = self._select("select recordingButton('12345', 'active')")
         node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
         assert node == node2
 
@@ -688,7 +688,7 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         node2 = self._select(
-            "select explain_csp_report({'violated_directive': 'script-src', 'original_policy': 'script-src https://example.com'})"
+            "select explainCSPReport({'violated_directive': 'script-src', 'original_policy': 'script-src https://example.com'})"
         )
         node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
         assert node == node2
@@ -762,22 +762,59 @@ class TestResolver(BaseTest):
             resolve_types(node, context, dialect="clickhouse")
 
     def test_nested_table_name(self):
-        table_group = TableGroup(tables={"events": EventsTable()})
-        self.database.__setattr__("nested", table_group)
+        table_group = TableNode(
+            children={
+                "nested": TableNode(
+                    name="nested",
+                    children={"events": TableNode(name="events", table=EventsTable())},
+                )
+            },
+        )
+        self.database.tables.merge_with(table_group)
+
         query = "SELECT * FROM nested.events"
         resolve_types(self._select(query), self.context, dialect="hogql")
 
     def test_deeply_nested_table_name(self):
-        table_group = TableGroup(
-            tables={
-                "events": TableGroup(
-                    tables={"some": TableGroup(tables={"other": TableGroup(tables={"table": EventsTable()})})}
+        table_group = TableNode(
+            children={
+                "very": TableNode(
+                    name="very",
+                    children={
+                        "deeply": TableNode(
+                            name="deeply",
+                            children={
+                                "nested": TableNode(
+                                    name="nested",
+                                    children={"events": TableNode(name="events", table=EventsTable())},
+                                )
+                            },
+                        )
+                    },
                 )
-            }
+            },
         )
+        self.database.tables.merge_with(table_group)
 
-        self.database.__setattr__("nested", table_group)
-        query = "SELECT * FROM nested.events.some.other.table"
+        query = "SELECT * FROM very.deeply.nested.events"
+        resolve_types(self._select(query), self.context, dialect="hogql")
+
+    def test_nested_table_on_existing_table(self):
+        table_group = TableNode(
+            children={
+                "events": TableNode(
+                    name="events",
+                    table=EventsTable(),
+                    children={"copy": TableNode(name="copy", table=EventsTable())},
+                )
+            },
+        )
+        self.database.tables.merge_with(table_group)
+
+        query = "SELECT * FROM events"
+        resolve_types(self._select(query), self.context, dialect="hogql")
+
+        query = "SELECT * FROM events.copy"
         resolve_types(self._select(query), self.context, dialect="hogql")
 
     def test_lambda_scope(self):

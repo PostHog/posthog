@@ -12,18 +12,20 @@ export type SideEffectHandlingConfig = {
 /**
  * Pipeline that handles side effects by scheduling and optionally awaiting them, then clearing the side effects array
  */
-export class SideEffectHandlingPipeline<TInput, TOutput> implements BatchPipeline<TInput, TOutput> {
+export class SideEffectHandlingPipeline<TInput, TOutput, CInput, COutput = CInput>
+    implements BatchPipeline<TInput, TOutput, CInput, COutput>
+{
     constructor(
-        private subPipeline: BatchPipeline<TInput, TOutput>,
+        private subPipeline: BatchPipeline<TInput, TOutput, CInput, COutput>,
         private promiseScheduler: PromiseSchedulerInterface,
         private config: SideEffectHandlingConfig = { await: false }
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput>): void {
+    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
         this.subPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {
         const results = await this.subPipeline.next()
         if (results === null) {
             return null

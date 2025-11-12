@@ -61,12 +61,12 @@ export const SkeletonLog = (): JSX.Element => {
 
 const Loading = (): JSX.Element => {
     return (
-        <>
+        <div className="space-y-4">
             <SkeletonLog />
             <SkeletonLog />
             <SkeletonLog />
             <SkeletonLog />
-        </>
+        </div>
     )
 }
 

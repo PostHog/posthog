@@ -20,6 +20,8 @@ export interface PersonUpdate {
     // Fine-grained property tracking
     properties_to_set: Properties // Properties to set/update
     properties_to_unset: string[] // Property keys to unset
+    original_is_identified: boolean
+    original_created_at: DateTime
 }
 
 export interface PersonPropertyUpdate {
@@ -35,7 +37,7 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         team_id: person.team_id,
         uuid: person.uuid,
         distinct_id: distinctId,
-        properties: person.properties, // Original properties from database
+        properties: person.properties,
         properties_last_updated_at: person.properties_last_updated_at,
         properties_last_operation: person.properties_last_operation || {},
         created_at: person.created_at,
@@ -45,6 +47,8 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         needs_write: false,
         properties_to_set: {},
         properties_to_unset: [],
+        original_is_identified: person.is_identified,
+        original_created_at: person.created_at,
     }
 }
 
@@ -74,38 +78,4 @@ export function toInternalPerson(personUpdate: PersonUpdate): InternalPerson {
         is_identified: personUpdate.is_identified,
         is_user_id: personUpdate.is_user_id,
     }
-}
-
-export function calculatePersonPropertyUpdate(
-    currentProperties: Properties,
-    currentPropertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-    currentPropertiesLastOperation: PropertiesLastOperation,
-    propertiesToSet: Properties,
-    propertiesToUnset: string[],
-    _timestamp: DateTime
-): PersonPropertyUpdate {
-    const result: PersonPropertyUpdate = {
-        updated: false,
-        properties: { ...currentProperties },
-        properties_last_updated_at: { ...currentPropertiesLastUpdatedAt },
-        properties_last_operation: { ...currentPropertiesLastOperation },
-    }
-
-    // Set new properties
-    Object.entries(propertiesToSet).forEach(([key, value]) => {
-        if (!(key in result.properties) || value !== result.properties[key]) {
-            result.updated = true
-            result.properties[key] = value
-        }
-    })
-
-    // Unset properties
-    propertiesToUnset.forEach((propertyKey) => {
-        if (propertyKey in result.properties) {
-            result.updated = true
-            delete result.properties[propertyKey]
-        }
-    })
-
-    return result
 }
