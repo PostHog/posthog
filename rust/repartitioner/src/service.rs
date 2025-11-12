@@ -386,3 +386,222 @@ impl RepartitionerService {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common_kafka::test::create_mock_kafka;
+    use rdkafka::{
+        client::DefaultClientContext,
+        consumer::Consumer,
+        producer::{FutureProducer, FutureRecord},
+        util::Timeout,
+    };
+    use serde_json::json;
+    use std::time::Duration;
+    use tokio::time::timeout;
+    use uuid::Uuid;
+
+    async fn setup_test_environment() -> (
+        rdkafka::mocking::MockCluster<'static, rdkafka::producer::DefaultProducerContext>,
+        StreamConsumer,
+        FutureProducer<DefaultClientContext>,
+        String,
+        String,
+    ) {
+        let (cluster, _) = create_mock_kafka().await;
+        let bootstrap_servers = cluster.bootstrap_servers();
+
+        let source_topic = format!("test_source_{}", Uuid::new_v4());
+        let dest_topic = format!("test_dest_{}", Uuid::new_v4());
+
+        let producer: FutureProducer<DefaultClientContext> = ClientConfig::new()
+            .set("bootstrap.servers", &bootstrap_servers)
+            .set("metadata.max.age.ms", "1000")
+            .create()
+            .expect("Failed to create producer");
+
+        let consumer: StreamConsumer = ClientConfig::new()
+            .set("bootstrap.servers", &bootstrap_servers)
+            .set("group.id", format!("test_group_{}", Uuid::new_v4()))
+            .set("auto.offset.reset", "earliest")
+            .set("enable.auto.commit", "false")
+            .set("metadata.max.age.ms", "1000")
+            .set("session.timeout.ms", "3000")
+            .set("heartbeat.interval.ms", "500")
+            .set("max.poll.interval.ms", "5000")
+            .create()
+            .expect("Failed to create consumer");
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        (cluster, consumer, producer, source_topic, dest_topic)
+    }
+
+    fn create_test_message(event_name: &str, distinct_id: &str, team_id: i64) -> Vec<u8> {
+        let payload = json!({
+            "event": event_name,
+            "distinct_id": distinct_id,
+            "team_id": team_id,
+        });
+        serde_json::to_vec(&payload).expect("Failed to serialize test message")
+    }
+
+    async fn produce_test_message(
+        producer: &FutureProducer<DefaultClientContext>,
+        topic: &str,
+        payload: Vec<u8>,
+    ) -> Result<()> {
+        let record: FutureRecord<'_, [u8], [u8]> =
+            FutureRecord::to(topic).payload(payload.as_slice());
+        producer
+            .send(record, Timeout::After(Duration::from_secs(5)))
+            .await
+            .map_err(|(e, _)| anyhow::anyhow!("Failed to send: {:?}", e))?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_consumer_receives_message() {
+        let (_cluster, consumer, producer, source_topic, _dest_topic) =
+            setup_test_environment().await;
+
+        let event_name = "test_event";
+        let distinct_id = Uuid::new_v4().to_string();
+        let team_id = 123;
+        let payload = create_test_message(event_name, &distinct_id, team_id);
+
+        produce_test_message(&producer, &source_topic, payload.clone())
+            .await
+            .expect("Failed to produce message");
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        consumer
+            .subscribe(&[&source_topic])
+            .expect("Failed to subscribe");
+
+        let message = timeout(Duration::from_secs(5), consumer.recv())
+            .await
+            .expect("Timeout waiting for message")
+            .expect("Failed to receive message");
+
+        let received_payload = message.payload().expect("Message has no payload");
+        let received_json: serde_json::Value =
+            serde_json::from_slice(received_payload).expect("Failed to parse JSON");
+
+        assert_eq!(received_json["event"], event_name);
+        assert_eq!(received_json["distinct_id"], distinct_id);
+    }
+
+    #[tokio::test]
+    async fn test_producer_sends_message() {
+        let (_cluster, consumer, producer, _source_topic, dest_topic) =
+            setup_test_environment().await;
+
+        let event_name = "test_event";
+        let distinct_id = Uuid::new_v4().to_string();
+        let team_id = 456;
+        let payload = create_test_message(event_name, &distinct_id, team_id);
+
+        produce_test_message(&producer, &dest_topic, payload.clone())
+            .await
+            .expect("Failed to produce message");
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        consumer
+            .subscribe(&[&dest_topic])
+            .expect("Failed to subscribe");
+
+        let message = timeout(Duration::from_secs(5), consumer.recv())
+            .await
+            .expect("Timeout waiting for message")
+            .expect("Failed to receive message");
+
+        let received_payload = message.payload().expect("Message has no payload");
+        let received_json: serde_json::Value =
+            serde_json::from_slice(received_payload).expect("Failed to parse JSON");
+
+        assert_eq!(received_json["event"], event_name);
+        assert_eq!(received_json["distinct_id"], distinct_id);
+    }
+
+    #[tokio::test]
+    async fn test_multiple_messages() {
+        let (_cluster, consumer, producer, source_topic, _dest_topic) =
+            setup_test_environment().await;
+
+        let messages = vec![
+            ("event1", Uuid::new_v4().to_string(), 100),
+            ("event2", Uuid::new_v4().to_string(), 200),
+            ("event3", Uuid::new_v4().to_string(), 300),
+        ];
+
+        for (event_name, distinct_id, team_id) in &messages {
+            let payload = create_test_message(event_name, distinct_id, *team_id);
+            produce_test_message(&producer, &source_topic, payload.clone())
+                .await
+                .expect("Failed to produce message");
+        }
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        consumer
+            .subscribe(&[&source_topic])
+            .expect("Failed to subscribe");
+
+        for (expected_event, expected_distinct_id, _expected_team_id) in &messages {
+            let message = timeout(Duration::from_secs(5), consumer.recv())
+                .await
+                .expect("Timeout waiting for message")
+                .expect("Failed to receive message");
+
+            let received_payload = message.payload().expect("Message has no payload");
+            let received_json: serde_json::Value =
+                serde_json::from_slice(received_payload).expect("Failed to parse JSON");
+
+            assert_eq!(received_json["event"], *expected_event);
+            assert_eq!(received_json["distinct_id"], *expected_distinct_id);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_message_with_different_events() {
+        let (_cluster, consumer, producer, source_topic, _dest_topic) =
+            setup_test_environment().await;
+
+        let test_cases = vec![
+            ("pageview", Uuid::new_v4().to_string(), 111),
+            ("$identify", Uuid::new_v4().to_string(), 222),
+            ("custom_event", Uuid::new_v4().to_string(), 333),
+        ];
+
+        for (event_name, distinct_id, team_id) in &test_cases {
+            let payload = create_test_message(event_name, distinct_id, *team_id);
+            produce_test_message(&producer, &source_topic, payload.clone())
+                .await
+                .expect("Failed to produce message");
+        }
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        consumer
+            .subscribe(&[&source_topic])
+            .expect("Failed to subscribe");
+
+        for (event_name, distinct_id, _team_id) in &test_cases {
+            let message = timeout(Duration::from_secs(5), consumer.recv())
+                .await
+                .expect("Timeout waiting for message")
+                .expect("Failed to receive message");
+
+            let received_payload = message.payload().expect("Message has no payload");
+            let received_json: serde_json::Value =
+                serde_json::from_slice(received_payload).expect("Failed to parse JSON");
+
+            assert_eq!(received_json["event"], *event_name);
+            assert_eq!(received_json["distinct_id"], *distinct_id);
+        }
+    }
+}

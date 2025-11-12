@@ -21,4 +21,5 @@ serve-metrics = { path = "../common/serve_metrics" }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+uuid = { workspace = true }
 
