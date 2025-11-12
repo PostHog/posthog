@@ -63,7 +63,7 @@ jobs:
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs" || true
               continue-on-error: true
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
@@ -121,7 +121,7 @@ jobs:
         timeout-minutes: 20
 
         name: Validate Django and CH migrations
-        runs-on: depot-ubuntu-24.04-8
+        runs-on: ubuntu-latest
 
         steps:
             - uses: actions/checkout@v4
@@ -130,7 +130,7 @@ jobs:
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs" || true
               continue-on-error: true
 
             - name: Stop/Start stack with Docker Compose
@@ -390,7 +390,7 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: depot-ubuntu-24.04-8
+        runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
@@ -578,7 +578,7 @@ jobs:
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs" || true
               continue-on-error: true
 
             - name: 'Safeguard: ensure no stray Python modules at product root'
@@ -928,7 +928,7 @@ jobs:
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs" || true
               continue-on-error: true
 
             - name: Start stack with Docker Compose

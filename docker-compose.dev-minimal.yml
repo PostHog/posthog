@@ -138,14 +138,6 @@ services:
         depends_on:
             - zookeeper
 
-    objectstorage:
-        extends:
-            file: docker-compose.base.yml
-            service: objectstorage
-        ports:
-            - '19000:19000'
-            - '19001:19001'
-
     # capture-rs
     capture:
         extends:

@@ -119,7 +119,6 @@ services:
             - redis
             - clickhouse
             - kafka
-            - objectstorage
             - seaweedfs
 
     plugins:
@@ -150,7 +149,6 @@ services:
             - redis7
             - clickhouse
             - kafka
-            - objectstorage
             - seaweedfs
 
     proxy:
@@ -168,17 +166,6 @@ services:
             CADDY_HOST: '$DOMAIN, http://, https://'
         depends_on:
             - web
-    objectstorage:
-        extends:
-            file: docker-compose.base.yml
-            service: objectstorage
-        restart: on-failure
-        volumes:
-            - objectstorage:/data
-        ports:
-            - '19000:19000'
-            - '19001:19001'
-
     seaweedfs:
         extends:
             file: docker-compose.base.yml
@@ -248,7 +235,6 @@ services:
             - redis
             - clickhouse
             - kafka
-            - objectstorage
             - seaweedfs
             - temporal
 
@@ -313,9 +299,8 @@ volumes:
     zookeeper-data:
     zookeeper-datalog:
     zookeeper-logs:
-    objectstorage:
-    seaweedfs:
     postgres-data:
+    seaweedfs:
     clickhouse-data:
     caddy-data:
     caddy-config:

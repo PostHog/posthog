@@ -69,14 +69,6 @@ services:
         depends_on:
             - zookeeper
 
-    objectstorage:
-        extends:
-            file: docker-compose.base.yml
-            service: objectstorage
-        ports:
-            - '19000:19000'
-            - '19001:19001'
-
     maildev:
         extends:
             file: docker-compose.base.yml
@@ -125,8 +117,6 @@ services:
             - redis
             - clickhouse
             - kafka
-        links:
-            - objectstorage:objectstorage
 
     capture:
         extends:
@@ -175,7 +165,6 @@ services:
             - redis
             - clickhouse
             - kafka
-            - objectstorage
 
     migrate:
         extends:
