@@ -1,4 +1,4 @@
-import { kea, key, path, props } from 'kea'
+import { kea, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
@@ -25,7 +25,6 @@ export interface EventDefinitionFormType {
 export const eventDefinitionModalLogic = kea<eventDefinitionModalLogicType>([
     path(['scenes', 'data-management', 'events', 'eventDefinitionModalLogic']),
     props({} as EventDefinitionModalLogicProps),
-    key((props) => props.onSuccess?.toString() || 'default'),
     forms(({ props, actions }) => ({
         eventDefinitionForm: {
             defaults: {
