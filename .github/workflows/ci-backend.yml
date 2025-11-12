@@ -132,24 +132,12 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
-            - name: Disk space before cleanup
-              run: |
-                  df -h
-                  docker system df || true
-            - name: Additional cleanup
-              run: |
-                  sudo rm -rf /tmp/*
-                  sudo apt-get clean
-                  docker system prune -af || true
-              continue-on-error: true
-            - name: Disk space after cleanup
-              run: |
-                  df -h
-                  docker system df || true
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml down --volumes --remove-orphans
+                  docker system prune -af || true
+                  docker volume prune -f || true
                   docker compose -f docker-compose.dev.yml up -d &
 
             - name: Set up Python
@@ -594,20 +582,6 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
-            - name: Disk space before cleanup
-              run: |
-                  df -h
-                  docker system df || true
-            - name: Additional cleanup
-              run: |
-                  sudo rm -rf /tmp/*
-                  sudo apt-get clean
-                  docker system prune -af || true
-              continue-on-error: true
-            - name: Disk space after cleanup
-              run: |
-                  df -h
-                  docker system df || true
 
             - name: 'Safeguard: ensure no stray Python modules at product root'
               run: |
@@ -640,7 +614,8 @@ jobs:
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
 
-                          if docker compose -f docker-compose.dev.yml down && \
+                          if docker compose -f docker-compose.dev.yml down --volumes --remove-orphans && \
+                            docker system prune -af || true && docker volume prune -f || true && \
                             docker compose -f docker-compose.dev.yml up -d; then
                               echo "Stack started successfully"
                               exit 0
@@ -958,25 +933,13 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
-            - name: Disk space before cleanup
-              run: |
-                  df -h
-                  docker system df || true
-            - name: Additional cleanup
-              run: |
-                  sudo rm -rf /tmp/*
-                  sudo apt-get clean
-                  docker system prune -af || true
-              continue-on-error: true
-            - name: Disk space after cleanup
-              run: |
-                  df -h
-                  docker system df || true
 
             - name: Start stack with Docker Compose
               run: |
                   export CLICKHOUSE_SERVER_IMAGE_VERSION=${{ matrix.clickhouse-server-image }}
-                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml down --volumes --remove-orphans
+                  docker system prune -af || true
+                  docker volume prune -f || true
                   docker compose -f docker-compose.dev.yml up -d &
 
             - name: Set up Python
