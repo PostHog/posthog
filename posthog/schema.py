@@ -11446,6 +11446,9 @@ class RetentionFilter(BaseModel):
     meanRetentionCalculation: Optional[MeanRetentionCalculation] = None
     minimumOccurrences: Optional[int] = None
     period: Optional[RetentionPeriod] = RetentionPeriod.DAY
+    retentionCustomBrackets: Optional[list[float]] = Field(
+        default=None, description="Custom brackets for retention calculations"
+    )
     retentionReference: Optional[RetentionReference] = Field(
         default=None,
         description="Whether retention is with regard to initial cohort size, or that of the previous period.",

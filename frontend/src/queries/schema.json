@@ -23732,6 +23732,13 @@
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day"
                 },
+                "retentionCustomBrackets": {
+                    "description": "Custom brackets for retention calculations",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
                 "retentionReference": {
                     "description": "Whether retention is with regard to initial cohort size, or that of the previous period.",
                     "enum": ["total", "previous"],
