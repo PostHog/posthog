@@ -73,6 +73,10 @@ class LLMTracesSummarizerStringifier:
     def _stringify_ai_message(message: dict[str, Any]) -> str | None:
         message_content = message["content"]
         tools_called = []
+        for tc in message.get("tool_calls") or []:
+            if tc.get("type") != "tool_call":
+                continue
+            tools_called.append(tc.get("name"))
         if tools_called:
             tool_content = f"*AI called tools: {', '.join(tools_called)}*"
             message_content += f" {tool_content}" if message_content else tool_content
