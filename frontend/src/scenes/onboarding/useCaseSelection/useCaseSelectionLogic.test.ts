@@ -1,5 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -13,16 +16,9 @@ describe('useCaseSelectionLogic', () => {
     beforeEach(() => {
         useMocks({})
         initKeaTests()
+        jest.spyOn(posthog, 'capture')
         logic = useCaseSelectionLogic()
         logic.mount()
-        // Mock window.posthog
-        window.posthog = {
-            capture: jest.fn(),
-        } as any
-    })
-
-    afterEach(() => {
-        delete (window as any).posthog
     })
 
     describe('selectUseCase', () => {
@@ -39,8 +35,12 @@ describe('useCaseSelectionLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.selectUseCase('fix_issues')
             })
+                .toDispatchActions(eventUsageLogic, ['reportOnboardingUseCaseSelected'])
+                .toFinishListeners()
 
-            expect(window.posthog.capture).toHaveBeenCalledWith('onboarding use case selected', {
+            await expectLogic(eventUsageLogic).toFinishListeners()
+
+            expect(posthog.capture).toHaveBeenCalledWith('onboarding use case selected', {
                 use_case: 'fix_issues',
                 recommended_products: getRecommendedProducts('fix_issues'),
             })
@@ -54,7 +54,7 @@ describe('useCaseSelectionLogic', () => {
             expect(router.values.location.pathname).toContain('/products')
             expect(router.values.searchParams.useCase).toBe('pick_myself')
             // pick_myself should NOT trigger the analytics event
-            expect(window.posthog.capture).not.toHaveBeenCalled()
+            expect(posthog.capture).not.toHaveBeenCalled()
         })
 
         it('handles different use cases', async () => {
@@ -68,9 +68,13 @@ describe('useCaseSelectionLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.selectUseCase(useCase)
                 })
+                    .toDispatchActions(eventUsageLogic, ['reportOnboardingUseCaseSelected'])
+                    .toFinishListeners()
+
+                await expectLogic(eventUsageLogic).toFinishListeners()
 
                 expect(router.values.searchParams.useCase).toBe(useCase)
-                expect(window.posthog.capture).toHaveBeenCalledWith(
+                expect(posthog.capture).toHaveBeenCalledWith(
                     'onboarding use case selected',
                     expect.objectContaining({
                         use_case: useCase,
