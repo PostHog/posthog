@@ -29,7 +29,7 @@ pub fn upload(args: &Args) -> Result<()> {
     })?;
 
     info!("Processing directory: {}", directory.display());
-    let maps = read_maps(&directory)?;
+    let maps = read_maps(&directory);
 
     let mut uploads: Vec<SymbolSetUpload> = Vec::new();
     for map in maps.into_iter() {
@@ -48,7 +48,7 @@ pub fn upload(args: &Args) -> Result<()> {
     Ok(())
 }
 
-fn read_maps(directory: &PathBuf) -> Result<Vec<SourceMapFile>> {
+fn read_maps(directory: &PathBuf) -> Vec<SourceMapFile> {
     WalkDir::new(directory)
         .into_iter()
         .filter_map(Result::ok)
@@ -57,5 +57,6 @@ fn read_maps(directory: &PathBuf) -> Result<Vec<SourceMapFile>> {
             let path = e.path().canonicalize()?;
             SourceMapFile::load(&path)
         })
+        .filter_map(Result::ok)
         .collect()
 }
