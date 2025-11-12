@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
+import posthog, { UserFeedbackRecordingResult } from 'posthog-js'
 import React from 'react'
 
-import { IconFeatures, IconHelmet, IconMap, IconWarning } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { IconFeatures, IconHelmet, IconMap, IconRecord, IconWarning } from '@posthog/icons'
+import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -270,7 +270,8 @@ export function SidePanelSupport(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     useValues(userLogic)
     const { isEmailFormOpen, title: supportPanelTitle, targetArea } = useValues(supportLogic)
-    const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
+    const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest, setSendSupportRequestValue } =
+        useActions(supportLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
     const { openAi } = useOpenAi()
@@ -301,15 +302,27 @@ export function SidePanelSupport(): JSX.Element {
     }
 
     const handleStartFeedbackRecording = (): void => {
-        posthog.startUserFeedbackRecording(() => {})
+        // Clear any previous recording result before starting a new one
+        setSendSupportRequestValue('feedbackRecordingResult', undefined)
+
+        posthog.startUserFeedbackRecording((result: UserFeedbackRecordingResult) => {
+            // When recording is complete, set the recording data and open the email form
+            setSendSupportRequestValue('feedbackRecordingResult', result)
+            setSendSupportRequestValue(
+                'message',
+                "Hey PostHog Support,\n\nI'm sharing a screen recording where I've explained the problem I'm seeing. Looking forward to hearing from you about this.\n\nThanks!"
+            )
+            handleOpenEmailForm()
+        })
     }
 
     const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
         const { featureFlags } = useValues(featureFlagLogic)
+        const { sendSupportRequest } = useValues(supportLogic)
 
         return (
             <Section title="Email an engineer">
-                <SupportForm />
+                <SupportForm attachScreenRecording={!!sendSupportRequest.feedbackRecordingResult} />
                 <LemonButton
                     form="support-modal-form"
                     htmlType="submit"
@@ -419,26 +432,28 @@ export function SidePanelSupport(): JSX.Element {
                                 <Section title="Contact us">
                                     <StatusPageAlert />
                                     <p>Can't find what you need and PostHog AI unable to help?</p>
-                                    <LemonButton
-                                        type="secondary"
-                                        fullWidth
-                                        center
-                                        onClick={handleOpenEmailForm}
-                                        className="mt-2"
-                                        disabled={billingLoading}
-                                    >
-                                        {billingLoading ? 'Loading...' : 'Email our support engineers'}
-                                    </LemonButton>
-                                    <p>Start feedback recording</p>
-                                    <LemonButton
-                                        type="secondary"
-                                        fullWidth
-                                        center
-                                        onClick={handleStartFeedbackRecording}
-                                        className="mt-2"
-                                    >
-                                        Start feedback recordings
-                                    </LemonButton>
+                                    <div className="flex gap-2 mt-2">
+                                        <LemonButton
+                                            type="secondary"
+                                            center
+                                            onClick={handleOpenEmailForm}
+                                            disabled={billingLoading}
+                                            className="flex-1"
+                                        >
+                                            {billingLoading ? 'Loading...' : 'Email our support engineers'}
+                                        </LemonButton>
+                                        <Tooltip title="Start a screen recording to walk us through your issue">
+                                            <LemonButton
+                                                type="secondary"
+                                                center
+                                                onClick={handleStartFeedbackRecording}
+                                                icon={<IconRecord color="red" />}
+                                                className="flex-1"
+                                            >
+                                                Show us what's happening
+                                            </LemonButton>
+                                        </Tooltip>
+                                    </div>
                                 </Section>
                             )}
 

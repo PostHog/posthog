@@ -31,6 +31,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.feedback_audio import feedback_audio_download, feedback_audio_upload
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
 from posthog.api.slack import slack_interactivity_callback
@@ -195,6 +196,9 @@ urlpatterns = [
     opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
+    # Feedback audio endpoints
+    opt_slash_path("api/feedback/audio", feedback_audio_upload),
+    re_path(r"^api/feedback/audio/(?P<feedback_audio_id>[0-9a-f-]+)/download/?$", feedback_audio_download),
     opt_slash_path("api/signup/precheck", signup.SignupEmailPrecheckViewset.as_view()),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),

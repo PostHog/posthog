@@ -38,6 +38,7 @@ from .experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, Ex
 from .exported_asset import ExportedAsset
 from .exported_recording import ExportedRecording
 from .feature_flag import FeatureFlag
+from .feedback_audio import FeedbackAudio
 from .surveys.survey import Survey
 from .surveys.survey_response_archive import SurveyResponseArchive
 from .file_system.file_system import FileSystem
@@ -144,6 +145,7 @@ __all__ = [
     "ExportedAsset",
     "ExportedRecording",
     "FeatureFlag",
+    "FeedbackAudio",
     "FileSystem",
     "FileSystemViewLog",
     "Filter",

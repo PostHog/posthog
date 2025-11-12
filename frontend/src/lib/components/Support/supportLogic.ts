@@ -57,6 +57,13 @@ function getSessionReplayLink(): string {
     return `\nSession: ${replayUrl}`
 }
 
+function getFeedbackRecordingLink(feedbackId?: string): string {
+    if (!feedbackId) {
+        return ''
+    }
+    return `\nFeedback Recording: http://go/feedback/${feedbackId}`
+}
+
 function getErrorTrackingLink(uuid?: string): string {
     const values = [
         {
@@ -416,6 +423,10 @@ export type SupportFormFields = {
     message: string
     exception_event?: SupportTicketExceptionEvent
     isEmailFormOpen?: boolean | 'true' | 'false'
+    feedbackRecordingResult?: {
+        feedback_id: string
+        session_id: string
+    }
     tags?: string[]
 }
 
@@ -481,6 +492,7 @@ export const supportLogic = kea<supportLogicType>([
                 severity_level: null,
                 target_area: null,
                 message: '',
+                feedbackRecordingResult: undefined,
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
@@ -554,6 +566,7 @@ export const supportLogic = kea<supportLogicType>([
                 severity_level: severity_level ?? null,
                 message: message ?? values.sendSupportRequest.message ?? '',
                 exception_event,
+                feedbackRecordingResult: undefined,
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
@@ -579,6 +592,7 @@ export const supportLogic = kea<supportLogicType>([
             severity_level,
             message,
             exception_event,
+            feedbackRecordingResult,
             tags,
         }: SupportFormFields) => {
             const zendesk_ticket_uuid = uuid()
@@ -696,6 +710,7 @@ export const supportLogic = kea<supportLogicType>([
                             `\nKind: ${kind}` +
                             `\nTarget area: ${target_area}` +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
+                            getFeedbackRecordingLink(feedbackRecordingResult?.feedback_id) +
                             getSessionReplayLink() +
                             getErrorTrackingLink(exception_event?.uuid) +
                             getCurrentLocationLink() +

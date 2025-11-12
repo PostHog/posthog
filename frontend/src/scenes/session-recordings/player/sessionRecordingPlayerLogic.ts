@@ -1294,6 +1294,51 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                                     clearTimeout(pauseTimeoutId)
                                 }
                             })
+
+                    // Set up MutationObserver to detect new feedback audio elements
+                    cache.disposables.add(() => {
+                        const observer = new MutationObserver((mutations) => {
+                            mutations.forEach((mutation) => {
+                                mutation.addedNodes.forEach((node) => {
+                                    if (node.nodeType === 1) {
+                                        const element = node as Element
+
+                                        // Check if the added element is a feedback audio element
+                                        if (
+                                            element.tagName === 'AUDIO' &&
+                                            element.getAttribute('data-posthog-recording') === 'true'
+                                        ) {
+                                            const audio = element as HTMLAudioElement
+                                            if (!isMediaElementPlaying(audio)) {
+                                                audio.play().catch(() => {})
+                                            }
+                                            return // exit early as we only expect one PostHog audio element per added node
+                                        }
+
+                                        // Also check for any audio elements within the added element - just in case!
+                                        const audioElements = element.querySelectorAll(
+                                            'audio[data-posthog-recording="true"]'
+                                        )
+                                        audioElements.forEach((audioElement) => {
+                                            const audio = audioElement as HTMLAudioElement
+                                            if (!isMediaElementPlaying(audio)) {
+                                                audio.play().catch(() => {})
+                                            }
+                                        })
+                                    }
+                                })
+                            })
+                        })
+
+                        observer.observe(iframeContentWindow.document.body, {
+                            childList: true,
+                            subtree: true,
+                        })
+
+                        return () => {
+                            observer.disconnect()
+                        }
+                    }, 'feedbackAudioObserver')
                         } else {
                             setupErrorHandlers()
                         }
@@ -1849,6 +1894,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         restartIframePlayback: () => {
             cache.pausedMediaElements?.forEach((el: HTMLMediaElement) => el.play())
             cache.pausedMediaElements = []
+
+            // Handle feedback audio elements that should autoplay
+            const iframe = values.rootFrame?.querySelector('iframe')
+            const iframeDocument = iframe?.contentWindow?.document
+            if (iframeDocument) {
+                const feedbackAudioElements = Array.from(
+                    iframeDocument.querySelectorAll('audio[data-posthog-recording="true"]')
+                ) as HTMLAudioElement[]
+                feedbackAudioElements.forEach((audio) => {
+                    if (!isMediaElementPlaying(audio)) {
+                        audio.play().catch(() => {
+                            // Autoplay blocked - this is expected in many cases
+                        })
+                    }
+                })
+            }
         },
 
         exportRecordingToFile: async () => {

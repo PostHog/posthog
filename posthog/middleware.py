@@ -748,7 +748,7 @@ class CSPMiddleware:
                 "worker-src 'self'",
                 "child-src 'none'",
                 "object-src 'none'",
-                "media-src https://res.cloudinary.com",
+                "media-src 'self' https://res.cloudinary.com",
                 f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
                 f"connect-src 'self' https://status.posthog.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
