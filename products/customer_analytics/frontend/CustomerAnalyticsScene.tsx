@@ -4,14 +4,8 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { CustomerAnalyticsQueryCard } from './components/CustomerAnalyticsQueryCard'
+import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
-import {
-    CUSTOMER_ANALYTICS_ACTIVE_USERS_INSIGHTS,
-    CUSTOMER_ANALYTICS_ENGAGEMENT_AND_CONVERSION_INSIGHTS,
-    CUSTOMER_ANALYTICS_SESSION_INSIGHTS,
-    CUSTOMER_ANALYTICS_SIGNUP_AND_SUBS_INSIGHTS,
-} from './insightDefinitions'
 
 export const scene: SceneExport = {
     component: CustomerAnalyticsScene,
@@ -21,96 +15,16 @@ export const scene: SceneExport = {
 export function CustomerAnalyticsScene(): JSX.Element {
     return (
         <SceneContent>
-            <Header />
-            <Insights />
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.CustomerAnalytics].name}
+                description={sceneConfigurations[Scene.CustomerAnalytics].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
+                }}
+            />
+            <div className="space-y-2">
+                <ActiveUsersInsights />
+            </div>
         </SceneContent>
-    )
-}
-
-const Header = (): JSX.Element => {
-    return (
-        <SceneTitleSection
-            name={sceneConfigurations[Scene.CustomerAnalytics].name}
-            description={sceneConfigurations[Scene.CustomerAnalytics].description}
-            resourceType={{
-                type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
-            }}
-        />
-    )
-}
-
-function Insights(): JSX.Element {
-    return (
-        <div className="space-y-2">
-            <ActiveUsersInsights />
-            <EngagementAndConversionInsights />
-            <SessionInsights />
-            <SignupInsights />
-        </div>
-    )
-}
-
-function ActiveUsersInsights(): JSX.Element {
-    return (
-        <div className="space-y-2">
-            <div>Active Users</div>
-            <div className="grid grid-cols-[3fr_1fr] gap-2">
-                {CUSTOMER_ANALYTICS_ACTIVE_USERS_INSIGHTS.map((insight, index) => {
-                    return <CustomerAnalyticsQueryCard key={index} insight={insight} />
-                })}
-            </div>
-        </div>
-    )
-}
-
-function EngagementAndConversionInsights(): JSX.Element {
-    return (
-        <div className="space-y-2">
-            <div>Engagement and conversion</div>
-            <div className="grid grid-cols-2 gap-2">
-                {CUSTOMER_ANALYTICS_ENGAGEMENT_AND_CONVERSION_INSIGHTS.map((insight, index) => {
-                    return <CustomerAnalyticsQueryCard key={index} insight={insight} />
-                })}
-            </div>
-        </div>
-    )
-}
-
-function SessionInsights(): JSX.Element {
-    return (
-        <div className="space-y-2">
-            <div>Sessions</div>
-            <div className="grid grid-cols-3 gap-2">
-                {CUSTOMER_ANALYTICS_SESSION_INSIGHTS.map((insight, index) => {
-                    return <CustomerAnalyticsQueryCard key={index} insight={insight} />
-                })}
-            </div>
-        </div>
-    )
-}
-
-function SignupInsights(): JSX.Element {
-    return (
-        <div className="space-y-2">
-            <div>Signups and conversion</div>
-            <div className="grid grid-cols-2 gap-2">
-                <div className="grid grid-cols-2 gap-2">
-                    {CUSTOMER_ANALYTICS_SIGNUP_AND_SUBS_INSIGHTS.slice(0, 2).map((insight, index) => {
-                        return <CustomerAnalyticsQueryCard key={index} insight={insight} />
-                    })}
-                </div>
-                <CustomerAnalyticsQueryCard insight={CUSTOMER_ANALYTICS_SIGNUP_AND_SUBS_INSIGHTS[2]} />
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-                {CUSTOMER_ANALYTICS_SIGNUP_AND_SUBS_INSIGHTS.slice(3, 6).map((insight, index) => {
-                    return <CustomerAnalyticsQueryCard key={index} insight={insight} />
-                })}
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-                {CUSTOMER_ANALYTICS_SIGNUP_AND_SUBS_INSIGHTS.slice(6).map((insight, index) => {
-                    return <CustomerAnalyticsQueryCard key={index} insight={insight} />
-                })}
-            </div>
-        </div>
     )
 }
