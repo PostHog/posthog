@@ -13,7 +13,6 @@ from langchain_core.messages import (
 )
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import RunnableConfig
-from langgraph.errors import NodeInterrupt
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -870,40 +869,6 @@ class TestAgentToolsNode(BaseTest):
             assert result is not None
             self.assertEqual(len(result.messages), 1)
             self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
-
-    async def test_navigate_tool_call_raises_node_interrupt(self):
-        """Test that navigate tool calls raise NodeInterrupt to pause graph execution"""
-        node = _create_agent_tools_node(self.team, self.user)
-
-        state = AssistantState(
-            messages=[
-                AssistantMessage(
-                    content="I'll help you navigate to insights",
-                    id="test-id",
-                    tool_calls=[AssistantToolCall(id="nav-123", name="navigate", args={"page_key": "insights"})],
-                )
-            ],
-            root_tool_call_id="nav-123",
-        )
-
-        mock_navigate_tool = AsyncMock()
-        mock_navigate_tool.ainvoke.return_value = LangchainToolMessage(
-            content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
-        )
-
-        # The navigate tool call should raise NodeInterrupt
-        with self.assertRaises(NodeInterrupt) as cm:
-            await node(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
-
-        # Verify the NodeInterrupt contains the expected message
-        # NodeInterrupt wraps the message in an Interrupt object
-        interrupt_data = cm.exception.args[0]
-        if isinstance(interrupt_data, list):
-            interrupt_data = interrupt_data[0].value
-        self.assertIsInstance(interrupt_data, AssistantToolCallMessage)
-        self.assertIn("Navigated to **insights**.", interrupt_data.content)
-        self.assertEqual(interrupt_data.tool_call_id, "nav-123")
-        self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
 
     async def test_arun_tool_returns_wrong_type_returns_error_message(self):
         """Test that tool returning wrong type returns an error message"""

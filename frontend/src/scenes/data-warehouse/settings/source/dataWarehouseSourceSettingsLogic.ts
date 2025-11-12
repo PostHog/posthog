@@ -38,6 +38,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
         setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => ({ canLoadMoreJobs }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
+        setSelectedSchemas: (schemaNames: string[]) => ({ schemaNames }),
     }),
     loaders(({ actions, values }) => ({
         source: [
@@ -114,6 +115,12 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             false as boolean,
             {
                 setIsProjectTime: (_, { isProjectTime }) => isProjectTime,
+            },
+        ],
+        selectedSchemas: [
+            [] as string[],
+            {
+                setSelectedSchemas: (_, { schemaNames }) => schemaNames,
             },
         ],
         sourceConfigLoading: [

@@ -49,7 +49,8 @@ export function ErrorTrackingScene(): JSX.Element {
 
     useEffect(() => {
         posthog.capture('error_tracking_issues_list_viewed', { active_tab: activeTab })
-    }, [activeTab])
+        // oxlint-disable-next-line exhaustive-deps we only want to fire when the page is first loaded
+    }, [])
 
     return (
         <SceneContent>

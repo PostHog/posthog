@@ -1,4 +1,3 @@
-import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -39,7 +38,8 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, logs, sparklineData, logsLoading, sparklineLoading, timestampFormat } = useValues(logsLogic)
+    const { wrapBody, prettifyJson, parsedLogs, sparklineData, logsLoading, sparklineLoading, timestampFormat } =
+        useValues(logsLogic)
     const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
 
     useEffect(() => {
@@ -88,7 +88,7 @@ export function LogsScene(): JSX.Element {
             <div className="flex-1 overflow-y-auto border rounded bg-bg-light">
                 <LemonTable
                     hideScrollbar
-                    dataSource={logs}
+                    dataSource={parsedLogs}
                     loading={logsLoading}
                     size="small"
                     embedded
@@ -111,9 +111,17 @@ export function LogsScene(): JSX.Element {
                             title: 'Message',
                             key: 'body',
                             dataIndex: 'body',
-                            render: (_, { body }) => (
-                                <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{colors.unstyle(body)}</div>
-                            ),
+                            render: (_, { cleanBody, parsedBody }) => {
+                                if (parsedBody && prettifyJson) {
+                                    return (
+                                        <pre className={cn('text-xs', wrapBody ? '' : 'whitespace-nowrap')}>
+                                            {JSON.stringify(parsedBody, null, 2)}
+                                        </pre>
+                                    )
+                                }
+
+                                return <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{cleanBody}</div>
+                            },
                         },
                     ]}
                     expandable={{
@@ -261,8 +269,8 @@ const Filters = (): JSX.Element => {
 }
 
 const DisplayOptions = (): JSX.Element => {
-    const { orderBy, wrapBody, timestampFormat } = useValues(logsLogic)
-    const { setOrderBy, setWrapBody, setTimestampFormat } = useActions(logsLogic)
+    const { orderBy, wrapBody, prettifyJson, timestampFormat } = useValues(logsLogic)
+    const { setOrderBy, setWrapBody, setPrettifyJson, setTimestampFormat } = useActions(logsLogic)
 
     return (
         <div className="flex gap-2">
@@ -282,6 +290,13 @@ const DisplayOptions = (): JSX.Element => {
                 size="small"
             />
             <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
+            <LemonCheckbox
+                checked={prettifyJson}
+                bordered
+                onChange={setPrettifyJson}
+                label="Prettify JSON"
+                size="small"
+            />
             <LemonSelect
                 value={timestampFormat}
                 icon={<IconClock />}

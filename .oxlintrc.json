@@ -16,7 +16,10 @@
         "common/plugin_transpiler/dist",
         "common/hogvm/__tests__/__snapshots__",
         "common/hogvm/__tests__/__snapshots__/**",
-        "frontend/src/queries/validators.js"
+        "frontend/src/queries/validators.js",
+        "products/mcp/**/generated.ts",
+        "products/mcp/schema/tool-inputs.json",
+        "products/mcp/python"
     ],
     "rules": {
         "no-constant-condition": "off",
