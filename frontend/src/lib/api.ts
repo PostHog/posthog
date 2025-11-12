@@ -1529,10 +1529,6 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent('import_from_customerio')
     }
 
-    public messagingCategoriesImportProgress(): ApiRequest {
-        return this.messagingCategories().addPathComponent('import_progress')
-    }
-
     public messagingPreferences(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences')
     }
