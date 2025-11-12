@@ -40,7 +40,7 @@ describe('useCaseSelectionLogic', () => {
                 logic.actions.selectUseCase('fix_issues')
             })
 
-            expect(window.posthog.capture).toHaveBeenCalledWith('onboarding_use_case_selected', {
+            expect(window.posthog.capture).toHaveBeenCalledWith('onboarding use case selected', {
                 use_case: 'fix_issues',
                 recommended_products: getRecommendedProducts('fix_issues'),
             })
@@ -53,10 +53,8 @@ describe('useCaseSelectionLogic', () => {
 
             expect(router.values.location.pathname).toContain('/products')
             expect(router.values.searchParams.useCase).toBe('pick_myself')
-            expect(window.posthog.capture).toHaveBeenCalledWith('onboarding_use_case_selected', {
-                use_case: 'pick_myself',
-                recommended_products: [],
-            })
+            // pick_myself should NOT trigger the analytics event
+            expect(window.posthog.capture).not.toHaveBeenCalled()
         })
 
         it('handles different use cases', async () => {
@@ -65,13 +63,15 @@ describe('useCaseSelectionLogic', () => {
             > = ['see_user_behavior', 'fix_issues', 'launch_features', 'collect_feedback', 'monitor_ai']
 
             for (const useCase of useCases) {
+                jest.clearAllMocks()
+
                 await expectLogic(logic, () => {
                     logic.actions.selectUseCase(useCase)
                 })
 
                 expect(router.values.searchParams.useCase).toBe(useCase)
                 expect(window.posthog.capture).toHaveBeenCalledWith(
-                    'onboarding_use_case_selected',
+                    'onboarding use case selected',
                     expect.objectContaining({
                         use_case: useCase,
                     })
