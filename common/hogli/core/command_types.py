@@ -18,9 +18,10 @@ def _run(command: list[str] | str, *, env: dict[str, str] | None = None, shell: 
 
     if isinstance(command, list):
         display = " ".join(command)
-    else:
-        display = command
-    click.echo(f"🚀 {display}")
+        click.echo(f"🚀 {display}")
+    elif "\n" not in command:
+        # Only show single-line commands
+        click.echo(f"🚀 {command}")
     try:
         subprocess.run(
             command,

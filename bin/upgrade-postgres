@@ -122,7 +122,8 @@ migrate_volume() {
         exit 0
     fi
 
-    BACKUP_FILE="/tmp/posthog_pg12_backup_$(date +%Y%m%d_%H%M%S).sql.gz"
+    mkdir -p .postgres-backups
+    BACKUP_FILE=".postgres-backups/posthog_pg12_backup_$(date +%Y%m%d_%H%M%S).sql.gz"
 
     echo ""
     echo "Step 1: Creating temporary postgres:12 container to dump data..."
@@ -159,11 +160,7 @@ migrate_volume() {
 
     echo ""
     echo "Step 5: Restoring data..."
-    if gunzip -c "$BACKUP_FILE" | docker compose -f "$COMPOSE_FILE" exec -T db psql -U posthog; then
-        echo "✅ Data restored successfully!"
-    else
-        echo "⚠️  Some errors occurred during restore, but this is often normal"
-    fi
+    ./bin/hogli db:restore "$BACKUP_FILE"
 
     echo ""
     echo "Step 6: Starting all services..."
