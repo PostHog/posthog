@@ -4230,7 +4230,7 @@ const api = {
             })
             return response.preferences_url || null
         },
-        async getMessageOptOuts(categoryKey?: string, page?: number): Promise<PaginatedResponse<OptOutEntry[]>> {
+        async getMessageOptOuts(categoryKey?: string, page?: number): Promise<CountedPaginatedResponse<OptOutEntry[]>> {
             return await new ApiRequest()
                 .messagingPreferencesOptOuts()
                 .withQueryString({

@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 
 import { MessageCategory } from './optOutCategoriesLogic'
 import type { optOutListLogicType } from './optOutListLogicType'
@@ -20,12 +20,7 @@ export type OptOutPersonPreference = {
     preferences: Record<string, boolean>
 }
 
-export type PaginatedOptOuts = {
-    count: number
-    next: string | null
-    previous: string | null
-    results: OptOutEntry[]
-}
+export type PaginatedOptOuts = CountedPaginatedResponse<OptOutEntry>
 
 export type OptOutListLogicProps = {
     category?: MessageCategory
