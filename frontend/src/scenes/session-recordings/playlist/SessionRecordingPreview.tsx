@@ -2,18 +2,9 @@ import './SessionRecordingPreview.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { memo, useState } from 'react'
+import { memo } from 'react'
 
-import {
-    IconBug,
-    IconChevronDown,
-    IconCopy,
-    IconCursorClick,
-    IconFilter,
-    IconHourglass,
-    IconKeyboard,
-    IconLive,
-} from '@posthog/icons'
+import { IconBug, IconCursorClick, IconHourglass, IconKeyboard, IconLive } from '@posthog/icons'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -23,19 +14,16 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { applyRecordingPropertyFilter } from 'scenes/session-recordings/utils'
 import { urls } from 'scenes/urls'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { SessionRecordingType } from '~/types'
 
-import { playlistLogic } from './playlistLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import {
     DEFAULT_RECORDING_FILTERS_ORDER_BY,
@@ -275,18 +263,6 @@ export const SessionRecordingPreview = memo(
         const iconProperties = gatherIconProperties(recordingProperties, recording)
 
         const iconClassNames = 'text-secondary shrink-0'
-        const [isExpanded, setIsExpanded] = useState(false)
-
-        const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
-        const { setIsFiltersExpanded } = useActions(playlistLogic)
-
-        const handleFilter = (propertyKey: string, propertyValue: string | undefined): void => {
-            applyRecordingPropertyFilter(propertyKey, propertyValue, filters, setFilters, setIsFiltersExpanded)
-        }
-
-        const handleCopy = async (text: string): Promise<void> => {
-            await copyToClipboard(text, 'value')
-        }
 
         return (
             <DraggableToNotebook href={urls.replaySingle(recording.id)}>
@@ -362,76 +338,7 @@ export const SessionRecordingPreview = memo(
                             )}
                         </div>
 
-                        <div className="flex items-center justify-between gap-x-0.5">
-                            <FirstURL startUrl={recording.start_url} />
-                            <Tooltip title={isExpanded ? 'Hide details' : 'Show details'}>
-                                <IconChevronDown
-                                    className={clsx(
-                                        'w-5 h-5 cursor-pointer transition-transform text-muted hover:text-primary shrink-0',
-                                        isExpanded ? 'rotate-180' : 'rotate-0'
-                                    )}
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        setIsExpanded(!isExpanded)
-                                    }}
-                                />
-                            </Tooltip>
-                        </div>
-
-                        {isExpanded && (
-                            <div className="mt-2 space-y-2 border-t pt-2">
-                                {/* Person with actions */}
-                                <div className="flex items-center justify-between gap-2">
-                                    <span className="text-muted text-xs shrink-0">Person</span>
-                                    <div className="flex items-center gap-1 min-w-0">
-                                        <span className="text-xs truncate">{asDisplay(recording.person)}</span>
-                                        <Tooltip title="Copy">
-                                            <IconCopy
-                                                className="cursor-pointer text-muted hover:text-primary shrink-0"
-                                                onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    handleCopy(asDisplay(recording.person))
-                                                }}
-                                            />
-                                        </Tooltip>
-                                    </div>
-                                </div>
-
-                                {/* Icon properties with actions */}
-                                {iconProperties.map(({ property, value, label }) => (
-                                    <div key={property} className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-1 shrink-0">
-                                            <PropertyIcon
-                                                property={property}
-                                                value={value}
-                                                className={iconClassNames}
-                                            />
-                                            <span className="text-xs text-muted">{label}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1 shrink-0">
-                                            <Tooltip title="Copy">
-                                                <IconCopy
-                                                    className="cursor-pointer text-muted hover:text-primary"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        handleCopy(String(value))
-                                                    }}
-                                                />
-                                            </Tooltip>
-                                            <Tooltip title="Filter by this value">
-                                                <IconFilter
-                                                    className="cursor-pointer text-muted hover:text-primary"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        handleFilter(property, String(value))
-                                                    }}
-                                                />
-                                            </Tooltip>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                        <FirstURL startUrl={recording.start_url} />
                     </div>
 
                     <div

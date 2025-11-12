@@ -7,10 +7,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
-import { applyRecordingPropertyFilter } from 'scenes/session-recordings/utils'
 
 import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
-import { playlistLogic } from '../../playlist/playlistLogic'
 import { sessionRecordingsPlaylistLogic } from '../../playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSidebarEditPinnedPropertiesPopover } from './PlayerSidebarEditPinnedPropertiesPopover'
@@ -24,9 +22,7 @@ export function PlayerSidebarOverviewGrid({
     const logicProps = logicPropsOverride || contextLogicProps
     const { displayOverviewItems, loading, isPropertyPopoverOpen } = useValues(playerMetaLogic(logicProps))
     const { setIsPropertyPopoverOpen } = useActions(playerMetaLogic(logicProps))
-    const { filters } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
-    const { setIsFiltersExpanded } = useActions(playlistLogic)
+    const { applyPropertyFilter } = useActions(sessionRecordingsPlaylistLogic)
 
     return (
         <>
@@ -65,14 +61,7 @@ export function PlayerSidebarOverviewGrid({
                                     showFilter={item.type === 'property' && item.value !== undefined}
                                     onFilterClick={
                                         item.type === 'property' && item.value !== undefined
-                                            ? () =>
-                                                  applyRecordingPropertyFilter(
-                                                      item.property,
-                                                      item.value,
-                                                      filters,
-                                                      setFilters,
-                                                      setIsFiltersExpanded
-                                                  )
+                                            ? () => applyPropertyFilter(item.property, item.value)
                                             : undefined
                                     }
                                 >

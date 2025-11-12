@@ -1,17 +1,11 @@
 import emojiRegex from 'emoji-regex'
 
-import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-
 import {
     LegacyRecordingFilters,
-    PropertyFilterType,
-    PropertyOperator,
     RecordingUniversalFilters,
     type SessionRecordingMaskingConfig,
     type SessionRecordingMaskingLevel,
     UniversalFilterValue,
-    UniversalFiltersGroup,
 } from '~/types'
 
 export const TimestampFormatToLabel = {
@@ -66,66 +60,4 @@ export function isSingleEmoji(s: string): boolean {
     // or the second emoji it checks always results in false 🤷
     const regex = emojiRegex()
     return regex.test(graphemes[0].segment)
-}
-
-export function applyRecordingPropertyFilter(
-    propertyKey: string,
-    propertyValue: string | undefined,
-    filters: RecordingUniversalFilters,
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => void,
-    setIsFiltersExpanded: (expanded: boolean) => void
-): void {
-    // Validate property value
-    if (propertyValue === undefined || propertyValue === null) {
-        return
-    }
-
-    // Determine property filter type
-    // For recordings: $browser, $os, $device_type, etc are Event properties
-    // $geoip_* and custom properties (no $) are Person properties
-    // Everything else with $ is Session property
-    const filterType =
-        propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
-            ? PropertyFilterType.Person
-            : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
-              ? PropertyFilterType.Event
-              : PropertyFilterType.Session
-
-    // Create property filter object
-    const filter = {
-        type: filterType,
-        key: propertyKey,
-        value: propertyValue,
-        operator: PropertyOperator.Exact,
-    }
-
-    // Clone the current filter group structure and add to the first nested group
-    const currentGroup = filters.filter_group
-    const newGroup: UniversalFiltersGroup = {
-        ...currentGroup,
-        values: currentGroup.values.map((nestedGroup, index) => {
-            // Add to the first nested group (index 0)
-            if (index === 0 && 'values' in nestedGroup) {
-                return {
-                    ...nestedGroup,
-                    values: [...nestedGroup.values, filter],
-                } as UniversalFiltersGroup
-            }
-            return nestedGroup
-        }),
-    }
-
-    setFilters({ filter_group: newGroup })
-
-    // Show toast notification with human-readable label and view filters button
-    const filterLabel = formatPropertyLabel(filter, {})
-    lemonToast.success(`Filter applied: ${filterLabel}`, {
-        toastId: `filter-applied-${propertyKey}`,
-        button: {
-            label: 'View filters',
-            action: () => {
-                setIsFiltersExpanded(true)
-            },
-        },
-    })
 }

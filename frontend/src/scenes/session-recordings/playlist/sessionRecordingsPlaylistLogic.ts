@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { formatPropertyLabel, isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import {
@@ -48,6 +48,7 @@ import {
     SessionRecordingId,
     SessionRecordingType,
     UniversalFilterValue,
+    UniversalFiltersGroup,
 } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -460,6 +461,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         resetFilters: true,
+        applyPropertyFilter: (propertyKey: string, propertyValue: string | undefined) => ({
+            propertyKey,
+            propertyValue,
+        }),
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
         }),
@@ -779,6 +784,62 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         resetFilters: () => {
             actions.loadSessionRecordings()
             props.onFiltersChange?.(values.filters)
+        },
+
+        applyPropertyFilter: ({ propertyKey, propertyValue }) => {
+            // Validate property value
+            if (propertyValue === undefined || propertyValue === null) {
+                return
+            }
+
+            // Determine property filter type
+            // For recordings: $browser, $os, $device_type, etc are Event properties
+            // $geoip_* and custom properties (no $) are Person properties
+            // Everything else with $ is Session property
+            const filterType =
+                propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
+                    ? PropertyFilterType.Person
+                    : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
+                      ? PropertyFilterType.Event
+                      : PropertyFilterType.Session
+
+            // Create property filter object
+            const filter = {
+                type: filterType,
+                key: propertyKey,
+                value: propertyValue,
+                operator: PropertyOperator.Exact,
+            }
+
+            // Clone the current filter group structure and add to the first nested group
+            const currentGroup = values.filters.filter_group
+            const newGroup: UniversalFiltersGroup = {
+                ...currentGroup,
+                values: currentGroup.values.map((nestedGroup, index) => {
+                    // Add to the first nested group (index 0)
+                    if (index === 0 && 'values' in nestedGroup) {
+                        return {
+                            ...nestedGroup,
+                            values: [...nestedGroup.values, filter],
+                        } as UniversalFiltersGroup
+                    }
+                    return nestedGroup
+                }),
+            }
+
+            actions.setFilters({ filter_group: newGroup })
+
+            // Show toast notification with human-readable label and view filters button
+            const filterLabel = formatPropertyLabel(filter, {})
+            lemonToast.success(`Filter applied: ${filterLabel}`, {
+                toastId: `filter-applied-${propertyKey}`,
+                button: {
+                    label: 'View filters',
+                    action: () => {
+                        actions.setIsFiltersExpanded(true)
+                    },
+                },
+            })
         },
 
         maybeLoadSessionRecordings: ({ direction }) => {
