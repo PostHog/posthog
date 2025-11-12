@@ -74,46 +74,33 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
 
         return extra_kwargs
 
-    def _apply_verified_hidden_rules(self, validated_data, user, existing_verified=False):
-        """
-        Apply verified/hidden mutual exclusion rules.
-
-        Args:
-            validated_data: The data being validated
-            user: The user making the change
-            existing_verified: For updates, whether the instance is currently verified
-        """
-        if validated_data.get("hidden", False):
-            # Setting hidden=True forces verified=False
-            validated_data["verified"] = False
-            validated_data["verified_by"] = None
-            validated_data["verified_at"] = None
-        elif validated_data.get("verified", False):
-            # Only set verified metadata if transitioning from unverified to verified
-            if not existing_verified:
-                validated_data["verified_by"] = user
-                validated_data["verified_at"] = timezone.now()
-                validated_data["hidden"] = False
-            # If already verified, this is a no-op (for updates only)
-            elif existing_verified and self.instance is not None:
-                validated_data.pop("verified")
-        elif "verified" in validated_data and not validated_data["verified"]:
-            # Explicitly unverifying - nullify verified properties
-            validated_data["verified_by"] = None
-            validated_data["verified_at"] = None
-
     def validate(self, data):
         validated_data = super().validate(data)
 
-        # Validate that hidden and verified are mutually exclusive when both provided
+        # Validate mutual exclusion
         if "hidden" in validated_data and "verified" in validated_data:
             if validated_data["hidden"] and validated_data["verified"]:
                 raise serializers.ValidationError("An event cannot be both hidden and verified")
 
-        # Apply verified/hidden rules for creation
-        if self.instance is None:
+        # Set verified metadata when verifying
+        if "verified" in validated_data:
             user = self.context["request"].user
-            self._apply_verified_hidden_rules(validated_data, user, existing_verified=False)
+            if validated_data["verified"]:
+                # Setting verified=True - only update metadata if not already verified (for updates)
+                if self.instance is None or not self.instance.verified:
+                    validated_data["verified_by"] = user
+                    validated_data["verified_at"] = timezone.now()
+                validated_data["hidden"] = False
+            else:
+                # Setting verified=False (unverifying)
+                validated_data["verified_by"] = None
+                validated_data["verified_at"] = None
+
+        # Clear verified metadata when hiding
+        if validated_data.get("hidden", False):
+            validated_data["verified"] = False
+            validated_data["verified_by"] = None
+            validated_data["verified_at"] = None
 
         # Remove post_to_slack field - it exists on Action model but not EventDefinition
         validated_data.pop("post_to_slack", None)
@@ -121,16 +108,13 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
         return validated_data
 
     def update(self, event_definition: EnterpriseEventDefinition, validated_data):
-        """Handle update-specific logic for verified/hidden state transitions."""
+        """Track analytics for verification toggle."""
         user = self.context["request"].user
 
-        # Apply verified/hidden rules with awareness of current state
-        self._apply_verified_hidden_rules(validated_data, user, existing_verified=event_definition.verified)
-
-        # Track verification toggle for analytics
+        # Track verification status changes for analytics
         if "verified" in validated_data:
             verified_old = event_definition.verified
-            verified_new = validated_data.get("verified", verified_old)
+            verified_new = validated_data["verified"]
             if verified_old != verified_new:
                 posthoganalytics.capture(
                     "event verification toggled",
