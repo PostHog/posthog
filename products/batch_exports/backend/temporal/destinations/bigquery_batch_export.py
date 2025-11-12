@@ -97,6 +97,7 @@ COMPATIBLE_TYPES: TypeTupleToCastMapping = {
     # This technically truncates the millisecond part of the value, but if it came from
     # a `DateTime` then we assume it is empty (as it would have been empty before).
     (pa.timestamp("ms", tz="UTC"), pa.int64()): TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
+    (pa.timestamp("ms", tz="Etc/UTC"), pa.int64()): TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
 }
 
 FileFormat = typing.Literal["Parquet", "JSONLines"]
