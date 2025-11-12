@@ -1,4 +1,7 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, connect, kea, path, reducers } from 'kea'
+
+import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { userPreferencesLogicType } from './userPreferencesLogicType'
 
@@ -13,7 +16,10 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
         pinGroupProperty: (prop: string) => ({ prop }),
         unpinGroupProperty: (prop: string) => ({ prop }),
     }),
-    reducers(() => ({
+    connect(() => ({
+        values: [teamLogic, ['currentTeam']],
+    })),
+    reducers(({ values }) => ({
         hidePostHogPropertiesInTable: [
             false,
             { persist: true },
@@ -23,7 +29,11 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
         ],
         hideNullValues: [true, { persist: true }, { setHideNullValues: (_, { enabled }) => enabled }],
         pinnedPersonProperties: [
-            [] as string[],
+            [
+                ...(values.currentTeam?.person_display_name_properties || PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES),
+                '$browser',
+                '$browser_version',
+            ],
             { persist: true },
             {
                 pinPersonProperty: (state, { prop }) => (state.includes(prop) ? state : [...state, prop]),
@@ -31,7 +41,7 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
             },
         ],
         pinnedGroupProperties: [
-            [] as string[],
+            ['name'] as string[],
             { persist: true },
             {
                 pinGroupProperty: (state, { prop }) => (state.includes(prop) ? state : [...state, prop]),

@@ -19,6 +19,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -403,14 +404,25 @@ export function PageHeaderCustom(): JSX.Element {
         experimentLoading,
         featureFlags,
     } = useValues(experimentLogic)
-    const { launchExperiment, archiveExperiment, createExposureCohort, createExperimentDashboard, updateExperiment } =
-        useActions(experimentLogic)
+    const {
+        launchExperiment,
+        archiveExperiment,
+        createExposureCohort,
+        createExperimentDashboard,
+        updateExperiment,
+        setHogfettiTrigger,
+    } = useActions(experimentLogic)
     const { openShipVariantModal, openStopExperimentModal } = useActions(modalsLogic)
     const { user } = useValues(userLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
     const { newTab } = useActions(sceneLogic)
     // Initialize MaxTool hook for experiment survey creation
     const { openMax } = useMaxTool(createMaxToolExperimentSurveyConfig(experiment, user))
+    const { trigger, HogfettiComponent } = useHogfetti()
+
+    useOnMountEffect(() => {
+        setHogfettiTrigger(trigger)
+    })
 
     const exposureCohortId = experiment?.exposure_cohort
 
@@ -531,6 +543,7 @@ export function PageHeaderCustom(): JSX.Element {
                     </>
                 }
             />
+            <HogfettiComponent />
 
             {experiment && isExperimentRunning && (
                 <ScenePanel>
@@ -752,7 +765,7 @@ export function StopExperimentModal(): JSX.Element {
 
 export function ShipVariantModal(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
-    const { shipVariant } = useActions(experimentLogic)
+    const { shipVariant, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeShipVariantModal } = useActions(modalsLogic)
     const { isShipVariantModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -771,68 +784,81 @@ export function ShipVariantModal(): JSX.Element {
             : 'users'
 
     return (
-        <LemonModal
-            isOpen={isShipVariantModalOpen}
-            onClose={closeShipVariantModal}
-            width={600}
-            title="Ship a variant"
-            footer={
-                <div className="flex items-center gap-2">
-                    <LemonButton type="secondary" onClick={closeShipVariantModal}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        // TODO: revisit if it always makes sense to stop the experiment when shipping a variant
-                        // does it make sense to still *monitor* the experiment after shipping the variant?
-                        onClick={() => shipVariant({ selectedVariantKey, shouldStopExperiment: true })}
-                        type="primary"
-                    >
-                        Ship variant
-                    </LemonButton>
-                </div>
-            }
-        >
-            <div className="deprecated-space-y-6">
-                <div className="text-sm">
-                    This will roll out the selected variant to <b>100% of {aggregationTargetName}</b> and stop the
-                    experiment.
-                </div>
-                <div className="flex items-center">
-                    <div className="w-1/2 pr-4">
-                        <LemonSelect
-                            className="w-full"
-                            data-attr="metrics-selector"
-                            value={selectedVariantKey}
-                            onChange={(variantKey) => {
-                                setSelectedVariantKey(variantKey)
+        <>
+            <LemonModal
+                isOpen={isShipVariantModalOpen}
+                onClose={() => {
+                    restoreUnmodifiedExperiment()
+                    closeShipVariantModal()
+                }}
+                width={600}
+                title="Ship a variant"
+                footer={
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => {
+                                restoreUnmodifiedExperiment()
+                                closeShipVariantModal()
                             }}
-                            options={
-                                experiment.parameters?.feature_flag_variants?.map(({ key }) => ({
-                                    value: key,
-                                    label: (
-                                        <div className="deprecated-space-x-2 inline-flex">
-                                            <VariantTag variantKey={key} />
-                                        </div>
-                                    ),
-                                })) || []
-                            }
-                        />
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            onClick={() => {
+                                shipVariant({ selectedVariantKey, shouldStopExperiment: true })
+                            }}
+                            type="primary"
+                            disabledReason={!experiment.conclusion && 'Select a conclusion'}
+                        >
+                            Ship variant
+                        </LemonButton>
                     </div>
+                }
+            >
+                <div className="deprecated-space-y-6">
+                    <div className="text-sm">
+                        This will roll out the selected variant to <b>100% of {aggregationTargetName}</b> and stop the
+                        experiment.
+                    </div>
+                    <div className="flex items-center">
+                        <div className="w-1/2 pr-4">
+                            <LemonSelect
+                                className="w-full"
+                                data-attr="metrics-selector"
+                                value={selectedVariantKey}
+                                onChange={(variantKey) => {
+                                    setSelectedVariantKey(variantKey)
+                                }}
+                                options={
+                                    experiment.parameters?.feature_flag_variants?.map(({ key }) => ({
+                                        value: key,
+                                        label: (
+                                            <div className="deprecated-space-x-2 inline-flex">
+                                                <VariantTag variantKey={key} />
+                                            </div>
+                                        ),
+                                    })) || []
+                                }
+                            />
+                        </div>
+                    </div>
+                    <ConclusionForm />
+                    <LemonBanner type="info" className="mb-4">
+                        For more precise control over your release, adjust the rollout percentage and release conditions
+                        in the{' '}
+                        <Link
+                            target="_blank"
+                            className="font-semibold"
+                            to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
+                        >
+                            {experiment.feature_flag?.key}
+                        </Link>{' '}
+                        feature flag.
+                    </LemonBanner>
                 </div>
-                <LemonBanner type="info" className="mb-4">
-                    For more precise control over your release, adjust the rollout percentage and release conditions in
-                    the{' '}
-                    <Link
-                        target="_blank"
-                        className="font-semibold"
-                        to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
-                    >
-                        {experiment.feature_flag?.key}
-                    </Link>{' '}
-                    feature flag.
-                </LemonBanner>
-            </div>
-        </LemonModal>
+            </LemonModal>
+        </>
     )
 }
 

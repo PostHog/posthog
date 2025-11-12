@@ -15,11 +15,11 @@ import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayou
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
-import { EndpointCodeExamples } from './EndpointCodeExamples'
-import { EndpointConfiguration } from './EndpointConfiguration'
 import { EndpointSceneHeader } from './EndpointHeader'
-import { EndpointOverview } from './EndpointOverview'
 import { EndpointQuery } from './EndpointQuery'
+import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'
+import { EndpointOverview } from './endpoint-tabs/EndpointOverview'
+import { EndpointPlayground } from './endpoint-tabs/EndpointPlayground'
 import { endpointLogic } from './endpointLogic'
 import { EndpointTab, endpointSceneLogic } from './endpointSceneLogic'
 
@@ -60,11 +60,11 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                 : undefined,
         },
         {
-            key: EndpointTab.CODE,
-            label: 'Code',
-            content: <EndpointCodeExamples tabId={tabId} />,
+            key: EndpointTab.PLAYGROUND,
+            label: 'Playground',
+            content: <EndpointPlayground tabId={tabId} />,
             link: endpoint
-                ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.CODE }).url
+                ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.PLAYGROUND }).url
                 : undefined,
         },
         {
