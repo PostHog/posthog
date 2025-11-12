@@ -141,10 +141,13 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
         logger.warning("Team not found for cache lookup")
         return HyperCacheStoreMissing()
 
-    except Exception:
-        # Log the error without exposing sensitive team information
-        logger.exception("Error loading team metadata")
-        return HyperCacheStoreMissing()
+	except Exception as e:
+	      logger.exception(
+	          "Error loading team metadata",
+	          error_type=type(e).__name__,  # Help debugging
+	          team_key_type=type(team_key).__name__,  # Add context
+	      )
+	      return HyperCacheStoreMissing()
 
 
 # Create the HyperCache instance for team metadata
