@@ -255,7 +255,7 @@ export const scene: SceneExport = {
 
 export function OverViewTab({
     flagPrefix = '',
-    searchPlaceholder = 'Search for feature flags',
+    searchPlaceholder = 'Search for feature flags (or experiment keys)',
     nouns = ['feature flag', 'feature flags'],
 }: {
     flagPrefix?: string
