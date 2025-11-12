@@ -525,9 +525,6 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             empty_user_digest_count += 1
                             continue
 
-                        if user_specific_digest.count_items() < 4:
-                            logger.warning("Got almost-empty")
-
                         payload = user_specific_digest.render_payload(input.digest)
 
                         if input.dry_run:
