@@ -1,4 +1,4 @@
-import { actions, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 
 import { ApiRequest } from 'lib/api'
@@ -34,6 +34,7 @@ export interface CSVImportProgress {
     users_skipped: number
     parse_errors: number
     preferences_updated: number
+    total_unique_users?: number
     current_batch: number
     details: string
     failed_imports?: Array<{
@@ -171,13 +172,13 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 lemonToast.error('Please select a CSV file')
                 return
             }
-            
+
             actions.setIsUploadingCSV(true)
             actions.setCSVProgress(null) // Clear any previous progress
-            
+
             const formData = new FormData()
             formData.append('csv_file', file)
-            
+
             try {
                 // Get CSRF token from cookie (using PostHog's cookie name)
                 const getCookie = (name: string): string | null => {
@@ -194,30 +195,33 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                     }
                     return cookieValue
                 }
-                
+
                 // Make a direct fetch request since ApiRequest might not handle multipart/form-data correctly
-                const response = await fetch('/api/environments/@current/messaging_categories/import_preferences_csv/', {
-                    method: 'POST',
-                    body: formData,
-                    credentials: 'include',
-                    headers: {
-                        // Don't set Content-Type header - let browser set it with boundary for multipart
-                        'X-CSRFToken': getCookie('posthog_csrftoken') || '',
-                    },
-                })
-                
+                const response = await fetch(
+                    '/api/environments/@current/messaging_categories/import_preferences_csv/',
+                    {
+                        method: 'POST',
+                        body: formData,
+                        credentials: 'include',
+                        headers: {
+                            // Don't set Content-Type header - let browser set it with boundary for multipart
+                            'X-CSRFToken': getCookie('posthog_csrftoken') || '',
+                        },
+                    }
+                )
+
                 if (!response.ok) {
                     const errorText = await response.text()
                     console.error('CSV upload failed:', response.status, errorText)
                     throw new Error(errorText || `Upload failed with status ${response.status}`)
                 }
-                
+
                 const data = await response.json()
                 actions.setCSVProgress(data)
-                
+
                 if (data.status === 'completed') {
                     lemonToast.success(
-                        `CSV import completed! Imported ${data.users_with_optouts} users with ${data.preferences_updated} opt-outs.`
+                        `CSV import completed! Processed ${data.rows_processed} rows with ${data.users_with_optouts} users having opt-outs.`
                     )
                     // Refresh categories
                     if (window.location.pathname.includes('workflows')) {

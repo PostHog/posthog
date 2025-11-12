@@ -1,8 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconCheck, IconUpload, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonModal, LemonTag, Spinner } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCollapse,
+    LemonDivider,
+    LemonInput,
+    LemonModal,
+    LemonTag,
+    Link,
+    Spinner,
+} from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
@@ -10,23 +19,18 @@ import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { CSVImportProgress, customerIOImportLogic } from './customerIOImportLogic'
 
 export function CustomerIOImportModal(): JSX.Element {
-    const { 
-        isImportModalOpen, 
-        isImporting, 
-        importProgress, 
-        importError, 
+    const {
+        isImportModalOpen,
+        isImporting,
+        importProgress,
+        importError,
         importForm,
         csvFile,
         csvProgress,
         showCSVPhase,
-        isUploadingCSV
+        isUploadingCSV,
     } = useValues(customerIOImportLogic)
-    const { 
-        closeImportModal, 
-        submitImportForm,
-        setCSVFile,
-        uploadCSV
-    } = useActions(customerIOImportLogic)
+    const { closeImportModal, submitImportForm, setCSVFile, uploadCSV } = useActions(customerIOImportLogic)
 
     const renderAPIImportPhase = (): JSX.Element => {
         if (isImporting) {
@@ -81,6 +85,15 @@ export function CustomerIOImportModal(): JSX.Element {
         return (
             <Form logic={customerIOImportLogic} formKey="importForm" enableFormOnSubmit>
                 <div className="space-y-4">
+                    <LemonBanner type="info">
+                        <span>
+                            Check our{' '}
+                            <Link to="https://posthog.com/docs/workflows/customerio-import" target="_blank">
+                                Customer.io import guide
+                            </Link>{' '}
+                            for detailed instructions.
+                        </span>
+                    </LemonBanner>
                     <div>
                         <p className="text-sm text-muted mb-4">
                             Step 1: Import categories and globally unsubscribed users from Customer.io API.
@@ -103,7 +116,8 @@ export function CustomerIOImportModal(): JSX.Element {
                     )}
 
                     <div className="text-xs text-muted-alt">
-                        You can generate an App API key in Customer.io under Settings → Account Settings → API Credentials.
+                        You can generate an App API key in Customer.io under Settings → Account Settings → API
+                        Credentials.
                     </div>
                 </div>
             </Form>
@@ -112,24 +126,33 @@ export function CustomerIOImportModal(): JSX.Element {
 
     const renderCSVImportPhase = (): JSX.Element => {
         const renderFailedImports = (failed: CSVImportProgress['failed_imports']): JSX.Element | null => {
-            if (!failed || failed.length === 0) return null
-            
+            if (!failed || failed.length === 0) {
+                return null
+            }
+
             return (
-                <div className="mt-4">
-                    <div className="font-semibold mb-2">Failed imports ({failed.length}):</div>
-                    <div className="max-h-32 overflow-y-auto bg-bg-light rounded p-2 text-xs font-mono">
-                        {failed.slice(0, 100).map((item, idx) => (
-                            <div key={idx} className="py-0.5">
-                                {item.email}: {item.error}
-                            </div>
-                        ))}
-                        {failed.length > 100 && (
-                            <div className="text-muted-alt mt-2">
-                                ... and {failed.length - 100} more
-                            </div>
-                        )}
-                    </div>
-                </div>
+                <LemonCollapse
+                    className="mt-4"
+                    panels={[
+                        {
+                            key: 'failed-imports',
+                            header: <div className="font-semibold text-sm">Failed imports ({failed.length})</div>,
+                            content: (
+                                <div className="max-h-32 overflow-y-auto bg-bg-light rounded p-2 text-xs font-mono">
+                                    {failed.slice(0, 100).map((item, idx) => (
+                                        <div key={idx} className="py-0.5">
+                                            {item.email}: {item.error}
+                                        </div>
+                                    ))}
+                                    {failed.length > 100 && (
+                                        <div className="text-muted-alt mt-2">... and {failed.length - 100} more</div>
+                                    )}
+                                </div>
+                            ),
+                        },
+                    ]}
+                    defaultActiveKeys={[]} // Start collapsed
+                />
             )
         }
 
@@ -179,11 +202,6 @@ export function CustomerIOImportModal(): JSX.Element {
                                     <LemonTag type="warning">{csvProgress.parse_errors}</LemonTag>
                                 </div>
                             )}
-                            <LemonDivider />
-                            <div className="flex items-center justify-between font-semibold">
-                                <span>Total preferences imported:</span>
-                                <LemonTag type="success">{csvProgress.preferences_updated.toLocaleString()}</LemonTag>
-                            </div>
                         </div>
                         {renderFailedImports(csvProgress.failed_imports)}
                     </div>
@@ -204,52 +222,54 @@ export function CustomerIOImportModal(): JSX.Element {
         }
 
         return (
-            <div className="space-y-4">
+            <div className="space-y-3">
                 <LemonDivider />
                 <div>
                     <h3 className="font-semibold mb-2">Step 2: Import User Preferences (Optional)</h3>
-                    <p className="text-sm text-muted mb-4">
-                        Export a CSV from Customer.io with users who have subscription preferences set.
+                    <p className="text-sm text-muted mb-3">
+                        Export a CSV from Customer.io with users who have subscription preferences set.{' '}
+                        <Link
+                            to="https://posthog.com/docs/workflows/customerio-import"
+                            target="_blank"
+                            className="text-primary"
+                        >
+                            View instructions
+                        </Link>
                     </p>
-                    
-                    <div className="bg-bg-light rounded p-3 mb-4">
-                        <div className="text-sm font-semibold mb-2">Required CSV columns:</div>
-                        <ul className="text-xs space-y-1">
-                            <li>• <code>id</code> - Customer.io ID</li>
-                            <li>• <code>email</code> - Customer email address</li>
-                            <li>• <code>cio_subscription_preferences</code> - JSON preferences data</li>
-                        </ul>
-                        <div className="mt-3">
-                            <a 
-                                href="https://posthog.com/docs/workflows/customerio-import" 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-xs text-primary hover:underline"
-                            >
-                                View detailed export instructions →
-                            </a>
-                        </div>
-                    </div>
 
-                    <LemonFileInput
-                        accept=".csv"
-                        multiple={false}
-                        value={csvFile ? [csvFile] : []}
-                        onChange={(files) => setCSVFile(files[0] || null)}
-                        showUploadedFiles={true}
-                        callToAction={
-                            <div className="flex items-center gap-2">
-                                <IconUpload />
-                                <span>Choose CSV file</span>
+                    <div className="flex justify-center">
+                        {!csvFile ? (
+                            <LemonFileInput
+                                accept=".csv"
+                                multiple={false}
+                                value={[]}
+                                onChange={(files) => setCSVFile(files[0] || null)}
+                                showUploadedFiles={false}
+                                callToAction={
+                                    <div className="border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-primary-light transition-colors cursor-pointer w-full">
+                                        <div className="text-sm text-muted">
+                                            Drop your CSV file here or click to browse
+                                        </div>
+                                        <div className="text-xs text-muted-alt mt-1">Accepts .csv files only</div>
+                                    </div>
+                                }
+                            />
+                        ) : (
+                            <div className="border-2 border-dashed border-border rounded-lg p-3 w-full">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <div className="font-medium text-sm">{csvFile.name}</div>
+                                        <div className="text-xs text-muted mt-1">
+                                            Size: {(csvFile.size / (1024 * 1024)).toFixed(2)}MB
+                                        </div>
+                                    </div>
+                                    <LemonButton size="small" type="secondary" onClick={() => setCSVFile(null)}>
+                                        Remove
+                                    </LemonButton>
+                                </div>
                             </div>
-                        }
-                    />
-                    
-                    {csvFile && (
-                        <div className="mt-2 text-xs text-muted">
-                            File size: {(csvFile.size / (1024 * 1024)).toFixed(2)}MB
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
             </div>
         )
@@ -259,7 +279,7 @@ export function CustomerIOImportModal(): JSX.Element {
         if (!showCSVPhase) {
             return renderAPIImportPhase()
         }
-        
+
         return (
             <div className="space-y-4">
                 {renderAPIImportPhase()}
@@ -297,13 +317,10 @@ export function CustomerIOImportModal(): JSX.Element {
                     </LemonButton>
                 )
             }
-            
+
             return (
                 <>
-                    <LemonButton 
-                        type="secondary" 
-                        onClick={closeImportModal}
-                    >
+                    <LemonButton type="secondary" onClick={closeImportModal}>
                         Skip CSV Import
                     </LemonButton>
                     <LemonButton

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExternal, IconUpload } from '@posthog/icons'
+import { IconDownload, IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { userLogic } from 'scenes/userLogic'
@@ -28,7 +28,7 @@ export function OptOutScene(): JSX.Element {
                             type="secondary"
                             size="small"
                             onClick={() => openImportModal()}
-                            icon={<IconUpload />}
+                            icon={<IconDownload />}
                             tooltip="Import subscription topics and preferences from Customer.io"
                         >
                             Import from Customer.io
