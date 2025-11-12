@@ -15,7 +15,8 @@ import { OptOutEntry, optOutListLogic } from './optOutListLogic'
 export function OptOutList({ category }: { category?: MessageCategory }): JSX.Element {
     const logic = optOutListLogic({ category })
     const { setSelectedIdentifier, openPreferencesPage, loadNextPage, loadPreviousPage } = useActions(logic)
-    const { selectedIdentifier, optOutPersons, optOutPersonsLoading, preferencesUrlLoading, currentPage } = useValues(logic)
+    const { selectedIdentifier, optOutPersons, optOutPersonsLoading, preferencesUrlLoading, currentPage } =
+        useValues(logic)
 
     const handleShowPersons = (identifier: string): void => {
         setSelectedIdentifier(identifier)
