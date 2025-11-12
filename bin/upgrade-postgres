@@ -13,7 +13,7 @@ For HOBBY DEPLOYMENTS with production data:
 - Large databases (> 1GB): Manual pg_upgrade recommended for faster migration
 
 Manual upgrade steps for hobby:
-  1. Backup: docker-compose exec -T db pg_dumpall -U posthog | gzip > backup.sql.gz
+  1. Backup: docker-compose exec -T db pg_dumpall --clean -U posthog | gzip > backup.sql.gz
   2. Stop: docker-compose down
   3. Remove volume: docker volume rm postgres-data
   4. Upgrade PostHog code (pulls postgres:15 compose files)
@@ -23,20 +23,19 @@ Manual upgrade steps for hobby:
 For large hobby databases, consider using pg_upgrade for faster in-place migration.
 
 Usage:
-  ./bin/upgrade-postgres                  Interactive mode (default)
-  ./bin/upgrade-postgres <volume-id>      Migrate specific volume
-  ./bin/upgrade-postgres --list           List all PostgreSQL 12 volumes
-  ./bin/upgrade-postgres --help           Show this help
+  hogli migrations:upgrade-postgres           Interactive mode (default)
+  hogli migrations:upgrade-postgres --list    List all PostgreSQL 12 volumes
+  ./bin/upgrade-postgres <volume-id>          Migrate specific volume
 
 Examples:
   # Interactive: scan and choose volume
-  ./bin/upgrade-postgres
+  hogli migrations:upgrade-postgres
 
   # Migrate specific volume
   ./bin/upgrade-postgres 6e93806fad73d030739a55dd1c6594bf925833dd1a2ef59b3fb14b54bd6f5d73
 
   # Find orphaned postgres:12 volumes
-  ./bin/upgrade-postgres --list
+  hogli migrations:upgrade-postgres --list
 
 EOF
 }
@@ -139,7 +138,7 @@ migrate_volume() {
 
     echo ""
     echo "Step 2: Backing up data to $BACKUP_FILE (compressed)..."
-    if docker exec "$TEMP_CONTAINER" pg_dumpall -U posthog | gzip > "$BACKUP_FILE"; then
+    if docker exec "$TEMP_CONTAINER" pg_dumpall --clean -U posthog | gzip > "$BACKUP_FILE"; then
         BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
         echo "✅ Backup complete! Size: $BACKUP_SIZE (compressed)"
     else
@@ -177,60 +176,6 @@ migrate_volume() {
     echo ""
     echo "Backup saved at: $BACKUP_FILE"
     echo "You can delete it once verified."
-    echo ""
-}
-
-fresh_start() {
-    local COMPOSE_FILE="$1"
-
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Fresh Start - Create Empty PostgreSQL 15 Database"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    echo "⚠️  This will delete all existing PostgreSQL data."
-    echo ""
-
-    read -r -p "Are you sure? Type 'yes' to confirm: " confirm
-    if [[ "$confirm" != "yes" ]]; then
-        echo "Cancelled."
-        exit 0
-    fi
-
-    echo ""
-    echo "Step 1: Stopping containers..."
-    docker compose -f "$COMPOSE_FILE" down
-
-    echo ""
-    echo "Step 2: Removing PostgreSQL volumes..."
-    VOLUME_NAMES=$(docker volume ls --filter "name=postgres" --format "{{.Name}}")
-    if [ -n "$VOLUME_NAMES" ]; then
-        echo "$VOLUME_NAMES" | while read -r vol; do
-            echo "Removing volume: $vol"
-            docker volume rm "$vol" || echo "⚠️  Failed to remove $vol"
-        done
-    fi
-
-    echo ""
-    echo "Step 3: Starting PostgreSQL 15..."
-    docker compose -f "$COMPOSE_FILE" up -d db
-    sleep 5
-
-    echo ""
-    echo "Step 4: Running migrations..."
-    if [ -f "manage.py" ]; then
-        docker compose -f "$COMPOSE_FILE" exec -T web python manage.py migrate 2>/dev/null || \
-        docker compose -f "$COMPOSE_FILE" run --rm web python manage.py migrate
-    fi
-
-    echo ""
-    echo "Step 5: Starting all services..."
-    docker compose -f "$COMPOSE_FILE" up -d
-
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "✅ Fresh PostgreSQL 15 database created!"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
 }
 
@@ -281,41 +226,20 @@ case "${1:-}" in
             echo "  Volume: $DETECTED_VOLUME"
             echo "  Size: $SIZE"
             echo ""
-            echo "Options:"
-            echo "  1. Migrate this data to PostgreSQL 15"
-            echo "  2. Start fresh (delete this data)"
-            echo ""
-            read -r -p "Choose [1-2]: " choice
 
-            case "$choice" in
-                1)
-                    migrate_volume "$DETECTED_VOLUME" "$COMPOSE_FILE"
-                    ;;
-                2)
-                    fresh_start "$COMPOSE_FILE"
-                    ;;
-                *)
-                    echo "Invalid choice"
-                    exit 1
-                    ;;
-            esac
+            migrate_volume "$DETECTED_VOLUME" "$COMPOSE_FILE"
         else
             echo "No PostgreSQL 12 data detected."
+            echo ""
+            echo "Your PostgreSQL 15 database is empty."
+            echo "Run: hogli start"
             echo ""
             echo "To migrate a specific volume:"
             echo "  ./bin/upgrade-postgres <volume-id>"
             echo ""
             echo "To list all postgres:12 volumes:"
-            echo "  ./bin/upgrade-postgres --list"
+            echo "  hogli migrations:upgrade-postgres --list"
             echo ""
-
-            read -r -p "Start fresh with PostgreSQL 15? [y/N] " confirm
-            if [[ "$confirm" =~ ^([yY][eE][sS]|[yY])$ ]]; then
-                fresh_start "$COMPOSE_FILE"
-            else
-                echo "Cancelled."
-                exit 0
-            fi
         fi
         ;;
 
