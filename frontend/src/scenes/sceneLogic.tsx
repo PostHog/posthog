@@ -14,8 +14,7 @@ import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
-import { isMac } from 'lib/utils'
+import { getRelativeNextPath, identifierToHuman, isMac } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -40,7 +39,6 @@ import {
 } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import type { FileSystemIconType } from '~/queries/schema/schema-general'
 import { AccessControlLevel, OnboardingStepKey, ProductKey } from '~/types'
 
@@ -1582,23 +1580,6 @@ export const sceneLogic = kea<sceneLogicType>([
 
                 // If cmd k, open current page new tab page / if already on the new tab page focus the search input
                 if (commandKey && isKKey) {
-                    const CMD_K_TOAST_DISMISSED_KEY = 'cmd-k-searchbar-off-ramp-dismissed'
-                    const isDismissed = localStorage.getItem(CMD_K_TOAST_DISMISSED_KEY) === 'true'
-
-                    if (!isDismissed) {
-                        lemonToast.info(
-                            <>
-                                We've removed <KeyboardShortcut command k /> search bar and replaced it with new tab
-                                page.
-                            </>,
-                            {
-                                onClose: () => {
-                                    localStorage.setItem(CMD_K_TOAST_DISMISSED_KEY, 'true')
-                                },
-                            }
-                        )
-                    }
-
                     if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
                         const activeTabId = values.activeTabId
                         const mountedLogic = activeTabId ? newTabSceneLogic.findMounted({ tabId: activeTabId }) : null
