@@ -547,8 +547,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
                             data-attr="tree-navbar-resizer"
-                            className={cn({
-                                'top-[calc(var(--scene-layout-header-height)+7px)] rounded-tl-lg': true,
+                            className={cn('top-[var(--scene-layout-header-height)]', {
                                 'top-0': isLayoutPanelVisible || sceneLayoutConfig?.layout === 'app-raw-no-header',
                             })}
                             offset={0}

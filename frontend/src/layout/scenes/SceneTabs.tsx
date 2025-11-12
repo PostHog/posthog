@@ -85,7 +85,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     return (
         <div
             className={cn(
-                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 relative pl-3',
+                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 relative',
                 className
             )}
         >
@@ -108,16 +108,6 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 )}
             />
 
-            {/* Rounded corner on the left edge of the tabs to curve the line above into the navbar right border */}
-            {showRoundedCorner && (
-                <>
-                    {/* background to match the navbar  */}
-                    <div className="hidden lg:block absolute bottom-[-11px] left-[-1px] w-[11px] h-[11px] z-11 rounded-tl-lg border-l border-t border-primary bg-[var(--scene-layout-background)]" />
-                    {/* corner to match the main */}
-                    <div className="hidden lg:block absolute bottom-[-11px] left-[-1px] w-[11px] h-[11px] z-10 bg-surface-tertiary" />
-                </>
-            )}
-
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext
                     items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
@@ -125,7 +115,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 >
                     <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
                         <div
-                            className={cn('scene-tab-row grid min-w-0 pl-1.5 gap-1 items-center')}
+                            className={cn('scene-tab-row grid min-w-0 gap-1 items-center')}
                             style={{ gridTemplateColumns }}
                         >
                             {tabs.map((tab, index) => {
@@ -205,7 +195,12 @@ function SortableSceneTab({
     return (
         <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
             <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
-                <SceneTabComponent tab={tab} isDragging={isDragging} containerClassName={containerClassName} />
+                <SceneTabComponent
+                    tab={tab}
+                    isDragging={isDragging}
+                    containerClassName={containerClassName}
+                    index={index}
+                />
             </SceneTabContextMenu>
         </div>
     )
@@ -216,9 +211,10 @@ interface SceneTabProps {
     className?: string
     isDragging?: boolean
     containerClassName?: string
+    index: number
 }
 
-function SceneTabComponent({ tab, className, isDragging, containerClassName }: SceneTabProps): JSX.Element {
+function SceneTabComponent({ tab, className, isDragging, containerClassName, index }: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const isPinned = !!tab.pinned
     const canRemoveTab = !isPinned
@@ -248,6 +244,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName }: S
             <div
                 className={cn({
                     'scene-tab-active-indicator': tab.active,
+                    'scene-tab-active-indicator--first': index === 0,
                 })}
             />
 
