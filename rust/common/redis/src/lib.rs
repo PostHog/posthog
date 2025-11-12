@@ -7,8 +7,6 @@ use thiserror::Error;
 pub use redis::ErrorKind as RedisErrorKind;
 pub use redis::RetryMethod;
 
-const DEFAULT_REDIS_TIMEOUT_MILLISECS: u64 = 100;
-
 #[derive(Error, Debug, Clone)]
 pub enum CustomRedisError {
     #[error("Not found in redis")]
@@ -29,13 +27,11 @@ impl From<serde_pickle::Error> for CustomRedisError {
 
 impl From<redis::RedisError> for CustomRedisError {
     fn from(err: redis::RedisError) -> Self {
-        CustomRedisError::Redis(Arc::new(err))
-    }
-}
-
-impl From<tokio::time::error::Elapsed> for CustomRedisError {
-    fn from(_: tokio::time::error::Elapsed) -> Self {
-        CustomRedisError::Timeout
+        if err.is_timeout() {
+            CustomRedisError::Timeout
+        } else {
+            CustomRedisError::Redis(Arc::new(err))
+        }
     }
 }
 

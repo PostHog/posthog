@@ -217,6 +217,13 @@ pub struct Config {
     #[envconfig(default = "")]
     pub object_storage_endpoint: String,
 
+    // Redis timeout settings (in milliseconds)
+    #[envconfig(default = "100")]
+    pub redis_response_timeout_ms: u64,
+
+    #[envconfig(default = "5000")]
+    pub redis_connection_timeout_ms: u64,
+
     // How long to wait for a connection from the pool before timing out
     // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
     // - Decrease for faster failure detection (minimum 1s)
@@ -460,6 +467,49 @@ pub struct Config {
 }
 
 impl Config {
+    const MAX_RESPONSE_TIMEOUT_MS: u64 = 30_000; // 30 seconds
+    const MAX_CONNECTION_TIMEOUT_MS: u64 = 60_000; // 60 seconds
+
+    /// Validate and fix timeout configuration, logging warnings and applying defaults for invalid values
+    ///
+    /// This method checks timeout values and relationships, applying safe defaults when invalid
+    /// configurations are detected. It never fails - it logs warnings and corrects problems.
+    pub fn validate_and_fix_timeouts(&mut self) {
+        let mut fixed = false;
+
+        // Note: Zero values are now valid - they mean "no timeout" (blocks indefinitely)
+        // The RedisClient will convert Duration::ZERO to None internally
+
+        // Fix excessive values
+        if self.redis_response_timeout_ms > Self::MAX_RESPONSE_TIMEOUT_MS {
+            tracing::warn!(
+                "Redis response timeout ({}ms) exceeds maximum recommended value ({}ms), capping at maximum",
+                self.redis_response_timeout_ms,
+                Self::MAX_RESPONSE_TIMEOUT_MS
+            );
+            self.redis_response_timeout_ms = Self::MAX_RESPONSE_TIMEOUT_MS;
+            fixed = true;
+        }
+
+        if self.redis_connection_timeout_ms > Self::MAX_CONNECTION_TIMEOUT_MS {
+            tracing::warn!(
+                "Redis connection timeout ({}ms) exceeds maximum recommended value ({}ms), capping at maximum",
+                self.redis_connection_timeout_ms,
+                Self::MAX_CONNECTION_TIMEOUT_MS
+            );
+            self.redis_connection_timeout_ms = Self::MAX_CONNECTION_TIMEOUT_MS;
+            fixed = true;
+        }
+
+        if fixed {
+            tracing::info!(
+                "Using Redis timeouts: response={}ms, connection={}ms",
+                self.redis_response_timeout_ms,
+                self.redis_connection_timeout_ms
+            );
+        }
+    }
+
     pub fn default_test_config() -> Self {
         Self {
             address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
@@ -468,6 +518,8 @@ impl Config {
             flags_redis_url: "".to_string(),
             flags_redis_reader_url: "".to_string(),
             flags_redis_enabled: FlexBool(false),
+            redis_response_timeout_ms: 100,
+            redis_connection_timeout_ms: 5000,
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
                 .to_string(),
             read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
@@ -840,5 +892,79 @@ mod tests {
         let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
         assert_eq!(limits.0.len(), 1);
         assert_eq!(limits.0.get(&123), Some(&"600/minute".to_string()));
+    }
+
+    #[test]
+    fn test_validate_and_fix_timeouts_valid_config() {
+        let mut config = Config::default_test_config();
+        let original_response = config.redis_response_timeout_ms;
+        let original_connection = config.redis_connection_timeout_ms;
+        config.validate_and_fix_timeouts();
+        // Should not change valid config
+        assert_eq!(config.redis_response_timeout_ms, original_response);
+        assert_eq!(config.redis_connection_timeout_ms, original_connection);
+    }
+
+    #[test]
+    fn test_validate_and_fix_timeouts_zero_values_allowed() {
+        let mut config = Config::default_test_config();
+        // Zero values are allowed - they mean "no timeout"
+        config.redis_response_timeout_ms = 0;
+        config.redis_connection_timeout_ms = 0;
+        config.validate_and_fix_timeouts();
+        // Should preserve zero values
+        assert_eq!(config.redis_response_timeout_ms, 0);
+        assert_eq!(config.redis_connection_timeout_ms, 0);
+    }
+
+    #[test]
+    fn test_validate_and_fix_timeouts_excessive_response_timeout() {
+        let mut config = Config::default_test_config();
+        config.redis_response_timeout_ms = 31_000; // > 30 seconds max
+        config.redis_connection_timeout_ms = 40_000; // Allow connection timeout to be higher
+        config.validate_and_fix_timeouts();
+        // Should cap at maximum
+        assert_eq!(
+            config.redis_response_timeout_ms,
+            Config::MAX_RESPONSE_TIMEOUT_MS
+        );
+    }
+
+    #[test]
+    fn test_validate_and_fix_timeouts_excessive_connection_timeout() {
+        let mut config = Config::default_test_config();
+        config.redis_connection_timeout_ms = 61_000; // > 60 seconds max
+        config.validate_and_fix_timeouts();
+        // Should cap at maximum
+        assert_eq!(
+            config.redis_connection_timeout_ms,
+            Config::MAX_CONNECTION_TIMEOUT_MS
+        );
+    }
+
+    #[test]
+    fn test_validate_and_fix_timeouts_any_relationship_allowed() {
+        let mut config = Config::default_test_config();
+
+        // Test 1: Equal values are allowed
+        config.redis_response_timeout_ms = 1000;
+        config.redis_connection_timeout_ms = 1000;
+        config.validate_and_fix_timeouts();
+        assert_eq!(config.redis_response_timeout_ms, 1000);
+        assert_eq!(config.redis_connection_timeout_ms, 1000);
+
+        // Test 2: Response > Connection is also allowed (no relationship validation)
+        config.redis_response_timeout_ms = 5000;
+        config.redis_connection_timeout_ms = 1000;
+        config.validate_and_fix_timeouts();
+        assert_eq!(config.redis_response_timeout_ms, 5000);
+        assert_eq!(config.redis_connection_timeout_ms, 1000);
+
+        // Test 3: Response < Connection is allowed
+        config.redis_response_timeout_ms = 100;
+        config.redis_connection_timeout_ms = 5000;
+        config.validate_and_fix_timeouts();
+        assert_eq!(config.redis_response_timeout_ms, 100);
+        assert_eq!(config.redis_connection_timeout_ms, 5000);
     }
 }
