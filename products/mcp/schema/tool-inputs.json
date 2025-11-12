@@ -833,7 +833,8 @@
                   "rollout_percentage"
                 ],
                 "additionalProperties": false
-              }
+              },
+              "minItems": 1
             }
           },
           "required": [
@@ -985,7 +986,8 @@
                       "rollout_percentage"
                     ],
                     "additionalProperties": false
-                  }
+                  },
+                  "minItems": 1
                 }
               },
               "required": [
@@ -3491,7 +3493,8 @@
                   "rollout_percentage"
                 ],
                 "additionalProperties": false
-              }
+              },
+              "minItems": 1
             }
           },
           "required": [
@@ -4484,7 +4487,8 @@
                   "rollout_percentage"
                 ],
                 "additionalProperties": false
-              }
+              },
+              "minItems": 1
             }
           },
           "required": [
