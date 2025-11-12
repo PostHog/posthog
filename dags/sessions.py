@@ -15,7 +15,7 @@ from dags.common import dagster_tags
 from dags.common.common import JobOwners, metabase_debug_query_url
 
 # This is the number of days to backfill in one SQL operation
-MAX_PARTITIONS_PER_RUN = 5
+MAX_PARTITIONS_PER_RUN = 1
 
 # Keep the number of concurrent runs low to avoid overloading ClickHouse and running into the dread "Too many parts".
 # This tag needs to also exist in Dagster Cloud (and the local dev dagster.yaml) for the concurrency limit to take effect.
@@ -40,8 +40,9 @@ ONE_HOUR_IN_SECONDS = 60 * 60
 ONE_GB_IN_BYTES = 1024 * 1024 * 1024
 
 settings = {
-    "max_execution_time": 12
-    * ONE_HOUR_IN_SECONDS,  # see this run which took around 2hrs 10min for 1 day https://posthog.dagster.plus/prod-us/runs/0ba8afaa-f3cc-4845-97c5-96731ec8231d?focusedTime=1762898705269&selection=sessions_v3_backfill&logs=step%3Asessions_v3_backfill
+    # see this run which took around 2hrs 10min for 1 day https://posthog.dagster.plus/prod-us/runs/0ba8afaa-f3cc-4845-97c5-96731ec8231d?focusedTime=1762898705269&selection=sessions_v3_backfill&logs=step%3Asessions_v3_backfill
+    # so to give some margin, allow 4 hours per partition
+    "max_execution_time": MAX_PARTITIONS_PER_RUN * 4 * ONE_HOUR_IN_SECONDS,
     "max_memory_usage": 100 * ONE_GB_IN_BYTES,
     "distributed_aggregation_memory_efficient": "1",
 }
