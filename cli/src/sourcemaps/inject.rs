@@ -64,9 +64,14 @@ pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool) -> Re
         bail!("no source files found");
     }
 
-    let created_release_id = get_release_for_maps(&directory, project, version, &pairs)?
-        .as_ref()
-        .map(|r| r.id.to_string());
+    let created_release_id = get_release_for_maps(
+        &directory,
+        project,
+        version,
+        pairs.iter().map(|p| &p.sourcemap),
+    )?
+    .as_ref()
+    .map(|r| r.id.to_string());
 
     pairs = inject_pairs(pairs, created_release_id)?;
 
