@@ -104,7 +104,9 @@ where
                             elapsed_seconds = elapsed.as_secs_f64(),
                             "Request timed out"
                         );
-                        (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response()
+                        // This should be a 408 Request Timeout, but we need to set it to
+                        // a >500 status code to avoid breaking SDK integrations.
+                        (StatusCode::GATEWAY_TIMEOUT, "Request timeout").into_response()
                     }
                 }
             },
@@ -355,7 +357,7 @@ mod tests {
         let client = TestClient::new(router);
         let response = client.get("/slow").send().await;
 
-        assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+        assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
         let body = response.text().await;
         assert_eq!(body, "Request timeout");
     }
@@ -385,7 +387,7 @@ mod tests {
         let response = client.get("/slow").send().await;
         let elapsed = start.elapsed();
 
-        assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+        assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
         // Should timeout around 1 second (within 1.5 seconds, accounting for test overhead)
         assert!(elapsed >= StdDuration::from_millis(900)); // At least 900ms
         assert!(elapsed < StdDuration::from_millis(1500)); // But less than 1.5s
