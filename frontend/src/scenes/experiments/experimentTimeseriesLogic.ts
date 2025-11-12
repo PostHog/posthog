@@ -19,7 +19,6 @@ import { Experiment, ExperimentIdType } from '~/types'
 
 import { COLORS } from './MetricsView/shared/colors'
 import { getVariantInterval } from './MetricsView/shared/utils'
-import { experimentLogic } from './experimentLogic'
 import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'
 
 export interface ProcessedTimeseriesDataPoint {
@@ -58,7 +57,6 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
     props({} as ExperimentTimeseriesLogicProps),
     path((key) => ['scenes', 'experiments', 'experimentTimeseriesLogic', key]),
     connect(() => ({
-        values: [experimentLogic, ['experiment']],
         actions: [eventUsageLogic, ['reportExperimentTimeseriesRecalculated']],
     })),
 
