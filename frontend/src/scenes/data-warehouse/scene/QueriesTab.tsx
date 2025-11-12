@@ -81,9 +81,16 @@ export function QueriesTab(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <div className="flex gap-2 justify-between items-center">
-                <LemonInput type="search" placeholder="Search views..." onChange={setSearchTerm} value={searchTerm} />
-            </div>
+            {(filteredViews.length > 0 || filteredMaterializedViews.length > 0 || searchTerm) && (
+                <div className="flex gap-2 justify-between items-center">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search views..."
+                        onChange={setSearchTerm}
+                        value={searchTerm}
+                    />
+                </div>
+            )}
 
             {/* Materialized Views Section */}
             {filteredMaterializedViews.length > 0 && (
@@ -296,7 +303,7 @@ export function QueriesTab(): JSX.Element {
                             Create your first view to transform and organize your data warehouse tables.
                         </p>
                     )}
-                    <LemonButton type="primary" to={urls.sqlEditor()} className="mt-4">
+                    <LemonButton type="primary" to={urls.sqlEditor()} className="inline-block">
                         Create view
                     </LemonButton>
                 </div>
