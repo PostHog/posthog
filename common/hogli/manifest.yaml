@@ -344,13 +344,13 @@ migrations:
         description: Sync feature flags from configuration
         services:
             - postgresql
-    migrations:upgrade-postgres:
+db:
+    db:upgrade:
         bin_script: upgrade-postgres
         description: Upgrade PostgreSQL from version 12 to 15 (interactive migration tool)
         services:
             - postgresql
             - docker
-db:
     db:dump:
         cmd: |
             mkdir -p .postgres-backups

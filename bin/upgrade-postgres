@@ -23,19 +23,23 @@ Manual upgrade steps for hobby:
 For large hobby databases, consider using pg_upgrade for faster in-place migration.
 
 Usage:
-  hogli migrations:upgrade-postgres           Interactive mode (default)
-  hogli migrations:upgrade-postgres --list    List all PostgreSQL 12 volumes
+  hogli db:upgrade                  Interactive mode (default)
+  hogli db:upgrade --list           List all PostgreSQL 12 volumes
+  hogli db:upgrade --dump-only      Dump postgres:12 data and exit (verify before restore)
   ./bin/upgrade-postgres <volume-id>          Migrate specific volume
 
 Examples:
   # Interactive: scan and choose volume
-  hogli migrations:upgrade-postgres
+  hogli db:upgrade
+
+  # Dump only (verify backup before continuing)
+  hogli db:upgrade --dump-only
 
   # Migrate specific volume
   ./bin/upgrade-postgres 6e93806fad73d030739a55dd1c6594bf925833dd1a2ef59b3fb14b54bd6f5d73
 
   # Find orphaned postgres:12 volumes
-  hogli migrations:upgrade-postgres --list
+  hogli db:upgrade --list
 
 EOF
 }
@@ -104,6 +108,7 @@ detect_pg12_volume() {
 migrate_volume() {
     local SOURCE_VOLUME="$1"
     local COMPOSE_FILE="$2"
+    local DUMP_ONLY="${3:-false}"
 
     # Verify source volume exists and is postgres:12
     PG_VER=$(docker run --rm -v "$SOURCE_VOLUME:/data:ro" alpine cat /data/PG_VERSION 2>/dev/null || echo "")
@@ -116,10 +121,12 @@ migrate_volume() {
     echo "Found PostgreSQL 12 volume: $SOURCE_VOLUME ($SIZE)"
     echo ""
 
-    read -r -p "Migrate this volume to PostgreSQL 15? [y/N] " confirm
-    if [[ ! "$confirm" =~ ^([yY][eE][sS]|[yY])$ ]]; then
-        echo "Cancelled."
-        exit 0
+    if [ "$DUMP_ONLY" = "false" ]; then
+        read -r -p "Migrate this volume to PostgreSQL 15? [y/N] " confirm
+        if [[ ! "$confirm" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+            echo "Cancelled."
+            exit 0
+        fi
     fi
 
     mkdir -p .postgres-backups
@@ -151,6 +158,20 @@ migrate_volume() {
     echo ""
     echo "Step 3: Stopping temporary container..."
     docker rm -f "$TEMP_CONTAINER"
+
+    if [ "$DUMP_ONLY" = "true" ]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "✅ Dump complete! (dump-only mode)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Backup saved at: $BACKUP_FILE"
+        echo ""
+        echo "Verify the backup, then run:"
+        echo "  ./bin/hogli db:restore $BACKUP_FILE"
+        echo ""
+        exit 0
+    fi
 
     echo ""
     echo "Step 4: Starting PostgreSQL 15..."
@@ -186,6 +207,32 @@ case "${1:-}" in
     --list)
         list_pg12_volumes
         exit 0
+        ;;
+
+    --dump-only)
+        # Dump-only mode
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "🐘 PostgreSQL 12 Dump (verify before restore)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+
+        COMPOSE_FILE=$(detect_compose_file)
+        if [ -z "$COMPOSE_FILE" ]; then
+            echo "❌ Error: No docker-compose file found"
+            exit 1
+        fi
+        echo "Using compose file: $COMPOSE_FILE"
+        echo ""
+
+        DETECTED_VOLUME=$(detect_pg12_volume)
+        if [ -z "$DETECTED_VOLUME" ]; then
+            echo "❌ No PostgreSQL 12 volume found"
+            echo "Use: ./bin/upgrade-postgres --list"
+            exit 1
+        fi
+
+        migrate_volume "$DETECTED_VOLUME" "$COMPOSE_FILE" "true"
         ;;
 
     "")
@@ -235,7 +282,7 @@ case "${1:-}" in
             echo "  ./bin/upgrade-postgres <volume-id>"
             echo ""
             echo "To list all postgres:12 volumes:"
-            echo "  hogli migrations:upgrade-postgres --list"
+            echo "  ./bin/upgrade-postgres --list"
             echo ""
         fi
         ;;
