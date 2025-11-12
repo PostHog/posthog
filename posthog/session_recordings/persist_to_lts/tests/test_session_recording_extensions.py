@@ -6,9 +6,8 @@ from unittest.mock import MagicMock, patch
 from django.test import TestCase
 from django.utils import timezone
 
+from posthog.session_recordings.persist_to_lts.session_recording_extensions import persist_recording_v2
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
-
-from ee.session_recordings.session_recording_extensions import persist_recording_v2
 
 
 class TestSessionRecordingExtensions(TestCase):
