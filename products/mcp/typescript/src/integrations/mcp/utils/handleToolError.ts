@@ -1,5 +1,6 @@
-import { getPostHogClient } from '@/integrations/mcp/utils/client'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+
+import { getPostHogClient } from '@/integrations/mcp/utils/client'
 
 export class MCPToolError extends Error {
     public readonly tool: string
@@ -12,22 +13,6 @@ export class MCPToolError extends Error {
         this.tool = tool
         this.originalError = originalError
         this.timestamp = new Date()
-    }
-
-    getTrackingData() {
-        return {
-            tool: this.tool,
-            message: this.message,
-            timestamp: this.timestamp.toISOString(),
-            originalError:
-                this.originalError instanceof Error
-                    ? {
-                          name: this.originalError.name,
-                          message: this.originalError.message,
-                          stack: this.originalError.stack,
-                      }
-                    : String(this.originalError),
-        }
     }
 }
 
@@ -45,20 +30,11 @@ export class MCPToolError extends Error {
  *
  * @returns A structured error message.
  */
-export function handleToolError(
-    error: any,
-    tool?: string,
-    distinctId?: string,
-    sessionUuid?: string
-): CallToolResult {
+export function handleToolError(error: any, tool?: string, distinctId?: string, sessionUuid?: string): CallToolResult {
     const mcpError =
         error instanceof MCPToolError
             ? error
-            : new MCPToolError(
-                  error instanceof Error ? error.message : String(error),
-                  tool || 'unknown',
-                  error
-              )
+            : new MCPToolError(error instanceof Error ? error.message : String(error), tool || 'unknown', error)
 
     const properties: Record<string, any> = {
         team: 'growth',

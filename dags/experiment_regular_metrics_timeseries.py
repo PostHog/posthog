@@ -23,6 +23,8 @@ from posthog.hogql_queries.experiments.experiment_query_runner import Experiment
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models.experiment import Experiment, ExperimentMetricResult
 
+from products.experiments.stats.shared.statistics import StatisticError
+
 from dags.common import JobOwners
 from dags.experiments import (
     _parse_partition_key,
@@ -80,30 +82,31 @@ def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext
     if not metric_dict:
         raise dagster.Failure(f"Metric {metric_uuid} not found in experiment {experiment_id}")
 
-    try:
-        metric_type = metric_dict.get("metric_type")
-        metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
-        if metric_type == "mean":
-            metric_obj = ExperimentMeanMetric(**metric_dict)
-        elif metric_type == "funnel":
-            metric_obj = ExperimentFunnelMetric(**metric_dict)
-        elif metric_type == "ratio":
-            metric_obj = ExperimentRatioMetric(**metric_dict)
-        else:
-            raise dagster.Failure(f"Unknown metric type: {metric_type}")
+    metric_type = metric_dict.get("metric_type")
+    metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
+    if metric_type == "mean":
+        metric_obj = ExperimentMeanMetric(**metric_dict)
+    elif metric_type == "funnel":
+        metric_obj = ExperimentFunnelMetric(**metric_dict)
+    elif metric_type == "ratio":
+        metric_obj = ExperimentRatioMetric(**metric_dict)
+    else:
+        raise dagster.Failure(f"Unknown metric type: {metric_type}")
 
+    # Validate experiment start date upfront
+    if not experiment.start_date:
+        raise dagster.Failure(
+            f"Experiment {experiment_id} has no start_date - only launched experiments should be processed"
+        )
+
+    query_from_utc = experiment.start_date
+    query_to_utc = datetime.now(ZoneInfo("UTC"))
+
+    try:
         experiment_query = ExperimentQuery(
             experiment_id=experiment_id,
             metric=metric_obj,
         )
-
-        # Cumulative calculation: from experiment start to current time
-        if not experiment.start_date:
-            raise dagster.Failure(
-                f"Experiment {experiment_id} has no start_date - only launched experiments should be processed"
-            )
-        query_from_utc = experiment.start_date
-        query_to_utc = datetime.now(ZoneInfo("UTC"))
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team)
         result = query_runner._calculate()
@@ -127,7 +130,6 @@ def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext
             },
         )
 
-        # Add metadata for Dagster UI display
         context.add_output_metadata(
             metadata={
                 "experiment_id": experiment_id,
@@ -144,7 +146,6 @@ def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext
                 "metric_definition": str(metric_dict),
                 "query_from": query_from_utc.isoformat(),
                 "query_to": query_to_utc.isoformat(),
-                "results_status": "success",
             }
         )
         return {
@@ -157,14 +158,50 @@ def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext
             "result": result.model_dump(),
         }
 
-    except Exception as e:
-        if not experiment.start_date:
-            raise dagster.Failure(
-                f"Experiment {experiment_id} has no start_date - only launched experiments should be processed"
-            )
-        query_from_utc = experiment.start_date
-        query_to_utc = datetime.now(ZoneInfo("UTC"))
+    except (StatisticError, ZeroDivisionError) as e:
+        # Insufficient data - do not fail so that real failures are visible
+        ExperimentMetricResult.objects.update_or_create(
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+            fingerprint=fingerprint,
+            query_to=query_to_utc,
+            defaults={
+                "query_from": query_from_utc,
+                "status": ExperimentMetricResult.Status.FAILED,
+                "result": None,
+                "query_id": None,
+                "completed_at": None,
+                "error_message": str(e),
+            },
+        )
 
+        context.add_output_metadata(
+            metadata={
+                "experiment_id": experiment_id,
+                "metric_uuid": metric_uuid,
+                "fingerprint": fingerprint,
+                "metric_type": metric_type,
+                "metric_name": metric_dict.get("name", f"Metric {metric_uuid}"),
+                "experiment_name": experiment.name,
+                "query_from": query_from_utc.isoformat(),
+                "query_to": query_to_utc.isoformat(),
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            }
+        )
+
+        return {
+            "experiment_id": experiment_id,
+            "metric_uuid": metric_uuid,
+            "fingerprint": fingerprint,
+            "metric_definition": metric_dict,
+            "query_from": query_from_utc.isoformat(),
+            "query_to": query_to_utc.isoformat(),
+            "error": str(e),
+            "error_type": type(e).__name__,
+        }
+
+    except Exception as e:
         ExperimentMetricResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
