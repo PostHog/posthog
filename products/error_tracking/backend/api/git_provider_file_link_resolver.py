@@ -41,6 +41,22 @@ def prepare_github_search_query(q):
     return " ".join("".join(result).split())
 
 
+def prepare_gitlab_search_query(q):
+    """Sanitize code sample for GitLab search by removing special characters but NOT preserving quotes."""
+    if not q:
+        return ""
+
+    result = []
+    for char in q:
+        # Remove ALL special characters including quotes/backticks
+        if char in ".,:;/\\=*!?#$&+^|~<>(){}[]\"'`":
+            result.append(" ")
+        else:
+            result.append(char)
+
+    return " ".join("".join(result).split())
+
+
 def get_github_file_url(code_sample: str, token: str, owner: str, repository: str, file_name: str) -> str | None:
     """Search GitHub code using the Code Search API. Returns URL to first match or None."""
     code_query = prepare_github_search_query(code_sample)
@@ -75,14 +91,15 @@ def get_gitlab_file_url(
     code_sample: str, token: str, owner: str, repository: str, file_name: str, gitlab_url: str = "https://gitlab.com"
 ) -> str | None:
     """Search GitLab code using the Search API. Returns URL to first match or None."""
+    code_query = prepare_gitlab_search_query(code_sample)
     project_path = f"{owner}/{repository}"
     encoded_project_path = urllib.parse.quote(project_path, safe="")
     search_scope = "blobs"
-    encoded_search = urllib.parse.quote(code_sample)
+    encoded_search = urllib.parse.quote(code_query)
     url = f"{gitlab_url}/api/v4/projects/{encoded_project_path}/search?scope={search_scope}&search={encoded_search}"
 
     headers = {
-        "Authorization": f"Bearer {token}",
+        "PRIVATE-TOKEN": token,
         "Content-Type": "application/json",
     }
 
@@ -93,14 +110,15 @@ def get_gitlab_file_url(
             data = response.json()
             if data:
                 for item in data:
-                    if file_name in item.get("path", ""):
-                        ref = item.get("ref", "main")
-                        path = item.get("path", "")
-                        return f"{gitlab_url}/{owner}/{repository}/-/blob/{ref}/{path}"
+                    item_path = item.get("path", "")
+                    if file_name in item_path:
+                        ref = item.get("ref", "")
+                        if ref and item_path:
+                            return f"{gitlab_url}/{owner}/{repository}/-/blob/{ref}/{item_path}"
                 return None
             return None
         else:
-            logger.warning("gitlab_code_search_failed", status_code=response.status_code)
+            logger.warning("gitlab_code_search_failed", status_code=response.status_code, response_text=response.text)
             return None
     except requests.exceptions.RequestException as e:
         logger.exception("gitlab_code_search_request_failed", error=str(e))
