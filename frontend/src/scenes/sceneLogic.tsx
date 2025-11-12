@@ -1551,8 +1551,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 const keyCode = event.code?.toLowerCase()
                 const key = event.key?.toLowerCase()
                 const activeTab = values.activeTab
-                const isPinnedTab = !!activeTab?.pinned
-                const canCloseTab = !isPinnedTab
 
                 // Handle both physical key and typed character (cross-layout support).
                 const isTKey = keyCode === 'keyt' || key === 't'
@@ -1577,7 +1575,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     if (isWKey) {
                         event.preventDefault()
                         event.stopPropagation()
-                        if (activeTab && canCloseTab) {
+                        if (activeTab) {
                             actions.removeTab(activeTab)
                         }
                         return
@@ -1615,7 +1613,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     event.preventDefault()
                     event.stopPropagation()
                     if (event.shiftKey) {
-                        if (activeTab && canCloseTab) {
+                        if (activeTab) {
                             actions.removeTab(activeTab)
                         }
                     } else {
