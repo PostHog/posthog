@@ -1133,8 +1133,10 @@ class FeatureFlagViewSet(
                 queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
             elif key == "search":
                 queryset = queryset.filter(
-                    Q(key__icontains=request.GET["search"]) | Q(name__icontains=request.GET["search"])
-                )
+                    Q(key__icontains=request.GET["search"])
+                    | Q(name__icontains=request.GET["search"])
+                    | Q(experiment__name__icontains=request.GET["search"], experiment__deleted=False)
+                ).distinct()
             elif key == "type":
                 type = request.GET["type"]
                 if type == "boolean":

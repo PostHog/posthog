@@ -387,6 +387,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setValidExistingFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
         setFeatureFlagValidationError: (error: string) => ({ error }),
         validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
+        setHogfettiTrigger: (trigger: (() => void) | null) => ({ trigger }),
         // METRICS
         setMetric: ({
             uuid,
@@ -840,6 +841,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 setCreateExperimentLoading: (_, { loading }) => loading,
             },
         ],
+        hogfettiTrigger: [
+            null as (() => void) | null,
+            {
+                setHogfettiTrigger: (_, { trigger }) => trigger,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft, folder }) => {
@@ -1068,7 +1075,12 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
             if (experiment.start_date) {
-                const forceRefresh = payload?.start_date !== undefined || payload?.end_date !== undefined
+                // For running experiments, refresh results if any of these fields are updated
+                const forceRefresh =
+                    payload?.start_date !== undefined ||
+                    payload?.end_date !== undefined ||
+                    payload?.metrics !== undefined ||
+                    payload?.metrics_secondary !== undefined
                 actions.refreshExperimentResults(forceRefresh)
             }
         },
@@ -1093,7 +1105,11 @@ export const experimentLogic = kea<experimentLogicType>([
             }
             actions.reportExperimentVariantShipped(values.experiment)
 
-            actions.openStopExperimentModal()
+            // Trigger Hogfetti celebration with cascading delays
+            const trigger = values.hogfettiTrigger
+            if (trigger) {
+                ;[0, 400, 800].forEach((delay) => setTimeout(trigger, delay))
+            }
         },
         shipVariantFailure: ({ error }) => {
             lemonToast.error(error)

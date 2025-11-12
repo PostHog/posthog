@@ -28,13 +28,11 @@ from posthog.temporal.common.schedule import (
     unpause_schedule,
     update_schedule,
 )
-from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 
 from products.data_warehouse.backend.models import DataWarehouseModelPath
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+    from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 
 def get_sync_frequency(saved_query: "DataWarehouseSavedQuery") -> tuple[timedelta, timedelta]:
@@ -49,6 +47,8 @@ def get_sync_frequency(saved_query: "DataWarehouseSavedQuery") -> tuple[timedelt
 
 
 def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule:
+    from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
+
     inputs = RunWorkflowInputs(
         team_id=saved_query.team_id,
         select=[Selector(label=saved_query.id.hex, ancestors=0, descendants=0)],
@@ -123,7 +123,7 @@ def trigger_saved_query_schedule(saved_query: "DataWarehouseSavedQuery"):
     trigger_schedule(temporal, schedule_id=str(saved_query.id))
 
 
-def recreate_model_paths(saved_query: DataWarehouseSavedQuery) -> None:
+def recreate_model_paths(saved_query: "DataWarehouseSavedQuery") -> None:
     """
     Recreate model paths for a saved query after materialization.
     After a query has been reverted and then re-materialized, we need to ensure
