@@ -1606,7 +1606,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
 
                 // Existing shortcuts (to be deprecated)
-                if ((commandKey && isBKey) || isKKey) {
+                if (commandKey && isBKey) {
                     const element = event.target as HTMLElement
                     if (element?.closest('.NotebookEditor')) {
                         return
