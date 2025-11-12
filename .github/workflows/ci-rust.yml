@@ -132,7 +132,7 @@ jobs:
               working-directory: .
               run: |
                   # Use docker to clean up files created by containers (from repo root, not rust/)
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs" || true
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
             - name: Setup main repo and dependencies

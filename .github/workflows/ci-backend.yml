@@ -55,31 +55,6 @@ jobs:
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal }}
         steps:
-            - name: Disk space snapshot (pre-checkout)
-              run: |
-                  echo "== df -h =="
-                  df -h
-                  echo
-                  echo "== docker system df =="
-                  docker system df || true
-                  echo
-                  echo "== docker system df -v (filter seaweedfs) =="
-                  docker system df -v | grep -i seaweedfs || true
-                  echo
-                  docker volume ls || true
-                  echo
-                  docker ps -a --size | grep -i seaweedfs || true
-                  echo
-                  [ -d "data" ] && du -sh data || true
-                  echo
-                  echo "== du -xhd1 / (top) =="
-                  du -xhd1 / 2>/dev/null | sort -h | tail -n 20 || true
-                  echo
-                  echo "== du -xhd1 key roots =="
-                  du -xhd1 /opt/hostedtoolcache /usr/local /usr/lib /var 2>/dev/null | sort -h || true
-                  echo
-                  echo "== du -xhd1 $HOME/.cache (top) =="
-                  du -xhd1 "$HOME/.cache" 2>/dev/null | sort -h | tail -n 20 || true
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@v4
@@ -88,7 +63,7 @@ jobs:
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs" || true
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
@@ -149,49 +124,14 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - name: Disk space snapshot (pre-checkout)
-              run: |
-                  echo "== df -h =="
-                  df -h
-                  echo
-                  echo "== docker system df =="
-                  docker system df || true
-                  echo
-                  echo "== docker system df -v (filter seaweedfs) =="
-                  docker system df -v | grep -i seaweedfs || true
-                  echo
-                  docker volume ls || true
-                  echo
-                  docker ps -a --size | grep -i seaweedfs || true
-                  echo
-                  [ -d "data" ] && du -sh data || true
             - uses: actions/checkout@v4
               with:
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs" || true
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
-
-            - name: Redirect caches to /mnt (more free space)
-              run: |
-                  echo "XDG_CACHE_HOME=/mnt/.cache" >> $GITHUB_ENV
-                  echo "UV_CACHE_DIR=/mnt/.cache/uv" >> $GITHUB_ENV
-                  echo "PIP_CACHE_DIR=/mnt/.cache/pip" >> $GITHUB_ENV
-                  echo "PNPM_STORE_PATH=/mnt/pnpm-store" >> $GITHUB_ENV
-                  echo "CARGO_HOME=/mnt/cargo" >> $GITHUB_ENV
-                  echo "RUSTUP_HOME=/mnt/rustup" >> $GITHUB_ENV
-                  sudo mkdir -p /mnt/.cache/uv /mnt/.cache/pip /mnt/pnpm-store /mnt/cargo /mnt/rustup
-                  sudo chown -R "$USER":"$USER" /mnt/.cache /mnt/pnpm-store /mnt/cargo /mnt/rustup
-
-            - name: Configure Docker to use /mnt/docker (more free space)
-              run: |
-                  sudo mkdir -p /mnt/docker
-                  echo '{"data-root": "/mnt/docker"}' | sudo tee /etc/docker/daemon.json
-                  (sudo systemctl restart docker || sudo service docker restart || true)
-                  sleep 3
-                  docker info | grep "Docker Root Dir" || true
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -443,23 +383,6 @@ jobs:
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
 
-            - name: Disk space snapshot (after)
-              if: always()
-              run: |
-                  echo "== df -h =="
-                  df -h
-                  echo
-                  echo "== docker system df =="
-                  docker system df || true
-                  echo
-                  echo "== docker system df -v (filter seaweedfs) =="
-                  docker system df -v | grep -i seaweedfs || true
-                  echo
-                  echo "== docker ps -a --size (filter seaweedfs) =="
-                  docker ps -a --size | grep -i seaweedfs || true
-                  echo
-                  [ -d "data" ] && du -sh data || true
-
     django:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
@@ -644,31 +567,6 @@ jobs:
                       group: 10
 
         steps:
-            - name: Disk space snapshot (pre-checkout)
-              run: |
-                  echo "== df -h =="
-                  df -h
-                  echo
-                  echo "== docker system df =="
-                  docker system df || true
-                  echo
-                  echo "== docker system df -v (filter seaweedfs) =="
-                  docker system df -v | grep -i seaweedfs || true
-                  echo
-                  docker volume ls || true
-                  echo
-                  docker ps -a --size | grep -i seaweedfs || true
-                  echo
-                  [ -d "data" ] && du -sh data || true
-                  echo
-                  echo "== du -xhd1 / (top) =="
-                  du -xhd1 / 2>/dev/null | sort -h | tail -n 20 || true
-                  echo
-                  echo "== du -xhd1 key roots =="
-                  du -xhd1 /opt/hostedtoolcache /usr/local /usr/lib /var 2>/dev/null | sort -h || true
-                  echo
-                  echo "== du -xhd1 $HOME/.cache (top) =="
-                  du -xhd1 "$HOME/.cache" 2>/dev/null | sort -h | tail -n 20 || true
             - uses: actions/checkout@v4
               with:
                   fetch-depth: 1
@@ -680,27 +578,8 @@ jobs:
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs" || true
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
-
-            - name: Redirect caches to /mnt (more free space)
-              run: |
-                  echo "XDG_CACHE_HOME=/mnt/.cache" >> $GITHUB_ENV
-                  echo "UV_CACHE_DIR=/mnt/.cache/uv" >> $GITHUB_ENV
-                  echo "PIP_CACHE_DIR=/mnt/.cache/pip" >> $GITHUB_ENV
-                  echo "PNPM_STORE_PATH=/mnt/pnpm-store" >> $GITHUB_ENV
-                  echo "CARGO_HOME=/mnt/cargo" >> $GITHUB_ENV
-                  echo "RUSTUP_HOME=/mnt/rustup" >> $GITHUB_ENV
-                  sudo mkdir -p /mnt/.cache/uv /mnt/.cache/pip /mnt/pnpm-store /mnt/cargo /mnt/rustup
-                  sudo chown -R "$USER":"$USER" /mnt/.cache /mnt/pnpm-store /mnt/cargo /mnt/rustup
-
-            - name: Configure Docker to use /mnt/docker (more free space)
-              run: |
-                  sudo mkdir -p /mnt/docker
-                  echo '{"data-root": "/mnt/docker"}' | sudo tee /etc/docker/daemon.json
-                  (sudo systemctl restart docker || sudo service docker restart || true)
-                  sleep 3
-                  docker info | grep "Docker Root Dir" || true
 
             - name: 'Safeguard: ensure no stray Python modules at product root'
               run: |
@@ -1001,24 +880,6 @@ jobs:
                   path: posthog/tasks/test/__emails__
                   retention-days: 1
 
-            - name: Disk space snapshot (after)
-              if: always()
-              shell: bash
-              run: |
-                  echo "== df -h =="
-                  df -h
-                  echo
-                  echo "== docker system df =="
-                  docker system df || true
-                  echo
-                  echo "== docker system df -v (filter seaweedfs) =="
-                  docker system df -v | grep -i seaweedfs || true
-                  echo
-                  echo "== docker ps -a --size (filter seaweedfs) =="
-                  docker ps -a --size | grep -i seaweedfs || true
-                  echo
-                  [ -d "data" ] && du -sh data || true
-
     # Job just to collate the status of the matrix jobs for requiring passing status
     django_tests:
         needs: [django, check-migrations, async-migrations]
@@ -1059,31 +920,6 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-24.04-8
         steps:
-            - name: Disk space snapshot (pre-checkout)
-              run: |
-                  echo "== df -h =="
-                  df -h
-                  echo
-                  echo "== docker system df =="
-                  docker system df || true
-                  echo
-                  echo "== docker system df -v (filter seaweedfs) =="
-                  docker system df -v | grep -i seaweedfs || true
-                  echo
-                  docker volume ls || true
-                  echo
-                  docker ps -a --size | grep -i seaweedfs || true
-                  echo
-                  [ -d "data" ] && du -sh data || true
-                  echo
-                  echo "== du -xhd1 / (top) =="
-                  du -xhd1 / 2>/dev/null | sort -h | tail -n 20 || true
-                  echo
-                  echo "== du -xhd1 key roots =="
-                  du -xhd1 /opt/hostedtoolcache /usr/local /usr/lib /var 2>/dev/null | sort -h || true
-                  echo
-                  echo "== du -xhd1 $HOME/.cache (top) =="
-                  du -xhd1 "$HOME/.cache" 2>/dev/null | sort -h | tail -n 20 || true
             - name: 'Checkout repo'
               uses: actions/checkout@v4
               with:
@@ -1092,27 +928,8 @@ jobs:
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs" || true
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
-
-            - name: Redirect caches to /mnt (more free space)
-              run: |
-                  echo "XDG_CACHE_HOME=/mnt/.cache" >> $GITHUB_ENV
-                  echo "UV_CACHE_DIR=/mnt/.cache/uv" >> $GITHUB_ENV
-                  echo "PIP_CACHE_DIR=/mnt/.cache/pip" >> $GITHUB_ENV
-                  echo "PNPM_STORE_PATH=/mnt/pnpm-store" >> $GITHUB_ENV
-                  echo "CARGO_HOME=/mnt/cargo" >> $GITHUB_ENV
-                  echo "RUSTUP_HOME=/mnt/rustup" >> $GITHUB_ENV
-                  sudo mkdir -p /mnt/.cache/uv /mnt/.cache/pip /mnt/pnpm-store /mnt/cargo /mnt/rustup
-                  sudo chown -R "$USER":"$USER" /mnt/.cache /mnt/pnpm-store /mnt/cargo /mnt/rustup
-
-            - name: Configure Docker to use /mnt/docker (more free space)
-              run: |
-                  sudo mkdir -p /mnt/docker
-                  echo '{"data-root": "/mnt/docker"}' | sudo tee /etc/docker/daemon.json
-                  (sudo systemctl restart docker || sudo service docker restart || true)
-                  sleep 3
-                  docker info | grep "Docker Root Dir" || true
 
             - name: Start stack with Docker Compose
               run: |
@@ -1165,23 +982,6 @@ jobs:
             - name: Run async migrations tests
               run: |
                   pytest -m "async_migrations"
-
-            - name: Disk space snapshot (after)
-              if: always()
-              run: |
-                  echo "== df -h =="
-                  df -h
-                  echo
-                  echo "== docker system df =="
-                  docker system df || true
-                  echo
-                  echo "== docker system df -v (filter seaweedfs) =="
-                  docker system df -v | grep -i seaweedfs || true
-                  echo
-                  echo "== docker ps -a --size (filter seaweedfs) =="
-                  docker ps -a --size | grep -i seaweedfs || true
-                  echo
-                  [ -d "data" ] && du -sh data || true
 
     calculate-running-time:
         name: Calculate running time
