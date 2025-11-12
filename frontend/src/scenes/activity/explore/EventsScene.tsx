@@ -5,7 +5,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
@@ -21,8 +20,7 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
     return (
         <SceneContent>
-            <LemonTabs activeKey={ActivityTab.ExploreEvents} tabs={tabs} sceneInset />
-            <SceneDivider />
+            <LemonTabs activeKey={ActivityTab.ExploreEvents} tabs={tabs} sceneInset className="mb-3" />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.ExploreEvents].name}
                 description={sceneConfigurations[Scene.ExploreEvents].description}

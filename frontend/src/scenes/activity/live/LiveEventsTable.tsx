@@ -16,7 +16,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import { ActivityTab, LiveEvent } from '~/types'
@@ -84,8 +83,7 @@ export function LiveEventsTable(): JSX.Element {
 
     return (
         <SceneContent data-attr="manage-events-table">
-            <LemonTabs activeKey={ActivityTab.LiveEvents} tabs={tabs} sceneInset />
-            <SceneDivider />
+            <LemonTabs activeKey={ActivityTab.LiveEvents} tabs={tabs} sceneInset className="mb-3" />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Activity].name}
                 description={sceneConfigurations[Scene.Activity].description}
