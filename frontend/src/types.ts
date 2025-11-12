@@ -5390,7 +5390,6 @@ export type AvailableOnboardingProducts = Record<
 
 export type OnboardingProduct = {
     name: string
-    description?: string
     breadcrumbsName?: string
     description: string
     icon: string
