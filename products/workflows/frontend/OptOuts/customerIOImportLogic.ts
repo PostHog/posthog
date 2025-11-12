@@ -181,7 +181,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             formData.append('csv_file', file)
 
             try {
-                // Make a direct fetch request since ApiRequest might not handle multipart/form-data correctly
                 const response = await fetch(
                     '/api/environments/@current/messaging_categories/import_preferences_csv/',
                     {
@@ -189,7 +188,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                         body: formData,
                         credentials: 'include',
                         headers: {
-                            // Don't set Content-Type header - let browser set it with boundary for multipart
                             'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                         },
                     }
