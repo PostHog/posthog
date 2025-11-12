@@ -137,8 +137,12 @@ describe('productsLogic', () => {
 
             await expectLogic(logic).toMatchValues({
                 useCase: 'see_user_behavior',
-                preSelectedProducts: [ProductKey.PRODUCT_ANALYTICS, ProductKey.SESSION_REPLAY],
-                selectedProducts: [ProductKey.PRODUCT_ANALYTICS, ProductKey.SESSION_REPLAY],
+                preSelectedProducts: [
+                    ProductKey.PRODUCT_ANALYTICS,
+                    ProductKey.SESSION_REPLAY,
+                    ProductKey.WEB_ANALYTICS,
+                ],
+                selectedProducts: [ProductKey.PRODUCT_ANALYTICS, ProductKey.SESSION_REPLAY, ProductKey.WEB_ANALYTICS],
             })
         })
     })
