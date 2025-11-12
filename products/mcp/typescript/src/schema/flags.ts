@@ -10,13 +10,15 @@ export interface PostHogFlagsResponse {
     results?: PostHogFeatureFlag[]
 }
 const base = ['exact', 'is_not', 'is_set', 'is_not_set'] as const
-const stringOps = [...base, 'icontains', 'not_icontains', 'regex', 'not_regex', 'is_cleaned_path_exact'] as const
-const numberOps = [...base, 'gt', 'gte', 'lt', 'lte', 'min', 'max'] as const
+const stringOpsForSchema = ['icontains', 'not_icontains', 'regex', 'not_regex', 'is_cleaned_path_exact']
+const stringOps = [...base, ...stringOpsForSchema] as const
+const numberOpsForSchema = ['gt', 'gte', 'lt', 'lte', 'min', 'max']
+const numberOps = [...base, ...numberOpsForSchema] as const
 const booleanOps = [...base] as const
 
 const arrayOps = ['in', 'not_in'] as const
 
-const operatorSchema = z.enum([...stringOps, ...numberOps, ...booleanOps, ...arrayOps] as unknown as [
+const operatorSchema = z.enum([...base, ...stringOpsForSchema, ...numberOpsForSchema, ...arrayOps] as unknown as [
     string,
     ...string[],
 ])
