@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { z } from 'zod'
 
 import type { Context } from '@/tools/types'
+
 import { setupEventsPrompt } from './setup-events'
 
 export interface Prompt {
@@ -27,7 +28,7 @@ export async function getPromptsFromContext(context: Context): Promise<Prompt[]>
     return [await setupEventsPrompt(context)]
 }
 
-export async function registerPrompts(server: McpServer, context: Context) {
+export async function registerPrompts(server: McpServer, context: Context): Promise<void> {
     const prompts = await getPromptsFromContext(context)
 
     for (const prompt of prompts) {

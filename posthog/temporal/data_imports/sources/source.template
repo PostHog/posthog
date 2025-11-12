@@ -40,7 +40,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import SimpleSource, FieldType
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -48,7 +48,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class TemplateSource(BaseSource[Config]):  # rename this class and replace `Config` with the generated config
+class TemplateSource(SimpleSource[Config]):  # rename this class and replace `Config` with the generated config
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SOURCE_TYPE  # replace this enum value

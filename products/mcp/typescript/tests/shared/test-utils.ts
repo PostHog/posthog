@@ -1,10 +1,11 @@
+import { expect } from 'vitest'
+
 import { ApiClient } from '@/api/client'
 import { SessionManager } from '@/lib/utils/SessionManager'
 import { StateManager } from '@/lib/utils/StateManager'
 import { MemoryCache } from '@/lib/utils/cache/MemoryCache'
 import type { InsightQuery } from '@/schema/query'
 import type { Context } from '@/tools/types'
-import { expect } from 'vitest'
 
 export const API_BASE_URL = process.env.TEST_POSTHOG_API_BASE_URL || 'http://localhost:8010'
 export const API_TOKEN = process.env.TEST_POSTHOG_PERSONAL_API_KEY
@@ -18,7 +19,7 @@ export interface CreatedResources {
     surveys: string[]
 }
 
-export function validateEnvironmentVariables() {
+export function validateEnvironmentVariables(): void {
     if (!API_TOKEN) {
         throw new Error('TEST_POSTHOG_PERSONAL_API_KEY environment variable is required')
     }
@@ -54,7 +55,7 @@ export function createTestContext(client: ApiClient): Context {
     return context
 }
 
-export async function setActiveProjectAndOrg(context: Context, projectId: string, orgId: string) {
+export async function setActiveProjectAndOrg(context: Context, projectId: string, orgId: string): Promise<void> {
     const cache = context.cache
     await cache.set('projectId', projectId)
     await cache.set('orgId', orgId)
@@ -64,7 +65,7 @@ export async function cleanupResources(
     client: ApiClient,
     projectId: string,
     resources: CreatedResources
-) {
+): Promise<void> {
     for (const flagId of resources.featureFlags) {
         try {
             await client.featureFlags({ projectId }).delete({ flagId })
@@ -102,8 +103,8 @@ export async function cleanupResources(
     resources.surveys = []
 }
 
-export function parseToolResponse(result: any) {
-    expect(result.content).toBeDefined()
+export function parseToolResponse(result: any): any {
+    expect(result.content).toBeTruthy()
     expect(result.content[0].type).toBe('text')
     return JSON.parse(result.content[0].text)
 }
@@ -143,12 +144,7 @@ export const SAMPLE_HOGQL_QUERIES: Record<SampleHogQLQuery, InsightQuery> = {
     },
 }
 
-type SampleTrendQuery =
-    | 'basicPageviews'
-    | 'uniqueUsers'
-    | 'multipleEvents'
-    | 'withBreakdown'
-    | 'withPropertyFilter'
+type SampleTrendQuery = 'basicPageviews' | 'uniqueUsers' | 'multipleEvents' | 'withBreakdown' | 'withPropertyFilter'
 
 export const SAMPLE_TREND_QUERIES: Record<SampleTrendQuery, InsightQuery> = {
     basicPageviews: {
