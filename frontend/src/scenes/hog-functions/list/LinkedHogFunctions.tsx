@@ -20,10 +20,7 @@ const getFiltersFromSubTemplateId = (
     subTemplateId: HogFunctionSubTemplateIdType
 ): CyclotronJobFiltersType | undefined => {
     const commonProperties = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[subTemplateId]
-    if (commonProperties.filters) {
-        return commonProperties.filters
-    }
-    return undefined
+    return commonProperties.filters ?? undefined
 }
 
 export function LinkedHogFunctions({
