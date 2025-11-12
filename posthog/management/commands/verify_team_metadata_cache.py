@@ -26,7 +26,12 @@ from django.core.management.base import BaseCommand
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.team.team import Team
-from posthog.storage.team_metadata_cache import TEAM_METADATA_FIELDS, get_team_metadata, team_metadata_hypercache
+from posthog.storage.team_metadata_cache import (
+    TEAM_METADATA_FIELDS,
+    _serialize_team_field,
+    get_team_metadata,
+    team_metadata_hypercache,
+)
 
 
 class Command(BaseCommand):
@@ -151,17 +156,7 @@ class Command(BaseCommand):
         data = {}
         for field in TEAM_METADATA_FIELDS:
             value = getattr(team, field, None)
-
-            if field in ["created_at", "updated_at"]:
-                value = value.isoformat() if value else None
-            elif field == "uuid":
-                value = str(value) if value else None
-            elif field == "organization_id":
-                value = str(team.organization_id) if team.organization_id else None
-            elif field == "session_recording_sample_rate":
-                value = float(value) if value is not None else None
-
-            data[field] = value
+            data[field] = _serialize_team_field(field, value)
 
         data["organization_name"] = (
             team.organization.name if hasattr(team, "organization") and team.organization else None

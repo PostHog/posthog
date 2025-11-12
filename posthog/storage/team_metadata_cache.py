@@ -22,8 +22,22 @@ To get accurate estimates for your data, run:
 Tool will sample the cache and provide percentile-based memory projections.
 
 Configuration:
+-------------------
 - Redis TTL: 7 days (configurable via TEAM_METADATA_CACHE_TTL env var)
 - Miss TTL: 1 day (configurable via TEAM_METADATA_CACHE_MISS_TTL env var)
+
+Cache Invalidation:
+-------------------
+Caches are invalidated automatically when:
+- Team is saved (via Django signal → Celery task)
+- Team is deleted (via Django signal → immediate clear)
+- Hourly refresh job detects expiring entries (TTL < 24h)
+
+Manual invalidation:
+    from posthog.storage.team_metadata_cache import clear_team_metadata_cache
+    clear_team_metadata_cache(team_id)
+
+Note: Redis adds ~100 bytes overhead per key. S3 storage uses similar compression.
 
 Note: Redis adds ~100 bytes overhead per key. S3 storage uses similar compression.
 """
@@ -69,6 +83,28 @@ TEAM_METADATA_TEAMS_PROCESSED_COUNTER = Counter(
 TEAM_METADATA_CACHE_COVERAGE_GAUGE = Gauge(
     "posthog_team_metadata_cache_coverage_percent",
     "Percentage of teams with cached metadata",
+)
+
+TEAM_METADATA_CACHE_SIZE_BYTES_GAUGE = Gauge(
+    "posthog_team_metadata_cache_size_bytes",
+    "Estimated total cache size in bytes",
+)
+
+TEAM_METADATA_CACHE_UPDATE_DURATION_HISTOGRAM = Histogram(
+    "posthog_team_metadata_cache_update_duration_seconds",
+    "Time to update a single team's cache entry",
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, float("inf")),
+)
+
+TEAM_METADATA_SIGNAL_UPDATE_COUNTER = Counter(
+    "posthog_team_metadata_signal_updates",
+    "Cache updates triggered by Django signals",
+    labelnames=["result"],
+)
+
+TEAM_METADATA_CACHE_INVALIDATION_COUNTER = Counter(
+    "posthog_team_metadata_cache_invalidations",
+    "Full cache invalidations (schema changes)",
 )
 
 
@@ -125,6 +161,28 @@ TEAM_METADATA_FIELDS = [
 # ===================================================================
 
 
+def _serialize_team_field(field: str, value: Any) -> Any:
+    """
+    Convert a team field value to cache-serializable format.
+
+    Args:
+        field: Field name from TEAM_METADATA_FIELDS
+        value: Raw field value from Team model
+
+    Returns:
+        Serialized value suitable for JSON encoding
+    """
+    if field in ["created_at", "updated_at"]:
+        return value.isoformat() if value else None
+    elif field == "uuid":
+        return str(value) if value else None
+    elif field == "organization_id":
+        return str(value) if value else None
+    elif field == "session_recording_sample_rate":
+        return float(value) if value is not None else None
+    return value
+
+
 def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMissing:
     """
     Load full team metadata from the database.
@@ -145,17 +203,7 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
             metadata = {}
             for field in TEAM_METADATA_FIELDS:
                 value = getattr(team, field, None)
-
-                if field in ["created_at", "updated_at"]:
-                    value = value.isoformat() if value else None
-                elif field == "uuid":
-                    value = str(value) if value else None
-                elif field == "organization_id":
-                    value = str(team.organization_id) if team.organization_id else None
-                elif field == "session_recording_sample_rate":
-                    value = float(value) if value is not None else None
-
-                metadata[field] = value
+                metadata[field] = _serialize_team_field(field, value)
 
             metadata["organization_name"] = (
                 team.organization.name if hasattr(team, "organization") and team.organization else None
@@ -225,11 +273,18 @@ def update_team_metadata_cache(team: Team | str | int) -> bool:
     Returns:
         True if cache update succeeded, False otherwise
     """
+    import time
+
+    start = time.time()
     success = team_metadata_hypercache.update_cache(team)
+    duration = time.time() - start
+
+    TEAM_METADATA_CACHE_UPDATE_DURATION_HISTOGRAM.observe(duration)
+
     team_id = team.id if isinstance(team, Team) else "unknown"
 
     if not success:
-        logger.warning("Failed to update metadata cache", team_id=team_id)
+        logger.warning("Failed to update metadata cache", team_id=team_id, duration=duration)
 
     return success
 
@@ -263,6 +318,8 @@ def invalidate_all_team_metadata_caches() -> int:
             redis_client.delete(key)
             deleted += 1
 
+        TEAM_METADATA_CACHE_INVALIDATION_COUNTER.inc()
+
         logger.info("Invalidated all team metadata caches", deleted_keys=deleted)
         return deleted
     except Exception as e:
@@ -274,6 +331,24 @@ def invalidate_all_team_metadata_caches() -> int:
 # ===================================================================
 # Batch refresh operations
 # ===================================================================
+
+
+def _extract_token_from_cache_key(cache_key: str) -> str | None:
+    """
+    Extract API token from cache key using HyperCache format.
+
+    HyperCache keys follow format: cache/team_tokens/{token}/namespace/value
+
+    Args:
+        cache_key: Full cache key string
+
+    Returns:
+        API token if found, None otherwise
+    """
+    parts = cache_key.split("/")
+    if len(parts) >= 3 and parts[1] == "team_tokens":
+        return parts[2]
+    return None
 
 
 def get_teams_with_expiring_caches(ttl_threshold_hours: int = 24) -> list[Team]:
@@ -289,23 +364,20 @@ def get_teams_with_expiring_caches(ttl_threshold_hours: int = 24) -> list[Team]:
     Returns:
         List of Team objects whose caches need refresh
     """
-    import re
-
     expiring_tokens = []
 
     try:
         redis_client = get_client()
         pattern = "cache/team_tokens/*/team_metadata/full_metadata.json"
         ttl_threshold_seconds = ttl_threshold_hours * 3600
-        token_pattern = r"cache/team_tokens/([^/]+)/"
 
         for key in redis_client.scan_iter(match=pattern, count=1000):
             ttl = redis_client.ttl(key)
             if 0 < ttl < ttl_threshold_seconds:
                 key_str = key.decode("utf-8") if isinstance(key, bytes) else key
-                match = re.search(token_pattern, key_str)
-                if match:
-                    expiring_tokens.append(match.group(1))
+                token = _extract_token_from_cache_key(key_str)
+                if token:
+                    expiring_tokens.append(token)
 
         if not expiring_tokens:
             logger.info("No caches expiring soon")
@@ -430,7 +502,13 @@ def warm_all_team_caches(
 
                 successful += 1
             except Exception as e:
-                logger.warning("Failed to warm cache for team", team_id=team.id, error=str(e))
+                logger.warning(
+                    "Failed to warm cache for team",
+                    team_id=team.id,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                capture_exception(e)
                 failed += 1
 
             processed += 1
@@ -516,14 +594,19 @@ def get_cache_stats() -> dict[str, Any]:
         if sample_sizes:
             import statistics
 
+            avg_size = statistics.mean(sample_sizes)
+            estimated_total_bytes = avg_size * total_keys
+
             size_stats = {
                 "sample_count": len(sample_sizes),
-                "avg_size_bytes": int(statistics.mean(sample_sizes)),
+                "avg_size_bytes": int(avg_size),
                 "median_size_bytes": int(statistics.median(sample_sizes)),
                 "min_size_bytes": min(sample_sizes),
                 "max_size_bytes": max(sample_sizes),
-                "estimated_total_mb": round((statistics.mean(sample_sizes) * total_keys) / (1024 * 1024), 2),
+                "estimated_total_mb": round(estimated_total_bytes / (1024 * 1024), 2),
             }
+
+            TEAM_METADATA_CACHE_SIZE_BYTES_GAUGE.set(estimated_total_bytes)
 
         return {
             "total_cached": total_keys,

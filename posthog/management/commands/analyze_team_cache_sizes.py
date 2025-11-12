@@ -7,7 +7,6 @@ import json
 import statistics
 
 from django.core.management.base import BaseCommand
-from django.db.models import Count, Q
 
 from posthog.models.team import Team
 from posthog.storage.team_metadata_cache import _load_team_metadata
@@ -41,15 +40,8 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR("No teams found in database"))
             return
 
-        # Sample teams, preferring active ones with more data
-        teams = list(
-            Team.objects.annotate(
-                has_recording_config=Count(
-                    "id",
-                    filter=Q(session_recording_opt_in=True) | Q(session_replay_config__isnull=False),
-                )
-            ).order_by("-has_recording_config", "-updated_at")[:sample_size]
-        )
+        # Random sample of teams for unbiased statistics
+        teams = list(Team.objects.order_by("?")[:sample_size])
 
         self.stdout.write(f"\nAnalyzing {len(teams)} teams (out of {total_teams} total)...")
 

@@ -20,6 +20,7 @@ from posthog.storage.team_metadata_cache import (
     TEAM_METADATA_BATCH_REFRESH_COUNTER,
     TEAM_METADATA_BATCH_REFRESH_DURATION_HISTOGRAM,
     TEAM_METADATA_CACHE_COVERAGE_GAUGE,
+    TEAM_METADATA_SIGNAL_UPDATE_COUNTER,
     TEAM_METADATA_TEAMS_PROCESSED_COUNTER,
     clear_team_metadata_cache,
     get_cache_stats,
@@ -45,9 +46,11 @@ def update_team_metadata_cache_task(team_id: int) -> None:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
         logger.debug("Team does not exist for metadata cache update", team_id=team_id)
+        TEAM_METADATA_SIGNAL_UPDATE_COUNTER.labels(result="team_not_found").inc()
         return
 
-    update_team_metadata_cache(team)
+    success = update_team_metadata_cache(team)
+    TEAM_METADATA_SIGNAL_UPDATE_COUNTER.labels(result="success" if success else "failed").inc()
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -72,20 +75,12 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
     logger.info("Starting intelligent team metadata cache sync")
 
     try:
-        stats_before = get_cache_stats()
-        logger.info(
-            "Team metadata cache stats before refresh",
-            total_cached=stats_before.get("total_cached", 0),
-            total_teams=stats_before.get("total_teams", 0),
-            coverage=stats_before.get("cache_coverage", "unknown"),
-            ttl_distribution=stats_before.get("ttl_distribution", {}),
-        )
-
         successful, failed = refresh_expiring_caches(ttl_threshold_hours=24)
 
         TEAM_METADATA_TEAMS_PROCESSED_COUNTER.labels(result="success").inc(successful)
         TEAM_METADATA_TEAMS_PROCESSED_COUNTER.labels(result="failed").inc(failed)
 
+        # Only scan once after refresh for metrics
         stats_after = get_cache_stats()
 
         coverage_percent = stats_after.get("cache_coverage_percent", 0)
@@ -99,8 +94,10 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
             "Completed team metadata cache refresh",
             successful_refreshes=successful,
             failed_refreshes=failed,
-            cache_coverage_after=stats_after.get("cache_coverage", "unknown"),
-            ttl_distribution_after=stats_after.get("ttl_distribution", {}),
+            total_cached=stats_after.get("total_cached", 0),
+            total_teams=stats_after.get("total_teams", 0),
+            cache_coverage=stats_after.get("cache_coverage", "unknown"),
+            ttl_distribution=stats_after.get("ttl_distribution", {}),
             duration_seconds=duration,
         )
 

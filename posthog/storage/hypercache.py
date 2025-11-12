@@ -159,7 +159,7 @@ class HyperCache:
         self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
     ) -> None:
         self._set_cache_value_redis(key, data, ttl=ttl)
-        self._set_cache_value_s3(key, data)
+        self._set_cache_value_s3(key, data, ttl=ttl)
 
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
         """
@@ -181,7 +181,14 @@ class HyperCache:
             timeout = ttl if ttl is not None else self.cache_ttl
             self.cache_client.set(key, json.dumps(data), timeout=timeout)
 
-    def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing):
+    def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None):
+        """
+        Write cache value to S3.
+
+        Note: S3 uses fixed lifecycle policies regardless of Redis TTL.
+        Custom TTLs only affect Redis expiration. If you need aligned S3/Redis TTLs,
+        configure S3 bucket lifecycle rules to match your expected TTL range.
+        """
         key = self.get_cache_key(key)
         if data is None or isinstance(data, HyperCacheStoreMissing):
             object_storage.delete(key)
