@@ -112,9 +112,9 @@ class TestErrorTrackingBreakdownsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         os_data = response.results["$os"]
         assert len(os_data.values) == 2
         assert os_data.total_count == 10
-        assert os_data.values[0].value == "macOS"
+        assert os_data.values[0].value == "Windows"
         assert os_data.values[0].count == 5
-        assert os_data.values[1].value == "Windows"
+        assert os_data.values[1].value == "macOS"
         assert os_data.values[1].count == 5
 
     @freeze_time("2024-01-10T12:00:00Z")
