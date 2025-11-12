@@ -233,13 +233,13 @@ describe('Feature Flags', { concurrent: false }, () => {
                     key: generateUniqueKey(`list-test-${i}`),
                     description: `Test flag ${i}`,
                     filters: {
-                    groups: [
-                        {
-                            properties: [],
-                            rollout_percentage: 100,
-                        },
-                    ],
-                },
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 100,
+                            },
+                        ],
+                    },
                     active: true,
                 }
 
