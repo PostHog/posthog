@@ -106,14 +106,8 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
             team = HyperCache.team_from_key(team_key)
 
             # Ensure related objects are loaded - more reliable approach
-            if isinstance(team, Team):
-                try:
-                    # Check if relations are accessible without causing a query
-                    _ = team.organization.name
-                    _ = team.project.name
-                except (AttributeError, ObjectDoesNotExist):
-                    # Relations not loaded or don't exist, refetch
-                    team = Team.objects.select_related("organization", "project").get(id=team.id)
+            if isinstance(team, Team) and not Team.organization.is_cached(team) or not Team.project.is_cached(team):
+                team = Team.objects.select_related("organization", "project").get(id=team.id)
 
             # Build the metadata dictionary with all specified fields
             metadata = {}
