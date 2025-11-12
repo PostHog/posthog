@@ -16,11 +16,18 @@ dags/llma/
 ├── daily_metrics/               # Daily aggregation pipeline
 │   ├── README.md               # Detailed pipeline documentation
 │   ├── config.py               # Pipeline configuration
-│   ├── metrics_daily.py        # Dagster asset and schedule
+│   ├── main.py                 # Dagster asset and schedule
+│   ├── utils.py                # SQL generation helpers
 │   └── sql/                    # Modular SQL templates
 │       ├── event_counts.sql    # Event count metrics
-│       └── error_rates.sql     # Error rate metrics
+│       ├── error_rates.sql     # Error rate metrics
+│       ├── trace_counts.sql    # Unique trace count metrics
+│       ├── session_counts.sql  # Unique session count metrics
+│       ├── trace_error_rates.sql  # Trace-level error rates
+│       └── pageview_counts.sql    # LLM Analytics pageview metrics
 └── __init__.py
+
+Tests: dags/tests/llma/daily_metrics/test_sql_metrics.py
 ```
 
 ## Pipelines
@@ -34,7 +41,8 @@ table.
 Features:
 
 - Modular SQL template system for easy metric additions
-- Event counts and error rates
+- Event counts, trace counts, session counts, and pageview metrics
+- Error rates at event and trace level (proportions 0.0-1.0)
 - Long-format schema for schema-less evolution
 - Daily schedule at 6 AM UTC
 

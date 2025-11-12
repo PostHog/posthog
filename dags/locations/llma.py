@@ -1,18 +1,16 @@
 import dagster
 
-from dags.llma.daily_metrics import metrics_daily
+from dags.llma.daily_metrics.main import llma_metrics_daily, llma_metrics_daily_job, llma_metrics_daily_schedule
 
 from . import resources
 
 defs = dagster.Definitions(
-    assets=[
-        metrics_daily.llma_metrics_daily,
-    ],
+    assets=[llma_metrics_daily],
     jobs=[
-        metrics_daily.llma_metrics_daily_job,
+        llma_metrics_daily_job,
     ],
     schedules=[
-        metrics_daily.llma_metrics_daily_schedule,
+        llma_metrics_daily_schedule,
     ],
     resources=resources,
 )

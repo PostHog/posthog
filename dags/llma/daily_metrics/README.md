@@ -36,6 +36,8 @@ Templates have access to these Jinja2 variables:
 - `event_types`: List of AI event types to aggregate
 - `date_start`: Start date for aggregation (YYYY-MM-DD)
 - `date_end`: End date for aggregation (YYYY-MM-DD)
+- `pageview_mappings`: List of (url_path, metric_suffix) tuples for pageview categorization
+- `include_error_rates`: Boolean flag for error rate calculation (default: true)
 
 ## Output Schema
 
@@ -63,16 +65,58 @@ Defined in `sql/event_counts.sql`:
 - `ai_span_count`: Number of AI span events
 - `ai_embedding_count`: Number of AI embedding events
 
-### Error Rates
+Each event is counted individually, even if multiple events share the same trace_id.
+
+### Trace Counts
+
+Defined in `sql/trace_counts.sql`:
+
+- `ai_trace_id_count`: Number of unique traces (distinct $ai_trace_id values)
+
+Counts unique traces across all AI event types. A trace may contain multiple events (generations, spans, etc).
+
+### Session Counts
+
+Defined in `sql/session_counts.sql`:
+
+- `ai_session_id_count`: Number of unique sessions (distinct $ai_session_id values)
+
+Counts unique sessions across all AI event types. A session can link multiple related traces together.
+
+### Event Error Rates
 
 Defined in `sql/error_rates.sql`:
 
-- `ai_generation_error_rate`: Percentage of AI generation events with errors
-- `ai_trace_error_rate`: Percentage of AI trace events with errors
-- `ai_span_error_rate`: Percentage of AI span events with errors
-- `ai_embedding_error_rate`: Percentage of AI embedding events with errors
+- `ai_generation_error_rate`: Proportion of AI generation events with errors (0.0 to 1.0)
+- `ai_trace_error_rate`: Proportion of AI trace events with errors (0.0 to 1.0)
+- `ai_span_error_rate`: Proportion of AI span events with errors (0.0 to 1.0)
+- `ai_embedding_error_rate`: Proportion of AI embedding events with errors (0.0 to 1.0)
 
-Error detection checks for:
+### Trace Error Rates
+
+Defined in `sql/trace_error_rates.sql`:
+
+- `ai_trace_id_has_error_rate`: Proportion of unique traces that had at least one error (0.0 to 1.0)
+
+A trace is considered errored if ANY event within it has an error. Compare with event error rates which report the proportion of individual events with errors.
+
+### Pageview Metrics
+
+Defined in `sql/pageview_counts.sql`:
+
+- `pageviews_traces`: Pageviews on /llm-analytics/traces
+- `pageviews_generations`: Pageviews on /llm-analytics/generations
+- `pageviews_users`: Pageviews on /llm-analytics/users
+- `pageviews_sessions`: Pageviews on /llm-analytics/sessions
+- `pageviews_playground`: Pageviews on /llm-analytics/playground
+- `pageviews_datasets`: Pageviews on /llm-analytics/datasets
+- `pageviews_evaluations`: Pageviews on /llm-analytics/evaluations
+
+Tracks $pageview events on LLM Analytics pages. URL patterns are mapped to page types via config.pageview_mappings.
+
+### Error Detection
+
+All error metrics detect errors by checking for:
 
 - `$ai_error` property is non-empty
 - `$ai_is_error` property is true
@@ -84,6 +128,9 @@ See `config.py` for configuration options:
 - `partition_start_date`: First date to backfill (default: 2025-01-01)
 - `cron_schedule`: Schedule for daily runs (default: 6 AM UTC)
 - `max_partitions_per_run`: Max partitions to process in backfill (default: 14)
+- `ai_event_types`: List of AI event types to track (default: $ai_trace, $ai_generation, $ai_span, $ai_embedding)
+- `pageview_mappings`: URL path to metric name mappings for pageview tracking
+- `include_error_rates`: Enable error rate metrics (default: true)
 
 ## Schedule
 
@@ -111,12 +158,30 @@ GROUP BY date, metric_name
 ORDER BY date DESC, metric_name
 ```
 
+## Testing
+
+Run the test suite to validate SQL structure and logic:
+
+```bash
+python -m pytest dags/tests/llma/daily_metrics/test_sql_metrics.py -v
+```
+
+Tests validate:
+
+- SQL templates render without errors
+- All SQL files produce the correct 4-column output
+- Calculation logic is correct (using mock data)
+- Date filtering and grouping work as expected
+
+Test file location: `dags/tests/llma/daily_metrics/test_sql_metrics.py`
+
 ## Adding New Metrics
 
 1. Create a new SQL file in `sql/` (e.g., `sql/token_counts.sql`)
 2. Use Jinja2 template syntax with `event_types`, `date_start`, `date_end`
 3. Return columns: `date`, `team_id`, `metric_name`, `metric_value`
 4. The pipeline will automatically discover and include it
+5. Add test coverage in `dags/tests/llma/daily_metrics/test_sql_metrics.py` with mock data and expected output
 
 Example:
 
