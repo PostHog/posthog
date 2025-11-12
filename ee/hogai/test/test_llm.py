@@ -191,3 +191,101 @@ class TestMaxChatOpenAI(BaseTest):
             called_messages = mock_agenerate.call_args[0][0]
             self.assertEqual(len(called_messages[0]), 2)
             self.assertIn("Test Project", str(called_messages[0][0].content))
+
+    def test_billable_false_by_default(self):
+        """Test that billable defaults to False."""
+        llm_openai = MaxChatOpenAI(user=self.user, team=self.team)
+        llm_anthropic = MaxChatAnthropic(user=self.user, team=self.team, model="claude")
+
+        self.assertEqual(llm_openai.billable, False)
+        self.assertEqual(llm_anthropic.billable, False)
+
+    def test_billable_metadata_when_false(self):
+        """Test that $ai_billable metadata is False when billable=False."""
+        llm = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False, billable=False)
+
+        mock_result = LLMResult(generations=[[Generation(text="Response")]])
+        with patch("langchain_openai.ChatOpenAI.generate", return_value=mock_result) as mock_generate:
+            messages: list[list[BaseMessage]] = [[HumanMessage(content="Test query")]]
+            llm.generate(messages)
+
+            call_kwargs = mock_generate.call_args.kwargs
+            self.assertIn("metadata", call_kwargs)
+            self.assertIn("posthog_properties", call_kwargs["metadata"])
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], False)
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["team_id"], self.team.id)
+
+    def test_billable_metadata_when_true(self):
+        """Test that $ai_billable metadata is True when billable=True."""
+        llm = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False, billable=True)
+
+        mock_result = LLMResult(generations=[[Generation(text="Response")]])
+        with patch("langchain_openai.ChatOpenAI.generate", return_value=mock_result) as mock_generate:
+            messages: list[list[BaseMessage]] = [[HumanMessage(content="Test query")]]
+            llm.generate(messages)
+
+            call_kwargs = mock_generate.call_args.kwargs
+            self.assertIn("metadata", call_kwargs)
+            self.assertIn("posthog_properties", call_kwargs["metadata"])
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], True)
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["team_id"], self.team.id)
+
+    async def test_billable_metadata_async_when_false(self):
+        """Test that $ai_billable metadata is False in async generate when billable=False."""
+        llm = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False, billable=False)
+
+        mock_result = LLMResult(generations=[[Generation(text="Response")]])
+        with patch("langchain_openai.ChatOpenAI.agenerate", return_value=mock_result) as mock_agenerate:
+            messages: list[list[BaseMessage]] = [[HumanMessage(content="Test query")]]
+            await llm.agenerate(messages)
+
+            call_kwargs = mock_agenerate.call_args.kwargs
+            self.assertIn("metadata", call_kwargs)
+            self.assertIn("posthog_properties", call_kwargs["metadata"])
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], False)
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["team_id"], self.team.id)
+
+    async def test_billable_metadata_async_when_true(self):
+        """Test that $ai_billable metadata is True in async generate when billable=True."""
+        llm = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False, billable=True)
+
+        mock_result = LLMResult(generations=[[Generation(text="Response")]])
+        with patch("langchain_openai.ChatOpenAI.agenerate", return_value=mock_result) as mock_agenerate:
+            messages: list[list[BaseMessage]] = [[HumanMessage(content="Test query")]]
+            await llm.agenerate(messages)
+
+            call_kwargs = mock_agenerate.call_args.kwargs
+            self.assertIn("metadata", call_kwargs)
+            self.assertIn("posthog_properties", call_kwargs["metadata"])
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], True)
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["team_id"], self.team.id)
+
+    def test_billable_metadata_anthropic_when_false(self):
+        """Test that $ai_billable metadata is False for Anthropic when billable=False."""
+        llm = MaxChatAnthropic(user=self.user, team=self.team, model="claude", billable=False)
+
+        mock_result = LLMResult(generations=[[Generation(text="Response")]])
+        with patch("langchain_anthropic.ChatAnthropic.generate", return_value=mock_result) as mock_generate:
+            messages: list[list[BaseMessage]] = [[HumanMessage(content="Test query")]]
+            llm.generate(messages)
+
+            call_kwargs = mock_generate.call_args.kwargs
+            self.assertIn("metadata", call_kwargs)
+            self.assertIn("posthog_properties", call_kwargs["metadata"])
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], False)
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["team_id"], self.team.id)
+
+    def test_billable_metadata_anthropic_when_true(self):
+        """Test that $ai_billable metadata is True for Anthropic when billable=True."""
+        llm = MaxChatAnthropic(user=self.user, team=self.team, model="claude", billable=True)
+
+        mock_result = LLMResult(generations=[[Generation(text="Response")]])
+        with patch("langchain_anthropic.ChatAnthropic.generate", return_value=mock_result) as mock_generate:
+            messages: list[list[BaseMessage]] = [[HumanMessage(content="Test query")]]
+            llm.generate(messages)
+
+            call_kwargs = mock_generate.call_args.kwargs
+            self.assertIn("metadata", call_kwargs)
+            self.assertIn("posthog_properties", call_kwargs["metadata"])
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], True)
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["team_id"], self.team.id)

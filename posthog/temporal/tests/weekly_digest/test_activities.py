@@ -622,15 +622,13 @@ async def test_send_weekly_digest_batch(mock_redis, common_input, digest):
 
     mock_ph_client = MagicMock()
     mock_ph_client.capture = MagicMock()
-    mock_ph_client.flush = MagicMock()
-    mock_ph_client.shutdown = MagicMock()
 
     mock_messaging_record = MagicMock()
     mock_messaging_record.sent_at = None
-    mock_messaging_record.asave = AsyncMock()
 
     mock_messaging_objects = MagicMock()
     mock_messaging_objects.aget_or_create = AsyncMock(return_value=(mock_messaging_record, True))
+    mock_messaging_objects.abulk_update = AsyncMock()
 
     with patch("posthog.temporal.weekly_digest.activities.query_orgs_for_digest", return_value=mock_org_queryset):
         with patch("posthog.temporal.weekly_digest.activities.query_org_members", return_value=mock_member_queryset):
@@ -641,11 +639,9 @@ async def test_send_weekly_digest_batch(mock_redis, common_input, digest):
 
     # Verify PostHog client was called
     mock_ph_client.capture.assert_called_once()
-    mock_ph_client.flush.assert_called_once()
-    mock_ph_client.shutdown.assert_called_once()
 
     # Verify messaging record was updated
-    mock_messaging_record.asave.assert_called_once()
+    mock_messaging_objects.abulk_update.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -696,7 +692,6 @@ async def test_send_weekly_digest_batch_dry_run(mock_redis, common_input, digest
 
     mock_ph_client = MagicMock()
     mock_ph_client.capture = MagicMock()
-    mock_ph_client.shutdown = MagicMock()
 
     mock_messaging_record = MagicMock()
     mock_messaging_record.sent_at = None
@@ -713,4 +708,3 @@ async def test_send_weekly_digest_batch_dry_run(mock_redis, common_input, digest
 
     # In dry run mode, PostHog client should not be called
     mock_ph_client.capture.assert_not_called()
-    mock_ph_client.shutdown.assert_called_once()

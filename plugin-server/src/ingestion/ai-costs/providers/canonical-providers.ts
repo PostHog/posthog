@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-11-11 10:03:37 UTC
+// Generated at: 2025-11-12 10:03:39 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -20,6 +20,7 @@ export type CanonicalProvider =
     | 'chutes'
     | 'chutes-bf16'
     | 'chutes-fp8'
+    | 'chutes-int4'
     | 'cirrascale'
     | 'clarifai-fp4'
     | 'cloudflare'
@@ -41,6 +42,7 @@ export type CanonicalProvider =
     | 'friendli'
     | 'gmicloud-bf16'
     | 'gmicloud-fp8'
+    | 'gmicloud-int4'
     | 'google-ai-studio'
     | 'google-vertex'
     | 'google-vertex-europe'
@@ -60,6 +62,7 @@ export type CanonicalProvider =
     | 'mancer-int4'
     | 'meta-fp8'
     | 'minimax'
+    | 'minimax-fp8'
     | 'mistral'
     | 'modelrun'
     | 'moonshotai'

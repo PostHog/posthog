@@ -127,6 +127,7 @@ class SearchSessionRecordingsTool(MaxTool):
             "change": user_prompt,
             "output": None,
             "tool_progress_messages": [],
+            "billable": True,
             **self.context,
         }
         result = await graph.compile_full_graph().ainvoke(graph_context)
