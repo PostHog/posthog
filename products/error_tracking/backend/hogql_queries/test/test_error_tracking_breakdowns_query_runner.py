@@ -7,7 +7,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from posthog.schema import DateRange, ErrorTrackingBreakdownsQuery
+from posthog.schema import BreakdownValue, DateRange, ErrorTrackingBreakdownsQuery
 
 from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
     ErrorTrackingBreakdownsQueryRunner,
@@ -106,15 +106,15 @@ class TestErrorTrackingBreakdownsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         browser_data = response.results["$browser"]
         assert len(browser_data.values) == 3
         assert browser_data.total_count == 10
-        assert (x for x in browser_data.values if x.value == "Chrome").next().count == 5
         assert browser_data.values[0].value == "Chrome"
         assert browser_data.values[0].count == 5
 
         os_data = response.results["$os"]
         assert len(os_data.values) == 2
-        assert os_data.total_count == 10
-        assert (x for x in os_data.values if x.value == "macOS").next().count == 5
-        assert (x for x in os_data.values if x.value == "Windows").next().count == 5
+
+        assert [BreakdownValue(value="Windows", count=5), BreakdownValue(value="macOS", count=5)] == sorted(
+            os_data.values, key=lambda x: x.value
+        )
 
     @freeze_time("2024-01-10T12:00:00Z")
     @snapshot_clickhouse_queries

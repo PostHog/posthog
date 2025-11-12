@@ -25,10 +25,11 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
+import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
+import { LogsFilterGroup } from 'products/logs/frontend/components/filters/LogsFilters/FilterGroup'
+
 import { AttributeBreakdowns } from './AttributeBreakdowns'
-import { AttributesFilter } from './filters/AttributesFilter'
 import { DateRangeFilter } from './filters/DateRangeFilter'
-import { SearchTermFilter } from './filters/SearchTermFilter'
 import { ServiceFilter } from './filters/ServiceFilter'
 import { SeverityLevelsFilter } from './filters/SeverityLevelsFilter'
 import { logsLogic } from './logsLogic'
@@ -93,6 +94,12 @@ export function LogsScene(): JSX.Element {
                     size="small"
                     embedded
                     columns={[
+                        {
+                            title: '',
+                            key: 'actions',
+                            width: 0,
+                            render: (_, record) => <LogsTableRowActions log={record} />,
+                        },
                         {
                             title: 'Timestamp',
                             key: 'timestamp',
@@ -236,7 +243,6 @@ const Filters = (): JSX.Element => {
                 <div className="flex gap-x-1 gap-y-2 flex-wrap">
                     <SeverityLevelsFilter />
                     <ServiceFilter />
-                    <AttributesFilter />
                 </div>
                 <div className="flex gap-x-1">
                     <LemonButton
@@ -263,7 +269,7 @@ const Filters = (): JSX.Element => {
                     </LemonButton>
                 </div>
             </div>
-            <SearchTermFilter />
+            <LogsFilterGroup />
         </div>
     )
 }

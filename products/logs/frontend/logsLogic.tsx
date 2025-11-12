@@ -65,7 +65,7 @@ export const logsLogic = kea<logsLogicType>([
                 updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
                 updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
                 updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
-                actions.runQuery(300)
+                actions.runQuery()
                 return params
             })
         }

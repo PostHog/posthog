@@ -113,8 +113,8 @@ def test_team_digest_is_empty():
     assert non_empty_digest.is_empty() is False
 
 
-def test_team_digest_count_nonempty():
-    """Test that TeamDigest correctly counts non-empty fields."""
+def test_team_digest_count_items():
+    """Test that TeamDigest correctly counts items."""
     digest = TeamDigest(
         id=1,
         name="Test Team",
@@ -129,7 +129,7 @@ def test_team_digest_count_nonempty():
         surveys_launched=SurveyList(root=[]),
     )
 
-    assert digest.count_nonempty() == 3  # dashboards, event_definitions, feature_flags
+    assert digest.count_items() == 3  # dashboards, event_definitions, feature_flags
 
 
 def test_team_digest_render_payload():
@@ -292,7 +292,7 @@ def test_organization_digest_is_empty():
     assert org.is_empty() is False
 
 
-def test_organization_digest_count_nonempty():
+def test_organization_digest_count_items():
     """Test that OrganizationDigest correctly counts non-empty items across teams."""
     team1 = TeamDigest(
         id=1,
@@ -324,8 +324,8 @@ def test_organization_digest_count_nonempty():
 
     org = OrganizationDigest(id=uuid4(), name="Test Org", created_at=datetime.now(UTC), team_digests=[team1, team2])
 
-    # Team 1 has 2 non-empty fields, Team 2 has 1
-    assert org.count_nonempty() == 3
+    # Team 1 has 2 items, Team 2 has 1
+    assert org.count_items() == 3
 
 
 def test_organization_digest_render_payload():
@@ -360,7 +360,6 @@ def test_organization_digest_render_payload():
     teams = payload["teams"]
     assert isinstance(teams, list)
     assert [t["team_id"] for t in teams] == [1]
-    assert payload["nonempty_items"] == 1
     assert "period" in payload
 
 
