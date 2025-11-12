@@ -46,7 +46,7 @@ export const eventDefinitionModalLogic = kea<eventDefinitionModalLogicType>([
                         payload.description = formValues.description
                     }
                     if (formValues.owner) {
-                        payload.owner = { id: formValues.owner } as any
+                        payload.owner = formValues.owner as any
                     }
                     if (formValues.tags && formValues.tags.length > 0) {
                         payload.tags = formValues.tags
