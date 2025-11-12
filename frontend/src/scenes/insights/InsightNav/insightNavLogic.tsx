@@ -14,7 +14,7 @@ import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryN
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
     ActionsNode,
-    CalendarHeatmapQuery,
+    CalendarHeatmapFilter,
     DataWarehouseNode,
     EventsNode,
     FunnelsFilter,
@@ -79,13 +79,13 @@ export interface QueryPropertyCache
         Omit<Partial<RetentionQuery>, 'kind' | 'response'>,
         Omit<Partial<PathsQuery>, 'kind' | 'response'>,
         Omit<Partial<StickinessQuery>, 'kind' | 'response'>,
-        Omit<Partial<LifecycleQuery>, 'kind' | 'response'>,
-        Omit<Partial<CalendarHeatmapQuery>, 'kind' | 'response'> {
+        Omit<Partial<LifecycleQuery>, 'kind' | 'response'> {
     commonFilter: CommonInsightFilter
     commonFilterTrendsStickiness?: {
         resultCustomizations?: Record<string, any>
     }
     trendsFilter?: Partial<TrendsQuery['trendsFilter']>
+    calendarHeatmapFilter?: Partial<CalendarHeatmapFilter>
 }
 
 const cleanSeriesEntityMath = (
