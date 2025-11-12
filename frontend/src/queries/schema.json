@@ -1831,7 +1831,6 @@
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
                 "create_message_template",
-                "navigate",
                 "filter_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
@@ -23460,6 +23459,10 @@
                     },
                     "type": "array"
                 },
+                "after": {
+                    "description": "Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page.",
+                    "type": "string"
+                },
                 "comment_text": {
                     "$ref": "#/definitions/RecordingPropertyFilter"
                 },
@@ -23561,6 +23564,10 @@
             "properties": {
                 "has_next": {
                     "type": "boolean"
+                },
+                "next_cursor": {
+                    "description": "Cursor for the next page. Contains the ordering value and session_id from the last record.",
+                    "type": "string"
                 },
                 "results": {
                     "items": {
@@ -23724,6 +23731,13 @@
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day"
+                },
+                "retentionCustomBrackets": {
+                    "description": "Custom brackets for retention calculations",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
                 },
                 "retentionReference": {
                     "description": "Whether retention is with regard to initial cohort size, or that of the previous period.",

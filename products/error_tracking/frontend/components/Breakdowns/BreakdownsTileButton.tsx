@@ -6,7 +6,7 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
 
-import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
+import { errorTrackingIssueSceneConfigurationLogic } from '../../scenes/ErrorTrackingIssueV2Scene/errorTrackingIssueSceneConfigurationLogic'
 import { BreakdownsStackedBar } from './BreakdownsStackedBar'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
 import { BreakdownPreset, BreakdownsEvents } from './consts'
@@ -19,8 +19,8 @@ interface BreakdownsTileButtonProps {
 export function BreakdownsTileButton({ item }: BreakdownsTileButtonProps): JSX.Element {
     const { breakdownProperty } = useValues(breakdownFiltersLogic)
     const { setBreakdownProperty } = useActions(breakdownFiltersLogic)
-    const { category } = useValues(errorTrackingIssueSceneLogic)
-    const { setCategory } = useActions(errorTrackingIssueSceneLogic)
+    const { category } = useValues(errorTrackingIssueSceneConfigurationLogic)
+    const { setCategory } = useActions(errorTrackingIssueSceneConfigurationLogic)
 
     const isSelected = category === 'breakdowns' && breakdownProperty === item.property
 
