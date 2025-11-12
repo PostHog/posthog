@@ -181,6 +181,7 @@ import {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import { Task, TaskUpsertProps } from 'products/tasks/frontend/types'
+import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
@@ -4229,7 +4230,7 @@ const api = {
             })
             return response.preferences_url || null
         },
-        async getMessageOptOuts(categoryKey?: string, page?: number): Promise<any> {
+        async getMessageOptOuts(categoryKey?: string, page?: number): Promise<PaginatedResponse<OptOutEntry[]>> {
             return await new ApiRequest()
                 .messagingPreferencesOptOuts()
                 .withQueryString({
