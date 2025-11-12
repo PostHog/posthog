@@ -1068,7 +1068,12 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
             if (experiment.start_date) {
-                const forceRefresh = payload?.start_date !== undefined || payload?.end_date !== undefined
+                // For running experiments, refresh results if any of these fields are updated
+                const forceRefresh =
+                    payload?.start_date !== undefined ||
+                    payload?.end_date !== undefined ||
+                    payload?.metrics !== undefined ||
+                    payload?.metrics_secondary !== undefined
                 actions.refreshExperimentResults(forceRefresh)
             }
         },
