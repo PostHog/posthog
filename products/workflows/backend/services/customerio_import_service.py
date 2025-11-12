@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 class CustomerIOImportService:
-    """Service for importing Customer.io topics and preferences into PostHog"""
-
     def __init__(self, team: Team, api_key: str, user):
         self.team = team
         self.user = user

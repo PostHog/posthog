@@ -1,7 +1,7 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 
-import { ApiRequest } from 'lib/api'
+import { ApiRequest, getCookie } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import type { customerIOImportLogicType } from './customerIOImportLogicType'
@@ -167,6 +167,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             }
         },
         uploadCSV: async () => {
+            const CSRF_COOKIE_NAME = 'posthog_csrftoken'
             const file = customerIOImportLogic.values.csvFile
             if (!file) {
                 lemonToast.error('Please select a CSV file')
@@ -180,22 +181,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             formData.append('csv_file', file)
 
             try {
-                // Get CSRF token from cookie (using PostHog's cookie name)
-                const getCookie = (name: string): string | null => {
-                    let cookieValue: string | null = null
-                    if (document.cookie && document.cookie !== '') {
-                        for (let cookie of document.cookie.split(';')) {
-                            cookie = cookie.trim()
-                            // Does this cookie string begin with the name we want?
-                            if (cookie.substring(0, name.length + 1) === name + '=') {
-                                cookieValue = decodeURIComponent(cookie.substring(name.length + 1))
-                                break
-                            }
-                        }
-                    }
-                    return cookieValue
-                }
-
                 // Make a direct fetch request since ApiRequest might not handle multipart/form-data correctly
                 const response = await fetch(
                     '/api/environments/@current/messaging_categories/import_preferences_csv/',
@@ -205,7 +190,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                         credentials: 'include',
                         headers: {
                             // Don't set Content-Type header - let browser set it with boundary for multipart
-                            'X-CSRFToken': getCookie('posthog_csrftoken') || '',
+                            'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                         },
                     }
                 )
