@@ -46,8 +46,8 @@ test.describe('Use Case Selection Onboarding', () => {
         await expect(page).toHaveURL(/\/products\?useCase=see_user_behavior/)
 
         // Should show recommended products pre-selected
-        await expect(page.locator('[data-attr="product_analytics-onboarding-card"]')).toHaveClass(/focused/)
-        await expect(page.locator('[data-attr="session_replay-onboarding-card"]')).toHaveClass(/focused/)
+        await expect(page.locator('[data-attr="product_analytics-onboarding-card"]')).toHaveClass(/border-accent/)
+        await expect(page.locator('[data-attr="session_replay-onboarding-card"]')).toHaveClass(/border-accent/)
     })
 
     test('displays "pick myself" option', async ({ page }) => {
@@ -83,19 +83,19 @@ test.describe('Use Case Selection Onboarding', () => {
         await page.goto('/products?useCase=see_user_behavior')
 
         // Product Analytics and Session Replay should be pre-selected
-        await expect(page.locator('[data-attr="product_analytics-onboarding-card"]')).toHaveClass(/focused/)
+        await expect(page.locator('[data-attr="product_analytics-onboarding-card"]')).toHaveClass(/border-accent/)
 
         // Deselect Product Analytics
         await page.locator('[data-attr="product_analytics-onboarding-card"]').click()
 
         // Should no longer be selected
-        await expect(page.locator('[data-attr="product_analytics-onboarding-card"]')).not.toHaveClass(/focused/)
+        await expect(page.locator('[data-attr="product_analytics-onboarding-card"]')).not.toHaveClass(/border-accent/)
 
         // Re-select it
         await page.locator('[data-attr="product_analytics-onboarding-card"]').click()
 
         // Should be selected again
-        await expect(page.locator('[data-attr="product_analytics-onboarding-card"]')).toHaveClass(/focused/)
+        await expect(page.locator('[data-attr="product_analytics-onboarding-card"]')).toHaveClass(/border-accent/)
     })
 
     test('shows and hides other products', async ({ page }) => {
@@ -140,8 +140,8 @@ test.describe('Use Case Selection Onboarding', () => {
         await page.goto('/products?useCase=see_user_behavior')
 
         // Both products should be selected
-        await expect(page.locator('[data-attr="product_analytics-onboarding-card"]')).toHaveClass(/focused/)
-        await expect(page.locator('[data-attr="session_replay-onboarding-card"]')).toHaveClass(/focused/)
+        await expect(page.locator('[data-attr="product_analytics-onboarding-card"]')).toHaveClass(/border-accent/)
+        await expect(page.locator('[data-attr="session_replay-onboarding-card"]')).toHaveClass(/border-accent/)
 
         // Should show dropdown to select first product
         await expect(page.locator('text=Start with')).toBeVisible()
