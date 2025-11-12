@@ -730,8 +730,8 @@ class SchemaTransformer:
     def __init__(
         self,
         table: Table,
-        raise_on_incompatible: bool = False,
         extra_compatible_types: TypeTupleToCastMapping | None = None,
+        raise_on_incompatible: bool = False,
     ):
         self.table = table
         self.extra_compatible_types = extra_compatible_types
