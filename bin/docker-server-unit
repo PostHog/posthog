@@ -16,8 +16,9 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
     echo "🚀 Starting with Granian ASGI server (opt-in via USE_GRANIAN=true)..."
 
     # Granian configuration
-    export GRANIAN_WORKERS=${GRANIAN_WORKERS:-4}
-    export GRANIAN_THREADS=2
+    # Default to 2 workers for small pods (1 CPU), scale up via GRANIAN_WORKERS for larger pods
+    export GRANIAN_WORKERS=${GRANIAN_WORKERS:-2}
+    export GRANIAN_THREADS=${GRANIAN_THREADS:-2}
 
     # Start metrics HTTP server in background on port 8001
     python ./bin/granian_metrics.py &
