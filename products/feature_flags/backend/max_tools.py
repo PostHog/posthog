@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -21,7 +22,10 @@ from ee.hogai.tool import MaxTool
 class FeatureFlagCreationSchema(BaseModel):
     """Structured schema for AI-powered feature flag creation using PostHog's native types."""
 
-    key: str = Field(description="Unique flag key in kebab-case (e.g., 'new-dashboard', 'dark-mode')")
+    key: str = Field(
+        description="Unique flag key in kebab-case (e.g., 'new-dashboard', 'dark-mode'). "
+        "Must only contain letters, numbers, underscores, and hyphens. Pattern: ^[a-zA-Z0-9_-]+$"
+    )
     name: str = Field(description="Human-readable flag name")
     description: str | None = Field(default=None, description="Optional description of what the flag controls")
     active: bool = Field(default=True, description="Whether the flag is active")
@@ -159,7 +163,12 @@ Multiple filters (AND logic - all must match):
 - Rollout percentage in each group applies AFTER property filtering in that group (e.g., "10% of users where email contains X")
 - Always create a `groups` array with at least one group (even if properties is empty)
 - Use `ask_user_for_help` if requirements are unclear or ambiguous
-- Generate keys in kebab-case (e.g., "new-dashboard" not "new_dashboard" or "NewDashboard")
+- **Key Format Requirements**:
+  - Keys must only contain letters (a-z, A-Z), numbers (0-9), underscores (_), and hyphens (-)
+  - Valid pattern: ^[a-zA-Z0-9_-]+$
+  - Invalid characters include spaces, dots, @, #, $, %, etc.
+  - Generate keys in kebab-case (e.g., "new-dashboard" not "new_dashboard" or "NewDashboard")
+  - If the user requests a key with invalid characters, sanitize it by replacing invalid characters with hyphens
 
 # Common Patterns
 
@@ -526,6 +535,13 @@ The tool will automatically:
         try:
             # Use graph to generate structured configuration
             flag_schema = await self._create_flag_from_instructions(instructions)
+
+            # Validate feature flag key format
+            if not re.match(r"^[a-zA-Z0-9_-]+$", flag_schema.key):
+                return (
+                    f"Invalid feature flag key '{flag_schema.key}'. Keys must contain only letters, numbers, underscores, and hyphens (matching pattern: ^[a-zA-Z0-9_-]+$)",
+                    {"error": "invalid_key", "key": flag_schema.key},
+                )
 
             # Validate and enrich group type if specified
             aggregation_group_type_index = None

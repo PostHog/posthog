@@ -679,6 +679,8 @@ def postgres_source(
                     logger.debug(f"using_read_replica = {using_read_replica}")
                     logger.debug("Getting primary keys...")
                     primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
+                    if primary_keys:
+                        logger.debug(f"Found primary keys: {primary_keys}")
                     logger.debug("Getting table chunk size...")
                     if chunk_size_override is not None:
                         chunk_size = chunk_size_override
@@ -697,6 +699,7 @@ def postgres_source(
 
                     # Fallback on checking for an `id` field on the table
                     if primary_keys is None and "id" in table:
+                        logger.debug("Falling back to ['id'] for primary keys...")
                         primary_keys = ["id"]
                         logger.debug("Checking duplicate primary keys...")
                         has_duplicate_primary_keys = _has_duplicate_primary_keys(

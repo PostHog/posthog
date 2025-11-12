@@ -39,7 +39,8 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, logs, sparklineData, logsLoading, sparklineLoading, timestampFormat } = useValues(logsLogic)
+    const { wrapBody, prettifyJson, logs, sparklineData, logsLoading, sparklineLoading, timestampFormat } =
+        useValues(logsLogic)
     const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
 
     useEffect(() => {
@@ -111,9 +112,25 @@ export function LogsScene(): JSX.Element {
                             title: 'Message',
                             key: 'body',
                             dataIndex: 'body',
-                            render: (_, { body }) => (
-                                <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{colors.unstyle(body)}</div>
-                            ),
+                            render: (_, { body }) => {
+                                const cleanBody = colors.unstyle(body)
+                                let parsed: any = null
+                                try {
+                                    parsed = JSON.parse(cleanBody)
+                                } catch {
+                                    // Not JSON, that's fine
+                                }
+
+                                if (parsed && prettifyJson) {
+                                    return (
+                                        <pre className={cn('text-xs', wrapBody ? '' : 'whitespace-nowrap')}>
+                                            {JSON.stringify(parsed, null, 2)}
+                                        </pre>
+                                    )
+                                }
+
+                                return <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{cleanBody}</div>
+                            },
                         },
                     ]}
                     expandable={{
@@ -261,8 +278,8 @@ const Filters = (): JSX.Element => {
 }
 
 const DisplayOptions = (): JSX.Element => {
-    const { orderBy, wrapBody, timestampFormat } = useValues(logsLogic)
-    const { setOrderBy, setWrapBody, setTimestampFormat } = useActions(logsLogic)
+    const { orderBy, wrapBody, prettifyJson, timestampFormat } = useValues(logsLogic)
+    const { setOrderBy, setWrapBody, setPrettifyJson, setTimestampFormat } = useActions(logsLogic)
 
     return (
         <div className="flex gap-2">
@@ -282,6 +299,13 @@ const DisplayOptions = (): JSX.Element => {
                 size="small"
             />
             <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
+            <LemonCheckbox
+                checked={prettifyJson}
+                bordered
+                onChange={setPrettifyJson}
+                label="Prettify JSON"
+                size="small"
+            />
             <LemonSelect
                 value={timestampFormat}
                 icon={<IconClock />}
