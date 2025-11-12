@@ -47,6 +47,13 @@
     
     <fieldset class="module aligned">
         <h2>Configuration</h2>
+
+        <div class="form-row">
+            <label for="{{ form.team_id.id_for_label }}">{{ form.team_id.label }}:</label>
+            {{ form.team_id }}
+            {% if form.team_id.help_text %}<p class="help">{{ form.team_id.help_text }}</p>{% endif %}
+            {{ form.team_id.errors }}
+        </div>
         
         <div class="form-row">
             <label for="{{ form.parallelism.id_for_label }}" class="required">

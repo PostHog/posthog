@@ -57,12 +57,14 @@ class RealtimeCohortCalculationWorkflowInputs:
 
     limit: Optional[int] = None
     offset: int = 0
+    team_id: Optional[int] = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
             "limit": self.limit,
             "offset": self.offset,
+            "team_id": self.team_id,
         }
 
 
@@ -81,6 +83,10 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         def get_cohorts():
             # Only get cohorts that are not deleted and have cohort_type='realtime'
             queryset = Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME).select_related("team")
+
+            # Apply team_id filter if provided
+            if inputs.team_id is not None:
+                queryset = queryset.filter(team_id=inputs.team_id)
 
             # Apply pagination
             queryset = (

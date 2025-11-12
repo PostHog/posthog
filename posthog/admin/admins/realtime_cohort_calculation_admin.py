@@ -29,6 +29,12 @@ class RealtimeCohortCalculationForm(forms.Form):
         help_text="Delay between batches in minutes",
         label="Batch delay (minutes)",
     )
+    team_id = forms.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Filter cohorts by team_id (optional)",
+        label="Team ID",
+    )
 
 
 def analyze_realtime_cohort_calculation_view(request):
@@ -46,6 +52,8 @@ def analyze_realtime_cohort_calculation_view(request):
             command_args.extend(["--parallelism", str(form.cleaned_data["parallelism"])])
             command_args.extend(["--workflows-per-batch", str(form.cleaned_data["workflows_per_batch"])])
             command_args.extend(["--batch-delay-minutes", str(form.cleaned_data["batch_delay_minutes"])])
+            if form.cleaned_data.get("team_id"):
+                command_args.extend(["--team-id", str(form.cleaned_data["team_id"])])
 
             try:
                 call_command("analyze_realtime_cohort_calculation", *command_args)

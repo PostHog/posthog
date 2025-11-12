@@ -1,7 +1,7 @@
 import math
 import datetime as dt
 import dataclasses
-from typing import Any, TypedDict
+from typing import Any, Optional, TypedDict
 
 from django.conf import settings
 
@@ -38,6 +38,7 @@ class RealtimeCohortCalculationCoordinatorWorkflowInputs:
     parallelism: int = 10  # Number of child workflows to spawn
     workflows_per_batch: int = 5  # Number of workflows to start per batch
     batch_delay_minutes: int = 5  # Delay between batches in minutes
+    team_id: Optional[int] = None  # Filter by team_id (optional)
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -45,6 +46,7 @@ class RealtimeCohortCalculationCoordinatorWorkflowInputs:
             "parallelism": self.parallelism,
             "workflows_per_batch": self.workflows_per_batch,
             "batch_delay_minutes": self.batch_delay_minutes,
+            "team_id": self.team_id,
         }
 
 
@@ -64,7 +66,10 @@ async def get_realtime_cohort_calculation_count_activity(
     @database_sync_to_async
     def get_cohort_count():
         # Only get cohorts that are not deleted and have cohort_type='realtime'
-        return Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME).count()
+        queryset = Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME)
+        if inputs.team_id is not None:
+            queryset = queryset.filter(team_id=inputs.team_id)
+        return queryset.count()
 
     count = await get_cohort_count()
     return RealtimeCohortCalculationCountResult(count=count)
@@ -121,6 +126,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                     inputs=RealtimeCohortCalculationWorkflowInputs(
                         limit=limit,
                         offset=offset,
+                        team_id=inputs.team_id,
                     ),
                     offset=offset,
                     limit=limit,
