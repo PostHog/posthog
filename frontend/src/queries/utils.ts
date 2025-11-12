@@ -56,7 +56,6 @@ import {
     RevenueExampleEventsQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
-    SessionsQuery,
     StickinessQuery,
     TracesQuery,
     TrendsFormulaNode,
@@ -99,10 +98,6 @@ export function isEventsNode(node?: Record<string, any> | null): node is EventsN
 
 export function isEventsQuery(node?: Record<string, any> | null): node is EventsQuery {
     return node?.kind === NodeKind.EventsQuery
-}
-
-export function isSessionsQuery(node?: Record<string, any> | null): node is SessionsQuery {
-    return node?.kind === NodeKind.SessionsQuery
 }
 
 export function isActionsNode(node?: Record<string, any> | null): node is ActionsNode {

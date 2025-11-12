@@ -108,35 +108,27 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 response && 'columns' in response && Array.isArray(response.columns) ? response?.columns : null,
         ],
         dataTableRows: [
-            (s) => [
-                s.sourceKind,
-                s.orderBy,
-                s.response,
-                s.columnsInQuery,
-                s.columnsInResponse,
-                (_, props) => props.context,
-            ],
+            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInQuery, s.columnsInResponse],
             (
-                sourceKind: NodeKind | null,
-                orderBy: string[] | null,
+                sourceKind,
+                orderBy,
                 response: AnyDataNode['response'],
-                columnsInQuery: HogQLExpression[],
-                columnsInResponse: string[] | null,
-                context: QueryContext<DataTableNode> | undefined
+                columnsInQuery,
+                columnsInResponse
             ): DataTableRow[] | null => {
                 if (response && sourceKind === NodeKind.EventsQuery) {
-                    const queryResponse = response as AnyResponseType
-                    if (queryResponse) {
+                    const eventsQueryResponse = response as AnyResponseType
+                    if (eventsQueryResponse) {
                         // must be loading
                         if (!equal(columnsInQuery, columnsInResponse)) {
                             return []
                         }
 
                         let results: any[] | null = []
-                        if ('results' in queryResponse) {
-                            results = queryResponse.results
-                        } else if ('result' in queryResponse) {
-                            results = queryResponse.result
+                        if ('results' in eventsQueryResponse) {
+                            results = eventsQueryResponse.results
+                        } else if ('result' in eventsQueryResponse) {
+                            results = eventsQueryResponse.result
                         }
 
                         if (!results) {
@@ -153,7 +145,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                     removeExpressionComment(column) === `-${orderKey}`
                             ) ?? -1
 
-                        // Add a label between results if the day changed for events with timestamp
+                        // Add a label between results if the day changed
                         if (orderKey === 'timestamp' && orderKeyIndex !== -1) {
                             let lastResult: any = null
                             const newResults: DataTableRow[] = []
@@ -184,8 +176,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         ? response.result
                         : null
 
-                const rows = results ? (results.map((result: any) => ({ result })) ?? null) : null
-                return context?.dataTableRowsTransformer ? context.dataTableRowsTransformer(rows ?? []) : rows
+                return results ? (results.map((result: any) => ({ result })) ?? null) : null
             },
         ],
         queryWithDefaults: [

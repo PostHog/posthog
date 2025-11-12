@@ -47,7 +47,6 @@ from posthog.schema import (
     SamplingRate,
     SessionAttributionExplorerQuery,
     SessionBatchEventsQuery,
-    SessionsQuery,
     SessionsTimelineQuery,
     StickinessQuery,
     SuggestedQuestionsQuery,
@@ -287,16 +286,6 @@ def get_query_runner(
 
         return EventsQueryRunner(
             query=cast(EventsQuery | dict[str, Any], query),
-            team=team,
-            timings=timings,
-            limit_context=limit_context,
-            modifiers=modifiers,
-        )
-    if kind == "SessionsQuery":
-        from .sessions_query_runner import SessionsQueryRunner
-
-        return SessionsQueryRunner(
-            query=cast(SessionsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
