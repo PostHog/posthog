@@ -3721,6 +3721,41 @@ email@example.org,
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("This cohort is used in 1 insight(s): Breakdown Insight", response.json()["detail"])
 
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_deeply_nested_properties(self, patch_calculate_cohort, patch_capture):
+        from posthog.models.insight import Insight
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Create an insight with cohort deeply nested in series properties
+        Insight.objects.create(
+            team=self.team,
+            name="Nested Properties Insight",
+            query={
+                "source": {
+                    "series": [
+                        {
+                            "event": "$pageview",
+                            "properties": [{"type": "cohort", "value": cohort_id}],
+                        }
+                    ]
+                }
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("This cohort is used in 1 insight(s): Nested Properties Insight", response.json()["detail"])
+
 
 class TestCalculateCohortCommand(APIBaseTest):
     def test_calculate_cohort_command_success(self):
