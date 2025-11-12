@@ -44,20 +44,10 @@ def update_team_metadata_cache_task(team_id: int) -> None:
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
-        logger.warning("Team does not exist for metadata cache update", team_id=team_id)
+        logger.debug("Team does not exist for metadata cache update", team_id=team_id)
         return
 
-    success = update_team_metadata_cache(team)
-    if success:
-        logger.info(
-            "Successfully updated team metadata cache",
-            team_id=team_id,
-        )
-    else:
-        logger.error(
-            "Failed to update team metadata cache",
-            team_id=team_id,
-        )
+    update_team_metadata_cache(team)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

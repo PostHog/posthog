@@ -169,7 +169,7 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
             return metadata
 
     except Team.DoesNotExist:
-        logger.warning("Team not found for cache lookup")
+        logger.debug("Team not found for cache lookup")
         return HyperCacheStoreMissing()
 
     except Exception as e:
@@ -233,12 +233,9 @@ def update_team_metadata_cache(team: Team | str | int) -> bool:
         True if cache update succeeded, False otherwise
     """
     success = team_metadata_hypercache.update_cache(team)
+    team_id = team.id if isinstance(team, Team) else "unknown"
 
-    if success:
-        team_id = team.id if isinstance(team, Team) else "unknown"
-        logger.info("Updated metadata cache", team_id=team_id)
-    else:
-        team_id = team.id if isinstance(team, Team) else "unknown"
+    if not success:
         logger.warning("Failed to update metadata cache", team_id=team_id)
 
     return success
@@ -253,9 +250,6 @@ def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = 
         kinds: Optional list of cache types to clear (["redis", "s3"])
     """
     team_metadata_hypercache.clear_cache(team, kinds=kinds)
-
-    team_id = team.id if isinstance(team, Team) else "unknown"
-    logger.info("Cleared metadata cache", team_id=team_id)
 
 
 # ===================================================================
@@ -403,9 +397,8 @@ def get_cache_stats() -> dict[str, Any]:
             "expires_later": 0,
         }
 
-        # Sample size statistics
         sample_sizes: list[int] = []
-        sample_limit = 100  # Sample first 100 entries for size stats
+        sample_limit = 100
 
         for key in redis_client.scan_iter(match=pattern, count=1000):
             total_keys += 1
@@ -422,24 +415,17 @@ def get_cache_stats() -> dict[str, Any]:
             else:
                 ttl_buckets["expires_later"] += 1
 
-            # Sample memory usage for size statistics
             if len(sample_sizes) < sample_limit:
                 try:
-                    # Get actual memory usage from Redis (if available)
                     memory_usage = redis_client.memory_usage(key)
                     if memory_usage:
                         sample_sizes.append(memory_usage)
                 except:
-                    # MEMORY USAGE command might not be available
                     pass
 
-        # Get total teams for comparison
         total_teams = Team.objects.count()
-
-        # Calculate coverage percentage
         coverage_percent = (total_keys / total_teams * 100) if total_teams else 0
 
-        # Calculate size statistics if we have samples
         size_stats = {}
         if sample_sizes:
             import statistics
