@@ -38,6 +38,7 @@ from django.core.cache import caches
 from django.db import transaction
 
 import structlog
+from posthoganalytics import capture_exception
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.team.team import Team
@@ -105,19 +106,15 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
     """
     try:
         with transaction.atomic():
-            # Get the team based on the key type using HyperCache helper
             team = HyperCache.team_from_key(team_key)
 
-            # Ensure related objects are loaded - more reliable approach
             if isinstance(team, Team) and (not Team.organization.is_cached(team) or not Team.project.is_cached(team)):
                 team = Team.objects.select_related("organization", "project").get(id=team.id)
 
-            # Build the metadata dictionary with all specified fields
             metadata = {}
             for field in TEAM_METADATA_FIELDS:
                 value = getattr(team, field, None)
 
-                # Handle special field types for JSON serialization
                 if field in ["created_at", "updated_at"]:
                     value = value.isoformat() if value else None
                 elif field == "uuid":
@@ -125,12 +122,10 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
                 elif field == "organization_id":
                     value = str(team.organization_id) if team.organization_id else None
                 elif field == "session_recording_sample_rate":
-                    # Convert Decimal to float for JSON serialization
                     value = float(value) if value is not None else None
 
                 metadata[field] = value
 
-            # Add computed/related fields - safely access with hasattr checks
             metadata["organization_name"] = (
                 team.organization.name if hasattr(team, "organization") and team.organization else None
             )
@@ -140,40 +135,30 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
             return metadata
 
     except Team.DoesNotExist:
-        # Log only that a team was not found, without exposing the key
         logger.warning("Team not found for cache lookup")
         return HyperCacheStoreMissing()
 
     except Exception as e:
         logger.exception(
             "Error loading team metadata",
-            error_type=type(e).__name__,  # Help debugging
-            team_key_type=type(team_key).__name__,  # Add context
+            error_type=type(e).__name__,
+            team_key_type=type(team_key).__name__,
         )
         return HyperCacheStoreMissing()
 
 
-# Create the HyperCache instance for team metadata
 # Use dedicated flags cache if available, otherwise fall back to shared cache
 if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES:
     _team_metadata_cache_client = caches[FLAGS_DEDICATED_CACHE_ALIAS]
-    logger.info(
-        "Using dedicated flags cache for team metadata",
-        cache_alias=FLAGS_DEDICATED_CACHE_ALIAS,
-    )
 else:
     from django.core.cache import cache
 
     _team_metadata_cache_client = cache
-    logger.warning(
-        "Dedicated flags cache not configured, using shared cache for team metadata",
-        cache_alias="default",
-    )
 
 team_metadata_hypercache = HyperCache(
     namespace="team_metadata",
     value="full_metadata.json",
-    token_based=True,  # Use team API token as primary key
+    token_based=True,
     load_fn=_load_team_metadata,
     cache_ttl=TEAM_METADATA_CACHE_TTL,
     cache_miss_ttl=TEAM_METADATA_CACHE_MISS_TTL,
@@ -253,11 +238,10 @@ def get_teams_needing_refresh(
     """
     teams_to_refresh = []
 
-    # Find teams with expiring caches from Redis
     expiring_tokens = []
     try:
         redis_client = get_client()
-        pattern = f"cache/team_tokens/*/team_metadata/*"
+        pattern = f"cache/team_tokens/*/team_metadata/full_metadata.json"
 
         ttl_threshold_seconds = ttl_threshold_hours * 3600
         token_pattern = r"cache/team_tokens/([^/]+)/"
@@ -273,7 +257,6 @@ def get_teams_needing_refresh(
                 if match:
                     expiring_tokens.append(match.group(1))
 
-        # Get teams with expiring caches, ordered by oldest first (most stale)
         if expiring_tokens:
             teams = Team.objects.filter(api_token__in=expiring_tokens).order_by("updated_at")[:batch_size]
             teams_to_refresh.extend(teams)
@@ -281,11 +264,9 @@ def get_teams_needing_refresh(
     except Exception as e:
         logger.warning("Error checking cache TTLs", error=str(e))
 
-    # If we haven't reached batch_size, find active teams that might need cache refresh
     if len(teams_to_refresh) < batch_size:
         remaining = batch_size - len(teams_to_refresh)
 
-        # Find active teams (with ingested events) that aren't already in our refresh list
         existing_team_ids = [t.id for t in teams_to_refresh]
         additional_teams = (
             Team.objects.exclude(id__in=existing_team_ids)
@@ -295,10 +276,11 @@ def get_teams_needing_refresh(
 
         teams_to_refresh.extend(additional_teams)
 
+    expiring_tokens_set = set(expiring_tokens)
     logger.info(
         "Found teams needing cache refresh",
         team_count=len(teams_to_refresh),
-        expiring_cache_count=len([t for t in teams_to_refresh if t.api_token in expiring_tokens]),
+        expiring_cache_count=len([t for t in teams_to_refresh if t.api_token in expiring_tokens_set]),
     )
 
     return teams_to_refresh
@@ -334,6 +316,7 @@ def refresh_stale_caches(
                 failed += 1
         except Exception as e:
             logger.exception("Error refreshing cache for team", team_id=team.id, error=str(e))
+            capture_exception(e)
             failed += 1
 
     logger.info(

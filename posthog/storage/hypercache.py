@@ -111,7 +111,6 @@ class HyperCache:
             else:
                 return json.loads(data), "redis"
 
-        # Fallback to s3
         try:
             data = object_storage.read(cache_key)
             if data:

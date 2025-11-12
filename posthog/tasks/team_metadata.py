@@ -65,7 +65,6 @@ def refresh_stale_team_metadata_cache() -> None:
 
     logger.info("Starting intelligent team metadata cache sync")
 
-    # Get cache statistics before refresh
     stats_before = get_cache_stats()
     logger.info(
         "Cache stats before refresh",
@@ -75,13 +74,11 @@ def refresh_stale_team_metadata_cache() -> None:
         ttl_distribution=stats_before.get("ttl_distribution", {}),
     )
 
-    # Refresh caches that need it
     successful, failed = refresh_stale_caches(
-        ttl_threshold_hours=24,  # Refresh caches expiring in next 24 hours
-        batch_size=200,  # Process up to 200 teams per run
+        ttl_threshold_hours=24,
+        batch_size=200,
     )
 
-    # Get cache statistics after refresh
     stats_after = get_cache_stats()
 
     logger.info(
