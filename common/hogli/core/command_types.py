@@ -177,8 +177,8 @@ class DirectCommand(Command):
     def execute(self, *args: str) -> None:
         """Execute the shell command with any passed arguments."""
         cmd_str = self.config.get("cmd", "")
-        # Use shell=True if command contains operators like && or ||
-        has_operators = " && " in cmd_str or " || " in cmd_str
+        # Use shell=True if command contains shell operators or is multiline
+        has_operators = any(op in cmd_str for op in [" && ", " || ", "|", "\n"])
         if has_operators:
             # Append args to the command string when using shell
             # Use shlex.quote() to safely escape arguments for shell execution
