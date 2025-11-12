@@ -19,8 +19,8 @@ cp .env.example .env
 ```
 
 3. Update your `.env` file with:
-    - `POSTHOG_PERSONAL_API_KEY`: Your PostHog personal API key
-    - `OPENAI_API_KEY`: Your OpenAI API key
+   - `POSTHOG_PERSONAL_API_KEY`: Your PostHog personal API key
+   - `OPENAI_API_KEY`: Your OpenAI API key
 
 ## Usage
 
@@ -38,9 +38,9 @@ The example will:
 2. Load all available PostHog tools from the MCP server
 3. Create a LangChain agent with access to PostHog data
 4. Analyze product usage by:
-    - Getting available insights
-    - Querying data for the most relevant ones
-    - Summarizing key findings
+   - Getting available insights
+   - Querying data for the most relevant ones
+   - Summarizing key findings
 
 ## Available Tools
 

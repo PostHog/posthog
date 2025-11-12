@@ -92,6 +92,7 @@ class ExperimentSummaryTool(MaxTool):
                 team=self._team,
                 model="gpt-4.1",
                 temperature=0.1,
+                billable=True,
             ).with_structured_output(ExperimentSummaryOutput)
 
             formatted_prompt = prompt_template.replace("{{{experiment_data}}}", formatted_data)
