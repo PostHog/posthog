@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { Link } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider/LemonSlider'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
@@ -112,18 +112,24 @@ export function WebVitals(props: {
                     </span>
                     <div className="flex items-center gap-2">
                         <span className="text-xs text-text-tertiary whitespace-nowrap">Sampling:</span>
-                        <div className="flex items-center gap-2 w-48">
-                            <span className="text-xs text-text-tertiary">
-                                {webVitalsSamplingRate ? `${webVitalsSamplingRate}%` : 'Auto'}
-                            </span>
-                            <LemonSlider
-                                min={1}
-                                max={100}
-                                step={1}
-                                value={webVitalsSamplingRate ?? 100}
-                                onChange={(value) => setWebVitalsSamplingRate(value === 100 ? null : value)}
-                            />
-                        </div>
+                        <LemonSelect
+                            size="small"
+                            options={[
+                                { value: null, label: 'Auto' },
+                                { value: 100, label: '100%' },
+                                { value: 90, label: '90%' },
+                                { value: 80, label: '80%' },
+                                { value: 70, label: '70%' },
+                                { value: 60, label: '60%' },
+                                { value: 50, label: '50%' },
+                                { value: 40, label: '40%' },
+                                { value: 30, label: '30%' },
+                                { value: 20, label: '20%' },
+                                { value: 10, label: '10%' },
+                            ]}
+                            value={webVitalsSamplingRate}
+                            onChange={(value) => setWebVitalsSamplingRate(value)}
+                        />
                     </div>
                 </div>
             </div>

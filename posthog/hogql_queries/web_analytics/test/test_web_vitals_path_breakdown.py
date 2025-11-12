@@ -6,6 +6,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from posthog.schema import (
     DateRange,
@@ -331,3 +332,102 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Should use auto-sampling (no forced rate)
         self.assertIsNotNone(response.samplingRate)
         self.assertEqual(response.samplingRate.numerator, 1)
+
+    def test_auto_sampling_no_sampling_for_low_volume(self):
+        # Create minimal events (< 100k events)
+        # With so few events, auto-sampling should return 100% (1/1)
+        self._create_events(
+            [
+                (
+                    "distinct_id_1",
+                    [
+                        ("2025-01-10", "/path1", 50),
+                    ],
+                ),
+            ],
+            WebVitalsMetric.INP,
+        )
+
+        response = self._run_web_vitals_path_breakdown_query(
+            "2025-01-08",
+            "2025-01-15",
+            (100, 200),
+            sampling=WebAnalyticsSampling(enabled=True),
+        )
+
+        # Should use 100% sampling for < 100k events
+        self.assertEqual(response.samplingRate, SamplingRate(numerator=1))
+
+    def test_auto_sampling_10_percent_for_medium_volume(self):
+        # Test that when auto-sampling returns 10%, it's properly applied
+        self._create_events(
+            [
+                (
+                    "distinct_id_1",
+                    [
+                        ("2025-01-10", "/path1", 50),
+                    ],
+                ),
+            ],
+            WebVitalsMetric.INP,
+        )
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            query = WebVitalsPathBreakdownQuery(
+                dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-15"),
+                metric=WebVitalsMetric.INP,
+                percentile=PropertyMathType.P75,
+                thresholds=(100, 200),
+                properties=[],
+                sampling=WebAnalyticsSampling(enabled=True),
+            )
+
+            runner = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query)
+
+            # Mock the _sample_rate property to return 10% sampling
+            with patch.object(
+                type(runner),
+                "_sample_rate",
+                new_callable=lambda: property(lambda _: SamplingRate(numerator=1, denominator=10)),
+            ):
+                response = runner.calculate()
+
+        # Should use 10% sampling for 100k-999k events
+        self.assertEqual(response.samplingRate, SamplingRate(numerator=1, denominator=10))
+
+    def test_auto_sampling_1_percent_for_high_volume(self):
+        # Test that when auto-sampling returns 1%, it's properly applied
+        self._create_events(
+            [
+                (
+                    "distinct_id_1",
+                    [
+                        ("2025-01-10", "/path1", 50),
+                    ],
+                ),
+            ],
+            WebVitalsMetric.INP,
+        )
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            query = WebVitalsPathBreakdownQuery(
+                dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-15"),
+                metric=WebVitalsMetric.INP,
+                percentile=PropertyMathType.P75,
+                thresholds=(100, 200),
+                properties=[],
+                sampling=WebAnalyticsSampling(enabled=True),
+            )
+
+            runner = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query)
+
+            # Mock the _sample_rate property to return 1% sampling
+            with patch.object(
+                type(runner),
+                "_sample_rate",
+                new_callable=lambda: property(lambda _: SamplingRate(numerator=1, denominator=100)),
+            ):
+                response = runner.calculate()
+
+        # Should use 1% sampling for >= 1M events
+        self.assertEqual(response.samplingRate, SamplingRate(numerator=1, denominator=100))
