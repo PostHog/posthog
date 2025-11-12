@@ -266,7 +266,14 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                     name: 'Test Flag',
                     description: 'Test feature flag',
                     active: true,
-                    filters: { groups: [] },
+                    filters: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 100,
+                            },
+                        ],
+                    },
                 },
             })
 
