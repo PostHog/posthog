@@ -8,6 +8,7 @@ import { TopicMessage } from '../../../../kafka/producer'
 import {
     InternalPerson,
     PersonDistinctId,
+    PersonUpdateFields,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     RawPerson,
@@ -67,7 +68,7 @@ export class PostgresPersonRepository
 
     private async handleOversizedPersonProperties(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         const currentSize = await this.personPropertiesSize(person.id)
@@ -113,7 +114,7 @@ export class PostgresPersonRepository
 
     private async handleExistingOversizedRecord(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         try {
@@ -125,7 +126,7 @@ export class PostgresPersonRepository
                 { teamId: person.team_id, personId: person.id }
             )
 
-            const trimmedUpdate: Partial<InternalPerson> = {
+            const trimmedUpdate: PersonUpdateFields = {
                 ...update,
                 properties: trimmedProperties,
             }
@@ -769,7 +770,7 @@ export class PostgresPersonRepository
 
     async updatePerson(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tag?: string,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {

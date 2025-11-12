@@ -114,7 +114,7 @@ impl ExecutionContext {
         self
     }
 
-    pub fn to_vm(&self) -> Result<HogVM, VmError> {
+    pub fn to_vm(&self) -> Result<HogVM<'_>, VmError> {
         HogVM::new(self)
     }
 

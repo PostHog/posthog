@@ -20,7 +20,7 @@ from posthog.models.raw_sessions.sessions_v3 import (
 )
 
 from dags.common import dagster_tags
-from dags.common.common import JobOwners
+from dags.common.common import JobOwners, metabase_debug_query_url
 
 # This is the number of days to backfill in one SQL operation
 MAX_PARTITIONS_PER_RUN = 10
@@ -74,14 +74,17 @@ def sessions_v3_backfill(context: AssetExecutionContext) -> None:
         f"Running backfill for {partition_range_str} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
     )
     context.log.info(backfill_sql)
+    if debug_url := metabase_debug_query_url(context.run_id):
+        context.log.info(f"Debug query: {debug_url}")
 
-    with tags_context(kind="dagster", dagster=dagster_tags(context)):
-        cluster = get_cluster()
+    cluster = get_cluster()
+    tags = dagster_tags(context)
 
-        def backfill_per_shard(client: Client):
+    def backfill_per_shard(client: Client):
+        with tags_context(kind="dagster", dagster=tags):
             sync_execute(backfill_sql, settings=settings, sync_client=client)
 
-        cluster.map_one_host_per_shard(backfill_per_shard).result()
+    cluster.map_one_host_per_shard(backfill_per_shard).result()
 
     context.log.info(f"Successfully backfilled sessions_v3 for {partition_range_str}")
 
@@ -106,13 +109,16 @@ def sessions_v3_backfill_replay(context: AssetExecutionContext) -> None:
         f"Running backfill for {partition_range_str} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
     )
     context.log.info(backfill_sql)
+    if debug_url := metabase_debug_query_url(context.run_id):
+        context.log.info(f"Debug query: {debug_url}")
 
-    with tags_context(kind="dagster", dagster=dagster_tags(context)):
-        cluster = get_cluster()
+    cluster = get_cluster()
+    tags = dagster_tags(context)
 
-        def backfill_per_shard(client: Client):
+    def backfill_per_shard(client: Client):
+        with tags_context(kind="dagster", dagster=tags):
             sync_execute(backfill_sql, workload=Workload.OFFLINE, settings=settings, sync_client=client)
 
-        cluster.map_one_host_per_shard(backfill_per_shard).result()
+    cluster.map_one_host_per_shard(backfill_per_shard).result()
 
     context.log.info(f"Successfully backfilled sessions_v3 for {partition_range_str}")
