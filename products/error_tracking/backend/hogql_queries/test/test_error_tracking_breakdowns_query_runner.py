@@ -106,16 +106,15 @@ class TestErrorTrackingBreakdownsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         browser_data = response.results["$browser"]
         assert len(browser_data.values) == 3
         assert browser_data.total_count == 10
+        assert (x for x in browser_data.values if x.value == "Chrome").next().count == 5
         assert browser_data.values[0].value == "Chrome"
         assert browser_data.values[0].count == 5
 
         os_data = response.results["$os"]
         assert len(os_data.values) == 2
         assert os_data.total_count == 10
-        assert os_data.values[0].value == "macOS"
-        assert os_data.values[0].count == 5
-        assert os_data.values[1].value == "Windows"
-        assert os_data.values[1].count == 5
+        assert (x for x in os_data.values if x.value == "macOS").next().count == 5
+        assert (x for x in os_data.values if x.value == "Windows").next().count == 5
 
     @freeze_time("2024-01-10T12:00:00Z")
     @snapshot_clickhouse_queries
