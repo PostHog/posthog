@@ -19,6 +19,7 @@ from posthog.api import (
     decide,
     github,
     hog_function_template,
+    otel_ingestion,
     playwright_setup,
     remote_config,
     report,
@@ -230,6 +231,8 @@ urlpatterns = [
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("decide", decide.get_decide),
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports
+    # OpenTelemetry OTLP ingestion endpoint for LLM analytics
+    path("api/public/otel/v1/traces", csrf_exempt(otel_ingestion.OTLPTraceView.as_view())),
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth
