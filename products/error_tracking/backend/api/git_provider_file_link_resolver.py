@@ -1,4 +1,5 @@
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.conf import settings
 
@@ -181,24 +182,36 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not owner or not repository or not code_sample or not file_name:
             return Response({"found": False, "error": "owner, repository, code_sample, and file_name are required"})
 
-        url = None
+        integrations = Integration.objects.filter(team_id=self.team.id, kind="gitlab")
 
-        integration = Integration.objects.filter(team_id=self.team.id, kind="gitlab").first()
+        if not integrations:
+            return Response({"found": False})
 
-        if integration:
-            gitlab = GitLabIntegration(integration)
-            hostname = gitlab.hostname
-            token = gitlab.integration.sensitive_config.get("access_token")
+        def try_integration(integration):
+            try:
+                gitlab = GitLabIntegration(integration)
+                hostname = gitlab.hostname
+                token = gitlab.integration.sensitive_config.get("access_token")
 
-            if token:
-                url = get_gitlab_file_url(
-                    code_sample=code_sample,
-                    token=token,
-                    owner=owner,
-                    repository=repository,
-                    file_name=file_name,
-                    gitlab_url=hostname,
-                )
+                if token:
+                    return get_gitlab_file_url(
+                        code_sample=code_sample,
+                        token=token,
+                        owner=owner,
+                        repository=repository,
+                        file_name=file_name,
+                        gitlab_url=hostname,
+                    )
+            except Exception:
+                return None
+
+        with ThreadPoolExecutor(max_workers=min(len(integrations), 5)) as executor:
+            future_to_integration = {
+                executor.submit(try_integration, integration): integration for integration in integrations
+            }
+
+            for future in as_completed(future_to_integration):
+                url = future.result()
                 if url:
                     return Response({"found": True, "url": url})
 
