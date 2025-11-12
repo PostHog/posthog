@@ -29,40 +29,17 @@ export function CustomerIOImportModal(): JSX.Element {
     } = useActions(customerIOImportLogic)
 
     const renderAPIImportPhase = (): JSX.Element => {
-        if (isImporting || (importProgress && importProgress.status !== 'completed' && importProgress.status !== 'failed')) {
-            // Show progress
+        if (isImporting) {
+            // Show simple loading spinner
             return (
                 <div className="space-y-4">
-                    <div className="text-center">
+                    <div className="text-center py-8">
                         <Spinner className="text-3xl mb-4" />
-                        <div className="text-lg font-semibold mb-2">Importing from Customer.io API...</div>
+                        <div className="text-lg font-semibold mb-2">Importing from Customer.io...</div>
                         <div className="text-sm text-muted-alt">
-                            {importProgress?.details || 'Starting import...'}
+                            This may take a moment. Processing categories and unsubscribed users.
                         </div>
                     </div>
-                    
-                    {importProgress && (
-                        <div className="space-y-2 text-sm">
-                            {importProgress.topics_found > 0 && (
-                                <div className="flex items-center gap-2">
-                                    <IconCheck className="text-success" />
-                                    <span>Found {importProgress.topics_found} subscription topics</span>
-                                </div>
-                            )}
-                            {(importProgress.categories_created ?? 0) > 0 && (
-                                <div className="flex items-center gap-2">
-                                    <IconCheck className="text-success" />
-                                    <span>Created {importProgress.categories_created} categories</span>
-                                </div>
-                            )}
-                            {(importProgress.globally_unsubscribed_count ?? 0) > 0 && (
-                                <div className="flex items-center gap-2">
-                                    <Spinner className="text-xs" />
-                                    <span>Processing {(importProgress.globally_unsubscribed_count ?? 0).toLocaleString()} globally unsubscribed users...</span>
-                                </div>
-                            )}
-                        </div>
-                    )}
                 </div>
             )
         }
@@ -293,7 +270,7 @@ export function CustomerIOImportModal(): JSX.Element {
 
     const getModalFooter = (): JSX.Element | null => {
         // During API import
-        if (isImporting || (importProgress && importProgress.status !== 'completed' && importProgress.status !== 'failed')) {
+        if (isImporting) {
             return null // No buttons during import
         }
 

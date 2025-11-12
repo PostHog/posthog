@@ -40,14 +40,9 @@ class CustomerIOImportService:
         """Import categories and globally unsubscribed users via API"""
         try:
             # Step 1: Validate credentials
-            self.progress["status"] = "validating_credentials"
-            self.progress["details"] = "Validating Customer.io API credentials..."
-
             # Try US region first
             self.client = CustomerIOClient(self.api_key, region="us")
-            if self.client.validate_credentials():
-                self.progress["status"] = "validated"
-            else:
+            if not self.client.validate_credentials():
                 # Try EU region
                 self.client = CustomerIOClient(self.api_key, region="eu")
                 if not self.client.validate_credentials():
@@ -58,8 +53,6 @@ class CustomerIOImportService:
                     return self.progress
 
             # Step 2: Import subscription topics as categories
-            self.progress["status"] = "creating_categories"
-            self.progress["details"] = "Fetching subscription topics from Customer.io..."
             topics = self.client.get_subscription_centers()
 
             if not topics:
@@ -68,16 +61,12 @@ class CustomerIOImportService:
                 return self.progress
 
             self.progress["topics_found"] = len(topics)
-            self.progress["details"] = f"Creating {len(topics)} message categories..."
             self._import_categories(topics)
 
             # Step 3: Process globally unsubscribed users
-            self.progress["status"] = "processing_globally_unsubscribed"
-            self.progress["details"] = "Processing globally unsubscribed users..."
             self._process_globally_unsubscribed_users()
 
             self.progress["status"] = "completed"
-            self.progress["details"] = "API import completed. You can now optionally upload a CSV with user preferences."
 
         except Exception as e:
             self.progress["status"] = "failed"
@@ -130,10 +119,6 @@ class CustomerIOImportService:
                 csv_progress["total_rows"] = row_num
                 csv_progress["rows_processed"] = row_num
                 
-                # Update progress every 100 rows
-                if row_num % 100 == 0:
-                    csv_progress["details"] = f"Processing row {row_num}..."
-                    csv_progress["current_batch"] = row_num // batch_size + 1
                 
                 # Process row
                 result = self._process_csv_row(row)

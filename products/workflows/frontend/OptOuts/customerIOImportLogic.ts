@@ -20,13 +20,8 @@ export interface CategoryProgress {
 export interface ImportProgress {
     status: string
     topics_found: number
-    workflows_created?: number
     categories_created?: number
-    customers_processed: number
-    preferences_updated: number
     globally_unsubscribed_count?: number
-    current_batch?: number
-    customers_in_current_batch?: number
     details?: string
     errors: string[]
 }
@@ -47,8 +42,6 @@ export interface CSVImportProgress {
     }>
 }
 
-let pollInterval: NodeJS.Timeout | null = null
-
 export const customerIOImportLogic = kea<customerIOImportLogicType>([
     path(['products', 'workflows', 'customerIOImportLogic']),
     actions({
@@ -57,9 +50,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         resetImport: true,
         setImportProgress: (importProgress: ImportProgress) => ({ importProgress }),
         setImportError: (error: string | null) => ({ error }),
-        startPolling: (importId: string) => ({ importId }),
-        stopPolling: true,
-        pollProgress: (importId: string) => ({ importId }),
         setCSVFile: (file: File | null) => ({ file }),
         uploadCSV: true,
         setCSVProgress: (csvProgress: CSVImportProgress | null) => ({ csvProgress }),
@@ -94,14 +84,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 },
                 submitImportFormSuccess: () => null,
                 resetImport: () => null,
-                closeImportModal: () => null,
-            },
-        ],
-        currentImportId: [
-            null as string | null,
-            {
-                startPolling: (_, { importId }) => importId,
-                stopPolling: () => null,
                 closeImportModal: () => null,
             },
         ],
@@ -149,14 +131,8 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                         .messagingCategoriesImportFromCustomerIO()
                         .create({ data: { app_api_key } })
 
-                    // The API now returns immediately with import_id
-                    if (response.import_id) {
-                        actions.startPolling(response.import_id)
-                    } else {
-                        // Legacy behavior for backward compatibility
-                        actions.setImportProgress(response)
-                    }
-
+                    // Set the import progress directly (no polling)
+                    actions.setImportProgress(response)
                     return response
                 } catch (error: any) {
                     throw error
@@ -172,8 +148,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
     listeners(({ actions }) => ({
         setImportProgress: ({ importProgress }) => {
             if (importProgress.status === 'completed') {
-                actions.stopPolling()
-                const categoriesCreated = importProgress.categories_created || importProgress.workflows_created || 0
+                const categoriesCreated = importProgress.categories_created || 0
                 const globallyUnsubscribed = importProgress.globally_unsubscribed_count || 0
                 lemonToast.success(
                     `API import completed! Created ${categoriesCreated} categories and imported ${globallyUnsubscribed} globally unsubscribed users.`
@@ -186,7 +161,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                     optOutCategoriesLogic.actions.loadCategories()
                 }
             } else if (importProgress.status === 'failed') {
-                actions.stopPolling()
                 const errorMessage = importProgress.errors?.join(', ') || 'Import failed'
                 lemonToast.error(errorMessage)
             }
@@ -263,45 +237,8 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             console.error('Import failed:', error)
         },
         closeImportModal: () => {
-            actions.stopPolling()
             actions.resetImportForm()
             actions.resetImport()
         },
-        startPolling: async ({ importId }) => {
-            // Clear any existing interval
-            if (pollInterval) {
-                clearInterval(pollInterval)
-            }
-
-            // Start polling every 2 seconds
-            pollInterval = setInterval(() => {
-                actions.pollProgress(importId)
-            }, 2000)
-
-            // Do initial poll immediately
-            actions.pollProgress(importId)
-        },
-        stopPolling: () => {
-            if (pollInterval) {
-                clearInterval(pollInterval)
-                pollInterval = null
-            }
-        },
-        pollProgress: async ({ importId }) => {
-            try {
-                const response = await new ApiRequest()
-                    .messagingCategoriesImportProgress()
-                    .withQueryString({ import_id: importId })
-                    .get()
-
-                actions.setImportProgress(response)
-            } catch (error) {
-                console.error('Failed to poll progress:', error)
-                // Don't stop polling on error, might be temporary
-            }
-        },
     })),
-    beforeUnmount(({ actions }) => {
-        actions.stopPolling()
-    }),
 ])

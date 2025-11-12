@@ -69,9 +69,6 @@ class MessageCategoryViewSet(
             deleted=False,
         )
 
-    # Store import service instances for progress tracking
-    _import_services = {}
-    
     @action(detail=False, methods=["post"])
     def import_from_customerio(self, request, **kwargs):
         """
@@ -86,24 +83,11 @@ class MessageCategoryViewSet(
         # Create import service
         import_service = CustomerIOImportService(team=self.team, api_key=api_key, user=request.user)
         
-        # Store service for progress tracking (use team ID as key)
-        import_id = f"{self.team.id}_{request.user.id}"
-        self._import_services[import_id] = import_service
+        # Run import synchronously
+        result = import_service.import_api_data()
 
-        # Start import in a thread for async processing
-        import threading
-        def run_import():
-            import_service.import_api_data()
-        
-        thread = threading.Thread(target=run_import)
-        thread.start()
-
-        # Return immediate response with import ID
-        return Response({
-            "import_id": import_id,
-            "status": "started",
-            "message": "Import started. Poll /import_progress for updates."
-        }, status=status.HTTP_202_ACCEPTED)
+        # Return the result directly
+        return Response(result, status=status.HTTP_200_OK)
     
     @action(detail=False, methods=["post"], parser_classes=[MultiPartParser, FormParser])
     def import_preferences_csv(self, request, **kwargs):
@@ -146,26 +130,3 @@ class MessageCategoryViewSet(
         
         # Return results including any failed imports
         return Response(result, status=status.HTTP_200_OK)
-    
-    @action(detail=False, methods=["get"])
-    def import_progress(self, request, **kwargs):
-        """
-        Get progress of Customer.io import
-        """
-        import_id = request.query_params.get("import_id", f"{self.team.id}_{request.user.id}")
-        
-        if import_id not in self._import_services:
-            return Response(
-                {"error": "No import in progress"}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        import_service = self._import_services[import_id]
-        progress = import_service.get_progress()
-        
-        # Clean up completed imports
-        if progress.get("status") in ["completed", "failed"]:
-            # Keep for a bit to allow final status check
-            pass
-        
-        return Response(progress, status=status.HTTP_200_OK)
