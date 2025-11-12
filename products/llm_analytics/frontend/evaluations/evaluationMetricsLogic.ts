@@ -9,11 +9,14 @@ import { hogql } from '~/queries/utils'
 import { ChartDisplayType, HogQLMathType } from '~/types'
 
 import { llmAnalyticsLogic } from '../llmAnalyticsLogic'
+import { PASS_RATE_SUCCESS_THRESHOLD } from './components/EvaluationMetrics'
 import type { evaluationMetricsLogicType } from './evaluationMetricsLogicType'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationConfig } from './types'
 
-interface EvaluationStats {
+const MIN_RUNS_FOR_FAILING_STATUS = 3
+
+export interface EvaluationStats {
     evaluation_id: string
     runs_count: number
     pass_count: number
@@ -117,7 +120,9 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                 const overall_pass_rate = total_runs > 0 ? (total_passes / total_runs) * 100 : 0
 
                 const failing_count = stats.filter((stat) => {
-                    return stat.runs_count >= 3 && stat.pass_rate < 70
+                    return (
+                        stat.runs_count >= MIN_RUNS_FOR_FAILING_STATUS && stat.pass_rate < PASS_RATE_SUCCESS_THRESHOLD
+                    )
                 }).length
 
                 return {

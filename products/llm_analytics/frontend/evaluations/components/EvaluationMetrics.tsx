@@ -10,11 +10,14 @@ import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
 
 export const EVALUATION_METRICS_COLLECTION_ID = 'evaluation-metrics'
 
+export const PASS_RATE_SUCCESS_THRESHOLD = 70
+export const PASS_RATE_WARNING_THRESHOLD = 50
+
 function getPassRateColor(passRate: number): string {
-    if (passRate >= 80) {
+    if (passRate >= PASS_RATE_SUCCESS_THRESHOLD) {
         return 'text-success'
     }
-    if (passRate >= 50) {
+    if (passRate >= PASS_RATE_WARNING_THRESHOLD) {
         return 'text-warning'
     }
     return 'text-danger'

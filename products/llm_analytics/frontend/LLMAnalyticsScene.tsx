@@ -52,8 +52,12 @@ import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
-import { EvaluationMetrics } from './evaluations/components/EvaluationMetrics'
-import { evaluationMetricsLogic } from './evaluations/evaluationMetricsLogic'
+import {
+    EvaluationMetrics,
+    PASS_RATE_SUCCESS_THRESHOLD,
+    PASS_RATE_WARNING_THRESHOLD,
+} from './evaluations/components/EvaluationMetrics'
+import { EvaluationStats, evaluationMetricsLogic } from './evaluations/evaluationMetricsLogic'
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { EvaluationConfig } from './evaluations/types'
 import { useSortableColumns } from './hooks/useSortableColumns'
@@ -467,14 +471,18 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
         {
             title: 'Recent',
             key: 'recent_stats',
-            render: (_, evaluation: any) => {
+            render: (_, evaluation: EvaluationConfig & { stats?: EvaluationStats }) => {
                 const stats = evaluation.stats
                 if (!stats || stats.runs_count === 0) {
                     return <span className="text-muted text-sm">No runs</span>
                 }
 
                 const passRateColor =
-                    stats.pass_rate >= 80 ? 'text-success' : stats.pass_rate >= 50 ? 'text-warning' : 'text-danger'
+                    stats.pass_rate >= PASS_RATE_SUCCESS_THRESHOLD
+                        ? 'text-success'
+                        : stats.pass_rate >= PASS_RATE_WARNING_THRESHOLD
+                          ? 'text-warning'
+                          : 'text-danger'
 
                 return (
                     <div className="flex flex-col items-center">
