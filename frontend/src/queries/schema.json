@@ -25691,6 +25691,9 @@
                 "description": {
                     "type": "string"
                 },
+                "distance": {
+                    "type": "number"
+                },
                 "first_seen": {
                     "type": "string"
                 },
@@ -25707,7 +25710,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "name", "description", "library", "status", "first_seen"],
+            "required": ["id", "name", "description", "library", "status", "first_seen", "distance"],
             "type": "object"
         },
         "SimpleIntervalType": {

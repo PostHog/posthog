@@ -2388,6 +2388,7 @@ export type SimilarIssue = {
     library: string | null
     status: string
     first_seen: string
+    distance: number
 }
 
 export type BreakdownValue = {
