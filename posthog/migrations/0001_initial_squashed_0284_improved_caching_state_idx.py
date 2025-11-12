@@ -3554,7 +3554,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="taggeditem",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     models.Q(
                         ("dashboard__isnull", False),
                         ("insight__isnull", True),
@@ -3654,7 +3654,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="propertydefinition",
             constraint=models.CheckConstraint(
-                check=models.Q(("property_type__in", ["DateTime", "String", "Numeric", "Boolean"])),
+                condition=models.Q(("property_type__in", ["DateTime", "String", "Numeric", "Boolean"])),
                 name="property_type_is_valid",
             ),
         ),
@@ -3757,7 +3757,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="grouptypemapping",
             constraint=models.CheckConstraint(
-                check=models.Q(("group_type_index__lte", 5)),
+                condition=models.Q(("group_type_index__lte", 5)),
                 name="group_type_index is less than or equal 5",
             ),
         ),
@@ -3851,7 +3851,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="dashboardtile",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     models.Q(("insight__isnull", False), ("text__isnull", True)),
                     models.Q(("insight__isnull", True), ("text__isnull", False)),
                     _connector="OR",
@@ -3892,7 +3892,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="activitylog",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     ("team_id__isnull", False),
                     ("organization_id__isnull", False),
                     _connector="OR",

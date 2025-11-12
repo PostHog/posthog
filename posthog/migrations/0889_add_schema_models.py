@@ -134,7 +134,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="schemapropertygroupproperty",
             constraint=models.CheckConstraint(
-                check=models.Q(("property_type__in", posthog.models.property_definition.PropertyType.values)),
+                condition=models.Q(("property_type__in", posthog.models.property_definition.PropertyType.values)),
                 name="property_type_is_valid_schema",
             ),
         ),

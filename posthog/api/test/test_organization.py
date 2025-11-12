@@ -221,7 +221,7 @@ class TestOrganizationAPI(APIBaseTest):
             scoped_organizations=[str(other_org.id)],
         )
 
-        response = self.client.get("/api/organizations/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        response = self.client.get("/api/organizations/", headers={"authorization": f"Bearer {access_token.token}"})
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 

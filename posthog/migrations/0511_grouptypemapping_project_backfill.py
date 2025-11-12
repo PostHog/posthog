@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
             model_name="grouptypemapping",
             constraint=models.CheckConstraint(
                 name="group_type_project_id_is_not_null",
-                check=models.Q(project_id__isnull=False),
+                condition=models.Q(project_id__isnull=False),
             ),
         ),
         AddIndexConcurrently(

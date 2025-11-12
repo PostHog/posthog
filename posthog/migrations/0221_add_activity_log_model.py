@@ -60,7 +60,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="activitylog",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     ("team_id__isnull", False),
                     ("organization_id__isnull", False),
                     _connector="OR",

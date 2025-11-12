@@ -100,7 +100,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="dashboardtile",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     models.Q(("insight__isnull", False), ("text__isnull", True)),
                     models.Q(("insight__isnull", True), ("text__isnull", False)),
                     _connector="OR",

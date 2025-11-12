@@ -110,11 +110,11 @@ class PropertyDefinition(UUIDTModel):
         constraints = [
             models.CheckConstraint(
                 name="property_type_is_valid",
-                check=models.Q(property_type__in=PropertyType.values),
+                condition=models.Q(property_type__in=PropertyType.values),
             ),
             models.CheckConstraint(
                 name="group_type_index_set",
-                check=~models.Q(type=3) | models.Q(group_type_index__isnull=False),
+                condition=~models.Q(type=3) | models.Q(group_type_index__isnull=False),
             ),
             UniqueConstraintByExpression(
                 concurrently=True,

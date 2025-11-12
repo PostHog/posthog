@@ -1976,7 +1976,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             scoped_teams=[other_team_in_project.id],
         )
 
-        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {access_token.token}"})
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -2008,7 +2008,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             scoped_organizations=[str(other_org.id)],
         )
 
-        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {access_token.token}"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(

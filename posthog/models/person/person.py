@@ -209,7 +209,7 @@ class PersonOverride(models.Model):
                 name="unique override per old_person_id",
             ),
             models.CheckConstraint(
-                check=~Q(old_person_id__exact=F("override_person_id")),
+                condition=~Q(old_person_id__exact=F("override_person_id")),
                 name="old_person_id_different_from_override_person_id",
             ),
         ]
@@ -251,7 +251,7 @@ class FlatPersonOverride(models.Model):
                 name="flatpersonoverride_unique_old_person_by_team",
             ),
             models.CheckConstraint(
-                check=~Q(old_person_id__exact=F("override_person_id")),
+                condition=~Q(old_person_id__exact=F("override_person_id")),
                 name="flatpersonoverride_check_circular_reference",
             ),
         ]

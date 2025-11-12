@@ -300,7 +300,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="organizationinvite",
             constraint=models.CheckConstraint(
-                check=models.Q(uses__lte=django.db.models.expressions.F("max_uses")),
+                condition=models.Q(uses__lte=django.db.models.expressions.F("max_uses")),
                 name="max_uses_respected",
             ),
         ),

@@ -120,7 +120,7 @@ class ActivityLog(UUIDTModel):
         constraints = [
             models.CheckConstraint(
                 name="must_have_team_or_organization_id",
-                check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
+                condition=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
             ),
         ]
         indexes = [

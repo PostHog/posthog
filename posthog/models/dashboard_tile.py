@@ -75,7 +75,7 @@ class DashboardTile(models.Model):
                 condition=Q(("text__isnull", False)),
             ),
             models.CheckConstraint(
-                check=build_unique_relationship_check(("insight", "text")),
+                condition=build_unique_relationship_check(("insight", "text")),
                 name="dash_tile_exactly_one_related_object",
             ),
         ]

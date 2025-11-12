@@ -40,7 +40,7 @@ class Migration(migrations.Migration):
         AddConstraintNotValid(
             model_name="propertydefinition",
             constraint=models.CheckConstraint(
-                check=models.Q(("property_type__in", ["DateTime", "String", "Numeric", "Boolean", "Duration"])),
+                condition=models.Q(("property_type__in", ["DateTime", "String", "Numeric", "Boolean", "Duration"])),
                 name="property_type_is_valid",
             ),
         ),
