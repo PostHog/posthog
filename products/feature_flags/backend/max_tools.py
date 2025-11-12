@@ -515,6 +515,7 @@ The tool will automatically:
             "change": f"Create a feature flag based on these instructions: {instructions}",
             "output": None,
             "tool_progress_messages": [],
+            "billable": True,
             **self.context,
         }
 
