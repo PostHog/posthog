@@ -523,7 +523,13 @@ def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
     return dagster.RunConfig(
         {
             op.name: {"config": config.model_dump(mode="json")}
-            for op in [get_latest_backups, run_backup, get_latest_successful_backup, wait_for_backup]
+            for op in [
+                check_running_backup_for_table,
+                get_latest_backups,
+                run_backup,
+                get_latest_successful_backup,
+                wait_for_backup,
+            ]
         }
     )
 
