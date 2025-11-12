@@ -35,17 +35,17 @@ pub struct Config {
     pub kafka_tls: bool,
 
     // Service specific configuration
-    #[envconfig(default = "repartitioner")]
+    #[envconfig(default = "repartitioner_v1")]
     pub kafka_consumer_group: String,
 
-    #[envconfig(default = "events")]
+    #[envconfig(default = "clickhouse_events_json")]
     pub kafka_source_topic: String,
 
     // Destination topic configuration
-    #[envconfig(default = "events_repartitioned")]
+    #[envconfig(default = "propdefs_events_json")]
     pub kafka_destination_topic: String,
 
-    #[envconfig(default = "propdefs_v1")]
+    #[envconfig(default = "propdefs_v1_by_team_id")]
     pub partition_key_compute_fn: String,
 
     // HTTP server configuration

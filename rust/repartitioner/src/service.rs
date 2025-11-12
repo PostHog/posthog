@@ -20,6 +20,7 @@ use crate::repartitioners::compute_propdefs_v1_key_by_team_id;
 
 const KAFKA_CONSUMER_ERROR: &str = "kafka_consumer_error";
 const KAFKA_MESSAGE_CONSUMED: &str = "kafka_message_consumed";
+const REPARTITIONER_PROCESSING_ERROR: &str = "repartitioner_processing_error";
 pub struct RepartitionerService {
     config: Config,
     consumer: StreamConsumer,
@@ -46,6 +47,7 @@ impl RepartitionerService {
             .set("statistics.interval.ms", "10000")
             .set("group.id", &config.kafka_consumer_group)
             .set("auto.offset.reset", &config.kafka_consumer_offset_reset)
+            .set("auto.store.offsets", "false") // we handle offset updates manually
             .set("enable.auto.offset.store", "false");
 
         if config.kafka_tls {
@@ -105,17 +107,21 @@ impl RepartitionerService {
             match self.consumer.recv().await {
                 Ok(message) => {
                     if let Err(e) = self.process_message(&message).await {
-                        warn!("Failed to process message: {}", e);
-                        metrics::counter!(
-                            KAFKA_CONSUMER_ERROR,
-                            &[("level", "warn"), ("error", "process_message"),]
-                        )
-                        .increment(1);
-                        // Don't mark unhealthy on processing errors - they're per-message failures
+                        // Processing error mean we can't obtain the new partition key.
+                        // this should be exceedingly rare, but if it happens, we have
+                        // no choice but to drop the message and continue
+                        error!("Failed to process message, dropping it: {}", e);
+                        metrics::counter!(REPARTITIONER_PROCESSING_ERROR).increment(1);
                     } else {
                         metrics::counter!(KAFKA_MESSAGE_CONSUMED).increment(1);
                     }
+                    // clear error count and store offset best-effort
                     kafka_error_count = 0;
+                    let _ignored = self.consumer.store_offset(
+                        message.topic(),
+                        message.partition(),
+                        message.offset() + 1,
+                    );
                 }
                 Err(e) => {
                     kafka_error_count += 1;
@@ -136,6 +142,7 @@ impl RepartitionerService {
         }
     }
 
+    // TODO(eli): utilize current_count to determine waits and cutoffs for retriable but possibly fatal errors
     async fn handle_kafka_error(&self, e: KafkaError, current_count: u64) -> Option<KafkaError> {
         match &e {
             KafkaError::MessageConsumption(code) => {
@@ -155,6 +162,8 @@ impl RepartitionerService {
                         .increment(1);
                     }
                     RDKafkaErrorCode::OffsetOutOfRange => {
+                        // "auto.offset.reset" will trigger a seek to head or tail
+                        // of the partition in coordination with the broker
                         warn!(
                             "Offset out of range - seeking to {}",
                             self.config.kafka_consumer_offset_reset
@@ -201,7 +210,7 @@ impl RepartitionerService {
                             &[("level", "warn"), ("error", "all_brokers_down"),]
                         )
                         .increment(1);
-                        sleep(Duration::from_secs(2)).await;
+                        sleep(Duration::from_secs(current_count.min(5))).await;
                     }
                     RDKafkaErrorCode::BrokerTransportFailure => {
                         warn!("Broker transport failure: {code:?} - waiting for reconnect");
@@ -210,7 +219,7 @@ impl RepartitionerService {
                             &[("level", "warn"), ("error", "broker_transport"),]
                         )
                         .increment(1);
-                        sleep(Duration::from_secs(1)).await;
+                        sleep(Duration::from_secs(current_count.min(3))).await;
                     }
                     RDKafkaErrorCode::Authentication => {
                         error!("Authentication failed: {code:?}");
@@ -225,10 +234,10 @@ impl RepartitionerService {
                         warn!("Global Kafka error: {code:?}");
                         metrics::counter!(
                             KAFKA_CONSUMER_ERROR,
-                            &[("level", "warm"), ("error", "global"),]
+                            &[("level", "warn"), ("error", "global"),]
                         )
                         .increment(1);
-                        sleep(Duration::from_secs(1)).await;
+                        sleep(Duration::from_millis(500 * current_count.min(6))).await;
                     }
                 }
 
@@ -320,10 +329,17 @@ impl RepartitionerService {
             }
 
             // TODO: map more repartitioning functions here as needed
-            _ => Err(anyhow::anyhow!(
-                "Unknown partition key compute function: {}",
-                self.config.partition_key_compute_fn
-            )),
+            _ => {
+                metrics::counter!(
+                    REPARTITIONER_PROCESSING_ERROR,
+                    &[("level", "fatal"), ("error", "unknown_partition_key_fn"),]
+                )
+                .increment(1);
+                Err(anyhow::anyhow!(
+                    "Unknown partition key compute function: {}",
+                    self.config.partition_key_compute_fn
+                ))
+            }
         }
     }
 }
