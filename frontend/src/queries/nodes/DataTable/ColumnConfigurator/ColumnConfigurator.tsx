@@ -27,6 +27,7 @@ import { DataTableNode } from '~/queries/schema/schema-general'
 import {
     isEventsQuery,
     isGroupsQuery,
+    isSessionsQuery,
     taxonomicEventFilterToHogQL,
     taxonomicGroupFilterToHogQL,
     trimQuotes,
@@ -52,7 +53,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
         isPersistent: !!query.showPersistentColumnConfigurator,
         columns: columnsInQuery,
         setColumns: (columns: string[]) => {
-            if (isEventsQuery(query.source)) {
+            if (isEventsQuery(query.source) || isSessionsQuery(query.source)) {
                 let orderBy = query.source.orderBy
                 if (orderBy && orderBy.length > 0) {
                     const orderColumn = removeExpressionComment(
@@ -128,12 +129,17 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
               `${TaxonomicFilterGroupType.GroupsPrefix}_${query.source.group_type_index}` as TaxonomicFilterGroupType,
               TaxonomicFilterGroupType.HogQLExpression,
           ]
-        : [
-              TaxonomicFilterGroupType.EventProperties,
-              TaxonomicFilterGroupType.EventFeatureFlags,
-              TaxonomicFilterGroupType.PersonProperties,
-              ...(isEventsQuery(query.source) ? [TaxonomicFilterGroupType.HogQLExpression] : []),
-          ]
+        : isSessionsQuery(query.source)
+          ? [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
+          : [
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
+                TaxonomicFilterGroupType.PersonProperties,
+                ...(isEventsQuery(query.source) ? [TaxonomicFilterGroupType.HogQLExpression] : []),
+            ]
+
+    const showPersistedColumnReorder =
+        isEventsQuery(query.source) || isGroupsQuery(query.source) || isSessionsQuery(query.source)
 
     return (
         <LemonModal
@@ -217,24 +223,23 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                         </div>
                     </div>
                 </div>
-                {(isEventsQuery(query.source) || isGroupsQuery(query.source)) &&
-                    query.showPersistentColumnConfigurator && (
-                        <LemonCheckbox
-                            label={
-                                context?.type === 'groups'
-                                    ? 'Save as default columns for this group type'
-                                    : context?.type === 'event_definition'
-                                      ? 'Save as default columns for this event type'
-                                      : 'Save as default for all project members'
-                            }
-                            className="mt-2"
-                            data-attr="events-table-save-columns-as-default-toggle"
-                            bordered
-                            checked={saveAsDefault}
-                            onChange={toggleSaveAsDefault}
-                            disabledReason={restrictionReason}
-                        />
-                    )}
+                {showPersistedColumnReorder && query.showPersistentColumnConfigurator && (
+                    <LemonCheckbox
+                        label={
+                            context?.type === 'groups'
+                                ? 'Save as default columns for this group type'
+                                : context?.type === 'event_definition'
+                                  ? 'Save as default columns for this event type'
+                                  : 'Save as default for all project members'
+                        }
+                        className="mt-2"
+                        data-attr="events-table-save-columns-as-default-toggle"
+                        bordered
+                        checked={saveAsDefault}
+                        onChange={toggleSaveAsDefault}
+                        disabledReason={restrictionReason}
+                    />
+                )}
             </div>
         </LemonModal>
     )
