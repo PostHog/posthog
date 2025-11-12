@@ -36,7 +36,7 @@ pub struct KafkaLogRow {
     pub resource_attributes: HashMap<String, String>,
     pub instrumentation_scope: String,
     pub event_name: String,
-    pub attributes: HashMap<String, String>
+    pub attributes: HashMap<String, String>,
 }
 
 impl KafkaLogRow {
@@ -122,7 +122,7 @@ impl KafkaLogRow {
             instrumentation_scope,
             event_name,
             service_name,
-            attributes
+            attributes,
         };
         debug!("log: {:?}", log_row);
 
