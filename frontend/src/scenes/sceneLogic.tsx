@@ -1548,7 +1548,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 const key = event.key?.toLowerCase()
                 const activeTab = values.activeTab
                 const isPinnedTab = !!activeTab?.pinned
-                const canCloseTab = values.tabs.length > 1 && !isPinnedTab
+                const canCloseTab = !isPinnedTab
 
                 // Helper function to check if this is the T or W key
                 const isTKey = keyCode === 'keyt' || key === 't'
