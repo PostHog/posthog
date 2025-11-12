@@ -43,8 +43,9 @@ if [ "$ADDED" -gt 0 ] || [ "$MODIFIED" -gt 0 ]; then
     echo "::group::OptiPNG optimization" >&2
     # Find PNG files and optimize in parallel using all CPU cores
     # xargs -P 0 uses all available cores (one optipng process per core)
+    # -quiet suppresses verbose output, only shows file name and size reduction
     grep -E '^[AM].*\.png$' /tmp/snapshot-diff.txt | awk '{print $2}' | \
-        xargs -I {} -P 0 -n 1 bash -c '[ -f "$1" ] && optipng -clobber -o4 -strip all "$1" || true' _ {}
+        xargs -I {} -P 0 -n 1 bash -c '[ -f "$1" ] && optipng -clobber -o4 -strip all -quiet "$1" || true' _ {}
     echo "::endgroup::" >&2
 
     # Re-count after OptiPNG (may have eliminated some diffs)
