@@ -68,7 +68,7 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
     return (
         <LemonCard
             hoverEffect={false}
-            className={cn('p-0 relative', hasNewIssueLayout ? 'overflow-y-auto' : 'overflow-hidden')}
+            className={cn('p-0 relative', hasNewIssueLayout ? 'overflow-y-auto w-full' : 'overflow-hidden')}
         >
             <TabsPrimitive value={currentTab} onValueChange={setCurrentTab}>
                 <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b">
