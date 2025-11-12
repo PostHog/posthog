@@ -3192,6 +3192,7 @@ export type InsightFilterProperty =
     | 'stickinessFilter'
     | 'calendarHeatmapFilter'
     | 'lifecycleFilter'
+    | 'properties'
 
 export type InsightFilter =
     | TrendsFilter
@@ -3201,6 +3202,7 @@ export type InsightFilter =
     | StickinessFilter
     | LifecycleFilter
     | CalendarHeatmapFilter
+    | WebAnalyticsPropertyFilters
 
 export type Day = integer
 
