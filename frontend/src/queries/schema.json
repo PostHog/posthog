@@ -17459,6 +17459,10 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
+                "trendsFilter": {
+                    "description": "Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+                    "type": "object"
+                },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
@@ -17741,6 +17745,10 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
+                },
+                "trendsFilter": {
+                    "description": "Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+                    "type": "object"
                 },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
@@ -28883,6 +28891,10 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
+                "trendsFilter": {
+                    "description": "Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+                    "type": "object"
+                },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
@@ -29030,6 +29042,10 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
+                },
+                "trendsFilter": {
+                    "description": "Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+                    "type": "object"
                 },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
@@ -29204,6 +29220,10 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
+                "trendsFilter": {
+                    "description": "Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+                    "type": "object"
+                },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
@@ -29351,6 +29371,10 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
+                },
+                "trendsFilter": {
+                    "description": "Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+                    "type": "object"
                 },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
@@ -29528,6 +29552,10 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
+                },
+                "trendsFilter": {
+                    "description": "Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+                    "type": "object"
                 },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
@@ -29726,6 +29754,10 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
+                },
+                "trendsFilter": {
+                    "description": "Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+                    "type": "object"
                 },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
@@ -29955,6 +29987,10 @@
                     "minItems": 2,
                     "type": "array"
                 },
+                "trendsFilter": {
+                    "description": "Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+                    "type": "object"
+                },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
@@ -30128,6 +30164,10 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
+                },
+                "trendsFilter": {
+                    "description": "Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+                    "type": "object"
                 },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",

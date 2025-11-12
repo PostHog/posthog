@@ -151,7 +151,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         date_from: query.dateRange?.date_from,
         explicit_date: query.dateRange?.explicitDate,
         entity_type: 'events',
-        sampling_factor: 'samplingFactor' in query ? query.samplingFactor : undefined,
+        sampling_factor: query.samplingFactor,
     })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query) && 'series' in query) {
@@ -179,7 +179,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         Object.assign(filters, objectClean<Partial<Record<keyof CompareFilter, unknown>>>(query.compareFilter))
     }
 
-    if (!isStickinessQuery(query) && 'aggregation_group_type_index' in query) {
+    if (!isStickinessQuery(query)) {
         Object.assign(
             filters,
             objectClean({

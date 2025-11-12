@@ -14,6 +14,7 @@ import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryN
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
     ActionsNode,
+    CalendarHeatmapQuery,
     DataWarehouseNode,
     EventsNode,
     FunnelsFilter,
@@ -78,11 +79,13 @@ export interface QueryPropertyCache
         Omit<Partial<RetentionQuery>, 'kind' | 'response'>,
         Omit<Partial<PathsQuery>, 'kind' | 'response'>,
         Omit<Partial<StickinessQuery>, 'kind' | 'response'>,
-        Omit<Partial<LifecycleQuery>, 'kind' | 'response'> {
+        Omit<Partial<LifecycleQuery>, 'kind' | 'response'>,
+        Omit<Partial<CalendarHeatmapQuery>, 'kind' | 'response'> {
     commonFilter: CommonInsightFilter
     commonFilterTrendsStickiness?: {
         resultCustomizations?: Record<string, any>
     }
+    trendsFilter?: Partial<TrendsQuery['trendsFilter']>
 }
 
 const cleanSeriesEntityMath = (
@@ -409,15 +412,13 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     // insight specific filter
     const filterKey = filterKeyForQuery(mergedQuery as InsightQueryNode)
     if (cache[filterKey] || cache.commonFilter) {
-        const node = { kind: mergedQuery.kind, [filterKey]: cache.commonFilter } as InsightQueryNode
-        const nodeTrendsStickiness = (
-            isTrendsQuery(mergedQuery) || isStickinessQuery(mergedQuery)
-                ? {
-                      kind: mergedQuery.kind,
-                      [filterKey]: cache.commonFilterTrendsStickiness,
-                  }
-                : {}
-        ) as InsightQueryNode
+        const node = { kind: mergedQuery.kind, [filterKey]: cache.commonFilter } as unknown as InsightQueryNode
+        const nodeTrendsStickiness = (isTrendsQuery(mergedQuery) || isStickinessQuery(mergedQuery)
+            ? {
+                  kind: mergedQuery.kind,
+                  [filterKey]: cache.commonFilterTrendsStickiness,
+              }
+            : {}) as unknown as InsightQueryNode
         mergedQuery[filterKey] = {
             ...query[filterKey],
             ...cache[filterKey],

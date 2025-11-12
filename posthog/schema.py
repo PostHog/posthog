@@ -12117,6 +12117,10 @@ class WebExternalClicksTableQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     stripQueryParams: Optional[bool] = None
     tags: Optional[QueryLogTags] = None
+    trendsFilter: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+    )
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -12155,6 +12159,10 @@ class WebGoalsQuery(BaseModel):
     sampling: Optional[WebAnalyticsSampling] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     tags: Optional[QueryLogTags] = None
+    trendsFilter: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+    )
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -12192,6 +12200,10 @@ class WebOverviewQuery(BaseModel):
     sampling: Optional[WebAnalyticsSampling] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     tags: Optional[QueryLogTags] = None
+    trendsFilter: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+    )
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -12232,6 +12244,10 @@ class WebPageURLSearchQuery(BaseModel):
     searchTerm: Optional[str] = None
     stripQueryParams: Optional[bool] = None
     tags: Optional[QueryLogTags] = None
+    trendsFilter: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+    )
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -12274,6 +12290,10 @@ class WebStatsTableQuery(BaseModel):
     sampling: Optional[WebAnalyticsSampling] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     tags: Optional[QueryLogTags] = None
+    trendsFilter: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+    )
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -13183,6 +13203,10 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
         default=None, description="Return a limited set of data. Will use default columns if empty."
     )
     tags: Optional[QueryLogTags] = None
+    trendsFilter: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+    )
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -13234,6 +13258,10 @@ class MarketingAnalyticsTableQuery(BaseModel):
         default=None, description="Return a limited set of data. Will use default columns if empty."
     )
     tags: Optional[QueryLogTags] = None
+    trendsFilter: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+    )
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -13642,6 +13670,10 @@ class WebTrendsQuery(BaseModel):
     sampling: Optional[WebAnalyticsSampling] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     tags: Optional[QueryLogTags] = None
+    trendsFilter: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+    )
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -13682,6 +13714,10 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     tags: Optional[QueryLogTags] = None
     thresholds: list[float] = Field(..., max_length=2, min_length=2)
+    trendsFilter: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+    )
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -15423,6 +15459,10 @@ class WebVitalsQuery(BaseModel):
         WebOverviewQuery,
     ] = Field(..., discriminator="kind")
     tags: Optional[QueryLogTags] = None
+    trendsFilter: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Trends filter - not used in Web Analytics but required for InsightQueryNode type compatibility",
+    )
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
