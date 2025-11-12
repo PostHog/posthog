@@ -88,7 +88,7 @@ export function CustomerIOImportModal(): JSX.Element {
                     <LemonBanner type="info">
                         <span>
                             Check our{' '}
-                            <Link to="https://posthog.com/docs/workflows/customerio-import" target="_blank">
+                            <Link to="https://posthog.com/docs/workflows/import-customerio-optouts" target="_blank">
                                 Customer.io import guide
                             </Link>{' '}
                             for detailed instructions.
@@ -229,7 +229,7 @@ export function CustomerIOImportModal(): JSX.Element {
                     <p className="text-sm text-muted mb-3">
                         Export a CSV from Customer.io with users who have subscription preferences set.{' '}
                         <Link
-                            to="https://posthog.com/docs/workflows/customerio-import"
+                            to="https://posthog.com/docs/workflows/import-customerio-optouts"
                             target="_blank"
                             className="text-primary"
                         >
