@@ -23,7 +23,7 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
     const endTime = dayjs(session.events[session.events.length - 1].timestamp)
     const durationSeconds = endTime.diff(startTime, 'second')
 
-    const [isFolded, setIsFolded] = useState(false)
+    const [isFolded, setIsFolded] = useState(true)
 
     const onOpenReplay = (): void => {
         const newChildren = [...(children || [])]
