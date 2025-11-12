@@ -38,9 +38,13 @@ retry_policy = RetryPolicy(
     jitter=Jitter.PLUS_MINUS,
 )
 
+ONE_HOUR_IN_SECONDS = 60 * 60
+ONE_GB_IN_BYTES = 1024 * 1024 * 1024
+
 settings = {
-    "max_execution_time": 10 * 60 * 60,  # 10 hours
-    "max_memory_usage": 100 * 1024 * 1024 * 1024,  # 100GB
+    "max_execution_time": 12
+    * ONE_HOUR_IN_SECONDS,  # see this run which took around 2hrs 10min for 1 day https://posthog.dagster.plus/prod-us/runs/0ba8afaa-f3cc-4845-97c5-96731ec8231d?focusedTime=1762898705269&selection=sessions_v3_backfill&logs=step%3Asessions_v3_backfill
+    "max_memory_usage": 100 * ONE_GB_IN_BYTES,
     "distributed_aggregation_memory_efficient": "1",
 }
 
