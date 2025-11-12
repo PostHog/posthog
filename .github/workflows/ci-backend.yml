@@ -182,12 +182,14 @@ jobs:
                   echo "PNPM_STORE_PATH=/mnt/pnpm-store" >> $GITHUB_ENV
                   echo "CARGO_HOME=/mnt/cargo" >> $GITHUB_ENV
                   echo "RUSTUP_HOME=/mnt/rustup" >> $GITHUB_ENV
+                  sudo mkdir -p /mnt/.cache/uv /mnt/.cache/pip /mnt/pnpm-store /mnt/cargo /mnt/rustup
+                  sudo chown -R "$USER":"$USER" /mnt/.cache /mnt/pnpm-store /mnt/cargo /mnt/rustup
 
             - name: Configure Docker to use /mnt/docker (more free space)
               run: |
                   sudo mkdir -p /mnt/docker
                   echo '{"data-root": "/mnt/docker"}' | sudo tee /etc/docker/daemon.json
-                  sudo systemctl restart docker
+                  (sudo systemctl restart docker || sudo service docker restart || true)
                   sleep 3
                   docker info | grep "Docker Root Dir" || true
 
@@ -689,12 +691,14 @@ jobs:
                   echo "PNPM_STORE_PATH=/mnt/pnpm-store" >> $GITHUB_ENV
                   echo "CARGO_HOME=/mnt/cargo" >> $GITHUB_ENV
                   echo "RUSTUP_HOME=/mnt/rustup" >> $GITHUB_ENV
+                  sudo mkdir -p /mnt/.cache/uv /mnt/.cache/pip /mnt/pnpm-store /mnt/cargo /mnt/rustup
+                  sudo chown -R "$USER":"$USER" /mnt/.cache /mnt/pnpm-store /mnt/cargo /mnt/rustup
 
             - name: Configure Docker to use /mnt/docker (more free space)
               run: |
                   sudo mkdir -p /mnt/docker
                   echo '{"data-root": "/mnt/docker"}' | sudo tee /etc/docker/daemon.json
-                  sudo systemctl restart docker
+                  (sudo systemctl restart docker || sudo service docker restart || true)
                   sleep 3
                   docker info | grep "Docker Root Dir" || true
 
@@ -1099,12 +1103,14 @@ jobs:
                   echo "PNPM_STORE_PATH=/mnt/pnpm-store" >> $GITHUB_ENV
                   echo "CARGO_HOME=/mnt/cargo" >> $GITHUB_ENV
                   echo "RUSTUP_HOME=/mnt/rustup" >> $GITHUB_ENV
+                  sudo mkdir -p /mnt/.cache/uv /mnt/.cache/pip /mnt/pnpm-store /mnt/cargo /mnt/rustup
+                  sudo chown -R "$USER":"$USER" /mnt/.cache /mnt/pnpm-store /mnt/cargo /mnt/rustup
 
             - name: Configure Docker to use /mnt/docker (more free space)
               run: |
                   sudo mkdir -p /mnt/docker
                   echo '{"data-root": "/mnt/docker"}' | sudo tee /etc/docker/daemon.json
-                  sudo systemctl restart docker
+                  (sudo systemctl restart docker || sudo service docker restart || true)
                   sleep 3
                   docker info | grep "Docker Root Dir" || true
 
