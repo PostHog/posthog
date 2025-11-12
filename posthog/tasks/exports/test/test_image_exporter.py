@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import mock_open, patch
 
@@ -91,7 +93,7 @@ class TestImageExporter(APIBaseTest):
             assert self.exported_asset.content == b"image_data"
 
     @patch("posthog.tasks.exports.image_exporter.process_query_dict")
-    def test_dashboard_export_calculates_all_insights(self, mock_process_query, *args) -> None:
+    def test_dashboard_export_calculates_all_insights(self, mock_process_query: Any, *args: Any) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
         insight_count = 3
 
@@ -138,7 +140,7 @@ class TestImageExporter(APIBaseTest):
     @patch("posthog.tasks.exports.image_exporter._screenshot_asset")
     @patch("posthog.tasks.exports.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
     @patch("os.remove")
-    def test_export_includes_dashboard_variables(self, *args) -> None:
+    def test_export_includes_dashboard_variables(self, *args: Any) -> None:
         dashboard = Dashboard.objects.create(
             team=self.team,
             name="Test Dashboard with Variables",
@@ -176,7 +178,7 @@ class TestImageExporter(APIBaseTest):
             ), "variables_override_json should not be None when dashboard has variables"
 
             variables = list(InsightVariable.objects.filter(team=self.team).all())
-            expected_variables = map_stale_to_latest(dashboard.variables, variables)
+            expected_variables = map_stale_to_latest(dashboard.variables or {}, variables)
             assert (
                 call_kwargs["variables_override_json"] == expected_variables
             ), "variables_override_json should match the transformed dashboard variables"

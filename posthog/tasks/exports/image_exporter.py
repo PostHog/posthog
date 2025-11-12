@@ -370,6 +370,8 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
                 )
                 insights_to_update = [tile.insight for tile in tiles if tile.insight]
                 for insight in insights_to_update:
+                    if not insight.query:
+                        continue
                     with upgrade_query(insight):
                         process_query_dict(
                             exported_asset.team,
