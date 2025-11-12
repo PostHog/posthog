@@ -9,6 +9,7 @@ default = []
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
+chrono = { workspace = true }
 common-kafka = { path = "../common/kafka" }
 envconfig = { workspace = true }
 futures = { workspace = true }

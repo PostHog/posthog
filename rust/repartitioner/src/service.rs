@@ -390,6 +390,7 @@ impl RepartitionerService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
     use common_kafka::test::create_mock_kafka;
     use rdkafka::{
         client::DefaultClientContext,
@@ -443,6 +444,15 @@ mod tests {
             "event": event_name,
             "distinct_id": distinct_id,
             "team_id": team_id,
+            "project_id": team_id,
+            "timestamp": Utc::now().to_rfc3339(),
+            "created_at": Utc::now().to_rfc3339(),
+            "properties": {},
+            "person_mode": "full",
+            "person_id": Uuid::new_v4().to_string(),
+            "person_properties": {},
+            "person_created_at": Utc::now().to_rfc3339(),
+            "elements_chain": "",
         });
         serde_json::to_vec(&payload).expect("Failed to serialize test message")
     }
