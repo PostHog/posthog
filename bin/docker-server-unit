@@ -11,9 +11,10 @@ chmod -R 777 $PROMETHEUS_MULTIPROC_DIR
 export PROMETHEUS_METRICS_EXPORT_PORT=8001
 export STATSD_PORT=${STATSD_PORT:-8125}
 
-# Dual-mode support: USE_GRANIAN env var switches between Granian and Unit (default)
-if [ "${USE_GRANIAN:-false}" = "true" ]; then
-    echo "🚀 Starting with Granian ASGI server (opt-in via USE_GRANIAN=true)..."
+# Dual-mode support: USE_GRANIAN env var switches between Granian and Unit
+# Default to Granian for Django 5+
+if [ "${USE_GRANIAN:-true}" = "true" ]; then
+    echo "🚀 Starting with Granian ASGI server..."
 
     # Granian configuration
     export GRANIAN_WORKERS=${GRANIAN_WORKERS:-4}
