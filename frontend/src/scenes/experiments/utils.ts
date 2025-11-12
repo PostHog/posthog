@@ -84,7 +84,12 @@ export function transformFiltersForWinningVariant(
             })),
         },
         groups: [
-            { properties: [], rollout_percentage: 100 },
+            {
+                properties: [],
+                rollout_percentage: 100,
+                description:
+                    'Added by shipping experiment variant - enables 100% rollout of selected variant to all users',
+            },
             // Preserve existing groups so that users can roll back this action
             // by deleting the newly added release condition
             ...(currentFlagFilters?.groups || []),
