@@ -214,14 +214,7 @@ export function EventDefinitionsTable(): JSX.Element {
                 </div>
             </div>
 
-            <EventDefinitionModal
-                isOpen={isCreateModalOpen}
-                onClose={() => setIsCreateModalOpen(false)}
-                onSuccess={() => {
-                    setIsCreateModalOpen(false)
-                    loadEventDefinitions()
-                }}
-            />
+            <EventDefinitionModal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} />
 
             <LemonTable
                 columns={columns}

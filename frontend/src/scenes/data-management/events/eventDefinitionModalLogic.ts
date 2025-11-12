@@ -1,16 +1,17 @@
 import { kea, key, path, props } from 'kea'
 import { forms } from 'kea-forms'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { urls } from 'scenes/urls'
 
 import { EventDefinition } from '~/types'
 
 import type { eventDefinitionModalLogicType } from './eventDefinitionModalLogicType'
 
 export interface EventDefinitionModalLogicProps {
-    onSuccess?: () => void
     onClose: () => void
 }
 
@@ -52,12 +53,12 @@ export const eventDefinitionModalLogic = kea<eventDefinitionModalLogicType>([
                         payload.tags = formValues.tags
                     }
 
-                    await api.eventDefinitions.create(payload)
+                    const createdEvent = await api.eventDefinitions.create(payload)
 
                     lemonToast.success(`Event "${formValues.name}" created successfully`)
                     actions.resetEventDefinitionForm()
-                    props.onSuccess?.()
                     props.onClose()
+                    router.actions.push(urls.eventDefinition(createdEvent.id))
                 } catch (error: any) {
                     const errorMessage = error?.detail || error?.message || 'Failed to create event definition'
                     lemonToast.error(errorMessage)

@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonInputSelect, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { userLogic } from 'scenes/userLogic'
 
@@ -16,11 +15,10 @@ import { eventDefinitionModalLogic } from './eventDefinitionModalLogic'
 export interface EventDefinitionModalProps {
     isOpen: boolean
     onClose: () => void
-    onSuccess?: () => void
 }
 
-export function EventDefinitionModal({ isOpen, onClose, onSuccess }: EventDefinitionModalProps): JSX.Element {
-    const logic = eventDefinitionModalLogic({ onSuccess, onClose })
+export function EventDefinitionModal({ isOpen, onClose }: EventDefinitionModalProps): JSX.Element {
+    const logic = eventDefinitionModalLogic({ onClose })
     const { eventDefinitionForm, isEventDefinitionFormSubmitting } = useValues(logic)
     const { setEventDefinitionFormValue: setFormValue, submitEventDefinitionForm } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -82,11 +80,13 @@ export function EventDefinitionModal({ isOpen, onClose, onSuccess }: EventDefini
                 )}
 
                 <LemonField name="tags" label="Tags" showOptional>
-                    <ObjectTags
-                        tags={eventDefinitionForm.tags || []}
+                    <LemonInputSelect
+                        mode="multiple"
+                        allowCustomValues
+                        value={eventDefinitionForm.tags || []}
+                        options={tags.map((tag) => ({ key: tag, label: tag }))}
                         onChange={(tags) => setFormValue('tags', tags)}
-                        saving={isEventDefinitionFormSubmitting}
-                        tagsAvailable={tags.filter((tag) => !eventDefinitionForm.tags?.includes(tag))}
+                        placeholder="Add tags..."
                         data-attr="event-definition-tags-input"
                     />
                 </LemonField>
