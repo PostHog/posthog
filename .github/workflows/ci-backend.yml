@@ -383,6 +383,23 @@ jobs:
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
 
+            - name: Disk space snapshot (after)
+              if: always()
+              run: |
+                  echo "== df -h =="
+                  df -h
+                  echo
+                  echo "== docker system df =="
+                  docker system df || true
+                  echo
+                  echo "== docker system df -v (filter seaweedfs) =="
+                  docker system df -v | grep -i seaweedfs || true
+                  echo
+                  echo "== docker ps -a --size (filter seaweedfs) =="
+                  docker ps -a --size | grep -i seaweedfs || true
+                  echo
+                  [ -d "data" ] && du -sh data || true
+
     django:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
@@ -880,6 +897,24 @@ jobs:
                   path: posthog/tasks/test/__emails__
                   retention-days: 1
 
+            - name: Disk space snapshot (after)
+              if: always()
+              shell: bash
+              run: |
+                  echo "== df -h =="
+                  df -h
+                  echo
+                  echo "== docker system df =="
+                  docker system df || true
+                  echo
+                  echo "== docker system df -v (filter seaweedfs) =="
+                  docker system df -v | grep -i seaweedfs || true
+                  echo
+                  echo "== docker ps -a --size (filter seaweedfs) =="
+                  docker ps -a --size | grep -i seaweedfs || true
+                  echo
+                  [ -d "data" ] && du -sh data || true
+
     # Job just to collate the status of the matrix jobs for requiring passing status
     django_tests:
         needs: [django, check-migrations, async-migrations]
@@ -982,6 +1017,23 @@ jobs:
             - name: Run async migrations tests
               run: |
                   pytest -m "async_migrations"
+
+            - name: Disk space snapshot (after)
+              if: always()
+              run: |
+                  echo "== df -h =="
+                  df -h
+                  echo
+                  echo "== docker system df =="
+                  docker system df || true
+                  echo
+                  echo "== docker system df -v (filter seaweedfs) =="
+                  docker system df -v | grep -i seaweedfs || true
+                  echo
+                  echo "== docker ps -a --size (filter seaweedfs) =="
+                  docker ps -a --size | grep -i seaweedfs || true
+                  echo
+                  [ -d "data" ] && du -sh data || true
 
     calculate-running-time:
         name: Calculate running time
