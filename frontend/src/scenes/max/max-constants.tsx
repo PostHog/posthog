@@ -199,6 +199,18 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             return 'Searching recordings...'
         },
     },
+    generate_hogql_query: {
+        name: 'Write and tweak SQL',
+        description: 'Write and tweak SQL right there',
+        product: Scene.SQLEditor,
+        icon: iconForType('insight/hog'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Edited SQL'
+            }
+            return 'Writing and tweaking SQL...'
+        },
+    },
     analyze_user_interviews: {
         name: 'Analyze user interviews',
         description: 'Analyze user interviews, summarizing pages of feedback, and extracting learnings',
