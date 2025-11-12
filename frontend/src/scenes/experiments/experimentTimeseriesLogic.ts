@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ChartDataset as ChartJsDataset } from 'lib/Chart'
@@ -50,13 +50,12 @@ export interface ProcessedChartData {
 }
 
 export interface ExperimentTimeseriesLogicProps {
-    experimentId: number | string
+    experiment: Experiment
     metric?: ExperimentMetric
 }
 
 export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
     props({} as ExperimentTimeseriesLogicProps),
-    key((props) => props.experimentId),
     path((key) => ['scenes', 'experiments', 'experimentTimeseriesLogic', key]),
     connect(() => ({
         values: [experimentLogic, ['experiment']],
@@ -81,7 +80,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     }
 
                     const response = await api.get(
-                        `api/projects/@current/experiments/${props.experimentId}/timeseries_results/?metric_uuid=${metric.uuid}&fingerprint=${metric.fingerprint}`
+                        `api/projects/@current/experiments/${props.experiment.id}/timeseries_results/?metric_uuid=${metric.uuid}&fingerprint=${metric.fingerprint}`
                     )
                     return response
                 },
@@ -93,7 +92,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
                     try {
                         const response = await api.createResponse(
-                            `api/projects/@current/experiments/${props.experimentId}/recalculate_timeseries/`,
+                            `api/projects/@current/experiments/${props.experiment.id}/recalculate_timeseries/`,
                             {
                                 metric: metric,
                                 fingerprint: metric.fingerprint,
@@ -104,7 +103,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                             if (response.status === 201) {
                                 lemonToast.success('Recalculation started successfully')
                                 actions.reportExperimentTimeseriesRecalculated(
-                                    props.experimentId as ExperimentIdType,
+                                    props.experiment.id as ExperimentIdType,
                                     metric
                                 )
                             } else if (response.status === 200) {
@@ -237,7 +236,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
         // Generate Chart.js-ready datasets
         chartData: [
-            (s) => [s.processedVariantData, s.experiment],
+            (s, props) => [s.processedVariantData, props.experiment],
             (
                 processedVariantData: (variantKey: string) => ProcessedTimeseriesDataPoint[],
                 experiment: Experiment
