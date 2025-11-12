@@ -29,6 +29,7 @@ import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimi
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -83,6 +84,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
+    const { firstTabIsActive } = useValues(sceneLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -547,8 +549,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
                             data-attr="tree-navbar-resizer"
-                            className={cn('top-[var(--scene-layout-header-height)]', {
+                            className={cn('top-[var(--scene-layout-header-height)] right-[-1px]', {
                                 'top-0': isLayoutPanelVisible || sceneLayoutConfig?.layout === 'app-raw-no-header',
+                                'top-[calc(var(--scene-layout-header-height)+8px)]': !firstTabIsActive,
                             })}
                             offset={0}
                         />

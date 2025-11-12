@@ -33,6 +33,10 @@
 }
 
 .scene-tab-active-indicator--first {
+    width: calc(100% + 11px);
+    right: -11px;
+    transform: none;
+    border-left: 1px solid var(--color-border-primary);
     &::before {
         display: none;
     }

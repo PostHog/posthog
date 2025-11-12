@@ -813,6 +813,12 @@ export const sceneLogic = kea<sceneLogicType>([
             (titleAndIcon) => titleAndIcon as { title: string; iconType: FileSystemIconType | 'loading' | 'blank' },
             { resultEqualityCheck: equal },
         ],
+        firstTabIsActive: [
+            (s) => [s.activeTabId, s.tabs],
+            (activeTabId, tabs): boolean => {
+                return activeTabId === tabs[0]?.id
+            },
+        ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
         [NEW_INTERNAL_TAB]: (payload) => {

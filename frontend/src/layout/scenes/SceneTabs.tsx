@@ -32,12 +32,11 @@ export interface SceneTabsProps {
 }
 
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
-    const { tabs } = useValues(sceneLogic)
+    const { tabs, firstTabIsActive } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile, isLayoutPanelVisible } = useValues(panelLayoutLogic)
-
     // Get the focus action from the newTabSceneLogic for the active tab
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
@@ -55,7 +54,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     }
     const gridTemplateColumns = [pinnedColumns, unpinnedColumns].filter(Boolean).join(' ') || '250px'
 
-    const showRoundedCorner = !isLayoutPanelVisible
+    const showRoundedCorner = !isLayoutPanelVisible && !firstTabIsActive
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -107,6 +106,16 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                     !showRoundedCorner && 'left-0 lg:left-0'
                 )}
             />
+
+            {/* Rounded corner on the left edge of the tabs to curve the line above into the navbar right border */}
+            {showRoundedCorner && (
+                <>
+                    {/* background to match the navbar  */}
+                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-11 rounded-tl-lg border-l border-t border-primary bg-[var(--scene-layout-background)]" />
+                    {/* corner to match the main */}
+                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-10 bg-surface-tertiary" />
+                </>
+            )}
 
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext
