@@ -108,7 +108,10 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
     -- bounce rate
     page_screen_uniq_up_to AggregateFunction(groupUniqArray(2), Nullable(UUID)),
-    has_autocapture SimpleAggregateFunction(max, Boolean)
+    has_autocapture SimpleAggregateFunction(max, Boolean),
+
+    -- replay
+    has_replay SimpleAggregateFunction(max, Boolean)
 ) ENGINE = {engine}
 """
 
@@ -194,7 +197,9 @@ SELECT
 
     -- perf
     initializeAggregation('groupUniqArrayState(2)', if(event='$pageview' OR event='$screen', uuid, NULL)) as page_screen_uniq_up_to,
-    (event = '$autocapture') as has_autocapture
+    (event = '$autocapture') as has_autocapture,
+
+    false as has_replay
 FROM {database}.sharded_events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 AND {where}
@@ -330,7 +335,10 @@ CREATE TABLE IF NOT EXISTS {table_name} (
 
     -- bounce rate
     page_screen_uniq_up_to Array(UUID),
-    has_autocapture Boolean
+    has_autocapture Boolean,
+
+    -- replay
+    has_replay Boolean
 )
 ENGINE = {engine}
 ORDER BY (team_id, session_id_v7)
@@ -375,6 +383,8 @@ INSERT INTO {settings.CLICKHOUSE_DATABASE}.{table_name} (
 
     page_screen_uniq_up_to,
     has_autocapture,
+
+    has_replay
 )
 SELECT
     team_id,
@@ -409,7 +419,9 @@ SELECT
     argMinMerge(entry_ad_ids_set) as entry_ad_ids_set,
 
     groupUniqArrayMerge(2)(page_screen_uniq_up_to) as page_screen_uniq_up_to,
-    max(s.has_autocapture) as has_autocapture
+    max(s.has_autocapture) as has_autocapture,
+
+    max(s.has_replay) as has_replay
 FROM {settings.CLICKHOUSE_DATABASE}.{SHARDED_RAW_SESSIONS_OVERRIDES_TABLE_V3()} as s
 WHERE s.max_inserted_at < %(timestamp)s
 AND {where_clause}
@@ -460,7 +472,10 @@ CREATE DICTIONARY IF NOT EXISTS {settings.CLICKHOUSE_DATABASE}.{dict_name} (
 
     -- bounce rate
     page_screen_uniq_up_to Array(UUID),
-    has_autocapture Boolean
+    has_autocapture Boolean,
+
+    -- replay
+    has_replay Boolean
 )
 PRIMARY KEY team_id, session_id_v7
 SOURCE(CLICKHOUSE(DB {settings.CLICKHOUSE_DATABASE} TABLE %(table)s USER %(user)s PASSWORD %(password)s))
@@ -621,8 +636,10 @@ UPDATE
         2
     ),
 
-    soe_has_autocapture = soe_has_autocapture OR dictGet(%(dict_name)s, 'has_autocapture', (team_id, `$session_id_uuid`))
-   WHERE dictHas(%(dict_name)s, (team_id, `$session_id_uuid`)) AND {where}
+    soe_has_autocapture = soe_has_autocapture OR dictGet(%(dict_name)s, 'has_autocapture', (team_id, `$session_id_uuid`)),
+
+    soe_has_replay = soe_has_replay OR dictGet(%(dict_name)s, 'has_replay', (team_id, `$session_id_uuid`))
+WHERE dictHas(%(dict_name)s, (team_id, `$session_id_uuid`)) AND {where}
 """
 
 

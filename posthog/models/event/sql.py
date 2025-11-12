@@ -159,6 +159,9 @@ EVENTS_TABLE_SESSION_ON_EVENTS_COLUMNS = f"""
     -- bounce rate
     , soe_page_screen_uniq_up_to Array(UUID) DEFAULT array()
     , soe_has_autocapture Boolean DEFAULT False
+
+    -- replay
+    , soe_has_replay Boolean DEFAULT False
 """
 
 
