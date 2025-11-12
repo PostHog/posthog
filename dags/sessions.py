@@ -1,13 +1,5 @@
 from clickhouse_driver import Client
-from dagster import (
-    AssetExecutionContext,
-    BackfillPolicy,
-    Backoff,
-    DailyPartitionsDefinition,
-    Jitter,
-    RetryPolicy,
-    asset,
-)
+from dagster import AssetExecutionContext, BackfillPolicy, DailyPartitionsDefinition, asset
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
@@ -24,8 +16,6 @@ from dags.common.common import JobOwners, metabase_debug_query_url
 
 # This is the number of days to backfill in one SQL operation
 MAX_PARTITIONS_PER_RUN = 5
-
-MAX_CONCURRENT_RUNS = 3
 
 # Keep the number of concurrent runs low to avoid overloading ClickHouse and running into the dread "Too many parts".
 # This tag needs to also exist in Dagster Cloud (and the local dev dagster.yaml) for the concurrency limit to take effect.
@@ -44,13 +34,6 @@ daily_partitions = DailyPartitionsDefinition(
     start_date="2019-01-01",  # this is a year before posthog was founded, so should be early enough even including data imports
     timezone="UTC",
     end_offset=1,  # include today's partition (note that will create a partition with incomplete data, but all our backfills are idempotent so this is ok providing we re-run later)
-)
-
-retry_policy = RetryPolicy(
-    max_retries=3,
-    delay=10 * 60,  # 10 minutes
-    backoff=Backoff.EXPONENTIAL,
-    jitter=Jitter.PLUS_MINUS,
 )
 
 settings = {
@@ -73,7 +56,6 @@ def get_partition_where_clause(context: AssetExecutionContext, timestamp_field: 
     partitions_def=daily_partitions,
     name="sessions_v3_backfill",
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
-    retry_policy=retry_policy,
     tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
 )
 def sessions_v3_backfill(context: AssetExecutionContext) -> None:
@@ -108,7 +90,6 @@ def sessions_v3_backfill(context: AssetExecutionContext) -> None:
     partitions_def=daily_partitions,
     name="sessions_v3_replay_backfill",
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
-    retry_policy=retry_policy,
     tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
 )
 def sessions_v3_backfill_replay(context: AssetExecutionContext) -> None:
