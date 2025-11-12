@@ -594,6 +594,9 @@ PREFIX_DELETE_HANDLERS: list[tuple[str, DeleteHandler]] = [
 ]
 
 
+DELETE_PREVIEW_ENTRY_LIMIT = 200
+
+
 def _get_delete_handler(file_type: str | None) -> DeleteHandler | None:
     if not file_type:
         return None
@@ -1235,12 +1238,23 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.type != "folder":
             return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
 
-        qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
+        qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/").order_by("depth", "path")
         qs = self._scope_by_project_and_environment(qs)
         if self.user_access_control:
             qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
 
-        return Response({"count": qs.count()}, status=status.HTTP_200_OK)
+        total_count = qs.count()
+        preview_entries = list(qs[:DELETE_PREVIEW_ENTRY_LIMIT])
+        serializer = self.get_serializer(preview_entries, many=True)
+
+        return Response(
+            {
+                "count": total_count,
+                "entries": serializer.data,
+                "has_more": total_count > len(preview_entries),
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(methods=["GET", "POST"], detail=False, url_path="log_view")
     def log_view(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1304,12 +1318,23 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not path_param:
             return Response({"detail": "path parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        qs = FileSystem.objects.filter(path__startswith=f"{path_param}/")
+        qs = FileSystem.objects.filter(path__startswith=f"{path_param}/").order_by("depth", "path")
         qs = self._scope_by_project_and_environment(qs)
         if self.user_access_control:
             qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
 
-        return Response({"count": qs.count()}, status=status.HTTP_200_OK)
+        total_count = qs.count()
+        preview_entries = list(qs[:DELETE_PREVIEW_ENTRY_LIMIT])
+        serializer = self.get_serializer(preview_entries, many=True)
+
+        return Response(
+            {
+                "count": total_count,
+                "entries": serializer.data,
+                "has_more": total_count > len(preview_entries),
+            },
+            status=status.HTTP_200_OK,
+        )
 
     def _assure_parent_folders(self, path: str, created_by: User, team: Optional[Team] = None) -> None:
         """

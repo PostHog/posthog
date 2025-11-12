@@ -1,7 +1,8 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { IconPlus } from '@posthog/icons'
+import { IconDocument, IconFolder, IconPlus } from '@posthog/icons'
+import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
@@ -44,6 +45,75 @@ import { getExperimentalProductsTree } from './projectTreeWebAnalyticsExperiment
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
 export const PAGINATION_LIMIT = 100
+
+type DeleteFolderDialogContentProps = {
+    folderName: string
+    folderPath: string
+    entries: FileSystemEntry[]
+    totalCount: number
+    hasMore: boolean
+}
+
+const DeleteFolderDialogContent = ({
+    folderName,
+    folderPath,
+    entries,
+    totalCount,
+    hasMore,
+}: DeleteFolderDialogContentProps): JSX.Element => {
+    const prefix = folderPath ? `${folderPath}/` : ''
+    const relativeEntries = entries.map((entry) => {
+        const relativePath = prefix && entry.path.startsWith(prefix) ? entry.path.slice(prefix.length) : entry.path
+        return { entry, relativePath }
+    })
+
+    const remainingCount = Math.max(totalCount - entries.length, 0)
+
+    return (
+        <div className="space-y-3">
+            <p className="text-sm">
+                Deleting <span className="font-semibold">"{folderName}"</span> will permanently remove{' '}
+                {pluralize(totalCount, 'item')}.
+            </p>
+            {relativeEntries.length ? (
+                <>
+                    <div className="max-h-64 overflow-y-auto rounded border border-border bg-bg-light">
+                        <ul>
+                            {relativeEntries.map(({ entry, relativePath }) => {
+                                const IconComponent = entry.type === 'folder' ? IconFolder : IconDocument
+                                return (
+                                    <li
+                                        key={entry.id}
+                                        className="flex items-center gap-3 px-3 py-2 text-sm border-b border-border last:border-b-0"
+                                    >
+                                        <IconComponent className="size-4 text-muted-alt" />
+                                        <div className="flex-1">
+                                            <div className="font-medium leading-tight">
+                                                {relativePath || entry.path}
+                                            </div>
+                                            {entry.type ? (
+                                                <div className="text-xs text-muted-alt">
+                                                    {identifierToHuman(entry.type)}
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    </li>
+                                )
+                            })}
+                        </ul>
+                    </div>
+                    {hasMore && remainingCount > 0 ? (
+                        <p className="text-xs text-muted-alt">
+                            Plus {pluralize(remainingCount, 'additional item')} not shown here.
+                        </p>
+                    ) : null}
+                </>
+            ) : (
+                <p className="text-sm text-muted-alt">This folder does not contain any additional items.</p>
+            )}
+        </div>
+    )
+}
 
 export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     path(['layout', 'panel-layout', 'ProjectTree', 'projectTreeDataLogic']),
@@ -227,13 +297,29 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             if (response && response.count > DELETE_ALERT_LIMIT) {
                                 const folderName =
                                     splitPath(action.item.path).pop() ?? action.item.path ?? 'this folder'
-                                const confirmMessage = `Delete the folder "${folderName}" and delete its ${pluralize(
-                                    response.count,
-                                    'item'
-                                )}?`
-                                if (!confirm(confirmMessage)) {
-                                    return false
-                                }
+                                LemonDialog.open({
+                                    title: `Delete "${folderName}"?`,
+                                    content: (
+                                        <DeleteFolderDialogContent
+                                            folderName={folderName}
+                                            folderPath={action.item.path ?? ''}
+                                            entries={response.entries ?? []}
+                                            totalCount={response.count}
+                                            hasMore={response.has_more ?? false}
+                                        />
+                                    ),
+                                    primaryButton: {
+                                        children: 'Delete folder',
+                                        status: 'danger',
+                                        onClick: () => {
+                                            actions.queueAction({ ...action, type: 'delete' }, projectTreeLogicKey)
+                                        },
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
+                                return false
                             }
                             actions.queueAction({ ...action, type: 'delete' }, projectTreeLogicKey)
                         } catch (error) {

@@ -10,6 +10,7 @@ from unittest.mock import patch
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
+from posthog.api.file_system.file_system import DELETE_PREVIEW_ENTRY_LIMIT
 from posthog.models import Dashboard, Experiment, FeatureFlag, Insight, Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort import Cohort
@@ -575,12 +576,37 @@ class TestFileSystemAPI(APIBaseTest):
         # Count the folder by id
         response = self.client.post(f"/api/projects/{self.team.id}/file_system/{folder.pk}/count")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual(response.json()["count"], 2)
+        data = response.json()
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(len(data["entries"]), 2)
+        self.assertFalse(data["has_more"])
+        self.assertCountEqual([entry["path"] for entry in data["entries"]], ["OldFolder/File1", "OldFolder/File2"])
 
         # Count the folder by path
         response = self.client.post(f"/api/projects/{self.team.id}/file_system/count_by_path?path=OldFolder")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual(response.json()["count"], 2)
+        data = response.json()
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(len(data["entries"]), 2)
+        self.assertFalse(data["has_more"])
+
+    def test_count_preview_is_limited(self):
+        folder = FileSystem.objects.create(team=self.team, path="BulkFolder", type="folder", created_by=self.user)
+        for index in range(DELETE_PREVIEW_ENTRY_LIMIT + 5):
+            FileSystem.objects.create(
+                team=self.team,
+                path=f"BulkFolder/File{index}",
+                type="doc",
+                created_by=self.user,
+            )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/file_system/{folder.pk}/count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+
+        self.assertEqual(data["count"], DELETE_PREVIEW_ENTRY_LIMIT + 5)
+        self.assertEqual(len(data["entries"]), DELETE_PREVIEW_ENTRY_LIMIT)
+        self.assertTrue(data["has_more"])
 
     def test_list_by_type_filter(self):
         """
