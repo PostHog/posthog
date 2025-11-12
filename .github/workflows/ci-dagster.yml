@@ -90,6 +90,17 @@ jobs:
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d
 
+            - name: Check disk usage after Docker Compose
+              run: |
+                  echo "=== Disk Usage After Compose Up ==="
+                  df -h
+                  echo ""
+                  echo "=== Docker Images (top 15) ==="
+                  docker image ls --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | head -16
+                  echo ""
+                  echo "=== Data Directory Sizes ==="
+                  [ -d "data" ] && du -sh data/* 2>/dev/null || echo "No data directory yet"
+
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
@@ -152,3 +163,12 @@ jobs:
             - name: Run Dagster tests
               run: |
                   pytest dags
+
+            - name: Check disk usage after tests
+              if: always()
+              run: |
+                  echo "=== Disk Usage After Tests ==="
+                  df -h
+                  echo ""
+                  echo "=== Data Directory Sizes ==="
+                  [ -d "data" ] && du -sh data/* 2>/dev/null || echo "No data directory"
