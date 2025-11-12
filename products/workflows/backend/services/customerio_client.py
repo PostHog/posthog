@@ -1,6 +1,4 @@
-import time
 import logging
-from collections.abc import Generator
 from typing import Any, Optional
 
 import requests
@@ -112,12 +110,12 @@ class CustomerIOClient:
         
         Args:
             filter_conditions: Filter conditions for the search
-            limit: Number of results per page (max 100)
+            limit: Number of results per page (max 1000)
             start: Pagination cursor
         Returns:
             Search results with customers and pagination info
         """
-        params = {"limit": min(limit, 100)}
+        params = {"limit": min(limit, 1000)}
         if start:
             params["start"] = start
         
@@ -126,106 +124,82 @@ class CustomerIOClient:
         result = self._make_request("POST", "/customers", params=params, json_data=json_data)
         return result
     
-    def search_customers_opted_out_of_topic(
-        self, topic_id: str, limit: int = 1000, start: Optional[str] = None
+    def get_globally_unsubscribed_customers(
+        self, limit: int = 1000, start: Optional[str] = None
     ) -> dict[str, Any]:
         """
-        Search for customers who have opted out of a specific topic
+        Fetch customers who are globally unsubscribed (unsubscribed=true)
+        These customers are opted out of ALL topics/categories
         
         Args:
-            topic_id: The topic ID to search for opt-outs
             limit: Number of results per page (max 1000)
             start: Pagination cursor
         Returns:
-            Search results with customers who opted out of this topic
+            Search results with globally unsubscribed customers
+        """
+        filter_conditions = {
+            "attribute": {"field": "unsubscribed", "operator": "eq", "value": True}
+        }
+        return self.search_customers(filter_conditions, limit, start)
+    
+    def get_customers_with_preferences(
+        self, limit: int = 1000, start: Optional[str] = None
+    ) -> dict[str, Any]:
+        """
+        Fetch customers who have subscription preference attributes set
+        These contain JSON with topic-specific opt-out settings
+        
+        Args:
+            limit: Number of results per page (max 1000)
+            start: Pagination cursor
+        Returns:
+            Search results with customers who have preference attributes
         """
         filter_conditions = {
             "or": [
-                # Globally unsubscribed
-                {"attribute": {"field": "unsubscribed", "operator": "eq", "value": True}},
-                # Or specifically opted out of this topic
-                {"attribute": {"field": f"topics.{topic_id}.subscribed", "operator": "eq", "value": False}}
+                {"attribute": {"field": "cio_subscription_preferences", "operator": "exists", "value": True}},
+                {"attribute": {"field": "_cio_subscription_preferences_computed", "operator": "exists", "value": True}}
             ]
         }
         return self.search_customers(filter_conditions, limit, start)
-
-    def get_all_customers_with_preferences(self, batch_size: int = 1000) -> Generator[dict[str, Any], None, None]:
+    
+    def search_for_specific_customer(self, email: str) -> dict[str, Any]:
         """
-        Fetch all customers and their subscription preferences
-        Args:
-            batch_size: Number of customers to fetch per API call
-        Yields:
-            Customer data with email and subscription preferences
-        """
-        start = None
-        # First, get all customers (we'll check their preferences individually)
-        has_yielded_any = False
-        customer_total = 0
+        Search for a specific customer by email to debug
         
-        while True:
-            try:
-                # Get a batch of customers
-                response = self.search_customers(limit=batch_size, start=start)
-                
-                # Response has 'identifiers' field with customer data
-                identifiers = response.get("identifiers", [])
+        Args:
+            email: Email address to search for
+        Returns:
+            Search results for that specific customer
+        """
+        filter_conditions = {
+            "and": [
+                {"attribute": {"field": "email", "operator": "eq", "value": email}},
+                {
+                    "or": [
+                        {"attribute": {"field": "cio_subscription_preferences", "operator": "exists", "value": True}},
+                        {"attribute": {"field": "_cio_subscription_preferences_computed", "operator": "exists", "value": True}}
+                    ]
+                }
+            ]
+        }
+        return self.search_customers(filter_conditions, limit=1)
+    
+    def get_customer_attributes(self, identifier: str, id_type: str = "cio_id") -> dict[str, Any]:
+        """
+        Get all attributes for a specific customer
+        Used to fetch the full attribute set including JSON preference data
+        
+        Args:
+            identifier: Customer identifier (email, id, or cio_id)
+            id_type: Type of identifier ("email", "id", or "cio_id")
+        Returns:
+            Dictionary containing all customer attributes
+        """
+        params = {"id_type": id_type} if id_type != "cio_id" else {}
+        response = self._make_request("GET", f"/customers/{identifier}/attributes", params=params)
+        return response
 
-                if not identifiers:
-                    break
-
-                # For each unsubscribed customer, fetch their subscription preferences
-                for customer_info in identifiers:
-                    email = customer_info.get("email")
-                    if not email:
-                        continue
-                    
-                    customer_total += 1
-                    
-                    try:
-                        # Get subscription preferences for this customer
-                        pref_response = self.get_customer_subscription_preferences(email, id_type="email")
-                        
-                        # Extract the customer data and topics
-                        customer_data = pref_response.get("customer", {})
-                        topics_list = customer_data.get("topics", [])
-                        
-                        # Convert topics list to dict format for compatibility
-                        # Since these are globally unsubscribed customers, we treat them as opted out of ALL topics
-                        topics_dict = {}
-                        for topic in topics_list:
-                            topic_id = topic.get("id")
-                            # For globally unsubscribed customers, mark all topics as opted out
-                            # Use both numeric ID and topic_N format for compatibility
-                            topics_dict[f"topic_{topic_id}"] = False  # Opted out
-                            topics_dict[str(topic_id)] = False  # Opted out
-                        
-                        # Yield the customer data (we know they're globally unsubscribed)
-                        has_yielded_any = True
-                        yield {
-                            "email": email,
-                            "id": customer_info.get("id"),
-                            "cio_id": customer_info.get("cio_id"),
-                            "preferences": {"topics": topics_dict}
-                        }
-                    except CustomerIOAPIError as e:
-                        # Skip customers we can't fetch preferences for
-                        logger.warning(f"Could not fetch preferences for {email}: {e}")
-                        continue
-
-                # Check for next page
-                next_cursor = response.get("next")
-                if not next_cursor:
-                    break
-                    
-                start = next_cursor
-
-                # Rate limiting to avoid hitting API limits
-                time.sleep(0.1)
-
-            except CustomerIOAPIError as e:
-                # Log error and break
-                logger.exception(f"Error fetching customers: {e}")
-                break
 
     def validate_credentials(self) -> bool:
         """
