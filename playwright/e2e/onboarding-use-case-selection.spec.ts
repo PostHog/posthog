@@ -101,23 +101,23 @@ test.describe('Use Case Selection Onboarding', () => {
     test('shows and hides other products', async ({ page }) => {
         await page.goto('/products?useCase=launch_features')
 
-        // "Show all products" button should be visible
-        await expect(page.locator('text=Show all products')).toBeVisible()
+        // "Show all apps" button should be visible
+        await expect(page.locator('text=Show all apps')).toBeVisible()
 
         // Other products should not be visible initially
         await expect(page.locator('[data-attr="product_analytics-onboarding-card"]')).not.toBeVisible()
 
-        // Click "Show all products"
-        await page.locator('text=Show all products').click()
+        // Click "Show all apps"
+        await page.locator('text=Show all apps').click()
 
         // Other products should now be visible
         await expect(page.locator('[data-attr="product_analytics-onboarding-card"]')).toBeVisible()
 
-        // "Hide other products" button should be visible
-        await expect(page.locator('text=Hide other products')).toBeVisible()
+        // "Hide other apps" button should be visible
+        await expect(page.locator('text=Hide other apps')).toBeVisible()
 
-        // Click "Hide other products"
-        await page.locator('text=Hide other products').click()
+        // Click "Hide other apps"
+        await page.locator('text=Hide other apps').click()
 
         // Other products should be hidden again
         await expect(page.locator('[data-attr="product_analytics-onboarding-card"]')).not.toBeVisible()
