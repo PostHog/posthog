@@ -23,7 +23,7 @@ export interface EvaluationStats {
     pass_rate: number
 }
 
-interface SummaryMetrics {
+export interface SummaryMetrics {
     total_runs: number
     overall_pass_rate: number
     failing_evaluations_count: number
