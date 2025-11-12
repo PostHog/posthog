@@ -1,13 +1,16 @@
 #!/bin/bash
 set -e
 
-# Count snapshot changes
+# Count snapshot changes and optimize with OptiPNG
 #
 # Usage: count-snapshot-changes.sh <snapshot_directory>
 # Output: JSON with {added, modified, deleted, total, files: [{path, status, shard}]}
 #
-# This script counts git diff changes in snapshot directory and outputs JSON.
-# Note: PNG optimization is now handled in shard jobs before patch creation.
+# This script:
+# 1. Counts git diff changes in snapshot directory
+# 2. Runs OptiPNG on new/modified snapshots
+# 3. Re-counts after optimization (OptiPNG may eliminate diffs)
+# 4. Outputs JSON for consumption by other scripts
 
 if [ $# -ne 1 ]; then
     echo "Usage: $0 <snapshot_directory>" >&2
@@ -21,16 +24,42 @@ if [ ! -d "$SNAPSHOT_DIR" ]; then
     exit 1
 fi
 
-# Count changes (snapshots already optimized in shard jobs)
+# Count changes before OptiPNG
 echo "Checking for changes in $SNAPSHOT_DIR..." >&2
 git diff --cached --name-status "$SNAPSHOT_DIR" > /tmp/snapshot-diff.txt || true
 
 ADDED=$(grep '^A' /tmp/snapshot-diff.txt | wc -l | xargs)
 MODIFIED=$(grep '^M' /tmp/snapshot-diff.txt | wc -l | xargs)
 DELETED=$(grep '^D' /tmp/snapshot-diff.txt | wc -l | xargs)
-TOTAL=$((ADDED + MODIFIED + DELETED))
 
+# Track which file to read from for JSON building
 DIFF_FILE="/tmp/snapshot-diff.txt"
+
+# Run OptiPNG if there are added or modified files
+if [ "$ADDED" -gt 0 ] || [ "$MODIFIED" -gt 0 ]; then
+    echo "Running OptiPNG optimization on $((ADDED + MODIFIED)) files..." >&2
+    sudo apt-get update -qq && sudo apt-get install -y -qq optipng >/dev/null 2>&1 || true
+
+    # Find PNG files that were added or modified
+    while IFS= read -r line; do
+        status=$(echo "$line" | awk '{print $1}')
+        file=$(echo "$line" | awk '{print $2}')
+        if [[ "$status" == "A" || "$status" == "M" ]] && [[ "$file" == *.png ]]; then
+            if [ -f "$file" ]; then
+                optipng -clobber -o4 -strip all "$file" 2>/dev/null || true
+            fi
+        fi
+    done < /tmp/snapshot-diff.txt
+
+    # Re-count after OptiPNG (may have eliminated some diffs)
+    git diff --cached --name-status "$SNAPSHOT_DIR" > /tmp/snapshot-diff-after.txt || true
+    DIFF_FILE="/tmp/snapshot-diff-after.txt"
+    ADDED=$(grep '^A' /tmp/snapshot-diff-after.txt | wc -l | xargs)
+    MODIFIED=$(grep '^M' /tmp/snapshot-diff-after.txt | wc -l | xargs)
+    DELETED=$(grep '^D' /tmp/snapshot-diff-after.txt | wc -l | xargs)
+fi
+
+TOTAL=$((ADDED + MODIFIED + DELETED))
 
 # Build JSON array of changed files using jq for safe JSON construction
 FILES=$(while IFS= read -r line; do
