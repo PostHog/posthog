@@ -1,6 +1,5 @@
 import uuid
 import dataclasses
-from collections.abc import Sequence
 from typing import Any, Optional
 
 from django.db import close_old_connections
@@ -85,7 +84,7 @@ def _report_heartbeat_timeout(inputs: ImportDataActivityInputs, logger: Filterin
             return
 
         heartbeat_details = info.heartbeat_details
-        if not isinstance(heartbeat_details, tuple | list | Sequence) or len(heartbeat_details) < 1:
+        if not isinstance(heartbeat_details, tuple | list) or len(heartbeat_details) < 1:
             logger.debug(
                 f"No heartbeat details found to analyze for timeout: {heartbeat_details}. Class: {heartbeat_details.__class__.__name__}"
             )
