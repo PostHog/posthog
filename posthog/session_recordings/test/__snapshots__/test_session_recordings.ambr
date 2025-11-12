@@ -5702,9 +5702,9 @@
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
          AND "posthog_sessionrecordingviewed"."session_id" IN ('5',
-                                                               '2',
-                                                               '3',
                                                                '4',
+                                                               '3',
+                                                               '2',
                                                                '1'))
   '''
 # ---
@@ -5715,9 +5715,9 @@
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('5',
-                                                           '2',
-                                                           '3',
                                                            '4',
+                                                           '3',
+                                                           '2',
                                                            '1')
          AND "posthog_sessionrecordingviewed"."team_id" = 99999
          AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
@@ -6457,11 +6457,11 @@
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
-         AND "posthog_sessionrecordingviewed"."session_id" IN ('5',
-                                                               '2',
-                                                               '3',
+         AND "posthog_sessionrecordingviewed"."session_id" IN ('6',
+                                                               '5',
                                                                '4',
-                                                               '6',
+                                                               '3',
+                                                               '2',
                                                                '1'))
   '''
 # ---
@@ -6471,11 +6471,11 @@
          "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('5',
-                                                           '2',
-                                                           '3',
+  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('6',
+                                                           '5',
                                                            '4',
-                                                           '6',
+                                                           '3',
+                                                           '2',
                                                            '1')
          AND "posthog_sessionrecordingviewed"."team_id" = 99999
          AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
@@ -7280,12 +7280,12 @@
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
-         AND "posthog_sessionrecordingviewed"."session_id" IN ('5',
-                                                               '2',
-                                                               '3',
-                                                               '4',
-                                                               '7',
+         AND "posthog_sessionrecordingviewed"."session_id" IN ('7',
                                                                '6',
+                                                               '5',
+                                                               '4',
+                                                               '3',
+                                                               '2',
                                                                '1'))
   '''
 # ---
@@ -7295,12 +7295,12 @@
          "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('5',
-                                                           '2',
-                                                           '3',
-                                                           '4',
-                                                           '7',
+  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('7',
                                                            '6',
+                                                           '5',
+                                                           '4',
+                                                           '3',
+                                                           '2',
                                                            '1')
          AND "posthog_sessionrecordingviewed"."team_id" = 99999
          AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
@@ -8063,14 +8063,14 @@
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
-         AND "posthog_sessionrecordingviewed"."session_id" IN ('5',
-                                                               '2',
-                                                               '3',
-                                                               '4',
+         AND "posthog_sessionrecordingviewed"."session_id" IN ('8',
                                                                '7',
                                                                '6',
-                                                               '1',
-                                                               '8'))
+                                                               '5',
+                                                               '4',
+                                                               '3',
+                                                               '2',
+                                                               '1'))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.155
@@ -8079,14 +8079,14 @@
          "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('5',
-                                                           '2',
-                                                           '3',
-                                                           '4',
+  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('8',
                                                            '7',
                                                            '6',
-                                                           '1',
-                                                           '8')
+                                                           '5',
+                                                           '4',
+                                                           '3',
+                                                           '2',
+                                                           '1')
          AND "posthog_sessionrecordingviewed"."team_id" = 99999
          AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
   '''
@@ -8910,15 +8910,15 @@
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
-         AND "posthog_sessionrecordingviewed"."session_id" IN ('5',
-                                                               '2',
-                                                               '3',
-                                                               '4',
+         AND "posthog_sessionrecordingviewed"."session_id" IN ('9',
+                                                               '8',
                                                                '7',
                                                                '6',
-                                                               '1',
-                                                               '8',
-                                                               '9'))
+                                                               '5',
+                                                               '4',
+                                                               '3',
+                                                               '2',
+                                                               '1'))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.173
@@ -8927,15 +8927,15 @@
          "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('5',
-                                                           '2',
-                                                           '3',
-                                                           '4',
+  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('9',
+                                                           '8',
                                                            '7',
                                                            '6',
-                                                           '1',
-                                                           '8',
-                                                           '9')
+                                                           '5',
+                                                           '4',
+                                                           '3',
+                                                           '2',
+                                                           '1')
          AND "posthog_sessionrecordingviewed"."team_id" = 99999
          AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
   '''
@@ -9720,16 +9720,16 @@
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
-         AND "posthog_sessionrecordingviewed"."session_id" IN ('5',
-                                                               '2',
-                                                               '3',
-                                                               '4',
-                                                               '7',
-                                                               '10',
-                                                               '6',
-                                                               '1',
+         AND "posthog_sessionrecordingviewed"."session_id" IN ('9',
                                                                '8',
-                                                               '9'))
+                                                               '7',
+                                                               '6',
+                                                               '5',
+                                                               '4',
+                                                               '3',
+                                                               '2',
+                                                               '10',
+                                                               '1'))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.191
@@ -9738,16 +9738,16 @@
          "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('5',
-                                                           '2',
-                                                           '3',
-                                                           '4',
-                                                           '7',
-                                                           '10',
-                                                           '6',
-                                                           '1',
+  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('9',
                                                            '8',
-                                                           '9')
+                                                           '7',
+                                                           '6',
+                                                           '5',
+                                                           '4',
+                                                           '3',
+                                                           '2',
+                                                           '10',
+                                                           '1')
          AND "posthog_sessionrecordingviewed"."team_id" = 99999
          AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
   '''
@@ -11679,8 +11679,8 @@
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
-         AND "posthog_sessionrecordingviewed"."session_id" IN ('2',
-                                                               '3',
+         AND "posthog_sessionrecordingviewed"."session_id" IN ('3',
+                                                               '2',
                                                                '1'))
   '''
 # ---
@@ -11690,8 +11690,8 @@
          "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('2',
-                                                           '3',
+  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('3',
+                                                           '2',
                                                            '1')
          AND "posthog_sessionrecordingviewed"."team_id" = 99999
          AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
@@ -12454,9 +12454,9 @@
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
-         AND "posthog_sessionrecordingviewed"."session_id" IN ('2',
+         AND "posthog_sessionrecordingviewed"."session_id" IN ('4',
                                                                '3',
-                                                               '4',
+                                                               '2',
                                                                '1'))
   '''
 # ---
@@ -12466,9 +12466,9 @@
          "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('2',
+  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('4',
                                                            '3',
-                                                           '4',
+                                                           '2',
                                                            '1')
          AND "posthog_sessionrecordingviewed"."team_id" = 99999
          AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))

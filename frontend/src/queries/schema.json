@@ -23460,6 +23460,10 @@
                     },
                     "type": "array"
                 },
+                "after": {
+                    "description": "Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page.",
+                    "type": "string"
+                },
                 "comment_text": {
                     "$ref": "#/definitions/RecordingPropertyFilter"
                 },
@@ -23561,6 +23565,10 @@
             "properties": {
                 "has_next": {
                     "type": "boolean"
+                },
+                "next_cursor": {
+                    "description": "Cursor for the next page. Contains the ordering value and session_id from the last record.",
+                    "type": "string"
                 },
                 "results": {
                     "items": {
