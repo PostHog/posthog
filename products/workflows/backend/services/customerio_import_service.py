@@ -1,6 +1,7 @@
+import csv
+import io
 import json
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from django.db import transaction
@@ -31,14 +32,12 @@ class CustomerIOImportService:
             "customers_processed": 0,
             "preferences_updated": 0,
             "globally_unsubscribed_count": 0,
-            "preference_users_count": 0,
-            "current_batch": 0,
-            "customers_in_current_batch": 0,
             "errors": [],
             "details": "",
         }
 
-    def import_all(self) -> dict[str, Any]:
+    def import_api_data(self) -> dict[str, Any]:
+        """Import categories and globally unsubscribed users via API"""
         try:
             # Step 1: Validate credentials
             self.progress["status"] = "validating_credentials"
@@ -77,13 +76,8 @@ class CustomerIOImportService:
             self.progress["details"] = "Processing globally unsubscribed users..."
             self._process_globally_unsubscribed_users()
 
-            # Step 4: Process users with subscription preferences
-            self.progress["status"] = "processing_preference_users"
-            self.progress["details"] = "Processing users with subscription preferences..."
-            self._process_users_with_preferences()
-
             self.progress["status"] = "completed"
-            self.progress["details"] = "Import completed successfully"
+            self.progress["details"] = "API import completed. You can now optionally upload a CSV with user preferences."
 
         except Exception as e:
             self.progress["status"] = "failed"
@@ -91,6 +85,216 @@ class CustomerIOImportService:
             logger.exception("Import failed with error")
 
         return self.progress
+
+    def process_preferences_csv(self, csv_file) -> dict[str, Any]:
+        """Process CSV file with customer preferences"""
+        # Reset progress for CSV processing
+        csv_progress = {
+            "status": "processing_csv",
+            "total_rows": 0,
+            "rows_processed": 0,
+            "users_with_optouts": 0,
+            "users_skipped": 0,
+            "parse_errors": 0,
+            "preferences_updated": 0,
+            "current_batch": 0,
+            "details": "Starting CSV processing...",
+            "failed_imports": [],  # List of failed imports with email and error
+        }
+        
+        try:
+            # Load topic mapping from existing categories
+            self._load_topic_mapping()
+            
+            if not self.topic_mapping:
+                csv_progress["status"] = "failed"
+                csv_progress["details"] = "No categories found. Please run API import first."
+                return csv_progress
+            
+            # Read CSV content
+            if hasattr(csv_file, 'read'):
+                content = csv_file.read()
+                if isinstance(content, bytes):
+                    content = content.decode('utf-8')
+            else:
+                content = csv_file
+            
+            # Parse CSV
+            csv_reader = csv.DictReader(io.StringIO(content))
+            
+            # Process in batches
+            batch_size = 1000
+            current_batch = []
+            
+            for row_num, row in enumerate(csv_reader, 1):
+                csv_progress["total_rows"] = row_num
+                csv_progress["rows_processed"] = row_num
+                
+                # Update progress every 100 rows
+                if row_num % 100 == 0:
+                    csv_progress["details"] = f"Processing row {row_num}..."
+                    csv_progress["current_batch"] = row_num // batch_size + 1
+                
+                # Process row
+                result = self._process_csv_row(row)
+                
+                if result["status"] == "success" and result["opted_out_categories"]:
+                    current_batch.append((result["email"], result["opted_out_categories"]))
+                    csv_progress["users_with_optouts"] += 1
+                elif result["status"] == "success":
+                    csv_progress["users_skipped"] += 1
+                elif result["status"] == "error":
+                    csv_progress["parse_errors"] += 1
+                    csv_progress["failed_imports"].append({
+                        "email": result.get("email", "unknown"),
+                        "error": result["error"]
+                    })
+                
+                # Process batch when it reaches batch_size
+                if len(current_batch) >= batch_size:
+                    prefs_count = self._save_csv_batch(current_batch)
+                    csv_progress["preferences_updated"] += prefs_count
+                    current_batch = []
+            
+            # Process remaining batch
+            if current_batch:
+                prefs_count = self._save_csv_batch(current_batch)
+                csv_progress["preferences_updated"] += prefs_count
+            
+            csv_progress["status"] = "completed"
+            csv_progress["details"] = f"CSV processing completed. Imported {csv_progress['users_with_optouts']} users with opt-outs."
+            
+        except Exception as e:
+            csv_progress["status"] = "failed"
+            csv_progress["details"] = f"CSV processing failed: {str(e)}"
+            logger.exception("CSV processing failed")
+        
+        return csv_progress
+
+    def _process_csv_row(self, row: dict) -> dict:
+        """Process a single CSV row and return the result"""
+        email = row.get('email', '').strip()
+        cio_id = row.get('id', '').strip()  # Get Customer.io ID
+        preferences_json = row.get('cio_subscription_preferences', '').strip()
+        
+        if not email:
+            # Use Customer.io ID if email is missing
+            identifier = f"Customer.io ID: {cio_id}" if cio_id else "unknown"
+            return {"status": "error", "email": identifier, "error": "Missing email"}
+        
+        if not preferences_json:
+            return {"status": "success", "email": email, "opted_out_categories": []}
+        
+        try:
+            # Parse JSON preferences
+            prefs = json.loads(preferences_json)
+            topics = prefs.get('topics', {})
+            
+            # Collect opted-out categories (where value is false)
+            opted_out_categories = []
+            
+            for topic_key, is_subscribed in topics.items():
+                if is_subscribed is False:  # Only process opt-outs
+                    # Extract topic ID (handle both "topic_1" and "1" formats)
+                    topic_id = topic_key.replace('topic_', '')
+                    
+                    # Map to PostHog category ID
+                    category_id = (
+                        self.topic_mapping.get(topic_id) or 
+                        self.topic_mapping.get(f"topic_{topic_id}")
+                    )
+                    
+                    if category_id:
+                        opted_out_categories.append(category_id)
+                    else:
+                        # Unknown topic, but don't fail the whole row
+                        logger.warning(f"Unknown topic ID '{topic_key}' for {email}")
+            
+            return {
+                "status": "success",
+                "email": email,
+                "opted_out_categories": opted_out_categories
+            }
+            
+        except json.JSONDecodeError as e:
+            return {
+                "status": "error",
+                "email": email,
+                "error": f"Invalid JSON: {str(e)[:100]}"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "email": email,
+                "error": f"Processing error: {str(e)[:100]}"
+            }
+
+    def _save_csv_batch(self, batch: list[tuple[str, list[str]]]) -> int:
+        """Save a batch of CSV preferences to database"""
+        preferences_count = 0
+        
+        try:
+            with transaction.atomic():
+                # Group by email for efficient processing
+                email_to_categories = {}
+                for email, categories in batch:
+                    if email not in email_to_categories:
+                        email_to_categories[email] = []
+                    email_to_categories[email].extend(categories)
+                
+                # Fetch existing preferences
+                emails = list(email_to_categories.keys())
+                existing_prefs = {
+                    pref.identifier: pref
+                    for pref in MessageRecipientPreference.objects.filter(
+                        team_id=self.team.id,
+                        identifier__in=emails
+                    )
+                }
+                
+                to_create = []
+                to_update = []
+                
+                for email, category_ids in email_to_categories.items():
+                    # Remove duplicates
+                    unique_categories = list(set(category_ids))
+                    
+                    if email in existing_prefs:
+                        # Update existing preference
+                        pref = existing_prefs[email]
+                        for category_id in unique_categories:
+                            pref.preferences[str(category_id)] = PreferenceStatus.OPTED_OUT.value
+                        to_update.append(pref)
+                    else:
+                        # Create new preference
+                        preferences_dict = {
+                            str(category_id): PreferenceStatus.OPTED_OUT.value
+                            for category_id in unique_categories
+                        }
+                        to_create.append(
+                            MessageRecipientPreference(
+                                team_id=self.team.id,
+                                identifier=email,
+                                preferences=preferences_dict,
+                            )
+                        )
+                    
+                    preferences_count += len(unique_categories)
+                
+                # Bulk operations
+                if to_create:
+                    MessageRecipientPreference.objects.bulk_create(to_create, batch_size=500)
+                
+                if to_update:
+                    MessageRecipientPreference.objects.bulk_update(
+                        to_update, ["preferences", "updated_at"], batch_size=500
+                    )
+                    
+        except Exception as e:
+            logger.error(f"Error saving CSV batch: {e}")
+            # Could track individual failures here if needed
+        
+        return preferences_count
 
     def _import_categories(self, topics: list[dict[str, Any]]) -> None:
         """Import Customer.io topics as message categories"""
@@ -142,9 +346,6 @@ class CustomerIOImportService:
         batch_num = 0
         total_processed = 0
         all_category_ids = list(set(self.topic_mapping.values()))
-        
-        print(f"\n=== Starting to process globally unsubscribed users ===")
-        print(f"Will opt out from {len(all_category_ids)} categories")
 
         while True:
             batch_num += 1
@@ -152,15 +353,12 @@ class CustomerIOImportService:
 
             try:
                 # Fetch batch of globally unsubscribed customers
-                print(f"\nBatch {batch_num}: Fetching globally unsubscribed (start={start})...")
                 response = self.client.get_globally_unsubscribed_customers(limit=1000, start=start)
                 identifiers = response.get("identifiers", [])
 
                 if not identifiers:
-                    print(f"Batch {batch_num}: No more globally unsubscribed users found")
                     break
 
-                print(f"Batch {batch_num}: Found {len(identifiers)} globally unsubscribed users")
                 self.progress["customers_in_current_batch"] = len(identifiers)
                 self.progress["details"] = f"Processing batch {batch_num} of globally unsubscribed users ({len(identifiers)} users)..."
 
@@ -184,226 +382,15 @@ class CustomerIOImportService:
 
                 # Check for next page
                 next_cursor = response.get("next")
-                print(f"Batch {batch_num}: Next cursor = '{next_cursor}'")
                 if not next_cursor or next_cursor == "":
-                    print(f"Batch {batch_num}: No next cursor, stopping")
                     break
                 start = next_cursor
 
             except Exception as e:
-                print(f"Error in batch {batch_num}: {e}")
                 self.progress["errors"].append(f"Error processing globally unsubscribed batch {batch_num}: {str(e)[:200]}")
                 break
 
-        print(f"\n=== Finished processing globally unsubscribed users ===")
-        print(f"Total processed: {total_processed}")
         self.progress["details"] = f"Processed {total_processed} globally unsubscribed users"
-
-    def _process_users_with_preferences(self) -> None:
-        """Process users who have subscription preference attributes"""
-        if not self.topic_mapping:
-            return
-
-        start = None
-        batch_num = 0
-        total_processed = 0
-        total_fetched = 0  # Track total customers fetched from API
-
-        print(f"\n=== Starting to process users with preferences ===")
-        print(f"Topic mapping: {self.topic_mapping}")
-        
-        # Debug: Check if specific user can be found
-        print("\n=== Checking for david.bai@openrouter.ai ===")
-        try:
-            test_response = self.client.search_for_specific_customer("david.bai@openrouter.ai")
-            if test_response.get("identifiers"):
-                print(f"FOUND david.bai@openrouter.ai in search: {test_response['identifiers'][0]}")
-            else:
-                print("david.bai@openrouter.ai NOT FOUND in preference search")
-        except Exception as e:
-            print(f"Error searching for david.bai@openrouter.ai: {e}")
-        print("=== End specific user check ===\n")
-
-        while True:
-            batch_num += 1
-            self.progress["current_batch"] = batch_num
-
-            try:
-                # Fetch batch of customers with preference attributes
-                print(f"\nBatch {batch_num}: Fetching customers with preferences (start={start})...")
-                response = self.client.get_customers_with_preferences(limit=1000, start=start)
-                identifiers = response.get("identifiers", [])
-
-                if not identifiers:
-                    print(f"Batch {batch_num}: No more customers found")
-                    break
-
-                total_fetched += len(identifiers)
-                print(f"Batch {batch_num}: Found {len(identifiers)} customers (total fetched: {total_fetched})")
-                
-                # Print first 3 customers for debugging
-                if batch_num <= 2:
-                    for i, customer in enumerate(identifiers[:3]):
-                        print(f"  Customer {i+1}: {customer.get('email')} (cio_id: {customer.get('cio_id')})")
-
-                self.progress["customers_in_current_batch"] = len(identifiers)
-                self.progress["details"] = f"Processing batch {batch_num} of users with preferences ({len(identifiers)} users)..."
-
-                # Process customers in parallel to fetch their attributes
-                # Reduced workers to avoid rate limiting
-                batch_preferences = {}  # Maps email to list of category_ids they're opted out of
-                customers_with_no_optouts = 0
-                
-                with ThreadPoolExecutor(max_workers=10) as executor:
-                    future_to_customer = {}
-                    
-                    for customer_info in identifiers:
-                        cio_id = customer_info.get("cio_id")
-                        email = customer_info.get("email")
-                        if email and cio_id:
-                            future = executor.submit(self._fetch_and_parse_preferences, cio_id, email)
-                            future_to_customer[future] = email
-                    
-                    # Collect results
-                    for future in as_completed(future_to_customer):
-                        email = future_to_customer[future]
-                        try:
-                            opted_out_categories = future.result()
-                            if opted_out_categories:
-                                batch_preferences[email] = opted_out_categories
-                            else:
-                                customers_with_no_optouts += 1
-                        except Exception as e:
-                            logger.warning(f"Could not process preferences for {email}: {e}")
-
-                print(f"Batch {batch_num}: {len(batch_preferences)} customers have opt-outs, {customers_with_no_optouts} have no opt-outs")
-
-                # Bulk update preferences for this batch
-                if batch_preferences:
-                    for email, category_ids in batch_preferences.items():
-                        if category_ids:
-                            self._bulk_update_preferences([email], category_ids)
-                            self.progress["preference_users_count"] += 1
-                            self.progress["customers_processed"] += 1
-                            self.progress["preferences_updated"] += len(category_ids)
-                    
-                    total_processed += len(batch_preferences)
-
-                # Check for next page
-                next_cursor = response.get("next")
-                print(f"Batch {batch_num}: Next cursor = '{next_cursor}'")
-                
-                if not next_cursor or next_cursor == "":
-                    print(f"Batch {batch_num}: No next cursor, stopping pagination")
-                    print(f"WARNING: Check if we hit API pagination limit. Total fetched: {total_fetched}")
-                    if total_fetched >= 30000:
-                        print("!!! Possible pagination limit reached around 30k records !!!")
-                    break
-                start = next_cursor
-
-            except Exception as e:
-                print(f"Error in batch {batch_num}: {e}")
-                self.progress["errors"].append(f"Error processing preference users batch {batch_num}: {str(e)[:200]}")
-                break
-
-        print(f"\n=== Finished processing preference users ===")
-        print(f"Total fetched from API: {total_fetched}")
-        print(f"Total with opt-outs saved to DB: {total_processed}")
-        self.progress["details"] = f"Processed {total_processed} users with subscription preferences"
-
-    def _fetch_and_parse_preferences(self, cio_id: str, email: str) -> list[str]:
-        """
-        Fetch and parse subscription preferences for a single customer
-        Returns list of category IDs the customer is opted out of
-        """
-        import time
-        max_retries = 3
-        retry_delay = 1.0
-        
-        for attempt in range(max_retries):
-            try:
-                # Debug specific user
-                if email == "david.bai@openrouter.ai":
-                    print(f"\n=== FOUND DAVID.BAI@OPENROUTER.AI ===")
-                    print(f"CIO ID: {cio_id}")
-                
-                # Fetch customer attributes
-                attrs_response = self.client.get_customer_attributes(cio_id, id_type="cio_id")
-                
-                # Handle different response structures
-                if "customer" in attrs_response:
-                    attributes = attrs_response.get("customer", {}).get("attributes", {})
-                else:
-                    # Direct attributes response
-                    attributes = attrs_response
-                
-                # Debug specific user
-                if email == "david.bai@openrouter.ai":
-                    print(f"Attributes keys: {list(attributes.keys())[:20]}")
-                    print(f"cio_subscription_preferences: {attributes.get('cio_subscription_preferences', 'NOT FOUND')}")
-                    print(f"_cio_subscription_preferences_computed: {attributes.get('_cio_subscription_preferences_computed', 'NOT FOUND')}")
-                
-                # Parse subscription preferences JSON
-                pref_json = attributes.get("cio_subscription_preferences") or attributes.get("_cio_subscription_preferences_computed")
-                
-                if pref_json:
-                    prefs = json.loads(pref_json) if isinstance(pref_json, str) else pref_json
-                    topics = prefs.get("topics", {})
-                    
-                    # Debug specific user
-                    if email == "david.bai@openrouter.ai":
-                        print(f"Parsed topics: {topics}")
-                    
-                    # Collect opted-out categories
-                    opted_out_categories = []
-                    for topic_key, is_subscribed in topics.items():
-                        if is_subscribed is False:
-                            # Extract topic ID (could be "topic_1" or "1")
-                            topic_id = topic_key.replace("topic_", "")
-                            
-                            # Get the corresponding PostHog category ID
-                            category_id = self.topic_mapping.get(topic_id) or self.topic_mapping.get(f"topic_{topic_id}")
-                            
-                            if category_id:
-                                opted_out_categories.append(category_id)
-                            elif email == "david.bai@openrouter.ai":
-                                print(f"Warning: No mapping for topic {topic_id}")
-                    
-                    # Debug specific user
-                    if email == "david.bai@openrouter.ai":
-                        print(f"Opted out categories: {opted_out_categories}")
-                        print("=== END DAVID.BAI DEBUG ===\n")
-                    
-                    return opted_out_categories
-                
-                # Debug if no preferences found
-                if email == "david.bai@openrouter.ai":
-                    print(f"No preferences JSON found for david.bai@openrouter.ai")
-                    print("=== END DAVID.BAI DEBUG ===\n")
-                
-                return []
-                
-            except Exception as e:
-                error_str = str(e)
-                if "429" in error_str:
-                    # Rate limit error - retry with exponential backoff
-                    if attempt < max_retries - 1:
-                        wait_time = retry_delay * (2 ** attempt)
-                        if email == "david.bai@openrouter.ai":
-                            print(f"Rate limited, retrying in {wait_time}s...")
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        logger.warning(f"Rate limited fetching preferences for {email} after {max_retries} attempts")
-                        if email == "david.bai@openrouter.ai":
-                            print(f"ERROR: Rate limited after {max_retries} attempts")
-                else:
-                    logger.warning(f"Could not fetch/parse preferences for {email}: {e}")
-                    if email == "david.bai@openrouter.ai":
-                        print(f"ERROR processing david.bai@openrouter.ai: {e}")
-                break
-        
-        return []
 
     def _bulk_update_all_preferences(self, emails: list[str], category_ids: list[str]) -> None:
         """Bulk update preferences to opt out users from ALL categories"""
@@ -464,64 +451,24 @@ class CustomerIOImportService:
                 except Exception as individual_error:
                     self.progress["errors"].append(f"Failed to update {email}: {str(individual_error)[:100]}")
 
-    def _bulk_update_preferences(self, emails: list[str], category_ids: list[str]) -> None:
-        """Bulk update preferences for specific categories"""
-        try:
-            with transaction.atomic():
-                # Fetch existing preferences
-                existing_prefs = {
-                    pref.identifier: pref
-                    for pref in MessageRecipientPreference.objects.filter(
-                        team_id=self.team.id,
-                        identifier__in=emails
-                    )
-                }
-
-                to_create = []
-                to_update = []
-
-                for email in emails:
-                    if email in existing_prefs:
-                        # Update existing preference
-                        pref = existing_prefs[email]
-                        for category_id in category_ids:
-                            pref.preferences[str(category_id)] = PreferenceStatus.OPTED_OUT.value
-                        to_update.append(pref)
-                    else:
-                        # Create new preference
-                        preferences_dict = {
-                            str(category_id): PreferenceStatus.OPTED_OUT.value
-                            for category_id in category_ids
-                        }
-                        to_create.append(
-                            MessageRecipientPreference(
-                                team_id=self.team.id,
-                                identifier=email,
-                                preferences=preferences_dict,
-                            )
-                        )
-
-                # Bulk operations
-                if to_create:
-                    MessageRecipientPreference.objects.bulk_create(to_create, batch_size=500)
-
-                if to_update:
-                    MessageRecipientPreference.objects.bulk_update(
-                        to_update, ["preferences", "updated_at"], batch_size=500
-                    )
-
-        except Exception as e:
-            logger.error(f"Error bulk updating preferences: {e}")
-            # Fall back to individual updates
-            for email in emails:
-                try:
-                    recipient_pref = MessageRecipientPreference.get_or_create_for_identifier(
-                        team_id=self.team.id, identifier=email
-                    )
-                    for category_id in category_ids:
-                        recipient_pref.set_preference(category_id, PreferenceStatus.OPTED_OUT)
-                except Exception as individual_error:
-                    self.progress["errors"].append(f"Failed to update {email}: {str(individual_error)[:100]}")
+    def _load_topic_mapping(self) -> None:
+        """Load topic mapping from existing categories"""
+        categories = MessageCategory.objects.filter(
+            team=self.team,
+            key__startswith="customerio_",
+            deleted=False
+        )
+        
+        for category in categories:
+            # Extract topic identifier from key (e.g., "customerio_topic_1" -> "topic_1")
+            topic_identifier = category.key.replace("customerio_", "")
+            # Also extract numeric ID (e.g., "topic_1" -> "1")
+            topic_id = topic_identifier.replace("topic_", "")
+            
+            # Store both mappings
+            self.topic_mapping[topic_identifier] = str(category.id)
+            self.topic_mapping[topic_id] = str(category.id)
+            self.topic_names[topic_id] = category.name
 
     def get_progress(self) -> dict[str, Any]:
         return self.progress

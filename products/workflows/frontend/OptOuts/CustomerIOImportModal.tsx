@@ -1,204 +1,112 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconCheck, IconEllipsis, IconWarning } from '@posthog/icons'
+import { IconCheck, IconUpload, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonModal, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 
-import { CategoryProgress, customerIOImportLogic } from './customerIOImportLogic'
+import { CSVImportProgress, customerIOImportLogic } from './customerIOImportLogic'
 
 export function CustomerIOImportModal(): JSX.Element {
-    const { isImportModalOpen, isImporting, importProgress, importError, importForm } = useValues(customerIOImportLogic)
-    const { closeImportModal, submitImportForm } = useActions(customerIOImportLogic)
+    const { 
+        isImportModalOpen, 
+        isImporting, 
+        importProgress, 
+        importError, 
+        importForm,
+        csvFile,
+        csvProgress,
+        showCSVPhase,
+        isUploadingCSV
+    } = useValues(customerIOImportLogic)
+    const { 
+        closeImportModal, 
+        submitImportForm,
+        setCSVFile,
+        uploadCSV
+    } = useActions(customerIOImportLogic)
 
-    const renderProgressBar = (): JSX.Element | null => {
-        if (!importProgress) {
-            return null
-        }
-
-        const { current_category_index, total_categories } = importProgress
-
-        if (total_categories && total_categories > 0 && current_category_index) {
-            // Don't show 100% until actually completed - show max 99% during processing
-            const rawProgress = (current_category_index / total_categories) * 100
-            const categoryProgress = importProgress.status === 'completed' ? 100 : Math.min(99, rawProgress)
-
-            return (
-                <div className="space-y-2">
-                    <div className="flex justify-between text-xs text-muted-alt">
-                        <span>
-                            Category {current_category_index} of {total_categories}
-                        </span>
-                        <span>{Math.round(categoryProgress)}%</span>
-                    </div>
-                    <LemonProgress percent={categoryProgress} />
-                </div>
-            )
-        }
-
-        return null
-    }
-
-    const renderContent = (): JSX.Element => {
-        if (isImporting || importProgress) {
+    const renderAPIImportPhase = (): JSX.Element => {
+        if (isImporting || (importProgress && importProgress.status !== 'completed' && importProgress.status !== 'failed')) {
+            // Show progress
             return (
                 <div className="space-y-4">
                     <div className="text-center">
-                        {importProgress?.status === 'completed' ? (
-                            <>
-                                <LemonBanner type="success" className="mb-4">
-                                    <span className="font-semibold">Import Complete!</span>
-                                </LemonBanner>
-                                <div className="space-y-2 text-sm">
-                                    <div className="flex items-center justify-between">
-                                        <span>Categories imported:</span>
-                                        <LemonTag>{importProgress.topics_found}</LemonTag>
-                                    </div>
-                                    <LemonDivider className="my-2" />
-                                    <div className="flex items-center justify-between">
-                                        <span>Unique customers with opt-outs:</span>
-                                        <LemonTag>{importProgress.customers_processed.toLocaleString()}</LemonTag>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <span>Total opt-out preferences imported:</span>
-                                        <LemonTag>{importProgress.preferences_updated.toLocaleString()}</LemonTag>
-                                    </div>
+                        <Spinner className="text-3xl mb-4" />
+                        <div className="text-lg font-semibold mb-2">Importing from Customer.io API...</div>
+                        <div className="text-sm text-muted-alt">
+                            {importProgress?.details || 'Starting import...'}
+                        </div>
+                    </div>
+                    
+                    {importProgress && (
+                        <div className="space-y-2 text-sm">
+                            {importProgress.topics_found > 0 && (
+                                <div className="flex items-center gap-2">
+                                    <IconCheck className="text-success" />
+                                    <span>Found {importProgress.topics_found} subscription topics</span>
                                 </div>
-                                {importProgress.preferences_updated > importProgress.customers_processed && (
-                                    <div className="text-xs text-muted-alt mt-2">
-                                        Note: Some customers have opted out of multiple categories
-                                    </div>
-                                )}
-                                {importProgress.errors && importProgress.errors.length > 0 && (
-                                    <LemonBanner type="warning" className="mt-4">
-                                        <div>
-                                            <div className="font-semibold mb-2">Some errors occurred:</div>
-                                            <div className="text-xs max-h-32 overflow-y-auto">
-                                                {importProgress.errors.slice(0, 10).map((error, idx) => (
-                                                    <div key={idx}>• {error}</div>
-                                                ))}
-                                                {importProgress.errors.length > 10 && (
-                                                    <div className="mt-1">
-                                                        ... and {importProgress.errors.length - 10} more errors
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </LemonBanner>
-                                )}
-                            </>
-                        ) : importProgress?.status === 'failed' ? (
-                            <LemonBanner type="error">
-                                <div>
-                                    <div className="font-semibold mb-2">Import Failed</div>
-                                    <div className="text-sm">
-                                        {importProgress.errors?.join(', ') || 'An unknown error occurred'}
-                                    </div>
+                            )}
+                            {(importProgress.categories_created ?? 0) > 0 && (
+                                <div className="flex items-center gap-2">
+                                    <IconCheck className="text-success" />
+                                    <span>Created {importProgress.categories_created} categories</span>
                                 </div>
-                            </LemonBanner>
-                        ) : (
-                            <>
-                                <div className="text-lg font-semibold mb-4">Importing...</div>
+                            )}
+                            {(importProgress.globally_unsubscribed_count ?? 0) > 0 && (
+                                <div className="flex items-center gap-2">
+                                    <Spinner className="text-xs" />
+                                    <span>Processing {(importProgress.globally_unsubscribed_count ?? 0).toLocaleString()} globally unsubscribed users...</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )
+        }
 
-                                {importProgress?.status === 'creating_categories' && (
-                                    <div className="text-sm text-muted-alt mb-4">
-                                        Creating message categories from Customer.io topics...
-                                    </div>
-                                )}
+        if (importProgress?.status === 'failed') {
+            return (
+                <LemonBanner type="error">
+                    <div>
+                        <div className="font-semibold mb-2">Import Failed</div>
+                        <div className="text-sm">
+                            {importProgress.errors?.join(', ') || 'An unknown error occurred'}
+                        </div>
+                    </div>
+                </LemonBanner>
+            )
+        }
 
-                                {importProgress?.status?.startsWith('processing_category') && (
-                                    <>
-                                        <div className="text-sm text-muted-alt mb-4">
-                                            {importProgress.details || 'Processing customer opt-outs...'}
-                                        </div>
-                                        {renderProgressBar()}
-                                    </>
-                                )}
-
-                                {importProgress && (
-                                    <div className="mt-4 space-y-2">
-                                        {importProgress.topics_found > 0 && (
-                                            <div className="flex items-center gap-2 text-xs">
-                                                <IconCheck className="text-success" />
-                                                <span>Found {importProgress.topics_found} categories</span>
-                                            </div>
-                                        )}
-
-                                        {/* Show categories list with their status */}
-                                        {importProgress.categories_list &&
-                                            importProgress.categories_list.length > 0 && (
-                                                <>
-                                                    <LemonDivider className="my-2" />
-                                                    <div className="space-y-1">
-                                                        {importProgress.categories_list.map(
-                                                            (category: CategoryProgress, idx: number) => (
-                                                                <div
-                                                                    key={idx}
-                                                                    className="flex items-center gap-2 text-xs"
-                                                                >
-                                                                    {category.status === 'completed' ? (
-                                                                        <IconCheck className="text-success" />
-                                                                    ) : category.status === 'processing' ? (
-                                                                        <Spinner className="text-xs" />
-                                                                    ) : (
-                                                                        <IconEllipsis className="text-muted-alt" />
-                                                                    )}
-                                                                    <span
-                                                                        className={
-                                                                            category.status === 'processing'
-                                                                                ? 'font-semibold'
-                                                                                : ''
-                                                                        }
-                                                                    >
-                                                                        {category.name}
-                                                                    </span>
-                                                                </div>
-                                                            )
-                                                        )}
-                                                    </div>
-                                                </>
-                                            )}
-
-                                        <LemonDivider className="my-2" />
-                                        <div className="flex gap-4 text-xs text-muted-alt">
-                                            {importProgress.customers_processed > 0 && (
-                                                <span>
-                                                    Total customers:{' '}
-                                                    <strong>
-                                                        {importProgress.customers_processed.toLocaleString()}
-                                                    </strong>
-                                                </span>
-                                            )}
-                                            {importProgress.preferences_updated > 0 && (
-                                                <span>
-                                                    Total preferences:{' '}
-                                                    <strong>
-                                                        {importProgress.preferences_updated.toLocaleString()}
-                                                    </strong>
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-                            </>
-                        )}
+        if (importProgress?.status === 'completed') {
+            return (
+                <div className="space-y-4">
+                    <LemonBanner type="success">
+                        <span className="font-semibold">API Import Complete!</span>
+                    </LemonBanner>
+                    <div className="space-y-2 text-sm">
+                        <div className="flex items-center justify-between">
+                            <span>Categories imported:</span>
+                            <LemonTag>{importProgress.categories_created || 0}</LemonTag>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span>Globally unsubscribed users:</span>
+                            <LemonTag>{(importProgress.globally_unsubscribed_count || 0).toLocaleString()}</LemonTag>
+                        </div>
                     </div>
                 </div>
             )
         }
 
+        // Initial form
         return (
             <Form logic={customerIOImportLogic} formKey="importForm" enableFormOnSubmit>
                 <div className="space-y-4">
                     <div>
                         <p className="text-sm text-muted mb-4">
-                            Import your Customer.io subscription topics and customer preferences into PostHog Workflows.
-                        </p>
-                        <p className="text-sm text-muted mb-4">
-                            You'll need your Customer.io App API key. You can generate one in your Customer.io account
-                            under Settings → Account Settings → API Credentials.
+                            Step 1: Import categories and globally unsubscribed users from Customer.io API.
                         </p>
                     </div>
 
@@ -218,24 +126,236 @@ export function CustomerIOImportModal(): JSX.Element {
                     )}
 
                     <div className="text-xs text-muted-alt">
-                        <p>This import will:</p>
-                        <ul className="list-disc list-inside mt-1 space-y-1">
-                            <li>Import all Customer.io subscription topics as message categories</li>
-                            <li>Import all customers who have opted out of any topics</li>
-                            <li>Preserve their opt-out preferences for each topic</li>
-                        </ul>
-                        <div className="mt-1 p-2 bg-warning-highlight rounded">
-                            <div className="flex items-start gap-2">
-                                <IconWarning className="text-warning shrink-0 mt-0.5" />
-                                <p className="text-xs">
-                                    The import duration depends on your customer base size. Large imports (100k+
-                                    customers) may take several minutes to complete.
-                                </p>
-                            </div>
-                        </div>
+                        You can generate an App API key in Customer.io under Settings → Account Settings → API Credentials.
                     </div>
                 </div>
             </Form>
+        )
+    }
+
+    const renderCSVImportPhase = (): JSX.Element => {
+        const renderFailedImports = (failed: CSVImportProgress['failed_imports']): JSX.Element | null => {
+            if (!failed || failed.length === 0) return null
+            
+            return (
+                <div className="mt-4">
+                    <div className="font-semibold mb-2">Failed imports ({failed.length}):</div>
+                    <div className="max-h-32 overflow-y-auto bg-bg-light rounded p-2 text-xs font-mono">
+                        {failed.slice(0, 100).map((item, idx) => (
+                            <div key={idx} className="py-0.5">
+                                {item.email}: {item.error}
+                            </div>
+                        ))}
+                        {failed.length > 100 && (
+                            <div className="text-muted-alt mt-2">
+                                ... and {failed.length - 100} more
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )
+        }
+
+        // Show loading state while processing
+        if (isUploadingCSV && !csvProgress) {
+            return (
+                <div className="space-y-4">
+                    <LemonDivider />
+                    <div className="text-center py-8">
+                        <Spinner className="text-3xl mb-4" />
+                        <div className="text-lg font-semibold mb-2">Processing CSV...</div>
+                        <div className="text-sm text-muted-alt">
+                            This may take a moment for large files. Please don't close this window.
+                        </div>
+                        <div className="text-xs text-muted-alt mt-2">
+                            Processing thousands of rows and updating the database...
+                        </div>
+                    </div>
+                </div>
+            )
+        }
+
+        if (csvProgress) {
+            if (csvProgress.status === 'completed') {
+                return (
+                    <div className="space-y-4">
+                        <LemonDivider />
+                        <LemonBanner type="success">
+                            <span className="font-semibold">CSV Import Complete!</span>
+                        </LemonBanner>
+                        <div className="space-y-2 text-sm">
+                            <div className="flex items-center justify-between">
+                                <span>Total rows processed:</span>
+                                <LemonTag>{csvProgress.total_rows.toLocaleString()}</LemonTag>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span>Users with opt-outs:</span>
+                                <LemonTag>{csvProgress.users_with_optouts.toLocaleString()}</LemonTag>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span>Users skipped (no opt-outs):</span>
+                                <LemonTag>{csvProgress.users_skipped.toLocaleString()}</LemonTag>
+                            </div>
+                            {csvProgress.parse_errors > 0 && (
+                                <div className="flex items-center justify-between text-warning">
+                                    <span>Parse errors:</span>
+                                    <LemonTag type="warning">{csvProgress.parse_errors}</LemonTag>
+                                </div>
+                            )}
+                            <LemonDivider />
+                            <div className="flex items-center justify-between font-semibold">
+                                <span>Total preferences imported:</span>
+                                <LemonTag type="success">{csvProgress.preferences_updated.toLocaleString()}</LemonTag>
+                            </div>
+                        </div>
+                        {renderFailedImports(csvProgress.failed_imports)}
+                    </div>
+                )
+            } else if (csvProgress.status === 'failed') {
+                return (
+                    <div className="space-y-4">
+                        <LemonDivider />
+                        <LemonBanner type="error">
+                            <div>
+                                <div className="font-semibold mb-2">CSV Import Failed</div>
+                                <div className="text-sm">{csvProgress.details}</div>
+                            </div>
+                        </LemonBanner>
+                    </div>
+                )
+            }
+        }
+
+        return (
+            <div className="space-y-4">
+                <LemonDivider />
+                <div>
+                    <h3 className="font-semibold mb-2">Step 2: Import User Preferences (Optional)</h3>
+                    <p className="text-sm text-muted mb-4">
+                        Export a CSV from Customer.io with users who have subscription preferences set.
+                    </p>
+                    
+                    <div className="bg-bg-light rounded p-3 mb-4">
+                        <div className="text-sm font-semibold mb-2">Required CSV columns:</div>
+                        <ul className="text-xs space-y-1">
+                            <li>• <code>id</code> - Customer.io ID</li>
+                            <li>• <code>email</code> - Customer email address</li>
+                            <li>• <code>cio_subscription_preferences</code> - JSON preferences data</li>
+                        </ul>
+                        <div className="mt-3">
+                            <a 
+                                href="https://posthog.com/docs/workflows/customerio-import" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-xs text-primary hover:underline"
+                            >
+                                View detailed export instructions →
+                            </a>
+                        </div>
+                    </div>
+
+                    <LemonFileInput
+                        accept=".csv"
+                        multiple={false}
+                        value={csvFile ? [csvFile] : []}
+                        onChange={(files) => setCSVFile(files[0] || null)}
+                        showUploadedFiles={true}
+                        callToAction={
+                            <div className="flex items-center gap-2">
+                                <IconUpload />
+                                <span>Choose CSV file</span>
+                            </div>
+                        }
+                    />
+                    
+                    {csvFile && (
+                        <div className="mt-2 text-xs text-muted">
+                            File size: {(csvFile.size / (1024 * 1024)).toFixed(2)}MB
+                        </div>
+                    )}
+                </div>
+            </div>
+        )
+    }
+
+    const renderContent = (): JSX.Element => {
+        if (!showCSVPhase) {
+            return renderAPIImportPhase()
+        }
+        
+        return (
+            <div className="space-y-4">
+                {renderAPIImportPhase()}
+                {renderCSVImportPhase()}
+            </div>
+        )
+    }
+
+    const getModalFooter = (): JSX.Element | null => {
+        // During API import
+        if (isImporting || (importProgress && importProgress.status !== 'completed' && importProgress.status !== 'failed')) {
+            return null // No buttons during import
+        }
+
+        // During CSV upload/processing
+        if (isUploadingCSV && !csvProgress) {
+            return null // No buttons while processing
+        }
+
+        // API import failed
+        if (importProgress?.status === 'failed') {
+            return (
+                <LemonButton type="primary" onClick={closeImportModal}>
+                    Close
+                </LemonButton>
+            )
+        }
+
+        // CSV phase
+        if (showCSVPhase) {
+            if (csvProgress?.status === 'completed' || csvProgress?.status === 'failed') {
+                return (
+                    <LemonButton type="primary" onClick={closeImportModal}>
+                        Close
+                    </LemonButton>
+                )
+            }
+            
+            return (
+                <>
+                    <LemonButton 
+                        type="secondary" 
+                        onClick={closeImportModal}
+                    >
+                        Skip CSV Import
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={uploadCSV}
+                        loading={isUploadingCSV}
+                        disabledReason={!csvFile ? 'Please select a CSV file' : undefined}
+                    >
+                        Upload & Process CSV
+                    </LemonButton>
+                </>
+            )
+        }
+
+        // Initial API import form
+        return (
+            <>
+                <LemonButton type="secondary" onClick={closeImportModal}>
+                    Cancel
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    onClick={submitImportForm}
+                    loading={isImporting}
+                    disabledReason={!importForm.app_api_key ? 'Please enter your API key' : undefined}
+                >
+                    Start Import
+                </LemonButton>
+            </>
         )
     }
 
@@ -244,31 +364,7 @@ export function CustomerIOImportModal(): JSX.Element {
             title="Import from Customer.io"
             isOpen={isImportModalOpen}
             onClose={closeImportModal}
-            footer={
-                isImporting ||
-                (importProgress &&
-                    importProgress.status !== 'completed' &&
-                    importProgress.status !== 'failed') ? null : importProgress?.status === 'completed' || // Hide all buttons during import
-                  importProgress?.status === 'failed' ? (
-                    <LemonButton type="primary" onClick={closeImportModal}>
-                        Close
-                    </LemonButton>
-                ) : (
-                    <>
-                        <LemonButton type="secondary" onClick={closeImportModal}>
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            onClick={submitImportForm}
-                            loading={isImporting}
-                            disabledReason={!importForm.app_api_key ? 'Please enter your API key' : undefined}
-                        >
-                            Start Import
-                        </LemonButton>
-                    </>
-                )
-            }
+            footer={getModalFooter()}
             width="medium"
         >
             {renderContent()}

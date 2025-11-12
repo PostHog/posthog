@@ -1,5 +1,6 @@
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -74,7 +75,7 @@ class MessageCategoryViewSet(
     @action(detail=False, methods=["post"])
     def import_from_customerio(self, request, **kwargs):
         """
-        Import subscription topics and preferences from Customer.io
+        Import subscription topics and globally unsubscribed users from Customer.io API
         """
         serializer = CustomerIOImportSerializer(data=request.data)
         if not serializer.is_valid():
@@ -92,7 +93,7 @@ class MessageCategoryViewSet(
         # Start import in a thread for async processing
         import threading
         def run_import():
-            import_service.import_all()
+            import_service.import_api_data()
         
         thread = threading.Thread(target=run_import)
         thread.start()
@@ -103,6 +104,48 @@ class MessageCategoryViewSet(
             "status": "started",
             "message": "Import started. Poll /import_progress for updates."
         }, status=status.HTTP_202_ACCEPTED)
+    
+    @action(detail=False, methods=["post"], parser_classes=[MultiPartParser, FormParser])
+    def import_preferences_csv(self, request, **kwargs):
+        """
+        Import customer preferences from CSV file
+        Expected CSV columns: id, email, cio_subscription_preferences
+        """
+        csv_file = request.FILES.get('csv_file')
+        
+        if not csv_file:
+            return Response(
+                {"error": "No file provided"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate file type
+        if not csv_file.name.endswith('.csv'):
+            return Response(
+                {"error": "File must be a CSV"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Size limit (50MB)
+        max_size = 50 * 1024 * 1024
+        if csv_file.size > max_size:
+            return Response(
+                {"error": f"File too large. Maximum size is 50MB, your file is {csv_file.size / (1024*1024):.1f}MB"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Create import service (API key not needed for CSV processing)
+        import_service = CustomerIOImportService(
+            team=self.team, 
+            api_key="not_needed", 
+            user=request.user
+        )
+        
+        # Process CSV synchronously (should be fast enough for reasonable file sizes)
+        result = import_service.process_preferences_csv(csv_file)
+        
+        # Return results including any failed imports
+        return Response(result, status=status.HTTP_200_OK)
     
     @action(detail=False, methods=["get"])
     def import_progress(self, request, **kwargs):

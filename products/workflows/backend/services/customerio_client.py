@@ -189,7 +189,7 @@ class CustomerIOClient:
         """
         Get all attributes for a specific customer
         Used to fetch the full attribute set including JSON preference data
-        
+    
         Args:
             identifier: Customer identifier (email, id, or cio_id)
             id_type: Type of identifier ("email", "id", or "cio_id")

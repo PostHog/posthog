@@ -24,14 +24,27 @@ export interface ImportProgress {
     categories_created?: number
     customers_processed: number
     preferences_updated: number
-    current_category?: string
-    current_category_index?: number
-    total_categories?: number
+    globally_unsubscribed_count?: number
     current_batch?: number
     customers_in_current_batch?: number
     details?: string
     errors: string[]
-    categories_list?: CategoryProgress[]
+}
+
+export interface CSVImportProgress {
+    status: string
+    total_rows: number
+    rows_processed: number
+    users_with_optouts: number
+    users_skipped: number
+    parse_errors: number
+    preferences_updated: number
+    current_batch: number
+    details: string
+    failed_imports?: Array<{
+        email: string
+        error: string
+    }>
 }
 
 let pollInterval: NodeJS.Timeout | null = null
@@ -47,6 +60,11 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         startPolling: (importId: string) => ({ importId }),
         stopPolling: true,
         pollProgress: (importId: string) => ({ importId }),
+        setCSVFile: (file: File | null) => ({ file }),
+        uploadCSV: true,
+        setCSVProgress: (csvProgress: CSVImportProgress | null) => ({ csvProgress }),
+        setShowCSVPhase: (show: boolean) => ({ show }),
+        setIsUploadingCSV: (isUploading: boolean) => ({ isUploading }),
     }),
     reducers({
         isImportModalOpen: [
@@ -87,6 +105,38 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 closeImportModal: () => null,
             },
         ],
+        csvFile: [
+            null as File | null,
+            {
+                setCSVFile: (_, { file }) => file,
+                resetImport: () => null,
+                closeImportModal: () => null,
+            },
+        ],
+        csvProgress: [
+            null as CSVImportProgress | null,
+            {
+                setCSVProgress: (_, { csvProgress }) => csvProgress,
+                resetImport: () => null,
+                closeImportModal: () => null,
+            },
+        ],
+        showCSVPhase: [
+            false,
+            {
+                setShowCSVPhase: (_, { show }) => show,
+                resetImport: () => false,
+                closeImportModal: () => false,
+            },
+        ],
+        isUploadingCSV: [
+            false,
+            {
+                setIsUploadingCSV: (_, { isUploading }) => isUploading,
+                resetImport: () => false,
+                closeImportModal: () => false,
+            },
+        ],
     }),
     forms(({ actions }) => ({
         importForm: {
@@ -124,9 +174,12 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             if (importProgress.status === 'completed') {
                 actions.stopPolling()
                 const categoriesCreated = importProgress.categories_created || importProgress.workflows_created || 0
+                const globallyUnsubscribed = importProgress.globally_unsubscribed_count || 0
                 lemonToast.success(
-                    `Import completed! Created ${categoriesCreated} categories and imported ${importProgress.preferences_updated} opt-outs.`
+                    `API import completed! Created ${categoriesCreated} categories and imported ${globallyUnsubscribed} globally unsubscribed users.`
                 )
+                // Show CSV phase after API import completes
+                actions.setShowCSVPhase(true)
                 // Refresh the categories list without reloading the page
                 if (window.location.pathname.includes('workflows')) {
                     // Refresh the categories
@@ -136,6 +189,74 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 actions.stopPolling()
                 const errorMessage = importProgress.errors?.join(', ') || 'Import failed'
                 lemonToast.error(errorMessage)
+            }
+        },
+        uploadCSV: async () => {
+            const file = customerIOImportLogic.values.csvFile
+            if (!file) {
+                lemonToast.error('Please select a CSV file')
+                return
+            }
+            
+            actions.setIsUploadingCSV(true)
+            actions.setCSVProgress(null) // Clear any previous progress
+            
+            const formData = new FormData()
+            formData.append('csv_file', file)
+            
+            try {
+                // Get CSRF token from cookie (using PostHog's cookie name)
+                const getCookie = (name: string): string | null => {
+                    let cookieValue: string | null = null
+                    if (document.cookie && document.cookie !== '') {
+                        for (let cookie of document.cookie.split(';')) {
+                            cookie = cookie.trim()
+                            // Does this cookie string begin with the name we want?
+                            if (cookie.substring(0, name.length + 1) === name + '=') {
+                                cookieValue = decodeURIComponent(cookie.substring(name.length + 1))
+                                break
+                            }
+                        }
+                    }
+                    return cookieValue
+                }
+                
+                // Make a direct fetch request since ApiRequest might not handle multipart/form-data correctly
+                const response = await fetch('/api/environments/@current/messaging_categories/import_preferences_csv/', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'include',
+                    headers: {
+                        // Don't set Content-Type header - let browser set it with boundary for multipart
+                        'X-CSRFToken': getCookie('posthog_csrftoken') || '',
+                    },
+                })
+                
+                if (!response.ok) {
+                    const errorText = await response.text()
+                    console.error('CSV upload failed:', response.status, errorText)
+                    throw new Error(errorText || `Upload failed with status ${response.status}`)
+                }
+                
+                const data = await response.json()
+                actions.setCSVProgress(data)
+                
+                if (data.status === 'completed') {
+                    lemonToast.success(
+                        `CSV import completed! Imported ${data.users_with_optouts} users with ${data.preferences_updated} opt-outs.`
+                    )
+                    // Refresh categories
+                    if (window.location.pathname.includes('workflows')) {
+                        optOutCategoriesLogic.actions.loadCategories()
+                    }
+                } else if (data.status === 'failed') {
+                    lemonToast.error(data.details || 'CSV import failed')
+                }
+            } catch (error: any) {
+                console.error('CSV upload error:', error)
+                lemonToast.error(error.message || error.detail || 'Failed to upload CSV')
+            } finally {
+                actions.setIsUploadingCSV(false)
             }
         },
         submitImportFormFailure: ({ error }) => {
