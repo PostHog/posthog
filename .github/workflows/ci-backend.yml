@@ -595,10 +595,10 @@ jobs:
                   df -hT
                   echo ""
                   echo "=== Root Filesystem Breakdown ==="
-                  sudo du -sh /* 2>/dev/null | sort -h
+                  sudo du -sh /* 2>/dev/null | sort -h || echo "du command failed"
                   echo ""
                   echo "=== Detailed Tooling Directories (top 20) ==="
-                  sudo du -sh /opt/* /usr/* /var/* 2>/dev/null | sort -h | tail -20
+                  sudo du -sh /opt/* /usr/* /var/* 2>/dev/null | sort -h | tail -20 || echo "du command failed"
                   echo ""
                   echo "=== Hostedtoolcache ==="
                   sudo du -sh /opt/hostedtoolcache/* 2>/dev/null | sort -h || echo "No hostedtoolcache"
@@ -613,7 +613,7 @@ jobs:
                   journalctl --disk-usage 2>/dev/null || echo "journalctl not available"
                   echo ""
                   echo "=== Docker Images ==="
-                  docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | head -20
+                  docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | head -20 || true
 
             # Copies the fully versioned UDF xml file for use in CI testing
             - name: Stop/Start stack with Docker Compose
@@ -758,25 +758,25 @@ jobs:
                   df -hT
                   echo ""
                   echo "=== Docker System ==="
-                  docker system df
+                  docker system df || true
                   echo ""
                   echo "=== Docker System Detailed ==="
-                  docker system df -v | head -n 80
+                  docker system df -v | head -n 80 || true
                   echo ""
                   echo "=== Root Filesystem Breakdown ==="
-                  sudo du -sh /* 2>/dev/null | sort -h
+                  sudo du -sh /* 2>/dev/null | sort -h || echo "du command failed"
                   echo ""
                   echo "=== Docker Root Dir ==="
-                  docker info | grep "Docker Root Dir"
+                  docker info | grep "Docker Root Dir" || true
                   echo ""
                   echo "=== /mnt Contents ==="
-                  ls -lah /mnt/ && du -sh /mnt/* 2>/dev/null || echo "No /mnt"
+                  ls -lah /mnt/ 2>/dev/null && du -sh /mnt/* 2>/dev/null || echo "No /mnt"
                   echo ""
                   echo "=== Docker Containers ==="
-                  docker ps -a
+                  docker ps -a || true
                   echo ""
                   echo "=== Docker Volumes ==="
-                  docker volume ls
+                  docker volume ls || true
                   echo ""
                   echo "=== Data Directory ==="
                   [ -d "data" ] && du -sh data/* 2>/dev/null || echo "No data directory"
@@ -882,16 +882,16 @@ jobs:
                   df -hT
                   echo ""
                   echo "=== Docker System ==="
-                  docker system df
+                  docker system df || true
                   echo ""
                   echo "=== Docker System Detailed ==="
-                  docker system df -v | head -n 80
+                  docker system df -v | head -n 80 || true
                   echo ""
                   echo "=== Root Filesystem Breakdown ==="
-                  sudo du -sh /* 2>/dev/null | sort -h
+                  sudo du -sh /* 2>/dev/null | sort -h || echo "du command failed"
                   echo ""
                   echo "=== Workspace Top Dirs ==="
-                  du -sh ./* 2>/dev/null | sort -h | tail -n 10
+                  du -sh ./* 2>/dev/null | sort -h | tail -n 10 || true
                   echo ""
                   echo "=== Python Packages Size ==="
                   du -sh $pythonLocation/lib/python*/site-packages 2>/dev/null || echo "No Python packages found"
