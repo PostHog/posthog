@@ -27,6 +27,8 @@ export function SessionsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
     return (
         <SceneContent>
+            <LemonTabs activeKey={ActivityTab.ExploreSessions} tabs={tabs} sceneInset />
+            <SceneDivider />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.ExploreSessions].name}
                 description={sceneConfigurations[Scene.ExploreSessions].description}
@@ -34,8 +36,6 @@ export function SessionsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     type: sceneConfigurations[Scene.ExploreSessions].iconType || 'default_icon_type',
                 }}
             />
-            <LemonTabs activeKey={ActivityTab.ExploreSessions} tabs={tabs} sceneInset />
-            <SceneDivider />
             <Query
                 attachTo={sessionsSceneLogic({ tabId })}
                 uniqueKey={`sessions-scene-${tabId}`}

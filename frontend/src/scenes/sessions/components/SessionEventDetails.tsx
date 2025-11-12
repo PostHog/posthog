@@ -1,6 +1,7 @@
-import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
+import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
+import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { RecordingEventType } from '~/types'
@@ -27,7 +28,12 @@ export function SessionEventDetails({ event }: SessionEventDetailsProps): JSX.El
                 tabContentComponentFn={({ event, properties, promotedKeys, tabKey }) => {
                     switch (tabKey) {
                         case 'error_display':
-                            return <ErrorDisplay eventProperties={properties} eventId={idFrom(event)} />
+                            const eventId =
+                                ('uuid' in event ? event.uuid : null) ||
+                                ('id' in event ? event.id : null) ||
+                                dayjs(event.timestamp).toISOString() ||
+                                `error-${event.timestamp}`
+                            return <ErrorDisplay eventProperties={properties} eventId={eventId} />
                         case 'raw':
                             return (
                                 <pre className="text-xs text-secondary whitespace-pre-wrap">
