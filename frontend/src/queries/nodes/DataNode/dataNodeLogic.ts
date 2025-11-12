@@ -120,7 +120,14 @@ function getConcurrencyController(
     const mountedSceneLogic = sceneLogic.findMounted()
     const activeScene = mountedSceneLogic?.values.activeSceneId
     if (
-        activeScene === Scene.WebAnalytics &&
+        activeScene &&
+        activeScene in
+            [
+                Scene.WebAnalytics,
+                Scene.WebAnalyticsWebVitals,
+                Scene.WebAnalyticsPageReports,
+                Scene.WebAnalyticsMarketing,
+            ] &&
         featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HIGHER_CONCURRENCY] &&
         !currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
     ) {
@@ -129,7 +136,13 @@ function getConcurrencyController(
 
     if (
         currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables &&
-        [NodeKind.WebOverviewQuery, NodeKind.WebStatsTableQuery, NodeKind.InsightVizNode].includes(query.kind)
+        [
+            NodeKind.WebOverviewQuery,
+            NodeKind.WebStatsTableQuery,
+            NodeKind.InsightVizNode,
+            NodeKind.WebVitalsQuery,
+            NodeKind.WebVitalsPathBreakdownQuery,
+        ].includes(query.kind)
     ) {
         return webAnalyticsPreAggConcurrencyController
     }
