@@ -451,6 +451,12 @@ pub struct Config {
     // The `default_test_config()` sets this to true for test/development scenarios.
     #[envconfig(from = "REDIS_COMPRESSION_ENABLED", default = "false")]
     pub redis_compression_enabled: FlexBool,
+
+    // Number of times to retry creating a Redis client before giving up
+    // Helps handle transient network issues during startup
+    // Set to 0 to disable retries (fail immediately on first error)
+    #[envconfig(from = "REDIS_CLIENT_RETRY_COUNT", default = "3")]
+    pub redis_client_retry_count: u32,
 }
 
 impl Config {
@@ -524,6 +530,7 @@ impl Config {
             flags_rate_limit_log_only: FlexBool(true),
             flags_ip_rate_limit_log_only: FlexBool(true),
             redis_compression_enabled: FlexBool(true),
+            redis_client_retry_count: 3,
         }
     }
 

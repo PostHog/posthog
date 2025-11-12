@@ -196,10 +196,10 @@ class TeamDigest(BaseModel):
         ]
 
     def is_empty(self) -> bool:
-        return sum(len(f.root) for f in self._fields()) == 0
+        return self.count_items() == 0
 
-    def count_nonempty(self) -> int:
-        return sum(1 if len(field.root) > 0 else 0 for field in self._fields())
+    def count_items(self) -> int:
+        return sum(len(f.root) for f in self._fields())
 
     def render_payload(self) -> dict[str, str | int | dict[str, list]]:
         return {
@@ -239,18 +239,17 @@ class OrganizationDigest(BaseModel):
     def is_empty(self) -> bool:
         return all(digest.is_empty() for digest in self.team_digests)
 
-    def count_nonempty(self) -> int:
-        return sum(td.count_nonempty() for td in self.team_digests)
+    def count_items(self) -> int:
+        return sum(td.count_items() for td in self.team_digests)
 
     def render_payload(self, digest: Digest) -> dict[str, str | list | dict[str, str] | int]:
         return {
             "organization_name": self.name,
             "organization_id": str(self.id),
-            "teams": [td.render_payload() for td in self.team_digests],
+            "teams": [td.render_payload() for td in self.team_digests if not td.is_empty()],
             "scope": "user",
             "template_name": "weekly_digest_report",
             "period": digest.render_payload(),
-            "nonempty_items": self.count_nonempty(),
         }
 
 

@@ -5,7 +5,7 @@ import { LemonButton, LemonLabel, LemonTag, ProfilePicture } from '@posthog/lemo
 import { TZLabel } from 'lib/components/TZLabel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { endpointLogic } from './endpointLogic'
+import { endpointLogic } from '../endpointLogic'
 
 interface EndpointOverviewProps {
     tabId: string
