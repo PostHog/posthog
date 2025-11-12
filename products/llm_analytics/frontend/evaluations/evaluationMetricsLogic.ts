@@ -4,8 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, HogQLMathType } from '~/types'
 
 import { llmAnalyticsLogic } from '../llmAnalyticsLogic'
@@ -61,6 +60,7 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
 
     connect({
         values: [llmEvaluationsLogic, ['evaluations'], llmAnalyticsLogic, ['dateFilter']],
+        actions: [llmAnalyticsLogic, ['setDates']],
     }),
 
     actions({
@@ -75,21 +75,28 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                     const dateFrom = values.dateFilter.dateFrom || '-1d'
                     const dateTo = values.dateFilter.dateTo || null
 
-                    const query = hogql`
-                        SELECT
-                            properties.$ai_evaluation_id as evaluation_id,
-                            count() as runs_count,
-                            countIf(properties.$ai_evaluation_result = true) as pass_count
-                        FROM events
-                        WHERE
-                            event = '$ai_evaluation'
-                            AND timestamp >= ${dateFrom}
-                            ${dateTo ? hogql`AND timestamp <= ${dateTo}` : hogql``}
-                        GROUP BY evaluation_id
-                    `
+                    const query: HogQLQuery = {
+                        kind: NodeKind.HogQLQuery,
+                        query: `
+                            SELECT
+                                properties.$ai_evaluation_id as evaluation_id,
+                                count() as runs_count,
+                                countIf(properties.$ai_evaluation_result = true) as pass_count
+                            FROM events
+                            WHERE event = '$ai_evaluation' AND {filters}
+                            GROUP BY evaluation_id
+                        `,
+                        filters: {
+                            dateRange: {
+                                date_from: dateFrom,
+                                date_to: dateTo,
+                            },
+                        },
+                    }
 
                     try {
-                        const response = await api.queryHogQL(query)
+                        const response = await api.query(query)
+
                         return (response.results || []).map((row: RawStatsRow) => {
                             const runs_count = row[1]
                             const pass_count = row[2]
@@ -169,7 +176,7 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                     series: enabledEvaluations.slice(0, 10).map((evaluation) => ({
                         kind: NodeKind.EventsNode,
                         event: '$ai_evaluation',
-                        name: evaluation.name,
+                        custom_name: evaluation.name,
                         math: HogQLMathType.HogQL,
                         math_hogql: `countIf(properties.$ai_evaluation_id = '${evaluation.id}' AND properties.$ai_evaluation_result = true) / countIf(properties.$ai_evaluation_id = '${evaluation.id}') * 100`,
                     })),
@@ -188,6 +195,9 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
 
     listeners(({ actions }) => ({
         refreshMetrics: () => {
+            actions.loadStats()
+        },
+        setDates: () => {
             actions.loadStats()
         },
     })),
