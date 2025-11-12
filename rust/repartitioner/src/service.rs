@@ -50,8 +50,7 @@ impl RepartitionerService {
             .set("statistics.interval.ms", "10000")
             .set("group.id", &config.kafka_consumer_group)
             .set("auto.offset.reset", &config.kafka_consumer_offset_reset)
-            .set("auto.store.offsets", "false") // we handle offset updates manually
-            .set("enable.auto.offset.store", "false");
+            .set("enable.auto.offset.store", "false"); // service controls when we advance offsets, even with autocommit enabled
 
         if config.kafka_tls {
             client_config
@@ -133,14 +132,14 @@ impl RepartitionerService {
                     kafka_error_count += 1;
                     if let Some(e) = self.handle_kafka_error(e, kafka_error_count).await {
                         if e == KafkaError::Canceled {
-                            self.flush_producer();
+                            self.shutdown().await;
                             return Ok(());
                         }
 
                         consumer_health
                             .report_status(health::ComponentStatus::Unhealthy)
                             .await;
-                        self.flush_producer();
+                        self.shutdown().await;
                         return Err(anyhow::anyhow!(
                             "FATAL Kafka error - terminating pod: {}",
                             e
@@ -168,7 +167,6 @@ impl RepartitionerService {
         }
     }
 
-    // TODO(eli): utilize current_count to determine waits and cutoffs for retriable but possibly fatal errors
     async fn handle_kafka_error(&self, e: KafkaError, current_count: u64) -> Option<KafkaError> {
         match &e {
             KafkaError::MessageConsumption(code) => {
@@ -295,6 +293,20 @@ impl RepartitionerService {
                 None
             }
         }
+    }
+
+    async fn shutdown(&self) {
+        info!(
+            "Graceful shutdown: unsubscribing from source topic {}...",
+            self.config.kafka_source_topic
+        );
+        self.consumer.unsubscribe();
+        info!(
+            "Graceful shutdown: flushing producer to dest topic {}...",
+            self.config.kafka_destination_topic
+        );
+        self.flush_producer();
+        info!("Graceful shutdown: completed");
     }
 
     async fn process_message(&self, message: &BorrowedMessage<'_>) -> Result<()> {
@@ -472,7 +484,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_consumer_receives_message() {
+    async fn test_mock_cluster() {
         let (_cluster, consumer, producer, source_topic, _dest_topic) =
             setup_test_environment().await;
 
@@ -502,11 +514,15 @@ mod tests {
 
         assert_eq!(received_json["event"], event_name);
         assert_eq!(received_json["distinct_id"], distinct_id);
+        assert_eq!(received_json["team_id"].as_i64(), Some(team_id));
+        assert_eq!(received_json["project_id"].as_i64(), Some(team_id));
+        assert_eq!(received_json["person_mode"], "full");
+        assert_eq!(received_json["elements_chain"], "");
     }
 
     #[tokio::test]
-    async fn test_producer_sends_message() {
-        let (_cluster, consumer, producer, _source_topic, dest_topic) =
+    async fn test_service_with_single_event() {
+        let (cluster, consumer, producer, source_topic, dest_topic) =
             setup_test_environment().await;
 
         let event_name = "test_event";
@@ -514,71 +530,77 @@ mod tests {
         let team_id = 456;
         let payload = create_test_message(event_name, &distinct_id, team_id);
 
-        produce_test_message(&producer, &dest_topic, payload.clone())
+        // Produce message to source_topic after service is ready to consume
+        produce_test_message(&producer, &source_topic, payload)
             .await
             .expect("Failed to produce message");
 
+        // Produce a dummy message to dest_topic to ensure it exists before subscribing
+        // (topics are auto-created on first produce in mock cluster)
+        produce_test_message(&producer, &dest_topic, b"dummy".to_vec())
+            .await
+            .expect("Failed to create dest_topic");
+
+        // Give the service time to consume and produce to dest_topic
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+
+        // prepare and launch the service for the test
+        let mut cfg = Config::init_with_defaults().unwrap();
+        cfg.kafka_hosts = cluster.bootstrap_servers(); // Use mock cluster bootstrap servers
+        cfg.partition_key_compute_fn = "propdefs_v1_by_team_id".to_string();
+        cfg.kafka_source_topic = source_topic.clone();
+        cfg.kafka_destination_topic = dest_topic.clone();
+        cfg.kafka_consumer_offset_reset = "earliest".to_string(); // Start from beginning to consume pre-produced messages
+        let svc = RepartitionerService::new(cfg, HealthRegistry::new("test_repartitioner"))
+            .await
+            .unwrap();
+        let svc_handle = tokio::spawn(async move {
+            svc.run().await.unwrap();
+        });
+
+        // Give the service time to start and subscribe to source_topic
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         consumer
             .subscribe(&[&dest_topic])
             .expect("Failed to subscribe");
 
-        let message = timeout(Duration::from_secs(5), consumer.recv())
+        // Skip the dummy message and wait for the actual message from the service
+        let mut message = timeout(Duration::from_secs(5), consumer.recv())
             .await
             .expect("Timeout waiting for message")
             .expect("Failed to receive message");
 
+        // Skip dummy message if present
+        if message.payload().map(|p| p == b"dummy").unwrap_or(false) {
+            message = timeout(Duration::from_secs(5), consumer.recv())
+                .await
+                .expect("Timeout waiting for message")
+                .expect("Failed to receive message");
+        }
+
         let received_payload = message.payload().expect("Message has no payload");
+        assert_eq!(
+            String::from_utf8(message.key().unwrap().to_vec()).unwrap(),
+            team_id.to_string()
+        );
+
         let received_json: serde_json::Value =
             serde_json::from_slice(received_payload).expect("Failed to parse JSON");
 
         assert_eq!(received_json["event"], event_name);
         assert_eq!(received_json["distinct_id"], distinct_id);
+        assert_eq!(received_json["team_id"].as_i64(), Some(team_id));
+        assert_eq!(received_json["project_id"].as_i64(), Some(team_id));
+        assert_eq!(received_json["person_mode"], "full");
+        assert_eq!(received_json["elements_chain"], "");
+
+        svc_handle.abort();
     }
 
     #[tokio::test]
-    async fn test_multiple_messages() {
-        let (_cluster, consumer, producer, source_topic, _dest_topic) =
-            setup_test_environment().await;
-
-        let messages = vec![
-            ("event1", Uuid::new_v4().to_string(), 100),
-            ("event2", Uuid::new_v4().to_string(), 200),
-            ("event3", Uuid::new_v4().to_string(), 300),
-        ];
-
-        for (event_name, distinct_id, team_id) in &messages {
-            let payload = create_test_message(event_name, distinct_id, *team_id);
-            produce_test_message(&producer, &source_topic, payload.clone())
-                .await
-                .expect("Failed to produce message");
-        }
-
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
-        consumer
-            .subscribe(&[&source_topic])
-            .expect("Failed to subscribe");
-
-        for (expected_event, expected_distinct_id, _expected_team_id) in &messages {
-            let message = timeout(Duration::from_secs(5), consumer.recv())
-                .await
-                .expect("Timeout waiting for message")
-                .expect("Failed to receive message");
-
-            let received_payload = message.payload().expect("Message has no payload");
-            let received_json: serde_json::Value =
-                serde_json::from_slice(received_payload).expect("Failed to parse JSON");
-
-            assert_eq!(received_json["event"], *expected_event);
-            assert_eq!(received_json["distinct_id"], *expected_distinct_id);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_message_with_different_events() {
-        let (_cluster, consumer, producer, source_topic, _dest_topic) =
+    async fn test_service_with_multiple_events() {
+        let (cluster, consumer, producer, source_topic, dest_topic) =
             setup_test_environment().await;
 
         let test_cases = vec![
@@ -594,13 +616,43 @@ mod tests {
                 .expect("Failed to produce message");
         }
 
+        // Produce a dummy message to dest_topic to ensure it exists before subscribing
+        // (topics are auto-created on first produce in mock cluster)
+        produce_test_message(&producer, &dest_topic, b"dummy".to_vec())
+            .await
+            .expect("Failed to create dest_topic");
+
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+
+        // prepare and launch the service for the test
+        let mut cfg = Config::init_with_defaults().unwrap();
+        cfg.kafka_hosts = cluster.bootstrap_servers(); // Use mock cluster bootstrap servers
+        cfg.partition_key_compute_fn = "propdefs_v1_by_team_id".to_string();
+        cfg.kafka_source_topic = source_topic.clone();
+        cfg.kafka_destination_topic = dest_topic.clone();
+        cfg.kafka_consumer_offset_reset = "earliest".to_string(); // Start from beginning to consume pre-produced messages
+        let svc = RepartitionerService::new(cfg, HealthRegistry::new("test_repartitioner"))
+            .await
+            .unwrap();
+        let svc_handle = tokio::spawn(async move {
+            svc.run().await.unwrap();
+        });
+
+        // let the service warm up for a moment and process it's inputs
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         consumer
-            .subscribe(&[&source_topic])
+            .subscribe(&[&dest_topic])
             .expect("Failed to subscribe");
 
-        for (event_name, distinct_id, _team_id) in &test_cases {
+        // clear dummy payload out of the way before checking results
+        let dummy_msg = timeout(Duration::from_secs(5), consumer.recv())
+            .await
+            .expect("Timeout waiting for message")
+            .expect("Failed to receive message");
+        assert!(dummy_msg.payload().map(|p| p == b"dummy").unwrap_or(false));
+
+        for (event_name, distinct_id, team_id) in &test_cases {
             let message = timeout(Duration::from_secs(5), consumer.recv())
                 .await
                 .expect("Timeout waiting for message")
@@ -612,6 +664,11 @@ mod tests {
 
             assert_eq!(received_json["event"], *event_name);
             assert_eq!(received_json["distinct_id"], *distinct_id);
+            assert_eq!(received_json["team_id"].as_i64(), Some(*team_id));
+            assert_eq!(received_json["project_id"].as_i64(), Some(*team_id));
+            assert_eq!(received_json["person_mode"], "full");
         }
+
+        svc_handle.abort();
     }
 }
