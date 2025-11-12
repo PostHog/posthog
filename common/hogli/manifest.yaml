@@ -342,6 +342,12 @@ migrations:
         description: Sync feature flags from configuration
         services:
             - postgresql
+    migrations:upgrade-postgres:
+        bin_script: upgrade-postgres
+        description: Upgrade PostgreSQL from version 12 to 15 (interactive migration tool)
+        services:
+            - postgresql
+            - docker
 tests:
     test:python:
         cmd: pytest
