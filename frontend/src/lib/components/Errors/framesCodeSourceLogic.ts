@@ -85,7 +85,7 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
                 }
 
                 const result = await resolveMethod(parsed.owner, parsed.repository, codeSample, fileName)
-                let url = result.found && result.url ? `${result.url}` : null
+                let url = result.url ?? null
 
                 if (url && lineNumber) {
                     url = `${url}#L${lineNumber + 1}`
