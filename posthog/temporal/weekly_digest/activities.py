@@ -465,7 +465,7 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
         empty_org_digest_count = 0
         empty_user_digest_count = 0
 
-        ph_client: Posthog = get_regional_ph_client()
+        ph_client: Posthog = get_regional_ph_client(sync_mode=True)
 
         if not ph_client and not input.dry_run:
             logger.error("Failed to set up Posthog client")
@@ -560,9 +560,6 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
 
         if len(messaging_record_batch) > 0:
             await MessagingRecord.objects.abulk_update(messaging_record_batch, ["sent_at"])
-
-        if ph_client:
-            ph_client.shutdown()
 
         logger.info(
             "Finished sending weekly digest batch",
