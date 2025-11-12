@@ -2343,11 +2343,19 @@ async def test_append_only_table(team, mock_stripe_client):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_worker_shutdown_desc_sort_order(team, zendesk_brands):
+async def test_worker_shutdown_desc_sort_order(team):
     """Testing that a descending sort ordered source will not trigger the rescheduling"""
 
     def mock_raise_if_is_worker_shutdown(self):
         raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
+
+    async def mock_get_workflows(*args, **kwargs):
+        yield {
+            "workflow_id": "test-workflow-id",
+            "run_id": "test-run-id",
+            "status": "RUNNING",
+            "close_time": datetime.now().isoformat(),
+        }
 
     with (
         mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
@@ -2355,20 +2363,25 @@ async def test_worker_shutdown_desc_sort_order(team, zendesk_brands):
             "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
         mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.temporalio.temporalio._get_workflows", mock_get_workflows),
     ):
         _, inputs = await _run(
             team=team,
-            schema_name="brands",
-            table_name="zendesk_brands",
-            source_type="Zendesk",
+            schema_name="workflows",
+            table_name="temporalio_workflows",
+            source_type="TemporalIO",
             job_inputs={
-                "subdomain": "test",
-                "api_key": "test_api_key",
-                "email_address": "test@posthog.com",
+                "host": "test",
+                "port": "1234",
+                "namespace": "test",
+                "server_client_root_ca": "test",
+                "client_certificate": "test",
+                "client_private_key": "test",
+                "encryption_key": "test",
             },
-            mock_data_response=zendesk_brands["brands"],
+            mock_data_response=[],
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-            sync_type_config={"incremental_field": "created_at", "incremental_field_type": "datetime"},
+            sync_type_config={"incremental_field": "close_time", "incremental_field_type": "datetime"},
             ignore_assertions=True,
         )
 
