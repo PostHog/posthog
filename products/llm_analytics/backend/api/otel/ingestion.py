@@ -20,6 +20,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.capture import capture_batch_internal
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import Team
 
@@ -157,13 +158,19 @@ def otel_traces_endpoint(request: HttpRequest, project_id: int) -> Response:
             events_created=len(events),
         )
 
-        # Route to capture pipeline (TODO: Step 3)
-        # capture_events(events, team)
+        # Route to capture pipeline
+        capture_events(events, team)
+
+        logger.info(
+            "otel_traces_captured",
+            team_id=team.id,
+            events_captured=len(events),
+        )
 
         return Response(
             {
                 "status": "success",
-                "message": "Traces transformed successfully",
+                "message": "Traces ingested successfully",
                 "spans_received": len(parsed_request["spans"]),
                 "events_created": len(events),
             },
@@ -315,6 +322,34 @@ def capture_events(events: list[dict[str, Any]], team: Team) -> None:
     """
     Route transformed events to PostHog capture pipeline.
 
-    TODO: Use capture_internal or direct Kafka ingestion
+    Uses capture_batch_internal to submit events to capture-rs.
+    Events are submitted concurrently for better performance.
     """
-    raise NotImplementedError("Event capture not yet implemented")
+    if not events:
+        return
+
+    # Submit events to capture pipeline
+    futures = capture_batch_internal(
+        events=events,
+        event_source="otel_traces_ingestion",
+        token=team.api_token,
+        process_person_profile=False,  # AI events don't need person processing
+    )
+
+    # Wait for all futures to complete and check for errors
+    errors = []
+    for i, future in enumerate(futures):
+        try:
+            response = future.result()
+            if response.status_code not in (200, 201):
+                errors.append(f"Event {i}: HTTP {response.status_code}")
+        except Exception as e:
+            errors.append(f"Event {i}: {str(e)}")
+
+    if errors:
+        logger.warning(
+            "otel_traces_capture_errors",
+            team_id=team.id,
+            error_count=len(errors),
+            errors=errors[:10],  # Log first 10 errors
+        )
