@@ -44,6 +44,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
           : { key: 'error', query: { kind: NodeKind.UsageMetricsQuery } }
     const logic = dataNodeLogic(dataNodeLogicProps)
     const { response, responseLoading, responseError } = useValues(logic)
+    const { loadData } = useActions(logic)
 
     useEffect(() => {
         setActions([
