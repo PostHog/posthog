@@ -174,6 +174,23 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs" || true
               continue-on-error: true
 
+            - name: Redirect caches to /mnt (more free space)
+              run: |
+                  echo "XDG_CACHE_HOME=/mnt/.cache" >> $GITHUB_ENV
+                  echo "UV_CACHE_DIR=/mnt/.cache/uv" >> $GITHUB_ENV
+                  echo "PIP_CACHE_DIR=/mnt/.cache/pip" >> $GITHUB_ENV
+                  echo "PNPM_STORE_PATH=/mnt/pnpm-store" >> $GITHUB_ENV
+                  echo "CARGO_HOME=/mnt/cargo" >> $GITHUB_ENV
+                  echo "RUSTUP_HOME=/mnt/rustup" >> $GITHUB_ENV
+
+            - name: Configure Docker to use /mnt/docker (more free space)
+              run: |
+                  sudo mkdir -p /mnt/docker
+                  echo '{"data-root": "/mnt/docker"}' | sudo tee /etc/docker/daemon.json
+                  sudo systemctl restart docker
+                  sleep 3
+                  docker info | grep "Docker Root Dir" || true
+
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down
@@ -664,6 +681,23 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs" || true
               continue-on-error: true
 
+            - name: Redirect caches to /mnt (more free space)
+              run: |
+                  echo "XDG_CACHE_HOME=/mnt/.cache" >> $GITHUB_ENV
+                  echo "UV_CACHE_DIR=/mnt/.cache/uv" >> $GITHUB_ENV
+                  echo "PIP_CACHE_DIR=/mnt/.cache/pip" >> $GITHUB_ENV
+                  echo "PNPM_STORE_PATH=/mnt/pnpm-store" >> $GITHUB_ENV
+                  echo "CARGO_HOME=/mnt/cargo" >> $GITHUB_ENV
+                  echo "RUSTUP_HOME=/mnt/rustup" >> $GITHUB_ENV
+
+            - name: Configure Docker to use /mnt/docker (more free space)
+              run: |
+                  sudo mkdir -p /mnt/docker
+                  echo '{"data-root": "/mnt/docker"}' | sudo tee /etc/docker/daemon.json
+                  sudo systemctl restart docker
+                  sleep 3
+                  docker info | grep "Docker Root Dir" || true
+
             - name: 'Safeguard: ensure no stray Python modules at product root'
               run: |
                   echo "Checking that products/* only contain backend/, frontend/, or shared/ as Python code roots..."
@@ -1056,6 +1090,23 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs" || true
               continue-on-error: true
+
+            - name: Redirect caches to /mnt (more free space)
+              run: |
+                  echo "XDG_CACHE_HOME=/mnt/.cache" >> $GITHUB_ENV
+                  echo "UV_CACHE_DIR=/mnt/.cache/uv" >> $GITHUB_ENV
+                  echo "PIP_CACHE_DIR=/mnt/.cache/pip" >> $GITHUB_ENV
+                  echo "PNPM_STORE_PATH=/mnt/pnpm-store" >> $GITHUB_ENV
+                  echo "CARGO_HOME=/mnt/cargo" >> $GITHUB_ENV
+                  echo "RUSTUP_HOME=/mnt/rustup" >> $GITHUB_ENV
+
+            - name: Configure Docker to use /mnt/docker (more free space)
+              run: |
+                  sudo mkdir -p /mnt/docker
+                  echo '{"data-root": "/mnt/docker"}' | sudo tee /etc/docker/daemon.json
+                  sudo systemctl restart docker
+                  sleep 3
+                  docker info | grep "Docker Root Dir" || true
 
             - name: Start stack with Docker Compose
               run: |
