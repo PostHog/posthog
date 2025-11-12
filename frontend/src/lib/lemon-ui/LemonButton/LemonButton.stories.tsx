@@ -39,7 +39,7 @@ const BasicTemplate: StoryFn<typeof LemonButton> = (props: LemonButtonProps) => 
 export const Default: Story = BasicTemplate.bind({})
 Default.args = {
     icon: <IconCalculate />,
-    children: 'Press button',
+    children: 'Click me',
 }
 
 const StatusesTemplate = ({
