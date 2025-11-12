@@ -23,7 +23,22 @@ from dags.common import dagster_tags
 from dags.common.common import JobOwners, metabase_debug_query_url
 
 # This is the number of days to backfill in one SQL operation
-MAX_PARTITIONS_PER_RUN = 10
+MAX_PARTITIONS_PER_RUN = 5
+
+MAX_CONCURRENT_RUNS = 3
+
+# Keep the number of concurrent runs low to avoid overloading ClickHouse and running into the dread "Too many parts".
+# This tag needs to also exist in Dagster Cloud (and the local dev dagster.yaml) for the concurrency limit to take effect.
+# concurrency:
+#   runs:
+#     tag_concurrency_limits:
+#       - key: 'sessions_backfill_concurrency'
+#         limit: 3
+#         value:
+#           applyLimitPerUniqueValue: true
+CONCURRENCY_TAG = {
+    "sessions_backfill_concurrency": "sessions_v3",
+}
 
 daily_partitions = DailyPartitionsDefinition(
     start_date="2019-01-01",  # this is a year before posthog was founded, so should be early enough even including data imports
@@ -59,7 +74,7 @@ def get_partition_where_clause(context: AssetExecutionContext, timestamp_field: 
     name="sessions_v3_backfill",
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
     retry_policy=retry_policy,
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
 )
 def sessions_v3_backfill(context: AssetExecutionContext) -> None:
     where_clause = get_partition_where_clause(context, timestamp_field="timestamp")
@@ -94,7 +109,7 @@ def sessions_v3_backfill(context: AssetExecutionContext) -> None:
     name="sessions_v3_replay_backfill",
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
     retry_policy=retry_policy,
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
 )
 def sessions_v3_backfill_replay(context: AssetExecutionContext) -> None:
     where_clause = get_partition_where_clause(context, timestamp_field="min_first_timestamp")
