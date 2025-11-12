@@ -46,7 +46,7 @@ if [ "$ADDED" -gt 0 ] || [ "$MODIFIED" -gt 0 ]; then
     # --alpha to optimize transparent pixels, oxipng is deterministic by default
     PNG_FILES=$(grep -E '^[AM].*\.png$' /tmp/snapshot-diff.txt | awk '{print $2}' | tr '\n' ' ')
     if [ -n "$PNG_FILES" ]; then
-        npx --yes oxipng@latest --opt max --strip safe --alpha --quiet $PNG_FILES || true
+        npx --yes oxipng@latest --opt max --strip safe --alpha $PNG_FILES
     fi
     echo "::endgroup::" >&2
 
