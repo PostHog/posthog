@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import cast
+from typing import Optional, cast
 
 from django.db import connection
 from django.db.models.aggregates import Max
@@ -57,14 +57,21 @@ class IssueWithSimilarFingerprints(BaseModel):
         self.library = library
 
     @property
-    def first_fingerprint(self):
-        return min(self.fingerprints, key=lambda f: f.timestamp)
+    def first_fingerprint(self) -> Optional[SimilarFingerprint]:
+        if len(self.fingerprints) > 0:
+            return min(self.fingerprints, key=lambda f: f.timestamp)
+        return None
 
     @property
-    def closest_fingerprint(self):
-        return min(self.fingerprints, key=lambda f: f.distance)
+    def closest_fingerprint(self) -> Optional[SimilarFingerprint]:
+        if len(self.fingerprints) > 0:
+            return min(self.fingerprints, key=lambda f: f.distance)
+        return None
 
     def to_similar(self) -> SimilarIssue:
+        if self.closest_fingerprint is None:
+            raise Exception("No closest fingerprint")
+
         return SimilarIssue(
             id=self.id,
             name=self.name,
@@ -144,7 +151,14 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
         return list(similar_issues_by_id.values())
 
     def enrich_issues(self, similar_issues: list[IssueWithSimilarFingerprints]):
-        issues_by_fingerprint = {issue.closest_fingerprint.fingerprint: issue for issue in similar_issues}
+        issues_by_fingerprint = {
+            issue.first_fingerprint.fingerprint: issue
+            for issue in similar_issues
+            if issue.first_fingerprint is not None
+        }
+        first_fingerprints = [
+            issue.first_fingerprint for issue in similar_issues if issue.first_fingerprint is not None
+        ]
         with self.timings.measure("error_tracking_first_event_fetching"):
             time_window = timedelta(days=1)
             fingerprint_conditions: list[ast.Expr] = [
@@ -152,22 +166,22 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
                     exprs=[
                         ast.CompareOperation(
                             left=ast.Field(chain=["timestamp"]),
-                            right=ast.Constant(value=issue.closest_fingerprint.timestamp - time_window),
+                            right=ast.Constant(value=fingerprint.timestamp - time_window),
                             op=ast.CompareOperationOp.GtEq,
                         ),
                         ast.CompareOperation(
                             left=ast.Field(chain=["timestamp"]),
-                            right=ast.Constant(value=issue.closest_fingerprint.timestamp + time_window),
+                            right=ast.Constant(value=fingerprint.timestamp + time_window),
                             op=ast.CompareOperationOp.LtEq,
                         ),
                         ast.CompareOperation(
                             left=ast.Field(chain=["properties", "$exception_fingerprint"]),
-                            right=ast.Constant(value=issue.closest_fingerprint.fingerprint),
+                            right=ast.Constant(value=fingerprint.fingerprint),
                             op=ast.CompareOperationOp.Eq,
                         ),
                     ]
                 )
-                for issue in similar_issues
+                for fingerprint in first_fingerprints
             ]
             global_time_conditions = ast.Or(exprs=fingerprint_conditions)
             query = ast.SelectQuery(
