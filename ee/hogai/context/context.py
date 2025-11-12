@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import Any, Optional, cast
 from uuid import uuid4
 
+import posthoganalytics
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
@@ -387,9 +388,19 @@ class AssistantContextManager(AssistantContextMixin):
         ).to_string()
 
     async def _get_context_prompts(self, state: BaseStateWithMessages) -> list[str]:
+        has_agent_modes_feature_flag = posthoganalytics.feature_enabled(
+            "phai-agent-modes",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+
         prompts: list[str] = []
-        if find_start_message_idx(state.messages, state.start_id) == 0 and (
-            mode_prompt := self._get_mode_prompt(state.agent_mode)
+        if (
+            has_agent_modes_feature_flag
+            and find_start_message_idx(state.messages, state.start_id) == 0
+            and (mode_prompt := self._get_mode_prompt(state.agent_mode))
         ):
             prompts.append(mode_prompt)
         if contextual_tools := await self._get_contextual_tools_prompt():
