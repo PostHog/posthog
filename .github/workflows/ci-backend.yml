@@ -71,6 +71,15 @@ jobs:
                   docker ps -a --size | grep -i seaweedfs || true
                   echo
                   [ -d "data" ] && du -sh data || true
+                  echo
+                  echo "== du -xhd1 / (top) =="
+                  du -xhd1 / 2>/dev/null | sort -h | tail -n 20 || true
+                  echo
+                  echo "== du -xhd1 key roots =="
+                  du -xhd1 /opt/hostedtoolcache /usr/local /usr/lib /var 2>/dev/null | sort -h || true
+                  echo
+                  echo "== du -xhd1 $HOME/.cache (top) =="
+                  du -xhd1 "$HOME/.cache" 2>/dev/null | sort -h | tail -n 20 || true
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@v4
@@ -632,6 +641,15 @@ jobs:
                   docker ps -a --size | grep -i seaweedfs || true
                   echo
                   [ -d "data" ] && du -sh data || true
+                  echo
+                  echo "== du -xhd1 / (top) =="
+                  du -xhd1 / 2>/dev/null | sort -h | tail -n 20 || true
+                  echo
+                  echo "== du -xhd1 key roots =="
+                  du -xhd1 /opt/hostedtoolcache /usr/local /usr/lib /var 2>/dev/null | sort -h || true
+                  echo
+                  echo "== du -xhd1 $HOME/.cache (top) =="
+                  du -xhd1 "$HOME/.cache" 2>/dev/null | sort -h | tail -n 20 || true
             - uses: actions/checkout@v4
               with:
                   fetch-depth: 1
@@ -1019,6 +1037,15 @@ jobs:
                   docker ps -a --size | grep -i seaweedfs || true
                   echo
                   [ -d "data" ] && du -sh data || true
+                  echo
+                  echo "== du -xhd1 / (top) =="
+                  du -xhd1 / 2>/dev/null | sort -h | tail -n 20 || true
+                  echo
+                  echo "== du -xhd1 key roots =="
+                  du -xhd1 /opt/hostedtoolcache /usr/local /usr/lib /var 2>/dev/null | sort -h || true
+                  echo
+                  echo "== du -xhd1 $HOME/.cache (top) =="
+                  du -xhd1 "$HOME/.cache" 2>/dev/null | sort -h | tail -n 20 || true
             - name: 'Checkout repo'
               uses: actions/checkout@v4
               with:
