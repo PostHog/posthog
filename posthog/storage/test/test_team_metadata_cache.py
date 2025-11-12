@@ -20,7 +20,7 @@ from posthog.storage.team_metadata_cache import (
     get_teams_with_expiring_caches,
     update_team_metadata_cache,
 )
-from posthog.tasks.team_metadata import refresh_stale_team_metadata_cache, update_team_metadata_cache_task
+from posthog.tasks.team_metadata import refresh_expiring_team_metadata_cache_entries, update_team_metadata_cache_task
 
 
 class TestTeamMetadataCache(BaseTest):
@@ -255,7 +255,7 @@ class TestTeamMetadataCacheBatchMetrics(BaseTest):
         before_teams_success = TEAM_METADATA_TEAMS_PROCESSED_COUNTER.labels(result="success")._value.get()
         before_teams_failed = TEAM_METADATA_TEAMS_PROCESSED_COUNTER.labels(result="failed")._value.get()
 
-        refresh_stale_team_metadata_cache()
+        refresh_expiring_team_metadata_cache_entries()
 
         after_counter = TEAM_METADATA_BATCH_REFRESH_COUNTER.labels(result="success")._value.get()
         after_teams_success = TEAM_METADATA_TEAMS_PROCESSED_COUNTER.labels(result="success")._value.get()
@@ -272,7 +272,7 @@ class TestTeamMetadataCacheBatchMetrics(BaseTest):
         """Test that cache coverage gauge is updated after refresh."""
         update_team_metadata_cache(self.team)
 
-        refresh_stale_team_metadata_cache()
+        refresh_expiring_team_metadata_cache_entries()
 
         coverage = TEAM_METADATA_CACHE_COVERAGE_GAUGE._value.get()
         self.assertIsNotNone(coverage)

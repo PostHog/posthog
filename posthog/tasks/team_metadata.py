@@ -51,7 +51,7 @@ def update_team_metadata_cache_task(team_id: int) -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
-def refresh_stale_team_metadata_cache() -> None:
+def refresh_expiring_team_metadata_cache_entries() -> None:
     """
     Periodic task to refresh team metadata caches before they expire.
 
