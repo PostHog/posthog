@@ -99,8 +99,7 @@ describe('utils', () => {
                 {
                     properties: [],
                     rollout_percentage: 100,
-                    description:
-                        'Added automatically when the experiment variant was shipped',
+                    description: 'Added automatically when the experiment variant was shipped',
                 },
                 { properties: [], rollout_percentage: 100 },
             ],
@@ -184,8 +183,7 @@ describe('utils', () => {
                 {
                     properties: [],
                     rollout_percentage: 100,
-                    description:
-                        'Added automatically when the experiment variant was shipped',
+                    description: 'Added automatically when the experiment variant was shipped',
                 },
                 { properties: [], rollout_percentage: 100 },
             ],
