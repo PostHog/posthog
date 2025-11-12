@@ -3950,6 +3950,14 @@ export interface Experiment {
     user_access_level: AccessControlLevel
 }
 
+export interface ExperimentVelocityStats {
+    launched_last_30d: number
+    launched_previous_30d: number
+    percent_change: number
+    active_experiments: number
+    completed_last_30d: number
+}
+
 export interface FunnelExperimentVariant {
     key: string
     success_count: number
@@ -5315,7 +5323,7 @@ export enum SDKKey {
 }
 
 export enum SDKTag {
-    RECOMMENDED = 'Recommended',
+    POPULAR = 'Most popular',
     WEB = 'Web',
     MOBILE = 'Mobile',
     SERVER = 'Server',
@@ -5404,6 +5412,7 @@ export type AvailableOnboardingProducts = Record<
 export type OnboardingProduct = {
     name: string
     breadcrumbsName?: string
+    description: string
     icon: string
     iconColor: string
     url: string

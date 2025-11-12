@@ -339,15 +339,17 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     return response.results
                 },
                 addShortcutItem: async ({ item }) => {
+                    const shortcutPath = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
+
                     const shortcutItem =
                         item.type === 'folder'
                             ? {
-                                  path: joinPath([splitPath(item.path).pop() ?? 'Unnamed']),
+                                  path: shortcutPath,
                                   type: 'folder',
                                   ref: item.path,
                               }
                             : {
-                                  path: joinPath([splitPath(item.path).pop() ?? 'Unnamed']),
+                                  path: shortcutPath,
                                   type: item.type,
                                   ref: item.ref,
                                   href: item.href,
@@ -362,7 +364,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             },
                         },
                     })
-                    return [...values.shortcutData, response]
+                    return [...values.shortcutData, response].sort((a, b) =>
+                        a.path.toLowerCase().localeCompare(b.path.toLowerCase())
+                    )
                 },
                 deleteShortcut: async ({ id }) => {
                     await api.fileSystemShortcuts.delete(id)

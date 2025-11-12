@@ -456,6 +456,8 @@ export interface HogQuery extends DataNode<HogQueryResponse> {
 export interface RecordingsQueryResponse {
     results: SessionRecordingType[]
     has_next: boolean
+    /** Cursor for the next page. Contains the ordering value and session_id from the last record. */
+    next_cursor?: string
 }
 
 export const VALID_RECORDING_ORDERS = [
@@ -519,6 +521,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     order_direction?: RecordingOrderDirection
     limit?: integer
     offset?: integer
+    /** Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page. */
+    after?: string
     user_modified_filters?: Record<string, any>
 }
 
@@ -1376,6 +1380,8 @@ export type RetentionFilter = {
     cumulative?: RetentionFilterLegacy['cumulative']
     /** @description The time window mode to use for retention calculations */
     timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
+    /** @description Custom brackets for retention calculations */
+    retentionCustomBrackets?: number[]
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -2337,11 +2343,13 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     function?: string
     first_event?: {
         uuid: string
+        distinct_id: string
         timestamp: string
         properties: string
     }
     last_event?: {
         uuid: string
+        distinct_id: string
         timestamp: string
         properties: string
     }

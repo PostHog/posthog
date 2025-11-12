@@ -123,7 +123,10 @@ export const workflowLogic = kea<workflowLogicType>([
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
-        triggerManualWorkflow: (variables: Record<string, any>) => ({ variables }),
+        triggerManualWorkflow: (variables: Record<string, any>, scheduledAt?: string) => ({
+            variables,
+            scheduledAt,
+        }),
         discardChanges: true,
     }),
     loaders(({ props, values }) => ({
@@ -265,7 +268,9 @@ export const workflowLogic = kea<workflowLogicType>([
                                     email: combinedErrors,
                                 }
                             }
-                        } else if (isFunctionAction(action) || isTriggerFunction(action)) {
+                        }
+
+                        if (isFunctionAction(action) || isTriggerFunction(action)) {
                             const template = hogFunctionTemplatesById[action.config.template_id]
                             if (!template) {
                                 result.valid = false
@@ -281,13 +286,22 @@ export const workflowLogic = kea<workflowLogicType>([
                                 result.valid = configValidation.valid
                                 result.errors = configValidation.errors
                             }
-                        } else if (action.type === 'trigger') {
+                        }
+
+                        if (action.type === 'trigger') {
                             // custom validation here that we can't easily express in the schema
                             if (action.config.type === 'event') {
                                 if (!action.config.filters.events?.length && !action.config.filters.actions?.length) {
                                     result.valid = false
                                     result.errors = {
                                         filters: 'At least one event or action is required',
+                                    }
+                                }
+                            } else if (action.config.type === 'schedule') {
+                                if (!action.config.scheduled_at) {
+                                    result.valid = false
+                                    result.errors = {
+                                        scheduled_at: 'A scheduled time is required',
                                     }
                                 }
                             }
@@ -392,7 +406,7 @@ export const workflowLogic = kea<workflowLogicType>([
 
             actions.setWorkflowValues({ edges: [...newEdges, ...edges] })
         },
-        triggerManualWorkflow: async ({ variables }) => {
+        triggerManualWorkflow: async ({ variables, scheduledAt }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
                 lemonToast.error('You need to save the workflow before triggering it manually.')
                 return
@@ -400,9 +414,21 @@ export const workflowLogic = kea<workflowLogicType>([
 
             const webhookUrl = publicWebhooksHostOrigin() + '/public/webhooks/' + values.workflow.id
 
-            lemonToast.info('Triggering workflow...')
+            lemonToast.info(scheduledAt ? 'Scheduling workflow...' : 'Triggering workflow...')
 
             try {
+                const body: Record<string, any> = {
+                    user_id: String(values.user?.id),
+                }
+
+                if (variables) {
+                    body.$variables = variables
+                }
+
+                if (scheduledAt) {
+                    body.$scheduled_at = scheduledAt
+                }
+
                 await fetch(webhookUrl, {
                     method: 'POST',
                     headers: {
@@ -411,6 +437,7 @@ export const workflowLogic = kea<workflowLogicType>([
                     body: JSON.stringify({
                         user_id: String(values.user?.id),
                         $variables: variables,
+                        $scheduled_at: scheduledAt,
                     }),
                     credentials: 'omit',
                 })
@@ -419,7 +446,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
 
-            lemonToast.success('Workflow triggered', {
+            lemonToast.success(`Workflow ${scheduledAt ? 'scheduled' : 'triggered'}`, {
                 button: {
                     label: 'View logs',
                     action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
@@ -429,5 +456,6 @@ export const workflowLogic = kea<workflowLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadWorkflow()
+        actions.loadHogFunctionTemplatesById()
     }),
 ])

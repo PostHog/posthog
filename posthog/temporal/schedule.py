@@ -28,6 +28,7 @@ from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQ
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
+from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
@@ -187,11 +188,49 @@ async def create_enforce_max_replay_retention_schedule(client: Client):
         )
 
 
+async def create_weekly_digest_schedule(client: Client):
+    """Create or update the schedule for the weekly digest workflow.
+
+    This schedule runs weekly at Monday 5 AM UTC.
+    """
+    weekly_digest_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "weekly-digest",
+            WeeklyDigestInput(),
+            id="weekly-digest-schedule",
+            task_queue=settings.WEEKLY_DIGEST_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=1,
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Weekly at Monday 5 AM UTC",
+                    hour=[ScheduleRange(start=5, end=5)],
+                    day_of_week=[ScheduleRange(start=1, end=1)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "weekly-digest-schedule"):
+        await a_update_schedule(client, "weekly-digest-schedule", weekly_digest_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "weekly-digest-schedule",
+            weekly_digest_schedule,
+            trigger_immediately=False,
+        )
+
+
 schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
     create_upgrade_queries_schedule,
     create_enforce_max_replay_retention_schedule,
+    create_weekly_digest_schedule,
 ]
 
 if settings.EE_AVAILABLE:

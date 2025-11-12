@@ -343,6 +343,10 @@
             "required": ["columns", "hogql", "limit", "offset", "results"],
             "type": "object"
         },
+        "AgentMode": {
+            "enum": ["product_analytics", "noop"],
+            "type": "string"
+        },
         "AggregationAxisFormat": {
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled", "currency"],
             "type": "string"
@@ -1827,7 +1831,6 @@
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
                 "create_message_template",
-                "navigate",
                 "filter_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
@@ -11127,6 +11130,9 @@
                 "first_event": {
                     "additionalProperties": false,
                     "properties": {
+                        "distinct_id": {
+                            "type": "string"
+                        },
                         "properties": {
                             "type": "string"
                         },
@@ -11137,7 +11143,7 @@
                             "type": "string"
                         }
                     },
-                    "required": ["uuid", "timestamp", "properties"],
+                    "required": ["uuid", "distinct_id", "timestamp", "properties"],
                     "type": "object"
                 },
                 "first_seen": {
@@ -11153,6 +11159,9 @@
                 "last_event": {
                     "additionalProperties": false,
                     "properties": {
+                        "distinct_id": {
+                            "type": "string"
+                        },
                         "properties": {
                             "type": "string"
                         },
@@ -11163,7 +11172,7 @@
                             "type": "string"
                         }
                     },
-                    "required": ["uuid", "timestamp", "properties"],
+                    "required": ["uuid", "distinct_id", "timestamp", "properties"],
                     "type": "object"
                 },
                 "last_seen": {
@@ -23450,6 +23459,10 @@
                     },
                     "type": "array"
                 },
+                "after": {
+                    "description": "Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page.",
+                    "type": "string"
+                },
                 "comment_text": {
                     "$ref": "#/definitions/RecordingPropertyFilter"
                 },
@@ -23551,6 +23564,10 @@
             "properties": {
                 "has_next": {
                     "type": "boolean"
+                },
+                "next_cursor": {
+                    "description": "Cursor for the next page. Contains the ordering value and session_id from the last record.",
+                    "type": "string"
                 },
                 "results": {
                     "items": {
@@ -23714,6 +23731,13 @@
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day"
+                },
+                "retentionCustomBrackets": {
+                    "description": "Custom brackets for retention calculations",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
                 },
                 "retentionReference": {
                     "description": "Whether retention is with regard to initial cohort size, or that of the previous period.",

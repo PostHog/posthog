@@ -8,6 +8,11 @@ use thiserror::Error;
 use tokio::time::timeout;
 use tracing::warn;
 
+// Re-export ErrorKind and RetryMethod so consumers can construct CustomRedisError in tests
+// and understand retry behavior
+pub use redis::ErrorKind as RedisErrorKind;
+pub use redis::RetryMethod;
+
 const DEFAULT_REDIS_TIMEOUT_MILLISECS: u64 = 100;
 
 fn get_redis_timeout_ms() -> u64 {
@@ -17,16 +22,16 @@ fn get_redis_timeout_ms() -> u64 {
         .unwrap_or(DEFAULT_REDIS_TIMEOUT_MILLISECS)
 }
 
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
+#[derive(Error, Debug, Clone)]
 pub enum CustomRedisError {
     #[error("Not found in redis")]
     NotFound,
     #[error("Parse error: {0}")]
     ParseError(String),
-    #[error("Redis error: {0}")]
-    Other(String),
     #[error("Timeout error")]
     Timeout,
+    #[error(transparent)]
+    Redis(#[from] Arc<redis::RedisError>),
 }
 
 impl From<serde_pickle::Error> for CustomRedisError {
@@ -37,7 +42,7 @@ impl From<serde_pickle::Error> for CustomRedisError {
 
 impl From<RedisError> for CustomRedisError {
     fn from(err: RedisError) -> Self {
-        CustomRedisError::Other(err.to_string())
+        CustomRedisError::Redis(Arc::new(err))
     }
 }
 
@@ -50,6 +55,62 @@ impl From<tokio::time::error::Elapsed> for CustomRedisError {
 impl From<std::string::FromUtf8Error> for CustomRedisError {
     fn from(err: std::string::FromUtf8Error) -> Self {
         CustomRedisError::ParseError(err.to_string())
+    }
+}
+
+impl CustomRedisError {
+    /// Create a Redis error from an ErrorKind (primarily for testing)
+    pub fn from_redis_kind(kind: redis::ErrorKind, description: &'static str) -> Self {
+        CustomRedisError::Redis(Arc::new(redis::RedisError::from((kind, description))))
+    }
+
+    /// Determine if this error is unrecoverable and should not be retried
+    ///
+    /// Returns `true` for configuration errors and permanent failures.
+    /// Returns `false` for transient network/connection issues that may resolve on retry.
+    ///
+    /// Delegates to redis crate's `is_unrecoverable_error()` for Redis errors.
+    pub fn is_unrecoverable_error(&self) -> bool {
+        match self {
+            // Timeouts are transient - not unrecoverable
+            CustomRedisError::Timeout => false,
+
+            // Parse errors are permanent bugs - unrecoverable
+            CustomRedisError::ParseError(_) => true,
+
+            // NotFound is permanent - caller should handle this
+            CustomRedisError::NotFound => true,
+
+            // For Redis errors, delegate to the inner error's method
+            CustomRedisError::Redis(err) => err.is_unrecoverable_error(),
+        }
+    }
+
+    /// Determine the appropriate retry strategy for this error
+    ///
+    /// Returns a `RetryMethod` indicating how (if at all) this request should be retried.
+    /// Delegates to redis crate's `retry_method()` for Redis errors.
+    ///
+    /// # Retry Methods
+    /// - `NoRetry` - Permanent error, don't retry
+    /// - `RetryImmediately` - Temporary issue, retry right away
+    /// - `WaitAndRetry` - Sleep first to avoid overload
+    /// - `Reconnect` - Create fresh connection (current is broken)
+    /// - `MovedRedirect` / `AskRedirect` - Cluster-specific redirections
+    pub fn retry_method(&self) -> RetryMethod {
+        match self {
+            // Timeouts: wait before retrying to avoid hammering the service
+            CustomRedisError::Timeout => RetryMethod::WaitAndRetry,
+
+            // Parse errors are permanent bugs - don't retry
+            CustomRedisError::ParseError(_) => RetryMethod::NoRetry,
+
+            // NotFound is permanent - caller should handle this
+            CustomRedisError::NotFound => RetryMethod::NoRetry,
+
+            // For Redis errors, delegate to the inner error's method
+            CustomRedisError::Redis(err) => err.retry_method(),
+        }
     }
 }
 
@@ -340,7 +401,7 @@ impl Client for RedisClient {
         let count = count.unwrap_or(1);
         let results = conn.hincr(k, v, count);
         let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
-        fut.map_err(|e| CustomRedisError::Other(e.to_string()))
+        fut.map_err(|e| e.into())
     }
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError> {
@@ -466,7 +527,7 @@ impl Client for RedisClient {
         match result {
             Ok(Some(_)) => Ok(true), // Key was set successfully
             Ok(None) => Ok(false),   // Key already existed
-            Err(e) => Err(CustomRedisError::Other(e.to_string())),
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -474,7 +535,7 @@ impl Client for RedisClient {
         let mut conn = self.connection.clone();
         let results = conn.del(k);
         let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
-        fut.map_err(|e| CustomRedisError::Other(e.to_string()))
+        fut.map_err(|e| e.into())
     }
 
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError> {
@@ -494,7 +555,7 @@ impl Client for RedisClient {
         let results = conn.scard(k);
         timeout(Duration::from_millis(get_redis_timeout_ms()), results)
             .await?
-            .map_err(|e| CustomRedisError::Other(e.to_string()))
+            .map_err(|e| e.into())
     }
 }
 
@@ -593,7 +654,7 @@ impl MockRedisClient {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum MockRedisValue {
     None,
     Error(CustomRedisError),
@@ -1203,6 +1264,93 @@ mod tests {
             let result = helpers::deserialize_value(&decompressed, RedisValueFormat::Pickle);
 
             assert_eq!(result, test_value);
+        }
+    }
+
+    mod error_transience {
+        use super::*;
+
+        // Tests for our custom error variants
+        #[test]
+        fn test_timeout_is_recoverable() {
+            let err = CustomRedisError::Timeout;
+            assert!(!err.is_unrecoverable_error());
+        }
+
+        #[test]
+        fn test_parse_error_is_unrecoverable() {
+            let err = CustomRedisError::ParseError("invalid data".to_string());
+            assert!(err.is_unrecoverable_error());
+        }
+
+        #[test]
+        fn test_not_found_is_unrecoverable() {
+            let err = CustomRedisError::NotFound;
+            assert!(err.is_unrecoverable_error());
+        }
+
+        // Smoke test: verify we delegate to redis::RedisError instead of reimplementing
+        #[test]
+        fn test_redis_error_delegation() {
+            let custom_err = CustomRedisError::Redis(Arc::new(redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "test error",
+            ))));
+            let redis_err = redis::RedisError::from((redis::ErrorKind::IoError, "test error"));
+
+            // Verify delegation works by comparing with direct redis::RedisError behavior
+            assert_eq!(
+                custom_err.is_unrecoverable_error(),
+                redis_err.is_unrecoverable_error()
+            );
+        }
+    }
+
+    mod retry_methods {
+        use super::*;
+
+        // Tests for our custom error variants
+        #[test]
+        fn test_timeout_wait_and_retry() {
+            let err = CustomRedisError::Timeout;
+            assert!(matches!(err.retry_method(), RetryMethod::WaitAndRetry));
+        }
+
+        #[test]
+        fn test_parse_error_no_retry() {
+            let err = CustomRedisError::ParseError("invalid data".to_string());
+            assert!(matches!(err.retry_method(), RetryMethod::NoRetry));
+        }
+
+        #[test]
+        fn test_not_found_no_retry() {
+            let err = CustomRedisError::NotFound;
+            assert!(matches!(err.retry_method(), RetryMethod::NoRetry));
+        }
+
+        // Smoke test: verify we delegate to redis::RedisError instead of reimplementing
+        #[test]
+        fn test_redis_error_delegation() {
+            let custom_err = CustomRedisError::Redis(Arc::new(redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "test error",
+            ))));
+            let redis_err = redis::RedisError::from((redis::ErrorKind::IoError, "test error"));
+
+            // Verify delegation works by comparing with direct redis::RedisError behavior
+            let custom_retry = custom_err.retry_method();
+            let redis_retry = redis_err.retry_method();
+
+            // Compare by matching both - they should be the same variant
+            match (custom_retry, redis_retry) {
+                (RetryMethod::NoRetry, RetryMethod::NoRetry) => {}
+                (RetryMethod::Reconnect, RetryMethod::Reconnect) => {}
+                (RetryMethod::WaitAndRetry, RetryMethod::WaitAndRetry) => {}
+                (RetryMethod::RetryImmediately, RetryMethod::RetryImmediately) => {}
+                (RetryMethod::MovedRedirect, RetryMethod::MovedRedirect) => {}
+                (RetryMethod::AskRedirect, RetryMethod::AskRedirect) => {}
+                _ => panic!("Delegation failed: retry methods don't match"),
+            }
         }
     }
 }
