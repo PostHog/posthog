@@ -120,14 +120,12 @@ function getConcurrencyController(
     const mountedSceneLogic = sceneLogic.findMounted()
     const activeScene = mountedSceneLogic?.values.activeSceneId
     if (
-        activeScene &&
-        activeScene in
-            [
-                Scene.WebAnalytics,
-                Scene.WebAnalyticsWebVitals,
-                Scene.WebAnalyticsPageReports,
-                Scene.WebAnalyticsMarketing,
-            ] &&
+        [
+            Scene.WebAnalytics,
+            Scene.WebAnalyticsWebVitals,
+            Scene.WebAnalyticsPageReports,
+            Scene.WebAnalyticsMarketing,
+        ].includes(activeScene as Scene) &&
         featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HIGHER_CONCURRENCY] &&
         !currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
     ) {
