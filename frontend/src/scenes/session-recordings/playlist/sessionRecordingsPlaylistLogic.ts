@@ -463,7 +463,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
         }),
-        prependRecording: (recording: SessionRecordingType) => ({ recording }),
         loadAllRecordings: true,
         loadPinnedRecordings: true,
         loadSessionRecordings: (direction?: 'newer' | 'older', userModifiedFilters?: Record<string, any>) => ({
@@ -541,6 +540,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         // TODO: maybe we can slice this instead
                         distinct_ids: (props.distinctIds?.length || 0) < 100 ? props.distinctIds : undefined,
                         limit: RECORDINGS_LIMIT,
+                        // If a recording is selected from URL, ensure it's always included in results
+                        session_recording_id: values.selectedRecordingId ?? undefined,
                     }
 
                     if (values.allowEventPropertyExpansion) {
@@ -705,15 +706,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     )
                 },
 
-                prependRecording: (state, { recording }) => {
-                    // Only add if not already in list
-                    if (state.find((r) => r.id === recording.id)) {
-                        return state
-                    }
-                    // Add to beginning of list
-                    return [recording, ...state]
-                },
-
                 setSelectedRecordingId: (state, { id }) =>
                     state.map((s) => {
                         if (s.id === id) {
@@ -806,35 +798,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
         },
 
-        setSelectedRecordingId: async () => {
+        setSelectedRecordingId: () => {
             // Close filters when selecting a recording
             actions.setIsFiltersExpanded(false)
 
             const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
 
-            // If recording not found in current list, fetch it specifically
+            // If recording not found in current list, reload with the new selected recording
+            // The backend will automatically include it via session_recording_id parameter
             if (recordingIndex === -1 && values.selectedRecordingId) {
-                try {
-                    // Fetch the specific recording using session_ids filter
-                    const response = await api.recordings.list({
-                        ...convertUniversalFiltersToRecordingsQuery(values.filters),
-                        session_ids: [values.selectedRecordingId],
-                    })
-
-                    if (response.results && response.results.length > 0) {
-                        // Prepend the recording to the list so it's visible
-                        actions.prependRecording(response.results[0])
-                    } else {
-                        lemonToast.error('Recording not found')
-                        actions.setSelectedRecordingId(null)
-                        return
-                    }
-                } catch (error) {
-                    lemonToast.error('Failed to load recording')
-                    posthog.captureException(error)
-                    actions.setSelectedRecordingId(null)
-                    return
-                }
+                actions.loadSessionRecordings()
             }
 
             // If we are at the end of the list then try to load more
