@@ -54,7 +54,7 @@ class CustomerIOImportService:
                     return self.progress
 
             # Step 2: Import subscription topics as categories
-            topics = self.client.get_subscription_centers()
+            topics = self.client.get_subscription_topics()
 
             if not topics:
                 self.progress["errors"].append("No subscription topics found in Customer.io")
