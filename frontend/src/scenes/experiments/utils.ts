@@ -88,7 +88,7 @@ export function transformFiltersForWinningVariant(
                 properties: [],
                 rollout_percentage: 100,
                 description:
-                    'Added by shipping experiment variant - enables 100% rollout of selected variant to all users',
+                    'Added automatically when the experiment variant was shipped',
             },
             // Preserve existing groups so that users can roll back this action
             // by deleting the newly added release condition
