@@ -6,6 +6,7 @@ import {
     type SessionRecordingMaskingConfig,
     type SessionRecordingMaskingLevel,
     UniversalFilterValue,
+    UniversalFiltersGroup,
 } from '~/types'
 
 export const TimestampFormatToLabel = {
