@@ -1548,7 +1548,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 const isPinnedTab = !!activeTab?.pinned
                 const canCloseTab = !isPinnedTab
 
-                // Helper function to check if this is the T or W key
+                // Handle both physical key and typed character (cross-layout support).
                 const isTKey = keyCode === 'keyt' || key === 't'
                 const isWKey = keyCode === 'keyw' || key === 'w'
                 const isKKey = keyCode === 'keyk' || key === 'k'
