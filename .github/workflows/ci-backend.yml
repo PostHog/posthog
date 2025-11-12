@@ -133,12 +133,46 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
+            - name: Check disk BEFORE Docker Compose
+              run: |
+                  echo "=== BEFORE DOCKER COMPOSE ==="
+                  df -h
+                  echo ""
+                  echo "=== Docker System ==="
+                  docker system df
+                  echo ""
+                  echo "=== Workspace Size ==="
+                  du -sh ./ 2>/dev/null || true
+                  echo ""
+                  echo "=== Docker Images ==="
+                  docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | head -20
+
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down --volumes --remove-orphans
                   docker system prune -af || true
                   docker volume prune -f || true
                   docker compose -f docker-compose.dev.yml up -d &
+
+            - name: Check disk AFTER Docker Compose
+              run: |
+                  echo "=== AFTER DOCKER COMPOSE UP ==="
+                  df -h
+                  echo ""
+                  echo "=== Docker System ==="
+                  docker system df
+                  echo ""
+                  echo "=== Docker Containers ==="
+                  docker ps -a
+                  echo ""
+                  echo "=== Docker Volumes ==="
+                  docker volume ls
+                  echo ""
+                  echo "=== Inspect SeaweedFS storage ==="
+                  docker exec seaweedfs du -sh /data 2>/dev/null || echo "SeaweedFS not ready or not running"
+                  echo ""
+                  echo "=== Data Directory ==="
+                  [ -d "data" ] && du -sh data/* 2>/dev/null || echo "No data directory"
 
             - name: Set up Python
               uses: actions/setup-python@v5
@@ -781,6 +815,27 @@ jobs:
                   else
                       exit $exit_code
                   fi
+
+            - name: Check disk AFTER tests (Core segment)
+              if: always()
+              run: |
+                  echo "=== AFTER TESTS (Shard ${{ matrix.group }}/${{ matrix.concurrency }}) ==="
+                  df -h
+                  echo ""
+                  echo "=== Docker System ==="
+                  docker system df
+                  echo ""
+                  echo "=== Docker System Detailed ==="
+                  docker system df -v | head -n 50
+                  echo ""
+                  echo "=== Inspect SeaweedFS storage ==="
+                  docker exec seaweedfs du -sh /data 2>/dev/null || echo "SeaweedFS not available"
+                  echo ""
+                  echo "=== Data Directory ==="
+                  [ -d "data" ] && du -sh data/* 2>/dev/null || echo "No data directory"
+                  echo ""
+                  echo "=== Workspace Top Dirs ==="
+                  du -sh ./* 2>/dev/null | sort -h | tail -n 10
 
             # Uncomment this code to create an ssh-able console so you can debug issues with github actions
             # (Consider changing the timeout in ci-backend.yml to have more time)
