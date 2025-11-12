@@ -6,16 +6,20 @@ use common_kafka::{
 use health::HealthRegistry;
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
+    error::{KafkaError, RDKafkaErrorCode},
     message::{BorrowedHeaders, BorrowedMessage},
     producer::FutureRecord,
     ClientConfig, Message,
 };
 use std::time::Duration;
-use tracing::{error, info};
+use tokio::time::sleep;
+use tracing::{error, info, warn};
 
 use crate::config::Config;
-use crate::repartitioners::compute_propdefs_v1_key;
+use crate::repartitioners::compute_propdefs_v1_key_by_team_id;
 
+const KAFKA_CONSUMER_ERROR: &str = "kafka_consumer_error";
+const KAFKA_MESSAGE_CONSUMED: &str = "kafka_message_consumed";
 pub struct RepartitionerService {
     config: Config,
     consumer: StreamConsumer,
@@ -86,6 +90,7 @@ impl RepartitionerService {
 
     pub async fn run(&self) -> Result<()> {
         info!("Starting repartitioner service");
+        let mut kafka_error_count = 0;
 
         let consumer_health = self
             .health
@@ -94,20 +99,165 @@ impl RepartitionerService {
         consumer_health.report_healthy().await;
 
         loop {
+            // Update health check at start of loop iteration (like cymbal)
+            consumer_health.report_healthy().await;
+
             match self.consumer.recv().await {
                 Ok(message) => {
                     if let Err(e) = self.process_message(&message).await {
-                        error!("Failed to process message: {}", e);
+                        warn!("Failed to process message: {}", e);
+                        metrics::counter!(
+                            KAFKA_CONSUMER_ERROR,
+                            &[("level", "warn"), ("error", "process_message"),]
+                        )
+                        .increment(1);
+                        // Don't mark unhealthy on processing errors - they're per-message failures
                     } else {
-                        consumer_health.report_healthy().await;
+                        metrics::counter!(KAFKA_MESSAGE_CONSUMED).increment(1);
                     }
+                    kafka_error_count = 0;
                 }
                 Err(e) => {
-                    error!("Error receiving message: {}", e);
-                    consumer_health
-                        .report_status(health::ComponentStatus::Unhealthy)
-                        .await;
+                    kafka_error_count += 1;
+                    if let Some(e) = self.handle_kafka_error(e, kafka_error_count).await {
+                        if e == KafkaError::Canceled {
+                            return Ok(());
+                        }
+                        consumer_health
+                            .report_status(health::ComponentStatus::Unhealthy)
+                            .await;
+                        return Err(anyhow::anyhow!(
+                            "FATAL Kafka error - terminating pod: {}",
+                            e
+                        ));
+                    }
                 }
+            }
+        }
+    }
+
+    async fn handle_kafka_error(&self, e: KafkaError, current_count: u64) -> Option<KafkaError> {
+        match &e {
+            KafkaError::MessageConsumption(code) => {
+                match code {
+                    RDKafkaErrorCode::PartitionEOF => {
+                        metrics::counter!(
+                            KAFKA_CONSUMER_ERROR,
+                            &[("level", "info"), ("error", "partition_eof"),]
+                        )
+                        .increment(1);
+                    }
+                    RDKafkaErrorCode::OperationTimedOut => {
+                        metrics::counter!(
+                            KAFKA_CONSUMER_ERROR,
+                            &[("level", "info"), ("error", "op_timed_out"),]
+                        )
+                        .increment(1);
+                    }
+                    RDKafkaErrorCode::OffsetOutOfRange => {
+                        warn!(
+                            "Offset out of range - seeking to {}",
+                            self.config.kafka_consumer_offset_reset
+                        );
+                        metrics::counter!(
+                            KAFKA_CONSUMER_ERROR,
+                            &[("level", "info"), ("error", "offset_out_of_range"),]
+                        )
+                        .increment(1);
+                        sleep(Duration::from_millis(500)).await;
+                    }
+                    _ => {
+                        warn!("Kafka consumer error: {code:?}");
+                        metrics::counter!(
+                            KAFKA_CONSUMER_ERROR,
+                            &[("level", "warn"), ("error", "consumer"),]
+                        )
+                        .increment(1);
+                        sleep(Duration::from_millis(100 * current_count.min(10))).await;
+                    }
+                }
+
+                None
+            }
+
+            KafkaError::MessageConsumptionFatal(code) => {
+                error!("Fatal Kafka consumer error: {code:?}");
+                metrics::counter!(
+                    KAFKA_CONSUMER_ERROR,
+                    &[("level", "fatal"), ("error", "consumer"),]
+                )
+                .increment(1);
+
+                Some(e)
+            }
+
+            // Connection issues
+            KafkaError::Global(code) => {
+                match code {
+                    RDKafkaErrorCode::AllBrokersDown => {
+                        warn!("All brokers down: {code:?} - waiting for reconnect");
+                        metrics::counter!(
+                            KAFKA_CONSUMER_ERROR,
+                            &[("level", "warn"), ("error", "all_brokers_down"),]
+                        )
+                        .increment(1);
+                        sleep(Duration::from_secs(2)).await;
+                    }
+                    RDKafkaErrorCode::BrokerTransportFailure => {
+                        warn!("Broker transport failure: {code:?} - waiting for reconnect");
+                        metrics::counter!(
+                            KAFKA_CONSUMER_ERROR,
+                            &[("level", "warn"), ("error", "broker_transport"),]
+                        )
+                        .increment(1);
+                        sleep(Duration::from_secs(1)).await;
+                    }
+                    RDKafkaErrorCode::Authentication => {
+                        error!("Authentication failed: {code:?}");
+                        metrics::counter!(
+                            KAFKA_CONSUMER_ERROR,
+                            &[("level", "fatal"), ("error", "authentication"),]
+                        )
+                        .increment(1);
+                        return Some(e);
+                    }
+                    _ => {
+                        warn!("Global Kafka error: {code:?}");
+                        metrics::counter!(
+                            KAFKA_CONSUMER_ERROR,
+                            &[("level", "warm"), ("error", "global"),]
+                        )
+                        .increment(1);
+                        sleep(Duration::from_secs(1)).await;
+                    }
+                }
+
+                None
+            }
+
+            // Shutdown signal
+            KafkaError::Canceled => {
+                info!("Consumer canceled - shutting down");
+                metrics::counter!(
+                    KAFKA_CONSUMER_ERROR,
+                    &[("level", "info"), ("error", "canceled"),]
+                )
+                .increment(1);
+
+                Some(e)
+            }
+
+            // Other errors
+            _ => {
+                error!("Unexpected error: {:?}", e);
+                metrics::counter!(
+                    KAFKA_CONSUMER_ERROR,
+                    &[("level", "fatal"), ("error", "unexpected"),]
+                )
+                .increment(1);
+                sleep(Duration::from_millis(100 * current_count.min(10))).await;
+
+                None
             }
         }
     }
@@ -165,7 +315,9 @@ impl RepartitionerService {
         payload: Option<&[u8]>,
     ) -> Result<Vec<u8>> {
         match self.config.partition_key_compute_fn.as_str() {
-            "propdefs_v1" => compute_propdefs_v1_key(source_key, headers, payload),
+            "propdefs_v1_by_team_id" => {
+                compute_propdefs_v1_key_by_team_id(source_key, headers, payload)
+            }
 
             // TODO: map more repartitioning functions here as needed
             _ => Err(anyhow::anyhow!(

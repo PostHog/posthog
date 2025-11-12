@@ -3,7 +3,7 @@ use rdkafka::message::BorrowedHeaders;
 
 /// "propdefs_v1" repartitioning function uses Team ID as the destination
 /// partition key, and tries to minimize deserialization overhead to obtain it
-pub fn compute_propdefs_v1_key(
+pub fn compute_propdefs_v1_key_by_team_id(
     _source_key: Option<&[u8]>,
     _headers: Option<&BorrowedHeaders>,
     payload: Option<&[u8]>,
