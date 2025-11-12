@@ -26,8 +26,6 @@ if (loader) {
     loader.config({ monaco })
 }
 
-export type MonacoDisposable = { dispose: () => void }
-
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
     queryKey?: string
     autocompleteContext?: string
