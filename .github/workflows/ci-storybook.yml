@@ -368,6 +368,21 @@ jobs:
                   name: failure-screenshots-${{ matrix.browser }}-${{ matrix.shard }}
                   path: frontend/__snapshots__/__failures__/
 
+            - name: Optimize snapshot PNGs
+              if: needs.detect-snapshot-mode.outputs.mode == 'update' && (success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository
+              run: |
+                  # Only install and run optipng if there are PNG changes
+                  if [ -n "$(git status --porcelain frontend/__snapshots__/ | grep '\.png$')" ]; then
+                    echo "PNG snapshot changes detected, installing optipng..."
+                    sudo apt-get update -qq && sudo apt-get install -y -qq optipng >/dev/null 2>&1 || true
+                    echo "Optimizing PNG snapshots..."
+                    find frontend/__snapshots__/ -name "*.png" -type f 2>/dev/null | while read file; do
+                      optipng -clobber -o4 -strip all "$file" 2>/dev/null || true
+                    done
+                  else
+                    echo "No PNG snapshot changes in this shard"
+                  fi
+
             - name: Configure global git diff log
               run: git config --global --add safe.directory '*'
 
