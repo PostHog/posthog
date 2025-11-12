@@ -10,13 +10,17 @@ from django.test import TransactionTestCase
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.storage.team_metadata_cache import (
+    TEAM_METADATA_BATCH_REFRESH_COUNTER,
+    TEAM_METADATA_BATCH_REFRESH_DURATION_HISTOGRAM,
+    TEAM_METADATA_CACHE_COVERAGE_GAUGE,
     TEAM_METADATA_FIELDS,
+    TEAM_METADATA_TEAMS_PROCESSED_COUNTER,
     clear_team_metadata_cache,
     get_team_metadata,
     get_teams_needing_refresh,
     update_team_metadata_cache,
 )
-from posthog.tasks.team_metadata import update_team_metadata_cache_task
+from posthog.tasks.team_metadata import refresh_stale_team_metadata_cache, update_team_metadata_cache_task
 
 
 class TestTeamMetadataCache(BaseTest):
@@ -288,3 +292,39 @@ class TestGetTeamsNeedingRefresh(TransactionTestCase):
         # Should still return teams (from the fallback query)
         self.assertGreater(len(result), 0)
         self.assertLessEqual(len(result), 5)
+
+
+class TestTeamMetadataCacheBatchMetrics(BaseTest):
+    """Test Prometheus metrics for batch refresh job."""
+
+    def test_batch_refresh_metrics(self):
+        """Test that batch refresh updates all expected metrics."""
+        update_team_metadata_cache(self.team)
+
+        before_counter = TEAM_METADATA_BATCH_REFRESH_COUNTER.labels(result="success")._value.get()
+        before_teams_success = TEAM_METADATA_TEAMS_PROCESSED_COUNTER.labels(result="success")._value.get()
+        before_teams_failed = TEAM_METADATA_TEAMS_PROCESSED_COUNTER.labels(result="failed")._value.get()
+
+        refresh_stale_team_metadata_cache()
+
+        after_counter = TEAM_METADATA_BATCH_REFRESH_COUNTER.labels(result="success")._value.get()
+        after_teams_success = TEAM_METADATA_TEAMS_PROCESSED_COUNTER.labels(result="success")._value.get()
+        after_teams_failed = TEAM_METADATA_TEAMS_PROCESSED_COUNTER.labels(result="failed")._value.get()
+
+        self.assertEqual(after_counter - before_counter, 1)
+        self.assertGreaterEqual(after_teams_success - before_teams_success, 0)
+        self.assertEqual(after_teams_failed - before_teams_failed, 0)
+
+        histogram_samples = list(TEAM_METADATA_BATCH_REFRESH_DURATION_HISTOGRAM._samples())
+        self.assertGreater(len(histogram_samples), 0)
+
+    def test_cache_coverage_gauge_updated(self):
+        """Test that cache coverage gauge is updated after refresh."""
+        update_team_metadata_cache(self.team)
+
+        refresh_stale_team_metadata_cache()
+
+        coverage = TEAM_METADATA_CACHE_COVERAGE_GAUGE._value.get()
+        self.assertIsNotNone(coverage)
+        self.assertGreaterEqual(coverage, 0)
+        self.assertLessEqual(coverage, 100)

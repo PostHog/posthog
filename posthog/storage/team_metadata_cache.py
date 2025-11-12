@@ -39,6 +39,7 @@ from django.db import transaction
 
 import structlog
 from posthoganalytics import capture_exception
+from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.team.team import Team
@@ -46,6 +47,31 @@ from posthog.redis import get_client
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
 
 logger = structlog.get_logger(__name__)
+
+
+TEAM_METADATA_BATCH_REFRESH_COUNTER = Counter(
+    "posthog_team_metadata_batch_refresh",
+    "Number of times the team metadata batch refresh job has been run",
+    labelnames=["result"],
+)
+
+TEAM_METADATA_BATCH_REFRESH_DURATION_HISTOGRAM = Histogram(
+    "posthog_team_metadata_batch_refresh_duration_seconds",
+    "Time taken to run the team metadata batch refresh job in seconds",
+    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, float("inf")),
+)
+
+TEAM_METADATA_TEAMS_PROCESSED_COUNTER = Counter(
+    "posthog_team_metadata_teams_processed",
+    "Number of teams processed by the batch refresh job",
+    labelnames=["result"],
+)
+
+TEAM_METADATA_CACHE_COVERAGE_GAUGE = Gauge(
+    "posthog_team_metadata_cache_coverage_percent",
+    "Percentage of teams with cached metadata",
+)
+
 
 # Cache TTL constants (in seconds) - configurable via environment variables
 TEAM_METADATA_CACHE_TTL = int(os.environ.get("TEAM_METADATA_CACHE_TTL", str(60 * 60 * 24 * 7)))  # Default: 7 days
@@ -236,9 +262,9 @@ def get_teams_needing_refresh(
     Returns:
         List of Team objects that need cache refresh, ordered by priority
     """
-    teams_to_refresh = []
+    teams_to_refresh: list[Team] = []
 
-    expiring_tokens = []
+    expiring_tokens: list[str] = []
     try:
         redis_client = get_client()
         pattern = f"cache/team_tokens/*/team_metadata/full_metadata.json"

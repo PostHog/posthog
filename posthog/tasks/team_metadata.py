@@ -4,6 +4,7 @@ Celery tasks for team metadata cache management.
 Provides async tasks for updating and syncing team metadata caches.
 """
 
+import time
 from typing import Any
 
 from django.db import transaction
@@ -14,7 +15,14 @@ import structlog
 from celery import shared_task
 
 from posthog.models.team import Team
-from posthog.storage.team_metadata_cache import clear_team_metadata_cache, update_team_metadata_cache
+from posthog.storage.team_metadata_cache import (
+    TEAM_METADATA_BATCH_REFRESH_COUNTER,
+    TEAM_METADATA_BATCH_REFRESH_DURATION_HISTOGRAM,
+    TEAM_METADATA_CACHE_COVERAGE_GAUGE,
+    TEAM_METADATA_TEAMS_PROCESSED_COUNTER,
+    clear_team_metadata_cache,
+    update_team_metadata_cache,
+)
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
@@ -63,31 +71,55 @@ def refresh_stale_team_metadata_cache() -> None:
     """
     from posthog.storage.team_metadata_cache import get_cache_stats, refresh_stale_caches
 
+    start_time = time.time()
     logger.info("Starting intelligent team metadata cache sync")
 
-    stats_before = get_cache_stats()
-    logger.info(
-        "Cache stats before refresh",
-        total_cached=stats_before.get("total_cached", 0),
-        total_teams=stats_before.get("total_teams", 0),
-        coverage=stats_before.get("cache_coverage", "unknown"),
-        ttl_distribution=stats_before.get("ttl_distribution", {}),
-    )
+    try:
+        stats_before = get_cache_stats()
+        logger.info(
+            "Cache stats before refresh",
+            total_cached=stats_before.get("total_cached", 0),
+            total_teams=stats_before.get("total_teams", 0),
+            coverage=stats_before.get("cache_coverage", "unknown"),
+            ttl_distribution=stats_before.get("ttl_distribution", {}),
+        )
 
-    successful, failed = refresh_stale_caches(
-        ttl_threshold_hours=24,
-        batch_size=200,
-    )
+        successful, failed = refresh_stale_caches(
+            ttl_threshold_hours=24,
+            batch_size=200,
+        )
 
-    stats_after = get_cache_stats()
+        TEAM_METADATA_TEAMS_PROCESSED_COUNTER.labels(result="success").inc(successful)
+        TEAM_METADATA_TEAMS_PROCESSED_COUNTER.labels(result="failed").inc(failed)
 
-    logger.info(
-        "Completed intelligent team metadata cache sync",
-        successful_refreshes=successful,
-        failed_refreshes=failed,
-        cache_coverage_after=stats_after.get("cache_coverage", "unknown"),
-        ttl_distribution_after=stats_after.get("ttl_distribution", {}),
-    )
+        stats_after = get_cache_stats()
+
+        coverage_percent = stats_after.get("cache_coverage_percent", 0)
+        TEAM_METADATA_CACHE_COVERAGE_GAUGE.set(coverage_percent)
+
+        duration = time.time() - start_time
+        TEAM_METADATA_BATCH_REFRESH_DURATION_HISTOGRAM.observe(duration)
+        TEAM_METADATA_BATCH_REFRESH_COUNTER.labels(result="success").inc()
+
+        logger.info(
+            "Completed intelligent team metadata cache sync",
+            successful_refreshes=successful,
+            failed_refreshes=failed,
+            cache_coverage_after=stats_after.get("cache_coverage", "unknown"),
+            ttl_distribution_after=stats_after.get("ttl_distribution", {}),
+            duration_seconds=duration,
+        )
+
+    except Exception as e:
+        duration = time.time() - start_time
+        TEAM_METADATA_BATCH_REFRESH_DURATION_HISTOGRAM.observe(duration)
+        TEAM_METADATA_BATCH_REFRESH_COUNTER.labels(result="failed").inc()
+        logger.exception(
+            "Failed to complete team metadata batch refresh",
+            error=str(e),
+            duration_seconds=duration,
+        )
+        raise
 
 
 # Django signals for real-time cache updates
