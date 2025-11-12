@@ -2,6 +2,8 @@ from contextlib import suppress
 from enum import Enum
 from typing import Optional
 
+from django.conf import settings
+
 import dagster
 from clickhouse_driver.errors import Error, ErrorCodes
 
@@ -13,14 +15,15 @@ from posthog.redis import get_client, redis
 
 
 class JobOwners(str, Enum):
+    TEAM_ANALYTICS_PLATFORM = "team-analytics-platform"
     TEAM_CLICKHOUSE = "team-clickhouse"
+    TEAM_DATA_WAREHOUSE = "team-data-warehouse"
+    TEAM_ERROR_TRACKING = "team-error-tracking"
+    TEAM_EXPERIMENTS = "team-experiments"
+    TEAM_GROWTH = "team-growth"
+    TEAM_MAX_AI = "team-max-ai"
     TEAM_REVENUE_ANALYTICS = "team-revenue-analytics"
     TEAM_WEB_ANALYTICS = "team-web-analytics"
-    TEAM_ERROR_TRACKING = "team-error-tracking"
-    TEAM_GROWTH = "team-growth"
-    TEAM_EXPERIMENTS = "team-experiments"
-    TEAM_MAX_AI = "team-max-ai"
-    TEAM_DATA_WAREHOUSE = "team-data-warehouse"
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
@@ -170,4 +173,13 @@ def check_for_concurrent_runs(
         context.log.info(f"Skipping {job_name} due to {len(run_records)} active run(s)")
         return dagster.SkipReason(f"Skipping {job_name} run because another run of the same job is already active")
 
+    return None
+
+
+def metabase_debug_query_url(run_id: str) -> Optional[str]:
+    cloud_deployment = getattr(settings, "CLOUD_DEPLOYMENT", None)
+    if cloud_deployment == "US":
+        return f"https://metabase.prod-us.posthog.dev/question/1671-get-clickhouse-query-log-for-given-dagster-run-id?dagster_run_id={run_id}"
+    if cloud_deployment == "EU":
+        return f"https://metabase.prod-eu.posthog.dev/question/544-get-clickhouse-query-log-for-given-dagster-run-id?dagster_run_id={run_id}"
     return None

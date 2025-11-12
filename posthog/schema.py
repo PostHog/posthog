@@ -30,6 +30,11 @@ class MathGroupTypeIndex(float, Enum):
     NUMBER_4 = 4
 
 
+class AgentMode(StrEnum):
+    PRODUCT_ANALYTICS = "product_analytics"
+    NOOP = "noop"
+
+
 class AggregationAxisFormat(StrEnum):
     NUMERIC = "numeric"
     DURATION = "duration"
@@ -1129,6 +1134,7 @@ class FirstEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    distinct_id: str
     properties: str
     timestamp: str
     uuid: str
@@ -1138,6 +1144,7 @@ class LastEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    distinct_id: str
     properties: str
     timestamp: str
     uuid: str
@@ -11386,6 +11393,10 @@ class RecordingsQueryResponse(BaseModel):
         extra="forbid",
     )
     has_next: bool
+    next_cursor: Optional[str] = Field(
+        default=None,
+        description="Cursor for the next page. Contains the ordering value and session_id from the last record.",
+    )
     results: list[SessionRecordingType]
 
 
@@ -13079,6 +13090,13 @@ class RecordingsQuery(BaseModel):
         extra="forbid",
     )
     actions: Optional[list[dict[str, Any]]] = None
+    after: Optional[str] = Field(
+        default=None,
+        description=(
+            "Cursor for pagination. Contains the ordering value and session_id from the last record of the previous"
+            " page."
+        ),
+    )
     comment_text: Optional[RecordingPropertyFilter] = None
     console_log_filters: Optional[list[LogEntryPropertyFilter]] = None
     date_from: Optional[str] = "-3d"

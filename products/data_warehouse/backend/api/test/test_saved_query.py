@@ -86,8 +86,11 @@ class TestSavedQuery(APIBaseTest):
         assert saved_query_id is not None
 
         with (
-            patch("products.data_warehouse.backend.api.saved_query.sync_saved_query_workflow"),
-            patch("products.data_warehouse.backend.api.saved_query.saved_query_workflow_exists", return_value=False),
+            patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"),
+            patch(
+                "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+                return_value=False,
+            ),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
@@ -146,10 +149,13 @@ class TestSavedQuery(APIBaseTest):
             mock_pause_saved_query_schedule.assert_called()
 
         with (
-            patch("products.data_warehouse.backend.api.saved_query.sync_saved_query_workflow"),
-            patch("products.data_warehouse.backend.api.saved_query.saved_query_workflow_exists", return_value=True),
+            patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"),
             patch(
-                "products.data_warehouse.backend.api.saved_query.unpause_saved_query_schedule"
+                "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+                return_value=True,
+            ),
+            patch(
+                "products.data_warehouse.backend.data_load.saved_query_service.unpause_saved_query_schedule"
             ) as mock_unpause_saved_query_schedule,
         ):
             response = self.client.patch(
@@ -267,7 +273,7 @@ class TestSavedQuery(APIBaseTest):
         saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name=query_name)
 
         with patch(
-            "products.data_warehouse.backend.api.saved_query.delete_saved_query_schedule"
+            "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
         ) as mock_delete_saved_query_schedule:
             response = self.client.delete(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
@@ -366,13 +372,13 @@ class TestSavedQuery(APIBaseTest):
 
         with (
             patch(
-                "products.data_warehouse.backend.api.saved_query.sync_saved_query_workflow"
+                "products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"
             ) as mock_sync_saved_query_workflow,
             patch(
-                "products.data_warehouse.backend.api.saved_query.saved_query_workflow_exists"
+                "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists"
             ) as mock_saved_query_workflow_exists,
             patch(
-                "products.data_warehouse.backend.api.saved_query.unpause_saved_query_schedule"
+                "products.data_warehouse.backend.data_load.saved_query_service.unpause_saved_query_schedule"
             ) as mock_unpause_saved_query_schedule,
         ):
             mock_saved_query_workflow_exists.return_value = True
@@ -456,7 +462,7 @@ class TestSavedQuery(APIBaseTest):
         saved_query = response.json()
 
         with patch(
-            "products.data_warehouse.backend.api.saved_query.delete_saved_query_schedule"
+            "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
         ) as mock_delete_saved_query_schedule:
             response = self.client.delete(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",

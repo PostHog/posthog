@@ -1195,7 +1195,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                     quote_char='"',
                     escape_char=None,
                     line_terminator="\n",
-                    quoting=csv.QUOTE_MINIMAL,
+                    quoting=csv.QUOTE_STRINGS,
                     include_inserted_at=False,
                     max_file_size_bytes=settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES,
                 )

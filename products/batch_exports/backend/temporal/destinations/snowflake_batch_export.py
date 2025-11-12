@@ -766,7 +766,7 @@ class SnowflakeClient:
                 if e.msg is not None:
                     err_msg += f": {e.msg}"
                 raise SnowflakeWarehouseSuspendedError(err_msg)
-            elif e.errno == 630 and e.msg is not None:
+            elif e.errno in (630, 604) and e.msg is not None:
                 raise SnowflakeQueryServerTimeoutError(e.msg)
             elif e.errno == 904 and e.msg is not None and "invalid identifier" in e.msg:
                 raise SnowflakeIncompatibleSchemaError(e.msg)

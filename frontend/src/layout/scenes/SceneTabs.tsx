@@ -7,13 +7,14 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useEffect, useRef, useState } from 'react'
 
-import { IconPlus, IconX } from '@posthog/icons'
+import { IconPlus, IconSearch, IconX } from '@posthog/icons'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -21,6 +22,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { newTabSceneLogic } from '~/scenes/new-tab/newTabSceneLogic'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -34,10 +36,16 @@ export interface SceneTabsProps {
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { tabs } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
-    const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
-    const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
+    const { isLayoutNavbarVisibleForMobile, isLayoutPanelVisible } = useValues(panelLayoutLogic)
+
+    // Find the active tab to get its ID for the newTabSceneLogic
+    const activeTab = tabs.find((tab) => tab.active)
+    const activeTabId = activeTab?.id
+
+    // Get the focus action from the newTabSceneLogic for the active tab
+    const { focusSearchInput } = useActions(newTabSceneLogic({ tabId: activeTabId }))
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
@@ -53,6 +61,8 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
         unpinnedColumns = `repeat(${unpinnedCount}, minmax(40px, 250px))`
     }
     const gridTemplateColumns = [pinnedColumns, unpinnedColumns].filter(Boolean).join(' ') || '250px'
+
+    const showRoundedCorner = !isLayoutPanelVisible
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -82,26 +92,65 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     return (
         <div
             className={cn(
-                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 border-b border-primary relative',
+                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 relative',
                 className
             )}
         >
-            {/* rounded corner on the left to make scene curve into tab line */}
+            {/* Mobile button to show/hide the layout navbar */}
             {mobileLayout && (
                 <ButtonPrimitive
                     onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
                     iconOnly
-                    className="ml-1"
+                    className="ml-1 z-20 rounded-lg"
                 >
                     {isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
                 </ButtonPrimitive>
             )}
 
-            {/* rounded corner on the left to make scene curve into tab line */}
-            {!isLayoutPanelVisible && (
-                <div className="absolute left-0 -bottom-1 size-2 bg-surface-tertiary">
-                    <div className="relative -bottom-1 size-2 border-l border-t border-primary rounded-tl bg-[var(--scene-layout-background)]" />
-                </div>
+            {/* Open new tab on current page */}
+            <Link
+                to={urls.newTab()}
+                onClick={(e) => {
+                    // If we're already on the new tab scene, just focus the search input
+                    if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
+                        e.preventDefault()
+                        focusSearchInput()
+                    }
+                }}
+                buttonProps={{
+                    iconOnly: true,
+                    className: 'z-20 rounded-lg text-tertiary hover:text-primary',
+                }}
+                tooltip={
+                    <div className="flex flex-col gap-1">
+                        <span>Replace current tab with new tab</span>
+                        <span>
+                            <KeyboardShortcut command shift k /> to open command bar
+                        </span>
+                    </div>
+                }
+                tooltipPlacement="bottom"
+                tooltipCloseDelayMs={0}
+            >
+                <IconSearch />
+            </Link>
+
+            {/* Line between tabs and main content */}
+            <div
+                className={cn(
+                    'border-b border-primary h-px w-full absolute bottom-[-1px] left-0 lg:left-[10px] right-0',
+                    !showRoundedCorner && 'left-0 lg:left-0'
+                )}
+            />
+
+            {/* Rounded corner on the left edge of the tabs to curve the line above into the navbar right border */}
+            {showRoundedCorner && (
+                <>
+                    {/* background to match the navbar  */}
+                    <div className="hidden lg:block absolute bottom-[-11px] left-[-1px] w-[11px] h-[11px] z-11 rounded-tl-lg border-l border-t border-primary bg-[var(--scene-layout-background)]" />
+                    {/* corner to match the main */}
+                    <div className="hidden lg:block absolute bottom-[-11px] left-[-1px] w-[11px] h-[11px] z-10 bg-surface-tertiary" />
+                </>
             )}
 
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
@@ -111,7 +160,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 >
                     <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
                         <div
-                            className="scene-tab-row grid min-w-0 pl-2 gap-1 items-center h-[36px]"
+                            className={cn('scene-tab-row grid min-w-0 pl-1.5 gap-1 items-center')}
                             style={{ gridTemplateColumns }}
                         >
                             {tabs.map((tab, index) => {

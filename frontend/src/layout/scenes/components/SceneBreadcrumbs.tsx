@@ -28,22 +28,9 @@ export function SceneBreadcrumbBackButton({
 
     return !!forceBackTo || breadcrumbs.length > 1 ? (
         <>
-            {/* Mobile */}
             <Link
                 {...BackToProps}
-                className={cn('flex items-center gap-1 text-tertiary text-xs @2xl/main-content:hidden', className)}
-                buttonProps={{
-                    variant: 'default',
-                }}
-            >
-                <IconArrowLeft aria-hidden="true" className="size-3 text-tertiary" />
-                {backTo.name}
-            </Link>
-
-            {/* Desktop */}
-            <Link
-                {...BackToProps}
-                className={cn('items-center gap-1 text-tertiary text-xs hidden @2xl/main-content:flex', className)}
+                className={cn('items-center gap-1 text-tertiary text-xs', className)}
                 buttonProps={{
                     variant: 'default',
                     iconOnly: true,
