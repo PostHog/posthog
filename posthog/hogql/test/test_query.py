@@ -961,6 +961,32 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(q, team=self.team)
             self.assertEqual(response.results, [(expected,)], [q, response.clickhouse])
 
+    def test_like_any_operators(self):
+        cases = [
+            ("'hello' like any ('hello', 'world')", 1),
+            ("'world' like any ('hello', 'world')", 1),
+            ("'test' like any ('hello', 'world')", 0),
+            ("'hello123' like any ('hello%', 'world%')", 1),
+            ("'world456' like any ('hello%', 'world%')", 1),
+            ("'test' like any ('hello%', 'world%')", 0),
+            ("'HELLO' ilike any ('hello%', 'world%')", 1),
+            ("'World' ilike any ('hello%', 'world%')", 1),
+            ("'test' ilike any ('hello%', 'world%')", 0),
+            ("'hello' not like any ('hello', 'world')", 0),
+            ("'test' not like any ('hello', 'world')", 1),
+            ("'hello123' not like any ('hello%', 'world%')", 0),
+            ("'test' not like any ('hello%', 'world%')", 1),
+            ("'HELLO' not ilike any ('hello%', 'world%')", 0),
+            ("'test' not ilike any ('hello%', 'world%')", 1),
+            ("'test' like any ()", 0),
+            ("'test' not like any ()", 1),
+            ("null like any ('hello', 'world')", 0),
+        ]
+        for expr, expected in cases:
+            q = f"select {expr}"
+            response = execute_hogql_query(q, team=self.team)
+            self.assertEqual(response.results, [(expected,)], [q, response.clickhouse])
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_with_pivot_table_1_level(self):
         with freeze_time("2020-01-10"):

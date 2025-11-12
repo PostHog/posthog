@@ -204,6 +204,7 @@ columnExpr
     | columnExpr OR columnExpr                                                            # ColumnExprOr
     // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
+    | columnExpr NOT? (LIKE | ILIKE) ANY LPAREN columnExprList RPAREN                     # ColumnExprLikeAny
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
     | columnExpr (AS identifier | AS STRING_LITERAL)                                      # ColumnExprAlias
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only

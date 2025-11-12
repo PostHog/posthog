@@ -6632,6 +6632,37 @@ class HogQLParser ( Parser ):
                 return visitor.visitChildren(self)
 
 
+    class ColumnExprLikeAnyContext(ColumnExprContext):
+
+        def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.ColumnExprContext
+            super().__init__(parser)
+            self.copyFrom(ctx)
+
+        def columnExpr(self):
+            return self.getTypedRuleContext(HogQLParser.ColumnExprContext,0)
+
+        def ANY(self):
+            return self.getToken(HogQLParser.ANY, 0)
+        def LPAREN(self):
+            return self.getToken(HogQLParser.LPAREN, 0)
+        def columnExprList(self):
+            return self.getTypedRuleContext(HogQLParser.ColumnExprListContext,0)
+        def RPAREN(self):
+            return self.getToken(HogQLParser.RPAREN, 0)
+        def LIKE(self):
+            return self.getToken(HogQLParser.LIKE, 0)
+        def ILIKE(self):
+            return self.getToken(HogQLParser.ILIKE, 0)
+        def NOT(self):
+            return self.getToken(HogQLParser.NOT, 0)
+
+        def accept(self, visitor:ParseTreeVisitor):
+            if hasattr( visitor, "visitColumnExprLikeAny" ):
+                return visitor.visitColumnExprLikeAny(self)
+            else:
+                return visitor.visitChildren(self)
+
+
     class ColumnExprPropertyAccessContext(ColumnExprContext):
 
         def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.ColumnExprContext
@@ -7726,6 +7757,42 @@ class HogQLParser ( Parser ):
                         self.match(HogQLParser.AND)
                         self.state = 1020
                         self.columnExpr(12)
+                        pass
+
+                    elif la_ == 7.5:
+                        localctx = HogQLParser.ColumnExprLikeAnyContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
+                        self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
+                        self.state = 1018
+                        if not self.precpred(self._ctx, 11):
+                            from antlr4.error.Errors import FailedPredicateException
+                            raise FailedPredicateException(self, "self.precpred(self._ctx, 11)")
+                        self.state = 1019
+                        self._errHandler.sync(self)
+                        _la = self._input.LA(1)
+                        if _la==61:
+                            self.state = 1020
+                            self.match(HogQLParser.NOT)
+
+
+                        self.state = 1021
+                        _la = self._input.LA(1)
+                        if _la==55:
+                            self.state = 1022
+                            self.match(HogQLParser.LIKE)
+                        elif _la==43:
+                            self.state = 1023
+                            self.match(HogQLParser.ILIKE)
+                        else:
+                            raise NoViableAltException(self)
+
+                        self.state = 1024
+                        self.match(HogQLParser.ANY)
+                        self.state = 1025
+                        self.match(HogQLParser.LPAREN)
+                        self.state = 1026
+                        self.columnExprList()
+                        self.state = 1027
+                        self.match(HogQLParser.RPAREN)
                         pass
 
                     elif la_ == 8:

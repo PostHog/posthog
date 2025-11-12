@@ -919,6 +919,34 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         high = self.visit(ctx.columnExpr(2))
         return ast.BetweenExpr(expr=expr, low=low, high=high, negated=bool(ctx.NOT()))
 
+    def visitColumnExprLikeAny(self, ctx: HogQLParser.ColumnExprLikeAnyContext):
+        expr = self.visit(ctx.columnExpr())
+        patterns_list = self.visit(ctx.columnExprList())
+        is_ilike = bool(ctx.ILIKE())
+        is_negated = bool(ctx.NOT())
+
+        # Expand to OR/AND operations: expr like pattern1 OR expr like pattern2 ...
+        # If negated: expr not like pattern1 AND expr not like pattern2 ...
+        compare_ops = []
+        for pattern in patterns_list:
+            op = ast.CompareOperationOp.NotILike if is_negated and is_ilike else \
+                 ast.CompareOperationOp.ILike if is_ilike else \
+                 ast.CompareOperationOp.NotLike if is_negated else \
+                 ast.CompareOperationOp.Like
+            compare_ops.append(ast.CompareOperation(left=expr, op=op, right=pattern))
+
+        if len(compare_ops) == 0:
+            # Empty list - return false for positive match, true for negated match
+            return ast.Constant(value=1 if is_negated else 0)
+        elif len(compare_ops) == 1:
+            return compare_ops[0]
+        else:
+            # Multiple patterns: OR for positive match, AND for negated match
+            if is_negated:
+                return ast.And(exprs=compare_ops)
+            else:
+                return ast.Or(exprs=compare_ops)
+
     def visitColumnExprParens(self, ctx: HogQLParser.ColumnExprParensContext):
         return self.visit(ctx.columnExpr())
 

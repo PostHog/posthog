@@ -573,6 +573,99 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
 
+        def test_like_any(self):
+            # LIKE ANY with single pattern
+            self.assertEqual(
+                self._expr("event_name like any ('foo%')"),
+                ast.CompareOperation(
+                    left=ast.Field(chain=["event_name"]),
+                    right=ast.Constant(value="foo%"),
+                    op=ast.CompareOperationOp.Like,
+                ),
+            )
+            # LIKE ANY with multiple patterns
+            self.assertEqual(
+                self._expr("event_name like any ('this_%', 'that_%')"),
+                ast.Or(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["event_name"]),
+                            right=ast.Constant(value="this_%"),
+                            op=ast.CompareOperationOp.Like,
+                        ),
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["event_name"]),
+                            right=ast.Constant(value="that_%"),
+                            op=ast.CompareOperationOp.Like,
+                        ),
+                    ]
+                ),
+            )
+            # ILIKE ANY with multiple patterns
+            self.assertEqual(
+                self._expr("event_name ilike any ('FOO%', 'BAR%')"),
+                ast.Or(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["event_name"]),
+                            right=ast.Constant(value="FOO%"),
+                            op=ast.CompareOperationOp.ILike,
+                        ),
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["event_name"]),
+                            right=ast.Constant(value="BAR%"),
+                            op=ast.CompareOperationOp.ILike,
+                        ),
+                    ]
+                ),
+            )
+            # NOT LIKE ANY with multiple patterns
+            self.assertEqual(
+                self._expr("event_name not like any ('this_%', 'that_%')"),
+                ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["event_name"]),
+                            right=ast.Constant(value="this_%"),
+                            op=ast.CompareOperationOp.NotLike,
+                        ),
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["event_name"]),
+                            right=ast.Constant(value="that_%"),
+                            op=ast.CompareOperationOp.NotLike,
+                        ),
+                    ]
+                ),
+            )
+            # NOT ILIKE ANY with multiple patterns
+            self.assertEqual(
+                self._expr("event_name not ilike any ('FOO%', 'BAR%')"),
+                ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["event_name"]),
+                            right=ast.Constant(value="FOO%"),
+                            op=ast.CompareOperationOp.NotILike,
+                        ),
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["event_name"]),
+                            right=ast.Constant(value="BAR%"),
+                            op=ast.CompareOperationOp.NotILike,
+                        ),
+                    ]
+                ),
+            )
+            # LIKE ANY with empty list (edge case)
+            self.assertEqual(
+                self._expr("event_name like any ()"),
+                ast.Constant(value=0),  # Returns false for empty list
+            )
+            # NOT LIKE ANY with empty list (edge case)
+            self.assertEqual(
+                self._expr("event_name not like any ()"),
+                ast.Constant(value=1),  # Returns true for empty list
+            )
+
         def test_and_or(self):
             self.assertEqual(
                 self._expr("true or false"),
