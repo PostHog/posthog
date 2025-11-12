@@ -6,6 +6,7 @@ import { objectsEqual } from 'lib/utils'
 import { performQuery } from '~/queries/query'
 import {
     DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaEndpointTable,
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaQuery,
     DatabaseSchemaQueryResponse,
@@ -141,22 +142,31 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             },
             { resultEqualityCheck: objectsEqual },
         ],
+        endpointTables: [
+            (s) => [s.allTables],
+            (allTables: DatabaseSchemaTable[]): DatabaseSchemaEndpointTable[] => {
+                return allTables.filter((n): n is DatabaseSchemaEndpointTable => n.type === 'endpoint')
+            },
+            { resultEqualityCheck: objectsEqual },
+        ],
         viewsMap: [
-            (s) => [s.views, s.managedViews],
+            (s) => [s.views, s.managedViews, s.endpointTables],
             (
                 views: DatabaseSchemaViewTable[],
-                managedViews: DatabaseSchemaManagedViewTable[]
-            ): Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable> =>
-                toMapByName([...views, ...managedViews]),
+                managedViews: DatabaseSchemaManagedViewTable[],
+                endpointTables: DatabaseSchemaEndpointTable[]
+            ): Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable | DatabaseSchemaEndpointTable> =>
+                toMapByName([...views, ...managedViews, ...endpointTables]),
             { resultEqualityCheck: objectsEqual },
         ],
         viewsMapById: [
-            (s) => [s.views, s.managedViews],
+            (s) => [s.views, s.managedViews, s.endpointTables],
             (
                 views: DatabaseSchemaViewTable[],
-                managedViews: DatabaseSchemaManagedViewTable[]
-            ): Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable> =>
-                toMapById([...views, ...managedViews]),
+                managedViews: DatabaseSchemaManagedViewTable[],
+                endpointTables: DatabaseSchemaEndpointTable[]
+            ): Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable | DatabaseSchemaEndpointTable> =>
+                toMapById([...views, ...managedViews, ...endpointTables]),
             { resultEqualityCheck: objectsEqual },
         ],
     }),

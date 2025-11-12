@@ -166,7 +166,8 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created the dashboard {nameAndLink(logItem)}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the dashboard{' '}
+                    {nameAndLink(logItem)}
                 </>
             ),
         }
@@ -215,7 +216,7 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         suffix={changeSuffix}
                     />
                 ),

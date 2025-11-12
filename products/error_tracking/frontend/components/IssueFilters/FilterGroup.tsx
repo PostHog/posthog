@@ -79,14 +79,15 @@ const UniversalSearch = (): JSX.Element => {
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <LemonDropdown
                 overlay={
-                    <InfiniteSelectResults
-                        focusInput={() => searchInputRef.current?.focus()}
-                        taxonomicFilterLogicProps={taxonomicFilterLogicProps}
-                        popupAnchorElement={floatingRef.current}
-                        useVerticalLayout={true}
-                    />
+                    <div className="w-[400px] md:w-[600px]">
+                        <InfiniteSelectResults
+                            focusInput={() => searchInputRef.current?.focus()}
+                            taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                            popupAnchorElement={floatingRef.current}
+                            useVerticalLayout={true}
+                        />
+                    </div>
                 }
-                matchWidth
                 visible={visible}
                 closeOnClickInside={false}
                 floatingRef={floatingRef}

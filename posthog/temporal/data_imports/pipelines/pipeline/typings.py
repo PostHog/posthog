@@ -5,7 +5,7 @@ from typing import Any, Literal, Optional
 from dlt.common.data_types.typing import TDataType
 from structlog.types import FilteringBoundLogger
 
-from posthog.warehouse.types import IncrementalFieldType
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 SortMode = Literal["asc", "desc"]
 PartitionMode = Literal["md5", "numerical", "datetime"]

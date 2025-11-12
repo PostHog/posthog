@@ -7,7 +7,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { StateInspector } from 'products/live_debugger/frontend/StateInspector'
@@ -70,8 +69,6 @@ export function LiveDebugger(): JSX.Element {
                     type: 'live_debugger',
                 }}
             />
-
-            <SceneDivider />
 
             <SceneContent>
                 <div className="flex gap-3 h-[calc(100vh-200px)]">

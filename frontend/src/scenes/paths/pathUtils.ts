@@ -83,7 +83,7 @@ export function roundedRect(
     return retval
 }
 
-export function pageUrl(d: PathNodeData, display?: boolean): string {
+export function pageUrl(d: PathNodeData, display?: boolean, showFullUrls?: boolean): string {
     const incomingUrls = d.targetLinks
         .map((l) => l?.source?.name?.replace(/(^[0-9]+_)/, ''))
         .filter((a) => {
@@ -111,6 +111,10 @@ export function pageUrl(d: PathNodeData, display?: boolean): string {
         }
     } catch {
         // discard if invalid url
+    }
+
+    if (showFullUrls) {
+        return name
     }
     return name.length > 15
         ? name.substring(0, 6) + '...' + name.slice(-8)

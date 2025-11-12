@@ -5,8 +5,16 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     extract_session_group_patterns_activity,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
+from posthog.temporal.ai.session_summary.activities.video_validation import (
+    validate_llm_single_session_summary_with_videos_activity,
+)
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
+from .llm_traces_summaries.summarize_traces import (
+    SummarizeLLMTracesInputs,
+    SummarizeLLMTracesWorkflow,
+    summarize_llm_traces_activity,
+)
 from .session_summary.summarize_session import (
     SummarizeSingleSessionStreamWorkflow,
     SummarizeSingleSessionWorkflow,
@@ -34,6 +42,7 @@ WORKFLOWS = [
     SummarizeSingleSessionWorkflow,
     SummarizeSessionGroupWorkflow,
     AssistantConversationRunnerWorkflow,
+    SummarizeLLMTracesWorkflow,
 ]
 
 ACTIVITIES = [
@@ -49,6 +58,8 @@ ACTIVITIES = [
     combine_patterns_from_chunks_activity,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
     process_conversation_activity,
+    validate_llm_single_session_summary_with_videos_activity,
+    summarize_llm_traces_activity,
 ]
 
 __all__ = [
@@ -56,4 +67,5 @@ __all__ = [
     "SingleSessionSummaryInputs",
     "SessionGroupSummaryInputs",
     "SessionGroupSummaryOfSummariesInputs",
+    "SummarizeLLMTracesInputs",
 ]

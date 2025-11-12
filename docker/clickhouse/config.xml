@@ -75,6 +75,9 @@
     <background_message_broker_schedule_pool_size>10</background_message_broker_schedule_pool_size>
     <max_thread_pool_size>10000</max_thread_pool_size>
 
+    <!-- how many threads merge files, default is 16 -->
+    <background_pool_size>4</background_pool_size>
+
     <!-- Number of workers to recycle connections in background (see also drain_timeout).
          If the pool is full, connection will be drained synchronously. -->
     <!-- <max_threads_for_connection_collector>10</max_threads_for_connection_collector> -->
@@ -417,4 +420,10 @@
             <replace>\1(???)</replace>
         </rule>
     </query_masking_rules>
+
+    <merge_tree>
+        <max_bytes_to_merge_at_max_space_in_pool>1073741824</max_bytes_to_merge_at_max_space_in_pool>
+        <number_of_free_entries_in_pool_to_execute_mutation>2</number_of_free_entries_in_pool_to_execute_mutation>
+        <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>2</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+    </merge_tree>
 </clickhouse>

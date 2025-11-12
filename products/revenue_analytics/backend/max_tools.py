@@ -21,8 +21,6 @@ from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyErrorM
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
-from ee.hogai.utils.types.base import AssistantNodeName
-from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     DATE_FIELDS_PROMPT,
@@ -105,10 +103,6 @@ class RevenueAnalyticsFilterNode(
     def __init__(self, team: Team, user: User, toolkit_class: type[RevenueAnalyticsFilterOptionsToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.REVENUE_ANALYTICS_FILTER
-
     def _get_system_prompt(self) -> ChatPromptTemplate:
         """Get default system prompts. Override in subclasses for custom prompts."""
         all_messages = [
@@ -143,21 +137,16 @@ class RevenueAnalyticsFilterOptionsToolsNode(
     def __init__(self, team: Team, user: User, toolkit_class: type[RevenueAnalyticsFilterOptionsToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.REVENUE_ANALYTICS_FILTER_OPTIONS_TOOLS
-
 
 class RevenueAnalyticsFilterOptionsGraph(
     TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[RevenueAnalyticsAssistantFilters]]
 ):
     """Graph for generating filtering options for revenue analytics."""
 
-    def __init__(self, team: Team, user: User, tool_call_id: str):
+    def __init__(self, team: Team, user: User):
         super().__init__(
             team,
             user,
-            tool_call_id,
             loop_node_class=RevenueAnalyticsFilterNode,
             tools_node_class=RevenueAnalyticsFilterOptionsToolsNode,
             toolkit_class=RevenueAnalyticsFilterOptionsToolkit,
@@ -192,7 +181,7 @@ class FilterRevenueAnalyticsTool(MaxTool):
         Reusable method to call graph to avoid code/prompt duplication and enable
         different processing of the results, based on the place the tool is used.
         """
-        graph = RevenueAnalyticsFilterOptionsGraph(team=self._team, user=self._user, tool_call_id=self._tool_call_id)
+        graph = RevenueAnalyticsFilterOptionsGraph(team=self._team, user=self._user)
         pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)
         user_prompt = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
         graph_context = {

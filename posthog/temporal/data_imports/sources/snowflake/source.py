@@ -22,7 +22,8 @@ from posthog.temporal.data_imports.sources.snowflake.snowflake import (
     get_schemas as get_snowflake_schemas,
     snowflake_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
+
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
 
 SnowflakeErrors = {
     "No active warehouse selected in the current session": "No warehouse found for selected role",

@@ -627,20 +627,12 @@ class Operator(StrEnum):
     REGEX = "regex"
     NOT_REGEX = "not_regex"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
-    exact_1 = "exact"
-    is_not_1 = "is_not"
-    is_set_1 = "is_set"
-    is_not_set_1 = "is_not_set"
     GT = "gt"
     GTE = "gte"
     LT = "lt"
     LTE = "lte"
     MIN = "min"
     MAX = "max"
-    exact_2 = "exact"
-    is_not_2 = "is_not"
-    is_set_2 = "is_set"
-    is_not_set_2 = "is_not_set"
     IN_ = "in"
     NOT_IN = "not_in"
 
@@ -1696,10 +1688,7 @@ class SurveyCreateSchema(BaseModel):
     name: Annotated[str, Field(min_length=1)]
     description: str | None = None
     type: Type11 | None = None
-    questions: Annotated[
-        list[Questions | Questions1 | Questions2 | Questions3 | Questions4 | Questions5],
-        Field(min_length=1),
-    ]
+    questions: Annotated[list[Questions | Questions1 | Questions2 | Questions3 | Questions4 | Questions5], Field(min_length=1)]
     appearance: Appearance | None = None
     start_date: datetime | None = None
     """

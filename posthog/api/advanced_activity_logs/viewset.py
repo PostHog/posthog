@@ -1,12 +1,11 @@
 import json
 import hashlib
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
-from django.utils.timezone import now
 
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
@@ -17,13 +16,31 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 from posthog.models import NotificationViewed
-from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 from .filters import AdvancedActivityLogFilterManager
 from .utils import get_activity_log_lookback_restriction
+
+
+def apply_organization_scoped_filter(
+    queryset: QuerySet[ActivityLog], include_org_scoped: bool, team_id: int, organization_id
+) -> QuerySet[ActivityLog]:
+    """
+    Filter activity log queryset by team/org.
+
+    When include_org_scoped is True, includes both:
+    - Records with team_id matching the given team
+    - Records with team_id=NULL and organization_id matching (org-scoped records)
+
+    When False, only filters by team_id.
+    """
+    if include_org_scoped:
+        return queryset.filter(Q(team_id=team_id) | Q(team_id__isnull=True, organization_id=organization_id))
+    else:
+        return queryset.filter(team_id=team_id)
 
 
 class ActivityLogSerializer(serializers.ModelSerializer):
@@ -81,8 +98,19 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
     pagination_class = ActivityLogPagination
     filter_rewrite_rules = {"project_id": "team_id"}
 
+    def _should_skip_parents_filter(self) -> bool:
+        """
+        Skip parent filtering when include_organization_scoped=1.
+        We'll apply custom org-scoped filtering in safely_get_queryset instead.
+        """
+        return self.request.query_params.get("include_organization_scoped") == "1"
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         params = self.request.GET.dict()
+
+        queryset = apply_organization_scoped_filter(
+            queryset, params.get("include_organization_scoped") == "1", self.team_id, self.organization.id
+        )
 
         if params.get("user"):
             queryset = queryset.filter(user=params.get("user"))
@@ -100,6 +128,8 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         lookback_date = get_activity_log_lookback_restriction(self.organization)
         if lookback_date:
             queryset = queryset.filter(created_at__gte=lookback_date)
+
+        queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
 
         return queryset
 
@@ -152,6 +182,14 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     logger = logging.getLogger(__name__)
     filter_rewrite_rules = {"project_id": "team_id"}
     scope_object = "INTERNAL"
+    queryset = ActivityLog.objects.all()
+
+    def _should_skip_parents_filter(self) -> bool:
+        """
+        Skip parent filtering when include_organization_scoped=1.
+        We'll apply custom org-scoped filtering in safely_get_queryset instead.
+        """
+        return self.request.query_params.get("include_organization_scoped") == "1"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -193,25 +231,22 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         )
         return filename_base
 
-    def dangerously_get_queryset(self) -> QuerySet[ActivityLog]:
-        include_organization_scoped = self.request.query_params.get("include_organization_scoped")
+    def safely_get_queryset(self, queryset) -> QuerySet:
+        queryset = queryset.select_related("user")
 
-        base_queryset = ActivityLog.objects.select_related("user")
-
-        if include_organization_scoped == "1":
-            # Filter by team_id OR (team_id is null AND organization_id matches)
-            base_queryset = base_queryset.filter(
-                Q(team_id=self.team_id) | Q(team_id__isnull=True, organization_id=self.organization.id)
-            )
-        else:
-            base_queryset = base_queryset.filter(team_id=self.team_id)
+        queryset = apply_organization_scoped_filter(
+            queryset,
+            self.request.query_params.get("include_organization_scoped") == "1",
+            self.team_id,
+            self.organization.id,
+        )
 
         # Apply lookback restriction based on feature limits
         lookback_date = get_activity_log_lookback_restriction(self.organization)
         if lookback_date:
-            base_queryset = base_queryset.filter(created_at__gte=lookback_date)
+            queryset = queryset.filter(created_at__gte=lookback_date)
 
-        return base_queryset.order_by("-created_at")
+        return queryset.order_by("-created_at")
 
     def get_serializer_class(self):
         # This query param is set by the CSV exporter to indicate that the response should be serialized in a flat format
@@ -225,7 +260,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         filters_serializer.is_valid(raise_exception=True)
         filters = filters_serializer.validated_data
 
-        queryset = self.dangerously_get_queryset()
+        queryset = self.get_queryset()
         queryset = self.filter_manager.apply_filters(queryset, filters)
 
         page = self.paginate_queryset(queryset)
@@ -238,7 +273,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @action(detail=False, methods=["GET"])
     def available_filters(self, request, **kwargs):
-        queryset = self.dangerously_get_queryset()
+        queryset = self.get_queryset()
         available_filters = self.field_discovery.get_available_filters(queryset)
         return Response(available_filters)
 
@@ -287,7 +322,6 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                     "filename": filename,
                 },
                 created_by=request.user,
-                expires_after=now() + timedelta(days=7),
             )
 
             exporter.export_asset.delay(exported_asset.id)

@@ -8,8 +8,7 @@ from posthog.schema import SourceMap
 
 from posthog.hogql.database.database import Database
 
-from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
-
+from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSource
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter

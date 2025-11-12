@@ -3,9 +3,10 @@ import fs from 'fs/promises'
 import { Counter } from 'prom-client'
 
 import { Hub } from '../../types'
+import { isDevEnv } from '../../utils/env-utils'
 import { logger } from '../../utils/logger'
 
-const EVALUATION_TASK_QUEUE = 'general-purpose-task-queue'
+const EVALUATION_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'general-purpose-task-queue'
 
 const temporalWorkflowsStarted = new Counter({
     name: 'evaluation_run_workflows_started',
@@ -92,7 +93,11 @@ export class TemporalService {
         return client
     }
 
-    async startEvaluationRunWorkflow(evaluationId: string, targetEventId: string): Promise<WorkflowHandle> {
+    async startEvaluationRunWorkflow(
+        evaluationId: string,
+        targetEventId: string,
+        timestamp: string
+    ): Promise<WorkflowHandle> {
         const client = await this.ensureConnected()
 
         const workflowId = `${evaluationId}-${targetEventId}-ingestion`
@@ -102,6 +107,7 @@ export class TemporalService {
                 {
                     evaluation_id: evaluationId,
                     target_event_id: targetEventId,
+                    timestamp: timestamp,
                 },
             ],
             taskQueue: EVALUATION_TASK_QUEUE,
@@ -115,6 +121,7 @@ export class TemporalService {
             workflowId,
             evaluationId,
             targetEventId,
+            timestamp,
         })
 
         return handle

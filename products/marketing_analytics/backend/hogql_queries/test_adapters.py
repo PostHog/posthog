@@ -16,10 +16,10 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY
-from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
-from posthog.warehouse.models.credential import DataWarehouseCredential
-from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 
+from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSource
+from products.data_warehouse.backend.models.credential import DataWarehouseCredential
+from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     ExternalConfig,
     GoogleAdsConfig,

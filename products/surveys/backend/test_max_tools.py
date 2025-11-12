@@ -45,7 +45,7 @@ class TestSurveyCreatorTool(BaseTest):
 
     def _setup_tool(self):
         """Helper to create a SurveyCreatorTool instance with mocked dependencies"""
-        tool = CreateSurveyTool(team=self.team, user=self.user, config=self._config, tool_call_id="test-tool-call-id")
+        tool = CreateSurveyTool(team=self.team, user=self.user, config=self._config)
         return tool
 
     def test_get_team_survey_config(self):
@@ -468,7 +468,6 @@ class TestSurveyAnalysisTool(BaseTest):
         tool = SurveyAnalysisTool(
             team=self.team,
             user=self.user,
-            tool_call_id="test-tool-call-id",
             config={
                 **self._config,
                 "configurable": {

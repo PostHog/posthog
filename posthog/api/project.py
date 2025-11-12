@@ -142,6 +142,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "flags_persistence_default",  # Compat with TeamSerializer
             "secret_api_token",  # Compat with TeamSerializer
             "secret_api_token_backup",  # Compat with TeamSerializer
+            "receive_org_level_activity_logs",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -210,6 +211,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "flags_persistence_default",
             "secret_api_token",
             "secret_api_token_backup",
+            "receive_org_level_activity_logs",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
@@ -262,6 +264,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     @staticmethod
     def validate_session_replay_ai_summary_config(value: dict | None) -> dict | None:
         return TeamSerializer.validate_session_replay_ai_summary_config(value)
+
+    def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
+        return TeamSerializer.validate_receive_org_level_activity_logs(cast(TeamSerializer, self), value)
 
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)

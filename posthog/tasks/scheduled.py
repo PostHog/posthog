@@ -16,8 +16,8 @@ from posthog.tasks.alerts.checks import (
 )
 from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.integrations import refresh_integrations
-from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
+from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -134,13 +134,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             send_org_usage_reports.s(organization_ids=delayed_orgs),
             name="send delayed org usage reports",
         )
-
-    # Send all periodic digest reports
-    sender.add_periodic_task(
-        crontab(hour="9", minute="0", day_of_week="mon"),
-        send_all_periodic_digest_reports.s(),
-        name="send all weekly digest reports",
-    )
 
     # Send HogFunctions daily digest at 9:30 AM UTC (good for US and EU)
     sender.add_periodic_task(
@@ -378,4 +371,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="0", minute=str(randrange(0, 40))),
+        sync_all_surveys_cache.s(),
+        name="sync all surveys cache",
     )

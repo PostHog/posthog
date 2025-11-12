@@ -5,6 +5,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { isInsightQueryNode } from '~/queries/utils'
 
 import { CodeExampleTab, endpointLogic } from './endpointLogic'
 
@@ -19,30 +20,68 @@ function generateVariablesJson(variables: Record<string, any>): string {
     }
 
     return entries
-        .map(([key, value], index) => {
+        .map(([_, value], index) => {
             const isLast = index === entries.length - 1
             const comma = isLast ? '' : ','
-            return `      "${key}": ${JSON.stringify(value.value)}${comma}`
+            return `      "${value.code_name}": ${JSON.stringify(value.value)}${comma}`
         })
         .join('\n')
+}
+
+function generateFiltersOverrideJson(): string {
+    return `      // Add filter overrides here, e.g.:
+      // "date_from": "-7d",
+      // "properties": [...]`
 }
 
 function getEndpointUrl(endpointPath: string): string {
     return `${window.location.origin}${endpointPath}`
 }
 
-function generateTerminalExample(endpointPath: string, variables: Record<string, any>): string {
+function generateTerminalExample(
+    endpointPath: string,
+    variables: Record<string, any>,
+    selectedVersion: number | null,
+    currentVersion: number,
+    isInsightQuery: boolean
+): string {
+    const versionParam =
+        selectedVersion !== null && selectedVersion !== currentVersion ? `,\n    "version": ${selectedVersion}` : ''
+
+    const payloadBody = isInsightQuery
+        ? `    "filters_override": {
+${generateFiltersOverrideJson()}
+    }`
+        : `    "variables_values": {
+${generateVariablesJson(variables)}
+    }`
+
     return `curl -X POST ${getEndpointUrl(endpointPath)} \\
   -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "variables_values": {
-${generateVariablesJson(variables)}
-    }
+${payloadBody}${versionParam}
   }'`
 }
 
-function generatePythonExample(endpointPath: string, variables: Record<string, any>): string {
+function generatePythonExample(
+    endpointPath: string,
+    variables: Record<string, any>,
+    selectedVersion: number | null,
+    currentVersion: number,
+    isInsightQuery: boolean
+): string {
+    const versionParam =
+        selectedVersion !== null && selectedVersion !== currentVersion ? `,\n    "version": ${selectedVersion}` : ''
+
+    const payloadBody = isInsightQuery
+        ? `    "filters_override": {
+${generateFiltersOverrideJson()}
+    }`
+        : `    "variables_values": {
+${generateVariablesJson(variables)}
+    }`
+
     return `import requests
 import json
 
@@ -54,16 +93,31 @@ headers = {
 }
 
 payload = {
-    "variables_values": {
-${generateVariablesJson(variables)}
-    }
+${payloadBody}${versionParam}
 }
 
 response = requests.post(url, headers=headers, data=json.dumps(payload))
 print(response.json())`
 }
 
-function generateNodeExample(endpointPath: string, variables: Record<string, any>): string {
+function generateNodeExample(
+    endpointPath: string,
+    variables: Record<string, any>,
+    selectedVersion: number | null,
+    currentVersion: number,
+    isInsightQuery: boolean
+): string {
+    const versionParam =
+        selectedVersion !== null && selectedVersion !== currentVersion ? `,\n    "version": ${selectedVersion}` : ''
+
+    const payloadBody = isInsightQuery
+        ? `    "filters_override": {
+${generateFiltersOverrideJson()}
+    }`
+        : `    "variables_values": {
+${generateVariablesJson(variables)}
+    }`
+
     return `const fetch = require('node-fetch');
 
 const url = '${getEndpointUrl(endpointPath)}';
@@ -74,9 +128,7 @@ const headers = {
 };
 
 const payload = {
-    "variables_values": {
-${generateVariablesJson(variables)}
-    }
+${payloadBody}${versionParam}
 };
 
 fetch(url, {
@@ -90,25 +142,50 @@ fetch(url, {
 }
 
 export function EndpointCodeExamples({ tabId }: EndpointCodeExamplesProps): JSX.Element {
-    const { setActiveCodeExampleTab } = useActions(endpointLogic({ tabId }))
-    const { activeCodeExampleTab, endpoint } = useValues(endpointLogic({ tabId }))
+    const { setActiveCodeExampleTab, setSelectedCodeExampleVersion } = useActions(endpointLogic({ tabId }))
+    const { activeCodeExampleTab, endpoint, selectedCodeExampleVersion } = useValues(endpointLogic({ tabId }))
 
     if (!endpoint) {
         return <></>
     }
 
-    const variables = endpoint.parameters || {}
+    const isInsightQuery = isInsightQueryNode(endpoint.query)
+    const variables = isInsightQuery ? {} : (endpoint.query as any).variables || {}
 
     const getCodeExample = (tab: CodeExampleTab): string => {
         switch (tab) {
             case 'terminal':
-                return generateTerminalExample(endpoint.endpoint_path, variables)
+                return generateTerminalExample(
+                    endpoint.endpoint_path,
+                    variables,
+                    selectedCodeExampleVersion,
+                    endpoint.current_version,
+                    isInsightQuery
+                )
             case 'python':
-                return generatePythonExample(endpoint.endpoint_path, variables)
+                return generatePythonExample(
+                    endpoint.endpoint_path,
+                    variables,
+                    selectedCodeExampleVersion,
+                    endpoint.current_version,
+                    isInsightQuery
+                )
             case 'nodejs':
-                return generateNodeExample(endpoint.endpoint_path, variables)
+                return generateNodeExample(
+                    endpoint.endpoint_path,
+                    variables,
+                    selectedCodeExampleVersion,
+                    endpoint.current_version,
+                    isInsightQuery
+                )
             default:
-                return generateTerminalExample(endpoint.endpoint_path, variables)
+                return generateTerminalExample(
+                    endpoint.endpoint_path,
+                    variables,
+                    selectedCodeExampleVersion,
+                    endpoint.current_version,
+                    isInsightQuery
+                )
         }
     }
 
@@ -125,10 +202,25 @@ export function EndpointCodeExamples({ tabId }: EndpointCodeExamplesProps): JSX.
         }
     }
 
+    // Generate version options
+    const versionOptions = Array.from({ length: endpoint.current_version }, (_, i) => {
+        const version = i + 1
+        return {
+            value: version,
+            label: version === endpoint.current_version ? `v${version} (Current)` : `v${version}`,
+        }
+    })
+
     return (
         <SceneSection title="How to call this endpoint">
             <div className="flex flex-col gap-4">
-                <div>
+                <div className="flex gap-2">
+                    <LemonSelect
+                        options={versionOptions}
+                        onChange={setSelectedCodeExampleVersion}
+                        value={selectedCodeExampleVersion || endpoint.current_version}
+                        placeholder="Select version"
+                    />
                     <LemonSelect
                         options={[
                             { value: 'terminal', label: 'Terminal' },

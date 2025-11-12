@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sourcemap::SourceMap;
 use std::{collections::BTreeMap, path::PathBuf};
-use tracing::info;
 
 use crate::{
     api::symbol_sets::SymbolSetUpload,
@@ -196,7 +195,6 @@ impl MinifiedSourceFile {
 
         for path in possible_paths.into_iter() {
             if path.exists() {
-                info!("Found sourcemap at path: {}", path.display());
                 return Ok(Some(path));
             }
         }

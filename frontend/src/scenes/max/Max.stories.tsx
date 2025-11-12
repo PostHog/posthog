@@ -7,6 +7,7 @@ import {
     generationFailureChunk,
     humanMessage,
     longResponseChunk,
+    sqlQueryResponseChunk,
 } from './__mocks__/chatResponse.mocks'
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
@@ -36,7 +37,7 @@ import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
 const meta: Meta = {
-    title: 'Scenes-App/Max AI',
+    title: 'Scenes-App/PostHog AI',
     decorators: [
         mswDecorator({
             post: {
@@ -654,7 +655,7 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
         registerTool({
             identifier: 'query_insights' as ToolRegistration['identifier'],
             name: 'Query insights',
-            description: 'Max can query insights and their properties',
+            description: 'PostHog AI can query insights and their properties',
             context: {
                 available_insights: ['pageview_trends', 'user_retention', 'conversion_rates'],
                 active_filters: { date_from: '-7d', properties: [{ key: 'browser', value: 'Chrome' }] },
@@ -668,7 +669,7 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
         registerTool({
             identifier: 'manage_cohorts' as ToolRegistration['identifier'],
             name: 'Manage cohorts',
-            description: 'Max can manage cohorts and their properties',
+            description: 'PostHog AI can manage cohorts and their properties',
             context: {
                 existing_cohorts: [
                     { id: 1, name: 'Power Users', size: 1250 },
@@ -684,7 +685,7 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
         registerTool({
             identifier: 'feature_flags' as ToolRegistration['identifier'],
             name: 'Feature flags',
-            description: 'Max can manage feature flags and their properties',
+            description: 'PostHog AI can manage feature flags and their properties',
             context: {
                 active_flags: ['new-dashboard', 'beta-feature', 'experiment-checkout'],
                 flag_stats: { total: 15, active: 8, inactive: 7 },
@@ -1269,6 +1270,34 @@ export const MultiVisualizationInThread: StoryFn = () => {
             setTimeout(() => {
                 setConversationId(CONVERSATION_ID)
                 askMax('Analyze our product metrics comprehensively')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+
+export const ThreadWithSQLQueryOverflow: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(sqlQueryResponseChunk)),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Show me a complex SQL query')
             }, 0)
         }
     }, [dataProcessingAccepted, setConversationId, askMax])

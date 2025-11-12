@@ -91,6 +91,7 @@ import {
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EndpointType,
+    EndpointVersion,
     EventDefinition,
     EventDefinitionMetrics,
     EventDefinitionType,
@@ -1736,6 +1737,12 @@ const api = {
 
             return result
         },
+        async listVersions(name: string): Promise<EndpointVersion[]> {
+            return await new ApiRequest().endpointDetail(name).withAction('versions').get()
+        },
+        async getVersion(name: string, version: number): Promise<EndpointVersion> {
+            return await new ApiRequest().endpointDetail(name).withAction(`versions/${version}`).get()
+        },
     },
 
     featureFlags: {
@@ -1956,12 +1963,21 @@ const api = {
                 page?: number
                 page_size?: number
                 item_id?: number | string
+                include_organization_scoped?: '1'
             }>,
             projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
         ): ApiRequest {
             if (Array.isArray(filters.scopes)) {
                 filters.scopes = filters.scopes.join(',')
             }
+
+            const scopesWithOrgScopedRecords = [ActivityScope.PERSONAL_API_KEY]
+            for (const scope of scopesWithOrgScopedRecords) {
+                if (filters.scope === scope || filters.scopes?.includes(scope)) {
+                    filters.include_organization_scoped = '1'
+                }
+            }
+
             return new ApiRequest().activityLog(projectId).withQueryString(toParams(filters))
         },
 
@@ -1977,6 +1993,7 @@ const api = {
                 [
                     ActivityScope.PLUGIN,
                     ActivityScope.HOG_FUNCTION,
+                    ActivityScope.HOG_FLOW,
                     ActivityScope.EXPERIMENT,
                     ActivityScope.TAG,
                     ActivityScope.ENDPOINT,
@@ -2420,8 +2437,16 @@ const api = {
     },
 
     dashboards: {
+        async list(params: { tags?: string } = {}): Promise<PaginatedResponse<DashboardType>> {
+            return new ApiRequest().dashboards().withQueryString(toParams(params)).get()
+        },
+
         async get(id: number): Promise<DashboardType> {
             return new ApiRequest().dashboardsDetail(id).get()
+        },
+
+        async createUnlistedDashboard(tag: string): Promise<DashboardType> {
+            return new ApiRequest().dashboards().withAction('create_unlisted_dashboard').create({ data: { tag } })
         },
 
         async streamTiles(
@@ -3818,13 +3843,23 @@ const api = {
             return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
         },
 
-        async recentActivity(
-            options?: ApiMethodOptions & { limit?: number; offset?: number }
+        async runningActivity(
+            options?: ApiMethodOptions & { limit?: number; offset?: number; cutoff_days?: number }
         ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
             return await new ApiRequest()
                 .dataWarehouse()
-                .withAction('recent_activity')
-                .withQueryString({ limit: options?.limit, offset: options?.offset })
+                .withAction('running_activity')
+                .withQueryString({ limit: options?.limit, offset: options?.offset, cutoff_days: options?.cutoff_days })
+                .get(options)
+        },
+
+        async completedActivity(
+            options?: ApiMethodOptions & { limit?: number; offset?: number; cutoff_days?: number }
+        ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('completed_activity')
+                .withQueryString({ limit: options?.limit, offset: options?.offset, cutoff_days: options?.cutoff_days })
                 .get(options)
         },
 
@@ -4365,7 +4400,7 @@ const api = {
     },
 
     evaluationRuns: {
-        async create(data: { evaluation_id: string; target_event_id: string }): Promise<{
+        async create(data: { evaluation_id: string; target_event_id: string; timestamp: string }): Promise<{
             workflow_id: string
             status: string
             evaluation: { id: string; name: string }

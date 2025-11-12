@@ -28,7 +28,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
-from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+
+from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 
 def filter_mysql_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:

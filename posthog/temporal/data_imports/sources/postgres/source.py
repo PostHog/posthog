@@ -24,7 +24,8 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     get_schemas as get_postgres_schemas,
     postgres_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
+
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
 
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
@@ -190,7 +191,7 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
         return True, None
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 

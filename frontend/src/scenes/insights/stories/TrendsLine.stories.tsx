@@ -43,7 +43,11 @@ export const TrendsLine: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json')
 )
 TrendsLine.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 
 // FLAP!
@@ -59,28 +63,44 @@ export const TrendsLineMulti: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json')
 )
 TrendsLineMulti.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 export const TrendsLineMultiEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'),
     'edit'
 )
 TrendsLineMultiEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 
 export const TrendsLineBreakdown: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
 )
 TrendsLineBreakdown.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 export const TrendsLineBreakdownEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'),
     'edit'
 )
 TrendsLineBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 
 export const TrendsLineBreakdownLabels: Story = createInsightStory(
@@ -89,7 +109,11 @@ export const TrendsLineBreakdownLabels: Story = createInsightStory(
     true
 )
 TrendsLineBreakdownLabels.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 
 // Trends Bar
@@ -97,27 +121,43 @@ export const TrendsBar: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsBar.json')
 )
 TrendsBar.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 export const TrendsBarEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsBar.json'),
     'edit'
 )
 TrendsBarEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 
 export const TrendsBarBreakdown: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json')
 )
 TrendsBarBreakdown.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 export const TrendsBarBreakdownEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'),
     'edit'
 )
 TrendsBarBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 /* eslint-enable @typescript-eslint/no-var-requires */

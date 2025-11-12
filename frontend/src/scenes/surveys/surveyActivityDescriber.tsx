@@ -330,7 +330,7 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
         return { description: null }
     }
 
-    const user = <strong>{userNameForLogItem(logItem)}</strong>
+    const user = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
     const surveyLink = nameOrLinkToSurvey(logItem?.item_id, logItem?.detail.name, logItem.activity)
 
     if (logItem.activity === 'created') {
