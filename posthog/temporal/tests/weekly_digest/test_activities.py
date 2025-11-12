@@ -602,9 +602,14 @@ async def test_send_weekly_digest_batch(mock_redis, common_input, digest):
                 "name": "Test Team",
                 "dashboards": [{"name": "Test Dashboard", "id": 1}],
                 "event_definitions": [],
-                "experiments_launched": [],
+                "experiments_launched": [
+                    {"name": "Experiment A", "id": 1, "start_date": "2024-01-01T00:00:00Z"},
+                    {"name": "Experiment B", "id": 2, "start_date": "2024-01-01T00:00:00Z"}
+                ],
                 "experiments_completed": [],
-                "external_data_sources": [],
+                "external_data_sources": [
+                    {"source_type": "stripe", "id": "12345678-1234-1234-1234-123456789abc"}
+                ],
                 "feature_flags": [],
                 "filters": [],
                 "recordings": [],
@@ -672,9 +677,14 @@ async def test_send_weekly_digest_batch_dry_run(mock_redis, common_input, digest
                 "name": "Test Team",
                 "dashboards": [{"name": "Test Dashboard", "id": 1}],
                 "event_definitions": [],
-                "experiments_launched": [],
+                "experiments_launched": [
+                    {"name": "Experiment A", "id": 1, "start_date": "2024-01-01T00:00:00Z"},
+                    {"name": "Experiment B", "id": 2, "start_date": "2024-01-01T00:00:00Z"}
+                ],
                 "experiments_completed": [],
-                "external_data_sources": [],
+                "external_data_sources": [
+                    {"source_type": "stripe", "id": "12345678-1234-1234-1234-123456789abc"}
+                ],
                 "feature_flags": [],
                 "filters": [],
                 "recordings": [],
