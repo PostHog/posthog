@@ -41,12 +41,12 @@ if [ "$ADDED" -gt 0 ] || [ "$MODIFIED" -gt 0 ]; then
 
     echo "::group::Oxipng optimization" >&2
     # Optimize changed PNGs using Oxipng via npx
-    # --threads=0 uses all CPU cores (oxipng parallelizes internally)
+    # Oxipng auto-detects CPU cores and parallelizes internally
     # --opt max for best compression, --strip safe for deterministic output
     # --alpha to optimize transparent pixels, oxipng is deterministic by default
     PNG_FILES=$(grep -E '^[AM].*\.png$' /tmp/snapshot-diff.txt | awk '{print $2}' | tr '\n' ' ')
     if [ -n "$PNG_FILES" ]; then
-        npx --yes oxipng@latest --threads=0 --opt max --strip safe --alpha --quiet $PNG_FILES || true
+        npx --yes oxipng@latest --opt max --strip safe --alpha --quiet $PNG_FILES || true
     fi
     echo "::endgroup::" >&2
 
