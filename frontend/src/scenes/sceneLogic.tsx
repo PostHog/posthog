@@ -39,12 +39,14 @@ import {
 } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import type { FileSystemIconType } from '~/queries/schema/schema-general'
 import { AccessControlLevel, OnboardingStepKey, ProductKey } from '~/types'
 
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
+import { newTabSceneLogic } from './new-tab/newTabSceneLogic'
 import { organizationLogic } from './organizationLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
@@ -1539,7 +1541,7 @@ export const sceneLogic = kea<sceneLogicType>([
     afterMount(({ actions, cache, values }) => {
         cache.disposables.add(() => {
             const onKeyDown = (event: KeyboardEvent): void => {
-                if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
+                if (((event.ctrlKey || event.metaKey) && event.key === 'b') || event.key === 'k') {
                     const element = event.target as HTMLElement
                     if (element?.closest('.NotebookEditor')) {
                         return
@@ -1552,6 +1554,37 @@ export const sceneLogic = kea<sceneLogicType>([
                             actions.removeTab(values.activeTab)
                         }
                     } else {
+                        // If cmd k, open current page new tab page / if already on the new tab page focus the search input
+                        if (event.key === 'k') {
+                            // Off ramp
+                            lemonToast.info(
+                                <>
+                                    We've removed <KeyboardShortcut command k /> search bar and replaced it with new tab
+                                    page.
+                                </>
+                            )
+
+                            if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
+                                const activeTabId = values.activeTabId
+                                const mountedLogic = activeTabId
+                                    ? newTabSceneLogic.findMounted({ tabId: activeTabId })
+                                    : null
+                                if (mountedLogic) {
+                                    mountedLogic.actions.focusNewTabSearchInput()
+                                } else {
+                                    // If no mounted logic found, try with default key
+                                    const defaultLogic = newTabSceneLogic.findMounted({ tabId: 'default' })
+                                    if (defaultLogic) {
+                                        defaultLogic.actions.focusNewTabSearchInput()
+                                    }
+                                }
+                                return
+                            }
+                            router.actions.replace(urls.newTab())
+
+                            return
+                        }
+                        // else open a new tab as normal
                         actions.newTab()
                     }
                 }

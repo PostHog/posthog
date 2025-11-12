@@ -23,7 +23,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     const commandInputRef = useRef<SearchInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
     const { search, newTabSceneDataInclude } = useValues(newTabSceneLogic({ tabId }))
-    const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle, setSearchInputRef } = useActions(
+    const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle, setNewTabSearchInputRef } = useActions(
         newTabSceneLogic({ tabId })
     )
 
@@ -46,8 +46,8 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
 
     // Set the ref in the logic so it can be accessed from other components
     useEffect(() => {
-        setSearchInputRef(commandInputRef)
-    }, [setSearchInputRef])
+        setNewTabSearchInputRef(commandInputRef)
+    }, [setNewTabSearchInputRef])
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
     return (

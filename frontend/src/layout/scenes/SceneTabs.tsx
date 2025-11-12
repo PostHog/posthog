@@ -45,7 +45,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const activeTabId = activeTab?.id
 
     // Get the focus action from the newTabSceneLogic for the active tab
-    const { focusSearchInput } = useActions(newTabSceneLogic({ tabId: activeTabId }))
+    const { focusNewTabSearchInput } = useActions(newTabSceneLogic({ tabId: activeTabId }))
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
@@ -114,7 +114,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                     // If we're already on the new tab scene, just focus the search input
                     if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
                         e.preventDefault()
-                        focusSearchInput()
+                        focusNewTabSearchInput()
                     }
                 }}
                 buttonProps={{
@@ -123,9 +123,11 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 }}
                 tooltip={
                     <div className="flex flex-col gap-1">
-                        <span>Replace current tab with new tab</span>
                         <span>
-                            <KeyboardShortcut command shift k /> to open command bar
+                            Open new tab page <KeyboardShortcut command k />
+                        </span>
+                        <span>
+                            Open command bar <KeyboardShortcut command shift k />
                         </span>
                     </div>
                 }
