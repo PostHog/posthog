@@ -1,20 +1,21 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+
 import {
-    validateEnvironmentVariables,
+    type CreatedResources,
+    TEST_ORG_ID,
+    TEST_PROJECT_ID,
+    cleanupResources,
     createTestClient,
     createTestContext,
-    setActiveProjectAndOrg,
-    cleanupResources,
-    TEST_PROJECT_ID,
-    TEST_ORG_ID,
-    type CreatedResources,
-    parseToolResponse,
     generateUniqueKey,
+    parseToolResponse,
+    setActiveProjectAndOrg,
+    validateEnvironmentVariables,
 } from '@/shared/test-utils'
 import createExperimentTool from '@/tools/experiments/create'
 import deleteExperimentTool from '@/tools/experiments/delete'
-import getAllExperimentsTool from '@/tools/experiments/getAll'
 import getExperimentTool from '@/tools/experiments/get'
+import getAllExperimentsTool from '@/tools/experiments/getAll'
 import getExperimentResultsTool from '@/tools/experiments/getResults'
 import updateExperimentTool from '@/tools/experiments/update'
 import type { Context } from '@/tools/types'
@@ -30,7 +31,7 @@ describe('Experiments', { concurrent: false }, () => {
     const createdExperiments: number[] = []
 
     // Helper function to track created experiments and their feature flags
-    const trackExperiment = (experiment: any) => {
+    const trackExperiment = (experiment: any): void => {
         if (experiment.id) {
             createdExperiments.push(experiment.id)
         }
@@ -80,7 +81,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
             expect(experiment.name).toBe(params.name)
             expect(experiment.feature_flag_key).toBe(params.feature_flag_key)
             expect(experiment.start_date).toBeNull() // Draft experiments have no start date
@@ -103,7 +104,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
             expect(experiment.name).toBe(params.name)
             expect(experiment.feature_flag_key).toBe(params.feature_flag_key)
 
@@ -127,7 +128,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
             expect(experiment.parameters?.feature_flag_variants).toHaveLength(3)
             expect(experiment.parameters?.feature_flag_variants?.[0]?.key).toBe('control')
             expect(experiment.parameters?.feature_flag_variants?.[0]?.rollout_percentage).toBe(33)
@@ -156,7 +157,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
 
             trackExperiment(experiment)
@@ -183,7 +184,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
 
             trackExperiment(experiment)
@@ -209,7 +210,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
 
             trackExperiment(experiment)
@@ -252,7 +253,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(2)
             expect(experiment.metrics_secondary).toHaveLength(2)
 
@@ -272,7 +273,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
 
             trackExperiment(experiment)
         })
@@ -290,7 +291,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
 
             trackExperiment(experiment)
         })
@@ -306,7 +307,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
             trackExperiment(experiment)
         })
     })
@@ -343,7 +344,7 @@ describe('Experiments', { concurrent: false }, () => {
             // Verify our test experiments are in the list
             for (const testExp of testExperiments) {
                 const found = allExperiments.find((e: any) => e.id === testExp.id)
-                expect(found).toBeDefined()
+                expect(found).toBeTruthy()
             }
         })
 
@@ -391,9 +392,7 @@ describe('Experiments', { concurrent: false }, () => {
         it('should handle non-existent experiment ID', async () => {
             const nonExistentId = 999999
 
-            await expect(
-                getTool.handler(context, { experimentId: nonExistentId })
-            ).rejects.toThrow()
+            await expect(getTool.handler(context, { experimentId: nonExistentId })).rejects.toThrow()
         })
     })
 
@@ -521,7 +520,7 @@ describe('Experiments', { concurrent: false }, () => {
             trackExperiment(createdExperiment)
 
             // Verify creation
-            expect(createdExperiment.id).toBeDefined()
+            expect(createdExperiment.id).toBeTruthy()
             expect(createdExperiment.name).toBe(createParams.name)
             expect(createdExperiment.parameters?.feature_flag_variants).toHaveLength(2)
             expect(createdExperiment.metrics).toHaveLength(2)
@@ -538,7 +537,7 @@ describe('Experiments', { concurrent: false }, () => {
             const listResult = await getAllTool.handler(context, {})
             const allExperiments = parseToolResponse(listResult)
             const found = allExperiments.find((e: any) => e.id === createdExperiment.id)
-            expect(found).toBeDefined()
+            expect(found).toBeTruthy()
         })
 
         it('should create experiment with complex funnel metrics', async () => {
@@ -579,7 +578,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
             expect(experiment.metrics_secondary).toHaveLength(1)
 
@@ -603,7 +602,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
 
             trackExperiment(experiment)
         })
@@ -621,7 +620,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
 
             trackExperiment(experiment)
         })
@@ -644,7 +643,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
             expect(experiment.metrics || []).toHaveLength(0)
             expect(experiment.metrics_secondary || []).toHaveLength(0)
 
@@ -687,7 +686,7 @@ describe('Experiments', { concurrent: false }, () => {
                 trackExperiment(experiment)
             } catch (error) {
                 // Expected for invalid configuration
-                expect(error).toBeDefined()
+                expect(error).toBeTruthy()
             }
         })
 
@@ -710,7 +709,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
 
             trackExperiment(experiment)
@@ -736,7 +735,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
 
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
 
             trackExperiment(experiment)
         })
@@ -754,11 +753,11 @@ describe('Experiments', { concurrent: false }, () => {
             try {
                 const result = await createTool.handler(context, params as any)
                 const experiment = parseToolResponse(result)
-                expect(experiment.id).toBeDefined()
+                expect(experiment.id).toBeTruthy()
                 trackExperiment(experiment)
             } catch (error) {
                 // Some APIs might reject very long names
-                expect(error).toBeDefined()
+                expect(error).toBeTruthy()
             }
         })
     })
@@ -779,7 +778,7 @@ describe('Experiments', { concurrent: false }, () => {
 
             const createResult = await createTool.handler(context, createParams as any)
             const experiment = parseToolResponse(createResult)
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
             trackExperiment(experiment)
 
             // Delete the experiment
@@ -811,7 +810,7 @@ describe('Experiments', { concurrent: false }, () => {
                 await deleteTool.handler(context, deleteParams)
                 expect.fail('Should have thrown an error for invalid experiment ID')
             } catch (error) {
-                expect(error).toBeDefined()
+                expect(error).toBeTruthy()
                 expect((error as Error).message).toContain('Failed to delete experiment')
             }
         })
@@ -828,7 +827,7 @@ describe('Experiments', { concurrent: false }, () => {
 
             const createResult = await createTool.handler(context, createParams as any)
             const experiment = parseToolResponse(createResult)
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
             trackExperiment(experiment)
 
             // Delete the experiment twice
@@ -844,7 +843,7 @@ describe('Experiments', { concurrent: false }, () => {
                 await deleteTool.handler(context, deleteParams)
                 expect.fail('Should have thrown an error for already deleted experiment')
             } catch (error) {
-                expect(error).toBeDefined()
+                expect(error).toBeTruthy()
                 expect((error as Error).message).toContain('Failed to delete experiment')
                 expect((error as Error).message).toContain('404')
             }
@@ -866,7 +865,7 @@ describe('Experiments', { concurrent: false }, () => {
                 await deleteTool.handler(context, {} as any)
                 expect.fail('Should have thrown validation error for missing experimentId')
             } catch (error) {
-                expect(error).toBeDefined()
+                expect(error).toBeTruthy()
             }
         })
     })
@@ -888,7 +887,7 @@ describe('Experiments', { concurrent: false }, () => {
 
             const createResult = await createTool.handler(context, createParams as any)
             const experiment = parseToolResponse(createResult)
-            expect(experiment.id).toBeDefined()
+            expect(experiment.id).toBeTruthy()
             trackExperiment(experiment)
 
             // Update basic fields
@@ -937,7 +936,7 @@ describe('Experiments', { concurrent: false }, () => {
             const updateResult = await updateTool.handler(context, launchParams)
             const launchedExperiment = parseToolResponse(updateResult)
 
-            expect(launchedExperiment.start_date).toBeDefined() // Running experiments have start date
+            expect(launchedExperiment.start_date).toBeTruthy() // Running experiments have start date
             expect(launchedExperiment.end_date).toBeNull() // But no end date yet
 
             trackExperiment(experiment)
@@ -970,7 +969,7 @@ describe('Experiments', { concurrent: false }, () => {
             const updateResult = await updateTool.handler(context, stopParams)
             const stoppedExperiment = parseToolResponse(updateResult)
 
-            expect(stoppedExperiment.end_date).toBeDefined()
+            expect(stoppedExperiment.end_date).toBeTruthy()
             // Note: API may not set conclusion field automatically, it depends on the backend implementation
             // The important thing is that end_date is set, indicating the experiment is stopped
 
@@ -1018,7 +1017,7 @@ describe('Experiments', { concurrent: false }, () => {
             expect(restartedExperiment.end_date).toBeNull()
             expect(restartedExperiment.conclusion).toBeNull()
             expect(restartedExperiment.conclusion_comment).toBeNull()
-            expect(restartedExperiment.start_date).toBeDefined() // Restarted experiments have start date
+            expect(restartedExperiment.start_date).toBeTruthy() // Restarted experiments have start date
             expect(restartedExperiment.end_date).toBeNull() // But no end date
 
             trackExperiment(experiment)
@@ -1157,7 +1156,7 @@ describe('Experiments', { concurrent: false }, () => {
                 await updateTool.handler(context, updateParams)
                 expect.fail('Should have thrown an error for invalid experiment ID')
             } catch (error) {
-                expect(error).toBeDefined()
+                expect(error).toBeTruthy()
                 expect((error as Error).message).toContain('Failed to update experiment')
             }
         })
@@ -1167,7 +1166,7 @@ describe('Experiments', { concurrent: false }, () => {
                 await updateTool.handler(context, { data: { name: 'Test' } } as any)
                 expect.fail('Should have thrown validation error for missing experimentId')
             } catch (error) {
-                expect(error).toBeDefined()
+                expect(error).toBeTruthy()
             }
         })
 
@@ -1239,12 +1238,12 @@ describe('Experiments', { concurrent: false }, () => {
                 const experiment = parseToolResponse(result)
 
                 // Check actual date fields instead of computed status
-                expect(experiment.start_date).toBeDefined() // Should have start date if launched
+                expect(experiment.start_date).toBeTruthy() // Should have start date if launched
 
                 trackExperiment(experiment)
             } catch (error) {
                 // Some environments might not allow immediate launch
-                expect(error).toBeDefined()
+                expect(error).toBeTruthy()
             }
         })
     })

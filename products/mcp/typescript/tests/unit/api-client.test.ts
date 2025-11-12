@@ -1,5 +1,6 @@
-import { ApiClient } from '@/api/client'
 import { describe, expect, it } from 'vitest'
+
+import { ApiClient } from '@/api/client'
 
 describe('ApiClient', () => {
     it('should create ApiClient with required config', () => {

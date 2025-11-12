@@ -25,6 +25,7 @@ import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch, Tooltip 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
@@ -43,8 +44,10 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { Label } from 'lib/ui/Label/Label'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
@@ -202,6 +205,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         accessDeniedToFeatureFlag,
         multivariateEnabled,
         variants,
+        experiment,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -411,11 +415,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         <SceneContent>
                             {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
                                 <LemonBanner type="warning">
-                                    This feature flag is linked to an experiment. Edit settings here only for advanced
-                                    functionality. If unsure, go back to{' '}
-                                    <Link to={urls.experiment(featureFlag.experiment_set[0])}>
-                                        the experiment creation screen.
+                                    This feature flag is linked to{' '}
+                                    <Link target="_blank" to={urls.experiment(featureFlag.experiment_set[0])}>
+                                        {experiment?.name || `experiment ${featureFlag.experiment_set[0]}`}
                                     </Link>
+                                    . Make changes from the experiment page unless you need advanced flag settings.
                                 </LemonBanner>
                             )}
                             <div className="max-w-1/2 deprecated-space-y-4">
@@ -947,6 +951,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         isDraftExperiment,
         properties,
         variantErrors,
+        experiment,
+        experimentLoading,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -1029,10 +1035,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                         evaluationRuntime={featureFlag.evaluation_runtime}
                     />
                     <div className="flex flex-col">
-                        <div className="grid grid-cols-8">
-                            <div className="col-span-2 card-secondary">Status</div>
-                            <div className="col-span-6 card-secondary">Type</div>
-                            <div className="col-span-2">
+                        <div className="grid grid-cols-2">
+                            <div className="card-secondary">Status</div>
+                            <div className="card-secondary">Type</div>
+                            <div>
                                 {featureFlag.deleted ? (
                                     <LemonTag size="medium" type="danger" className="uppercase">
                                         Deleted
@@ -1087,37 +1093,66 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     </div>
                                 )}
                             </div>
-                            <div className="col-span-6">
+                            <div>
                                 <span className="mt-1">{flagTypeString}</span>
                             </div>
-                        </div>
 
-                        {hasAvailableFeature(AvailableFeature.TAGGING) &&
-                            featureFlag.tags &&
-                            featureFlag.tags.length > 0 && (
-                                <>
-                                    <span className="card-secondary mt-4">Tags</span>
-                                    <div className="mt-2">
-                                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                            <FeatureFlagEvaluationTags
-                                                tags={featureFlag.tags}
-                                                evaluationTags={featureFlag.evaluation_tags || []}
-                                                staticOnly
-                                                flagId={featureFlag.id}
-                                            />
-                                        ) : (
-                                            <ObjectTags tags={featureFlag.tags} staticOnly />
-                                        )}
+                            <div className="col-span-2">
+                                {hasAvailableFeature(AvailableFeature.TAGGING) &&
+                                    featureFlag.tags &&
+                                    featureFlag.tags.length > 0 && (
+                                        <>
+                                            <span className="card-secondary mt-4">Tags</span>
+                                            <div className="mt-2">
+                                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                                    <FeatureFlagEvaluationTags
+                                                        tags={featureFlag.tags}
+                                                        evaluationTags={featureFlag.evaluation_tags || []}
+                                                        staticOnly
+                                                        flagId={featureFlag.id}
+                                                    />
+                                                ) : (
+                                                    <ObjectTags tags={featureFlag.tags} staticOnly />
+                                                )}
+                                            </div>
+                                        </>
+                                    )}
+                            </div>
+
+                            <div className="mt-4">
+                                <span className="card-secondary">Flag persistence</span>
+                                <div>
+                                    This flag{' '}
+                                    <b>{featureFlag.ensure_experience_continuity ? 'persists' : 'does not persist'} </b>
+                                    across authentication events.
+                                </div>
+                            </div>
+
+                            {!experimentLoading &&
+                                experiment &&
+                                featureFlag.experiment_set &&
+                                featureFlag.experiment_set.length > 0 && (
+                                    <div className="mt-4">
+                                        <Label intent="menu">Linked experiment</Label>
+                                        <div className="flex gap-1 items-center">
+                                            <CopyToClipboardInline
+                                                iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
+                                                className="font-normal text-sm"
+                                                description="experiment name"
+                                            >
+                                                {experiment.name}
+                                            </CopyToClipboardInline>
+                                            <Link
+                                                target="_blank"
+                                                className="font-semibold"
+                                                to={urls.experiment(featureFlag.experiment_set[0])}
+                                            >
+                                                <IconOpenInNew fontSize="18" />
+                                            </Link>
+                                        </div>
                                     </div>
-                                </>
-                            )}
-
-                        <span className="card-secondary mt-4">Flag persistence</span>
-                        <span>
-                            This flag{' '}
-                            <b>{featureFlag.ensure_experience_continuity ? 'persists' : 'does not persist'} </b>
-                            across authentication events.
-                        </span>
+                                )}
+                        </div>
 
                         {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
                             <>
