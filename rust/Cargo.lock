@@ -4541,6 +4541,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "common-redis",
+ "dashmap 6.1.0",
  "governor",
  "metrics",
  "rand 0.8.5",
