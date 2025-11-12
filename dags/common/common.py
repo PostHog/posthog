@@ -1,3 +1,4 @@
+import base64
 from contextlib import suppress
 from enum import Enum
 from typing import Optional
@@ -182,4 +183,25 @@ def metabase_debug_query_url(run_id: str) -> Optional[str]:
         return f"https://metabase.prod-us.posthog.dev/question/1671-get-clickhouse-query-log-for-given-dagster-run-id?dagster_run_id={run_id}"
     if cloud_deployment == "EU":
         return f"https://metabase.prod-eu.posthog.dev/question/544-get-clickhouse-query-log-for-given-dagster-run-id?dagster_run_id={run_id}"
-    return None
+    sql = f"""
+SELECT
+    hostName() as host,
+    event_time,
+    type,
+    exception IS NOT NULL and exception != '' as has_exception,
+    query_duration_ms,
+    formatReadableSize(memory_usage) as memory_used,
+    formatReadableSize(read_bytes) as data_read,
+    JSONExtractString(log_comment, 'dagster', 'run_id') AS dagster_run_id,
+    JSONExtractString(log_comment, 'dagster', 'job_name') AS dagster_job_name,
+    JSONExtractString(log_comment, 'dagster', 'asset_key') AS dagster_asset_key,
+    JSONExtractString(log_comment, 'dagster', 'op_name') AS dagster_op_name,
+    exception,
+    query
+FROM clusterAllReplicas('posthog', system.query_log)
+WHERE
+    dagster_run_id = '{run_id}'
+    AND event_date >= today() - 1
+ORDER BY event_time DESC;
+"""
+    return f"http://localhost:8123/play?user=default#{base64.b64encode(sql.encode("utf-8")).decode("utf-8")}"
