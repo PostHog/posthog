@@ -23,7 +23,7 @@ from dags.common import dagster_tags
 from dags.common.common import JobOwners, metabase_debug_query_url
 
 # This is the number of days to backfill in one SQL operation
-MAX_PARTITIONS_PER_RUN = 10
+MAX_PARTITIONS_PER_RUN = 5
 
 daily_partitions = DailyPartitionsDefinition(
     start_date="2019-01-01",  # this is a year before posthog was founded, so should be early enough even including data imports
