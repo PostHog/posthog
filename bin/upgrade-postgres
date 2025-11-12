@@ -48,7 +48,7 @@ list_pg12_volumes() {
     echo "Scanning for PostgreSQL 12 volumes..."
     echo ""
 
-    docker volume ls -q | while read vol; do
+    docker volume ls -q | while read -r vol; do
         PG_VER=$(docker run --rm -v "$vol:/data:ro" alpine cat /data/PG_VERSION 2>/dev/null || echo "")
         if [ "$PG_VER" = "12" ]; then
             SIZE=$(docker system df -v 2>/dev/null | awk -v vol="$vol" '$1==vol {print $3}' || echo "unknown")
