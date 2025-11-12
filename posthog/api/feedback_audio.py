@@ -27,6 +27,7 @@ REPORTED_SIZE_BUFFER_FACTOR = 1.4
 # Supported audio MIME types
 SUPPORTED_AUDIO_MIME_TYPES = [
     "audio/webm",
+    "audio/mp4",
 ]
 
 
@@ -59,11 +60,15 @@ class FeedbackAudioSerializer(serializers.Serializer):
     audio_data = serializers.CharField()  # base64 encoded audio data
 
     def validate_audio_mime_type(self, value):
-        if value not in SUPPORTED_AUDIO_MIME_TYPES:
+        # Extract base MIME type (i.e. remove codec parameters)
+        base_mime_type = value.split(";")[0].strip()
+
+        if base_mime_type not in SUPPORTED_AUDIO_MIME_TYPES:
             raise serializers.ValidationError(
-                f"Unsupported audio format: {value}. Supported formats: {', '.join(SUPPORTED_AUDIO_MIME_TYPES)}"
+                f"Unsupported audio format: {base_mime_type}. Supported formats: {', '.join(SUPPORTED_AUDIO_MIME_TYPES)}"
             )
-        return value
+        # Return normalized MIME type without codec params
+        return base_mime_type
 
     def validate_audio_size(self, value):
         if value <= 0:
@@ -89,32 +94,9 @@ class FeedbackAudioSerializer(serializers.Serializer):
 
         return value
 
-    def validate(self, data):
-        # Decode audio data once and add to validated data
-        decoded_audio = base64.b64decode(data["audio_data"], validate=True)
-
-        # Detect actual content type from file headers
-        if len(decoded_audio) >= 4:
-            if decoded_audio[:4] == b"\x1a\x45\xdf\xa3":
-                detected_type = "audio/webm"
-            else:
-                raise serializers.ValidationError("Unsupported audio format. Only WebM is supported.")
-        else:
-            raise serializers.ValidationError("Audio file too small to be valid")
-
-        # Verify declared type matches detected type
-        declared_type = data["audio_mime_type"].lower().strip()
-        if declared_type != detected_type:
-            raise serializers.ValidationError(
-                f"Declared MIME type '{declared_type}' does not match detected type '{detected_type}'"
-            )
-
-        data["_decoded_audio"] = decoded_audio
-        return data
-
     def create(self, validated_data):
-        # Use decoded audio data from validate()
-        decoded_audio = validated_data.pop("_decoded_audio")
+        # Decode audio data for storage
+        decoded_audio = base64.b64decode(validated_data["audio_data"], validate=True)
 
         feedback_audio = FeedbackAudio.objects.create(
             team_id=self.context["team_id"],
