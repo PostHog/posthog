@@ -55,6 +55,22 @@ jobs:
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal }}
         steps:
+            - name: Disk space snapshot (pre-checkout)
+              run: |
+                  echo "== df -h =="
+                  df -h
+                  echo
+                  echo "== docker system df =="
+                  docker system df || true
+                  echo
+                  echo "== docker system df -v (filter seaweedfs) =="
+                  docker system df -v | grep -i seaweedfs || true
+                  echo
+                  docker volume ls || true
+                  echo
+                  docker ps -a --size | grep -i seaweedfs || true
+                  echo
+                  [ -d "data" ] && du -sh data || true
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@v4
@@ -124,6 +140,22 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
+            - name: Disk space snapshot (pre-checkout)
+              run: |
+                  echo "== df -h =="
+                  df -h
+                  echo
+                  echo "== docker system df =="
+                  docker system df || true
+                  echo
+                  echo "== docker system df -v (filter seaweedfs) =="
+                  docker system df -v | grep -i seaweedfs || true
+                  echo
+                  docker volume ls || true
+                  echo
+                  docker ps -a --size | grep -i seaweedfs || true
+                  echo
+                  [ -d "data" ] && du -sh data || true
             - uses: actions/checkout@v4
               with:
                   clean: false
@@ -584,6 +616,22 @@ jobs:
                       group: 10
 
         steps:
+            - name: Disk space snapshot (pre-checkout)
+              run: |
+                  echo "== df -h =="
+                  df -h
+                  echo
+                  echo "== docker system df =="
+                  docker system df || true
+                  echo
+                  echo "== docker system df -v (filter seaweedfs) =="
+                  docker system df -v | grep -i seaweedfs || true
+                  echo
+                  docker volume ls || true
+                  echo
+                  docker ps -a --size | grep -i seaweedfs || true
+                  echo
+                  [ -d "data" ] && du -sh data || true
             - uses: actions/checkout@v4
               with:
                   fetch-depth: 1
@@ -955,6 +1003,22 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-24.04-8
         steps:
+            - name: Disk space snapshot (pre-checkout)
+              run: |
+                  echo "== df -h =="
+                  df -h
+                  echo
+                  echo "== docker system df =="
+                  docker system df || true
+                  echo
+                  echo "== docker system df -v (filter seaweedfs) =="
+                  docker system df -v | grep -i seaweedfs || true
+                  echo
+                  docker volume ls || true
+                  echo
+                  docker ps -a --size | grep -i seaweedfs || true
+                  echo
+                  [ -d "data" ] && du -sh data || true
             - name: 'Checkout repo'
               uses: actions/checkout@v4
               with:
