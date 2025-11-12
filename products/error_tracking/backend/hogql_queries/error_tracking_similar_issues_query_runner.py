@@ -151,6 +151,8 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
         return list(similar_issues_by_id.values())
 
     def enrich_issues(self, similar_issues: list[IssueWithSimilarFingerprints]):
+        if len(similar_issues) == 0:
+            pass
         issues_by_fingerprint = {
             issue.first_fingerprint.fingerprint: issue
             for issue in similar_issues
