@@ -4774,6 +4774,8 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_a_working_slow_db
   '''
+  SELECT pg_sleep(1);
+  
   SELECT (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'::jsonb
           AND "posthog_person"."properties" ? 'email'
           AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
@@ -4897,6 +4899,8 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.5
   '''
+  SELECT pg_sleep(1);
+  
   WITH target_person_ids AS
     (SELECT team_id,
             person_id
@@ -4927,6 +4931,8 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.6
   '''
+  SELECT pg_sleep(1);
+  
   SELECT "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
@@ -4937,6 +4943,8 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.7
   '''
+  SELECT pg_sleep(1);
+  
   SELECT "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
@@ -4946,6 +4954,8 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db
   '''
+  SELECT pg_sleep(1);
+  
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
@@ -4962,6 +4972,8 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.1
   '''
+  SELECT pg_sleep(1);
+  
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
@@ -4978,6 +4990,8 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.2
   '''
+  SELECT pg_sleep(1);
+  
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
@@ -4994,6 +5008,8 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again
   '''
+  SELECT pg_sleep(1);
+  
   SELECT (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'::jsonb
           AND "posthog_person"."properties" ? 'email'
           AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
