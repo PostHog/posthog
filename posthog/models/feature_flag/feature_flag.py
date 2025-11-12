@@ -11,6 +11,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.caching.flags_redis_cache import write_flags_to_cache
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -567,12 +568,7 @@ def set_feature_flags_for_team_in_cache(
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
 
-    try:
-        cache.set(f"team_feature_flags_{project_id}", json.dumps(serialized_flags), FIVE_DAYS)
-    except Exception:
-        # redis is unavailable
-        logger.exception("Redis is unavailable")
-        capture_exception()
+    write_flags_to_cache(f"team_feature_flags_{project_id}", json.dumps(serialized_flags), FIVE_DAYS)
 
     return all_feature_flags
 
@@ -581,7 +577,6 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
     try:
         flag_data = cache.get(f"team_feature_flags_{project_id}")
     except Exception:
-        # redis is unavailable
         logger.exception("Redis is unavailable")
         return None
 

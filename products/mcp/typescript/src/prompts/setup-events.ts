@@ -1,14 +1,16 @@
-import type { Context } from '@/tools/types'
-import type { Prompt } from './index'
 import { ResourceUri } from '@/resources'
+import type { Context } from '@/tools/types'
 
+import type { Prompt } from './index'
+
+// oxlint-disable-next-line @typescript-eslint/no-unused-vars
 export async function setupEventsPrompt(_context: Context): Promise<Prompt> {
     return {
         name: 'posthog-setup',
         title: 'Setup a deep PostHog integration',
         description:
             'Automatically instrument your Next.js project with PostHog event tracking, user identification, and error tracking',
-        handler: async (_context, _args) => {
+        handler: async () => {
             return {
                 messages: [
                     {

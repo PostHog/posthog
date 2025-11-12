@@ -9,6 +9,7 @@ import { PostgresDualWritePersonRepository } from './postgres-dualwrite-person-r
 import {
     assertConsistencyAcrossDatabases,
     cleanupPrepared,
+    createPersonUpdateFields,
     getFirstTeam,
     mockDatabaseError,
     setupMigrationDb,
@@ -278,7 +279,10 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 [{ distinctId: 'dw-2' }]
             )) as any
 
-            const [updated] = await repository.updatePerson(person, { properties: { name: 'B' } })
+            const [updated] = await repository.updatePerson(
+                person,
+                createPersonUpdateFields(person, { properties: { name: 'B' } })
+            )
 
             const primary = await postgres.query(
                 PostgresUse.PERSONS_READ,
@@ -308,9 +312,9 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 .spyOn((repository as any).secondaryRepo, 'updatePerson')
                 .mockRejectedValue(new Error('simulated secondary failure'))
 
-            await expect(repository.updatePerson(person, { properties: { y: 2 } }, 'test-fail')).rejects.toThrow(
-                'simulated secondary failure'
-            )
+            await expect(
+                repository.updatePerson(person, createPersonUpdateFields(person, { properties: { y: 2 } }), 'test-fail')
+            ).rejects.toThrow('simulated secondary failure')
 
             spy.mockRestore()
 
@@ -349,9 +353,9 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             const mockSpy = mockDatabaseError(postgres, new Error('primary update failed'), 'updatePerson')
 
-            await expect(repository.updatePerson(person, { properties: { name: 'Updated' } })).rejects.toThrow(
-                'primary update failed'
-            )
+            await expect(
+                repository.updatePerson(person, createPersonUpdateFields(person, { properties: { name: 'Updated' } }))
+            ).rejects.toThrow('primary update failed')
 
             mockSpy.mockRestore()
 
@@ -392,9 +396,9 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             const mockSpy = mockDatabaseError(migrationPostgres, new Error('secondary update failed'), 'updatePerson')
 
-            await expect(repository.updatePerson(person, { properties: { name: 'Updated' } })).rejects.toThrow(
-                'secondary update failed'
-            )
+            await expect(
+                repository.updatePerson(person, createPersonUpdateFields(person, { properties: { name: 'Updated' } }))
+            ).rejects.toThrow('secondary update failed')
 
             mockSpy.mockRestore()
 
@@ -1393,9 +1397,12 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 await tx.addDistinctId(createResult.person, 'tx-did-2', 1)
 
                 // Update the person
-                const [updatedPerson] = await tx.updatePerson(createResult.person, {
-                    properties: { name: 'Updated Name', age: 26 },
-                })
+                const [updatedPerson] = await tx.updatePerson(
+                    createResult.person,
+                    createPersonUpdateFields(createResult.person, {
+                        properties: { name: 'Updated Name', age: 26 },
+                    })
+                )
 
                 return updatedPerson
             })
@@ -1728,7 +1735,10 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                         throw new Error('Failed to create person')
                     }
 
-                    await tx.updatePerson(createResult.person, { properties: { updated: true } })
+                    await tx.updatePerson(
+                        createResult.person,
+                        createPersonUpdateFields(createResult.person, { properties: { updated: true } })
+                    )
 
                     return createResult.person
                 })
@@ -2087,9 +2097,12 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             // Now use it within a transaction
             const txResult = await repository.inTransaction('test-mixed-calls', async (tx) => {
                 // Update the person created outside
-                const [updated] = await tx.updatePerson(outsidePerson, {
-                    properties: { location: 'updated-inside', new_prop: 'added' },
-                })
+                const [updated] = await tx.updatePerson(
+                    outsidePerson,
+                    createPersonUpdateFields(outsidePerson, {
+                        properties: { location: 'updated-inside', new_prop: 'added' },
+                    })
+                )
 
                 // Add a distinct ID
                 await tx.addDistinctId(updated, 'added-in-tx', 1)
@@ -2141,7 +2154,10 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             )) as any
 
             const result = await repository.inTransaction('test-version-sync', async (tx) => {
-                const [updatedPerson] = await tx.updatePerson(person, { properties: { updated: 'value' } })
+                const [updatedPerson] = await tx.updatePerson(
+                    person,
+                    createPersonUpdateFields(person, { properties: { updated: 'value' } })
+                )
                 return updatedPerson
             })
 

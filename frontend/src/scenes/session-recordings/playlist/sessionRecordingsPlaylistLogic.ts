@@ -520,6 +520,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 results: [],
                 has_next: false,
+                next_cursor: undefined,
                 order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
                 order_direction: 'DESC',
             } as RecordingsQueryResponse & {
@@ -550,11 +551,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     }
 
                     if (direction === 'older') {
-                        params.offset = values.sessionRecordings.length
+                        // Use cursor-based pagination for loading older recordings
+                        if (values.sessionRecordingsResponse?.next_cursor) {
+                            params.after = values.sessionRecordingsResponse.next_cursor
+                        } else {
+                            // Fallback to offset-based pagination if cursor is not available
+                            params.offset = values.sessionRecordings.length
+                        }
                     }
 
                     if (direction === 'newer') {
+                        // Reset pagination for loading newer recordings
                         params.offset = 0
+                        params.after = undefined
                     }
 
                     await breakpoint(400) // Debounce for lots of quick filter changes
@@ -572,6 +581,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             direction === 'newer'
                                 ? (values.sessionRecordingsResponse?.has_next ?? true)
                                 : response.has_next,
+                        next_cursor: direction === 'newer' ? undefined : response.next_cursor,
                         results: response.results,
                         order: params.order,
                         order_direction: params.order_direction,
