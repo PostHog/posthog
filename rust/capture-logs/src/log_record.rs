@@ -122,7 +122,7 @@ impl KafkaLogRow {
             instrumentation_scope,
             event_name,
             service_name,
-            attributes: attributes.clone()
+            attributes
         };
         debug!("log: {:?}", log_row);
 
