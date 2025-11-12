@@ -19,12 +19,12 @@ class CustomerIOImportService:
     def __init__(self, team: Team, api_key: Optional[str], user):
         self.team = team
         self.user = user
-        self.client = None
+        self.client: Optional[CustomerIOClient] = None
         self.api_key = api_key
-        self.topic_mapping = {}  # Maps Customer.io topic IDs to PostHog MessageCategory IDs
-        self.topic_names = {}  # Maps topic IDs to their display names
-        self.all_processed_users = set()  # Track ALL unique users across API and CSV
-        self.progress = {
+        self.topic_mapping: dict[str, str] = {}  # Maps Customer.io topic IDs to PostHog MessageCategory IDs
+        self.topic_names: dict[str, str] = {}  # Maps topic IDs to their display names
+        self.all_processed_users: set[str] = set()  # Track ALL unique users across API and CSV
+        self.progress: dict[str, Any] = {
             "status": "initializing",
             "topics_found": 0,
             "categories_created": 0,
@@ -57,6 +57,7 @@ class CustomerIOImportService:
                     return self.progress
 
             # Step 2: Import subscription topics as categories
+            assert self.client is not None  # We validated credentials above
             topics = self.client.get_subscription_topics()
 
             if not topics:
@@ -82,7 +83,7 @@ class CustomerIOImportService:
     def process_preferences_csv(self, csv_file) -> dict[str, Any]:
         """Process CSV file with customer preferences"""
         # Reset progress for CSV processing
-        csv_progress = {
+        csv_progress: dict[str, Any] = {
             "status": "processing_csv",
             "total_rows": 0,
             "rows_processed": 0,
@@ -218,7 +219,7 @@ class CustomerIOImportService:
         try:
             with transaction.atomic():
                 # Group by email for efficient processing
-                email_to_categories = {}
+                email_to_categories: dict[str, list[str]] = {}
                 for email, categories in batch:
                     if email not in email_to_categories:
                         email_to_categories[email] = []
@@ -317,7 +318,7 @@ class CustomerIOImportService:
 
     def _process_globally_unsubscribed_users(self) -> None:
         """Process users who are globally unsubscribed (opted out of ALL categories)"""
-        if not self.topic_mapping:
+        if not self.topic_mapping or not self.client:
             return
 
         start = None

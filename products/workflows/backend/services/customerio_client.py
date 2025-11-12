@@ -70,7 +70,7 @@ class CustomerIOClient:
     def search_customers(
         self, filter_conditions: dict[str, Any], limit: int = 1000, start: Optional[str] = None
     ) -> dict[str, Any]:
-        params = {"limit": min(limit, 1000)}
+        params: dict[str, Any] = {"limit": min(limit, 1000)}
         if start:
             params["start"] = start
 
