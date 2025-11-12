@@ -6397,7 +6397,6 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "rdkafka",
- "serde",
  "serde_json",
  "serve-metrics",
  "tokio",
