@@ -330,6 +330,10 @@ async fn create_redis_client(
     })
     .await;
 
+    // Use nested Result to distinguish:
+    // - Ok(Ok(client)): successful connection
+    // - Ok(Err(e)): permanent error, don't retry
+    // - Err(e): retryable error that will trigger retry logic
     match result {
         Ok(Ok(client)) => Some(Arc::new(client)),
         Ok(Err(_)) => {
