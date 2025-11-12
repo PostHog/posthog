@@ -111,6 +111,9 @@ TEAM_METADATA_CACHE_INVALIDATION_COUNTER = Counter(
 TEAM_METADATA_CACHE_TTL = int(os.environ.get("TEAM_METADATA_CACHE_TTL", str(60 * 60 * 24 * 7)))
 TEAM_METADATA_CACHE_MISS_TTL = int(os.environ.get("TEAM_METADATA_CACHE_MISS_TTL", str(60 * 60 * 24)))
 
+# Sorted set key for tracking cache expirations
+TEAM_CACHE_EXPIRY_SORTED_SET = "team_metadata_cache_expiry"
+
 # NOTE: Includes secret tokens (api_token, secret_api_token, secret_api_token_backup)
 # for flags service consumption. These are stored in dedicated redis + potentially S3.
 # This is acceptable for our threat model where flags service needs auth tokens to validate requests.
@@ -181,6 +184,34 @@ def _serialize_team_field(field: str, value: Any) -> Any:
     elif field == "session_recording_sample_rate":
         return float(value) if value is not None else None
     return value
+
+
+def _track_cache_expiry(team: Team | str | int, ttl_seconds: int) -> None:
+    """
+    Track cache expiration in Redis sorted set for efficient expiry queries.
+
+    Args:
+        team: Team object, API token string, or team ID
+        ttl_seconds: TTL in seconds from now
+    """
+    try:
+        import time
+
+        redis_client = get_client()
+
+        # Get team token for tracking
+        if isinstance(team, Team):
+            token = team.api_token
+        elif isinstance(team, str):
+            token = team
+        else:
+            # If team ID, need to fetch token - but this is rare, skip tracking
+            return
+
+        expiration_timestamp = time.time() + ttl_seconds
+        redis_client.zadd(TEAM_CACHE_EXPIRY_SORTED_SET, {token: expiration_timestamp})
+    except Exception as e:
+        logger.warning("Failed to track cache expiry in sorted set", error=str(e), error_type=type(e).__name__)
 
 
 def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMissing:
@@ -263,12 +294,13 @@ def get_team_metadata(team: Team | str | int) -> dict[str, Any] | None:
     return team_metadata_hypercache.get_from_cache(team)
 
 
-def update_team_metadata_cache(team: Team | str | int) -> bool:
+def update_team_metadata_cache(team: Team | str | int, ttl: int | None = None) -> bool:
     """
     Update the metadata cache for a specific team.
 
     Args:
         team: Team object, API token string, or team ID
+        ttl: Optional custom TTL in seconds (defaults to TEAM_METADATA_CACHE_TTL)
 
     Returns:
         True if cache update succeeded, False otherwise
@@ -276,7 +308,7 @@ def update_team_metadata_cache(team: Team | str | int) -> bool:
     import time
 
     start = time.time()
-    success = team_metadata_hypercache.update_cache(team)
+    success = team_metadata_hypercache.update_cache(team, ttl=ttl)
     duration = time.time() - start
 
     TEAM_METADATA_CACHE_UPDATE_DURATION_HISTOGRAM.observe(duration)
@@ -285,6 +317,10 @@ def update_team_metadata_cache(team: Team | str | int) -> bool:
 
     if not success:
         logger.warning("Failed to update metadata cache", team_id=team_id, duration=duration)
+    else:
+        # Track expiration in sorted set for efficient queries
+        ttl_seconds = ttl if ttl is not None else TEAM_METADATA_CACHE_TTL
+        _track_cache_expiry(team, ttl_seconds)
 
     return success
 
@@ -298,6 +334,22 @@ def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = 
         kinds: Optional list of cache types to clear (["redis", "s3"])
     """
     team_metadata_hypercache.clear_cache(team, kinds=kinds)
+
+    # Remove from expiry tracking sorted set
+    try:
+        redis_client = get_client()
+
+        if isinstance(team, Team):
+            token = team.api_token
+        elif isinstance(team, str):
+            token = team
+        else:
+            # If team ID, skip sorted set cleanup (rare case)
+            return
+
+        redis_client.zrem(TEAM_CACHE_EXPIRY_SORTED_SET, token)
+    except Exception as e:
+        logger.warning("Failed to remove from expiry tracking", error=str(e), error_type=type(e).__name__)
 
 
 def invalidate_all_team_metadata_caches() -> int:
@@ -318,6 +370,9 @@ def invalidate_all_team_metadata_caches() -> int:
             redis_client.delete(key)
             deleted += 1
 
+        # Clear the expiry tracking sorted set
+        redis_client.delete(TEAM_CACHE_EXPIRY_SORTED_SET)
+
         TEAM_METADATA_CACHE_INVALIDATION_COUNTER.inc()
 
         logger.info("Invalidated all team metadata caches", deleted_keys=deleted)
@@ -333,30 +388,12 @@ def invalidate_all_team_metadata_caches() -> int:
 # ===================================================================
 
 
-def _extract_token_from_cache_key(cache_key: str) -> str | None:
-    """
-    Extract API token from cache key using HyperCache format.
-
-    HyperCache keys follow format: cache/team_tokens/{token}/namespace/value
-
-    Args:
-        cache_key: Full cache key string
-
-    Returns:
-        API token if found, None otherwise
-    """
-    parts = cache_key.split("/")
-    if len(parts) >= 3 and parts[1] == "team_tokens":
-        return parts[2]
-    return None
-
-
 def get_teams_with_expiring_caches(ttl_threshold_hours: int = 24) -> list[Team]:
     """
-    Get teams whose caches are expiring soon.
+    Get teams whose caches are expiring soon using sorted set for efficient lookup.
 
-    Scans Redis for cache keys with TTL below threshold and returns the corresponding teams.
-    This is used by the hourly job to refresh caches before they expire.
+    Uses ZRANGEBYSCORE on the expiry tracking sorted set instead of scanning all Redis keys.
+    This is O(log N + M) where M is the number of expiring teams, vs O(N) for SCAN.
 
     Args:
         ttl_threshold_hours: Refresh caches expiring within this many hours
@@ -364,20 +401,19 @@ def get_teams_with_expiring_caches(ttl_threshold_hours: int = 24) -> list[Team]:
     Returns:
         List of Team objects whose caches need refresh
     """
-    expiring_tokens = []
-
     try:
-        redis_client = get_client()
-        pattern = "cache/team_tokens/*/team_metadata/full_metadata.json"
-        ttl_threshold_seconds = ttl_threshold_hours * 3600
+        import time
 
-        for key in redis_client.scan_iter(match=pattern, count=1000):
-            ttl = redis_client.ttl(key)
-            if 0 < ttl < ttl_threshold_seconds:
-                key_str = key.decode("utf-8") if isinstance(key, bytes) else key
-                token = _extract_token_from_cache_key(key_str)
-                if token:
-                    expiring_tokens.append(token)
+        redis_client = get_client()
+
+        # Query sorted set for teams expiring within threshold
+        threshold_timestamp = time.time() + (ttl_threshold_hours * 3600)
+
+        # Get tokens of teams expiring before threshold (score is expiration timestamp)
+        expiring_tokens = redis_client.zrangebyscore(TEAM_CACHE_EXPIRY_SORTED_SET, "-inf", threshold_timestamp)
+
+        # Decode bytes to strings
+        expiring_tokens = [token.decode("utf-8") if isinstance(token, bytes) else token for token in expiring_tokens]
 
         if not expiring_tokens:
             logger.info("No caches expiring soon")
@@ -404,7 +440,7 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24) -> tuple[int, int]:
     Refresh caches that are expiring soon to prevent cache misses.
 
     This is the main hourly job that keeps caches fresh. It:
-    1. Finds all cache entries with TTL < threshold
+    1. Finds all cache entries with TTL < threshold (using sorted set)
     2. Refreshes them with new data and full TTL
 
     Args:
@@ -440,6 +476,48 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24) -> tuple[int, int]:
     )
 
     return successful, failed
+
+
+def cleanup_stale_expiry_tracking() -> int:
+    """
+    Clean up orphaned entries in the expiry tracking sorted set.
+
+    Removes entries for teams that no longer exist in the database.
+    Should be run periodically (e.g., daily) to prevent sorted set bloat.
+
+    Returns:
+        Number of stale entries removed
+    """
+    try:
+        redis_client = get_client()
+
+        # Get all tokens from sorted set
+        all_tokens = redis_client.zrange(TEAM_CACHE_EXPIRY_SORTED_SET, 0, -1)
+        all_tokens = [token.decode("utf-8") if isinstance(token, bytes) else token for token in all_tokens]
+
+        if not all_tokens:
+            logger.info("No entries in expiry tracking sorted set")
+            return 0
+
+        # Query DB for valid tokens
+        valid_tokens = set(Team.objects.filter(api_token__in=all_tokens).values_list("api_token", flat=True))
+
+        # Find stale tokens
+        stale_tokens = [token for token in all_tokens if token not in valid_tokens]
+
+        # Remove stale entries
+        if stale_tokens:
+            redis_client.zrem(TEAM_CACHE_EXPIRY_SORTED_SET, *stale_tokens)
+            logger.info("Cleaned up stale expiry tracking entries", removed_count=len(stale_tokens))
+            return len(stale_tokens)
+
+        logger.info("No stale entries found in expiry tracking")
+        return 0
+
+    except Exception as e:
+        logger.exception("Error cleaning up stale expiry tracking", error=str(e))
+        capture_exception(e)
+        return 0
 
 
 def warm_all_team_caches(
@@ -496,7 +574,7 @@ def warm_all_team_caches(
             try:
                 if stagger_ttl:
                     ttl_seconds = random.randint(min_ttl_days * 24 * 3600, max_ttl_days * 24 * 3600)
-                    team_metadata_hypercache.update_cache(team, ttl=ttl_seconds)
+                    update_team_metadata_cache(team, ttl=ttl_seconds)
                 else:
                     update_team_metadata_cache(team)
 

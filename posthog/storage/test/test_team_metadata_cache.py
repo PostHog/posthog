@@ -116,9 +116,12 @@ class TestTeamMetadataCacheSignals(TransactionTestCase):
         super().setUp()
         self.organization = Organization.objects.create(name="Test Org")
 
+    @patch("posthog.tasks.team_metadata.settings")
     @patch("posthog.tasks.team_metadata.update_team_metadata_cache_task.delay")
-    def test_team_save_triggers_update(self, mock_task):
-        """Test that saving a team schedules a cache update."""
+    def test_team_save_triggers_update(self, mock_task, mock_settings):
+        """Test that saving a team schedules a cache update when FLAGS_REDIS_URL is set."""
+        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+
         team = Team.objects.create(
             organization=self.organization,
             name="New Team",
@@ -127,9 +130,13 @@ class TestTeamMetadataCacheSignals(TransactionTestCase):
         # Task should be called with the team ID
         mock_task.assert_called_once_with(team.id)
 
+    @patch("posthog.tasks.team_metadata.settings")
     @patch("posthog.tasks.team_metadata.clear_team_metadata_cache")
-    def test_team_delete_clears_cache(self, mock_clear):
-        """Test that deleting a team clears its cache."""
+    def test_team_delete_clears_cache(self, mock_clear, mock_settings):
+        """Test that deleting a team clears its cache when FLAGS_REDIS_URL is set."""
+        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = False
+
         team = Team.objects.create(
             organization=self.organization,
             name="Test Team",
@@ -139,6 +146,36 @@ class TestTeamMetadataCacheSignals(TransactionTestCase):
 
         # Cache should be cleared
         mock_clear.assert_called_once()
+
+    @patch("posthog.tasks.team_metadata.settings")
+    @patch("posthog.tasks.team_metadata.update_team_metadata_cache_task.delay")
+    def test_team_save_noop_without_flags_redis_url(self, mock_task, mock_settings):
+        """Test that signal is no-op when FLAGS_REDIS_URL is not set."""
+        mock_settings.FLAGS_REDIS_URL = None
+
+        Team.objects.create(
+            organization=self.organization,
+            name="New Team",
+        )
+
+        # Task should NOT be called
+        mock_task.assert_not_called()
+
+    @patch("posthog.tasks.team_metadata.settings")
+    @patch("posthog.tasks.team_metadata.clear_team_metadata_cache")
+    def test_team_delete_noop_without_flags_redis_url(self, mock_clear, mock_settings):
+        """Test that signal is no-op when FLAGS_REDIS_URL is not set."""
+        mock_settings.FLAGS_REDIS_URL = None
+
+        team = Team.objects.create(
+            organization=self.organization,
+            name="Test Team",
+        )
+
+        team.delete()
+
+        # Cache should NOT be cleared
+        mock_clear.assert_not_called()
 
 
 class TestCacheStats(BaseTest):
@@ -176,8 +213,9 @@ class TestGetTeamsWithExpiringCaches(TransactionTestCase):
         self.organization = Organization.objects.create(name="Test Org")
 
     @patch("posthog.storage.team_metadata_cache.get_client")
-    def test_returns_teams_with_expiring_ttl(self, mock_get_client):
-        """Teams with TTL < threshold should be returned."""
+    @patch("posthog.storage.team_metadata_cache.time")
+    def test_returns_teams_with_expiring_ttl(self, mock_time, mock_get_client):
+        """Teams with expiration timestamp < threshold should be returned."""
         team1 = Team.objects.create(
             organization=self.organization,
             name="Team 1",
@@ -189,14 +227,16 @@ class TestGetTeamsWithExpiringCaches(TransactionTestCase):
             ingested_event=True,
         )
 
-        # Mock Redis to return keys with low TTL
+        # Mock current time and Redis sorted set query
+        mock_time.time.return_value = 1000000
         mock_redis = MagicMock()
         mock_get_client.return_value = mock_redis
-        mock_redis.scan_iter.return_value = [
-            f"cache/team_tokens/{team1.api_token}/team_metadata/full_metadata.json".encode(),
-            f"cache/team_tokens/{team2.api_token}/team_metadata/full_metadata.json".encode(),
+
+        # Return teams expiring within next 24 hours
+        mock_redis.zrangebyscore.return_value = [
+            team1.api_token.encode(),
+            team2.api_token.encode(),
         ]
-        mock_redis.ttl.return_value = 3600  # 1 hour (expiring soon)
 
         result = get_teams_with_expiring_caches(ttl_threshold_hours=24)
 
@@ -205,35 +245,41 @@ class TestGetTeamsWithExpiringCaches(TransactionTestCase):
         self.assertIn(team1, result)
         self.assertIn(team2, result)
 
+        # Verify sorted set query was called correctly
+        mock_redis.zrangebyscore.assert_called_once_with(
+            "team_metadata_cache_expiry",
+            "-inf",
+            1000000 + (24 * 3600),  # current_time + 24 hours
+        )
+
     @patch("posthog.storage.team_metadata_cache.get_client")
-    def test_skips_teams_with_fresh_ttl(self, mock_get_client):
-        """Teams with TTL > threshold should not be returned."""
-        team = Team.objects.create(
+    @patch("posthog.storage.team_metadata_cache.time")
+    def test_skips_teams_with_fresh_ttl(self, mock_time, mock_get_client):
+        """Teams with expiration timestamp > threshold should not be returned."""
+        Team.objects.create(
             organization=self.organization,
             name="Team",
             ingested_event=True,
         )
 
-        # Mock Redis to return key with high TTL
+        # Mock Redis sorted set returning empty (no teams expiring soon)
+        mock_time.time.return_value = 1000000
         mock_redis = MagicMock()
         mock_get_client.return_value = mock_redis
-        mock_redis.scan_iter.return_value = [
-            f"cache/team_tokens/{team.api_token}/team_metadata/full_metadata.json".encode(),
-        ]
-        mock_redis.ttl.return_value = 5 * 24 * 3600  # 5 days (fresh)
+        mock_redis.zrangebyscore.return_value = []  # No teams expiring within threshold
 
         result = get_teams_with_expiring_caches(ttl_threshold_hours=24)
 
-        # Team has fresh cache
+        # Team has fresh cache, not returned
         self.assertEqual(len(result), 0)
 
     @patch("posthog.storage.team_metadata_cache.get_client")
     def test_returns_empty_when_no_expiring_caches(self, mock_get_client):
-        """Should return empty list when no caches are expiring."""
-        # Mock Redis to return no keys
+        """Should return empty list when sorted set is empty."""
+        # Mock Redis to return empty sorted set
         mock_redis = MagicMock()
         mock_get_client.return_value = mock_redis
-        mock_redis.scan_iter.return_value = []
+        mock_redis.zrangebyscore.return_value = []
 
         result = get_teams_with_expiring_caches(ttl_threshold_hours=24)
 

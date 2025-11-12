@@ -22,6 +22,7 @@ from posthog.storage.team_metadata_cache import (
     TEAM_METADATA_CACHE_COVERAGE_GAUGE,
     TEAM_METADATA_SIGNAL_UPDATE_COUNTER,
     TEAM_METADATA_TEAMS_PROCESSED_COUNTER,
+    cleanup_stale_expiry_tracking,
     clear_team_metadata_cache,
     get_cache_stats,
     refresh_expiring_caches,
@@ -72,7 +73,7 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
         return
 
     start_time = time.time()
-    logger.info("Starting intelligent team metadata cache sync")
+    logger.info("Starting team metadata cache sync")
 
     try:
         successful, failed = refresh_expiring_caches(ttl_threshold_hours=24)
@@ -116,6 +117,8 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
 @receiver(post_save, sender=Team)
 def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
     """Update team metadata cache when a Team is saved."""
+    if not settings.FLAGS_REDIS_URL:
+        return
 
     def enqueue_task() -> None:
         try:
@@ -135,6 +138,29 @@ def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, creat
 @receiver(pre_delete, sender=Team)
 def clear_team_metadata_cache_on_delete(sender: type[Team], instance: Team, **kwargs: Any) -> None:
     """Clear team metadata cache when a Team is deleted."""
+    if not settings.FLAGS_REDIS_URL:
+        return
+
     # NB: For unit tests, only clear Redis to avoid S3 timestamp issues with frozen time
     kinds = ["redis"] if settings.TEST else None
     clear_team_metadata_cache(instance, kinds=kinds)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+def cleanup_stale_expiry_tracking_task() -> None:
+    """
+    Periodic task to clean up stale entries in the expiry tracking sorted set.
+
+    Removes entries for teams that no longer exist in the database.
+    Runs daily to prevent sorted set bloat from deleted teams.
+    """
+    if not settings.FLAGS_REDIS_URL:
+        logger.info("Flags Redis URL not set, skipping expiry tracking cleanup")
+        return
+
+    try:
+        removed_count = cleanup_stale_expiry_tracking()
+        logger.info("Completed expiry tracking cleanup", removed_count=removed_count)
+    except Exception as e:
+        logger.exception("Failed to cleanup expiry tracking", error=str(e))
+        raise
