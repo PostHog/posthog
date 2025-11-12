@@ -23,7 +23,7 @@ from posthog.storage.team_metadata_cache import (
     TEAM_METADATA_TEAMS_PROCESSED_COUNTER,
     clear_team_metadata_cache,
     get_cache_stats,
-    refresh_stale_caches,
+    refresh_expiring_caches,
     update_team_metadata_cache,
 )
 from posthog.tasks.utils import CeleryQueue
@@ -53,14 +53,15 @@ def update_team_metadata_cache_task(team_id: int) -> None:
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 def refresh_stale_team_metadata_cache() -> None:
     """
-    Intelligently sync metadata cache for teams that need it.
+    Periodic task to refresh team metadata caches before they expire.
 
-    This task runs periodically and only refreshes caches that:
-    1. Are about to expire (within 24 hours by default)
-    2. Are missing for active teams
+    This task runs hourly and refreshes caches with TTL < 24 hours to prevent cache misses.
 
-    Note: Recently updated teams are handled by Django signals automatically,
-    so they don't need to be included here.
+    Note: Most cache updates happen via Django signals when teams change.
+    This job just prevents expiration-related cache misses.
+
+    For initial cache build or schema migrations, use the management command:
+        python manage.py warm_team_metadata_cache [--invalidate-first]
     """
 
     if not settings.FLAGS_REDIS_URL:
@@ -80,10 +81,7 @@ def refresh_stale_team_metadata_cache() -> None:
             ttl_distribution=stats_before.get("ttl_distribution", {}),
         )
 
-        successful, failed = refresh_stale_caches(
-            ttl_threshold_hours=24,
-            batch_size=200,
-        )
+        successful, failed = refresh_expiring_caches(ttl_threshold_hours=24)
 
         TEAM_METADATA_TEAMS_PROCESSED_COUNTER.labels(result="success").inc(successful)
         TEAM_METADATA_TEAMS_PROCESSED_COUNTER.labels(result="failed").inc(failed)
@@ -118,7 +116,6 @@ def refresh_stale_team_metadata_cache() -> None:
         raise
 
 
-# Django signals for real-time cache updates
 @receiver(post_save, sender=Team)
 def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
     """Update team metadata cache when a Team is saved."""
@@ -141,8 +138,6 @@ def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, creat
 @receiver(pre_delete, sender=Team)
 def clear_team_metadata_cache_on_delete(sender: type[Team], instance: Team, **kwargs: Any) -> None:
     """Clear team metadata cache when a Team is deleted."""
-
-    # Clear immediately since the team is about to be deleted
     # NB: For unit tests, only clear Redis to avoid S3 timestamp issues with frozen time
     kinds = ["redis"] if settings.TEST else None
     clear_team_metadata_cache(instance, kinds=kinds)

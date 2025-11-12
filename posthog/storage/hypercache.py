@@ -133,14 +133,14 @@ class HyperCache:
         HYPERCACHE_CACHE_COUNTER.labels(result="hit_db", namespace=self.namespace, value=self.value).inc()
         return data, "db"
 
-    def update_cache(self, key: KeyType) -> bool:
+    def update_cache(self, key: KeyType, ttl: Optional[int] = None) -> bool:
         logger.info(f"Syncing {self.namespace} cache for team {key}")
 
         start_time = time.time()
         success = False
         try:
             data = self.load_fn(key)
-            self.set_cache_value(key, data)
+            self.set_cache_value(key, data, ttl=ttl)
             success = True
             return True
         except Exception as e:
@@ -155,8 +155,10 @@ class HyperCache:
             )
             CACHE_SYNC_COUNTER.labels(result=result, namespace=self.namespace, value=self.value).inc()
 
-    def set_cache_value(self, key: KeyType, data: dict | None | HyperCacheStoreMissing) -> None:
-        self._set_cache_value_redis(key, data)
+    def set_cache_value(
+        self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
+    ) -> None:
+        self._set_cache_value_redis(key, data, ttl=ttl)
         self._set_cache_value_s3(key, data)
 
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
@@ -169,12 +171,15 @@ class HyperCache:
         if "s3" in kinds:
             object_storage.delete(self.get_cache_key(key))
 
-    def _set_cache_value_redis(self, key: KeyType, data: dict | None | HyperCacheStoreMissing):
+    def _set_cache_value_redis(
+        self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
+    ):
         key = self.get_cache_key(key)
         if data is None or isinstance(data, HyperCacheStoreMissing):
             self.cache_client.set(key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
         else:
-            self.cache_client.set(key, json.dumps(data), timeout=self.cache_ttl)
+            timeout = ttl if ttl is not None else self.cache_ttl
+            self.cache_client.set(key, json.dumps(data), timeout=timeout)
 
     def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing):
         key = self.get_cache_key(key)

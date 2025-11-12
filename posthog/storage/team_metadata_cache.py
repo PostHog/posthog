@@ -29,8 +29,7 @@ Note: Redis adds ~100 bytes overhead per key. S3 storage uses similar compressio
 """
 
 import os
-import re
-from datetime import UTC, datetime
+import random
 from typing import Any
 
 from django.conf import settings
@@ -73,11 +72,9 @@ TEAM_METADATA_CACHE_COVERAGE_GAUGE = Gauge(
 )
 
 
-# Cache TTL constants (in seconds) - configurable via environment variables
-TEAM_METADATA_CACHE_TTL = int(os.environ.get("TEAM_METADATA_CACHE_TTL", str(60 * 60 * 24 * 7)))  # Default: 7 days
-TEAM_METADATA_CACHE_MISS_TTL = int(os.environ.get("TEAM_METADATA_CACHE_MISS_TTL", str(60 * 60 * 24)))  # Default: 1 day
+TEAM_METADATA_CACHE_TTL = int(os.environ.get("TEAM_METADATA_CACHE_TTL", str(60 * 60 * 24 * 7)))
+TEAM_METADATA_CACHE_MISS_TTL = int(os.environ.get("TEAM_METADATA_CACHE_MISS_TTL", str(60 * 60 * 24)))
 
-# List of fields to cache - full team object with 38 core fields
 # NOTE: Includes secret tokens (api_token, secret_api_token, secret_api_token_backup)
 # for flags service consumption. These are stored in dedicated redis + potentially S3.
 # This is acceptable for our threat model where flags service needs auth tokens to validate requests.
@@ -164,7 +161,6 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
                 team.organization.name if hasattr(team, "organization") and team.organization else None
             )
             metadata["project_name"] = team.project.name if hasattr(team, "project") and team.project else None
-            metadata["last_updated"] = datetime.now(UTC).isoformat()
 
             return metadata
 
@@ -185,7 +181,6 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
 # Module initialization
 # ===================================================================
 
-# Use dedicated flags cache if available, otherwise fall back to shared cache
 if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES:
     _team_metadata_cache_client = caches[FLAGS_DEDICATED_CACHE_ALIAS]
 else:
@@ -250,46 +245,61 @@ def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = 
     team_metadata_hypercache.clear_cache(team, kinds=kinds)
 
 
+def invalidate_all_team_metadata_caches() -> int:
+    """
+    Invalidate all team metadata caches.
+
+    Used internally by warm_all_team_caches when run with --invalidate-first.
+
+    Returns:
+        Number of cache keys deleted
+    """
+    try:
+        redis_client = get_client()
+        pattern = "cache/team_tokens/*/team_metadata/*"
+
+        deleted = 0
+        for key in redis_client.scan_iter(match=pattern, count=1000):
+            redis_client.delete(key)
+            deleted += 1
+
+        logger.info("Invalidated all team metadata caches", deleted_keys=deleted)
+        return deleted
+    except Exception as e:
+        logger.exception("Failed to invalidate team metadata caches", error=str(e))
+        capture_exception(e)
+        return 0
+
+
 # ===================================================================
 # Batch refresh operations
 # ===================================================================
 
 
-def get_teams_needing_refresh(
-    ttl_threshold_hours: int = 24,
-    batch_size: int = 100,
-) -> list[Team]:
+def get_teams_with_expiring_caches(ttl_threshold_hours: int = 24) -> list[Team]:
     """
-    Get teams that need their cache refreshed.
+    Get teams whose caches are expiring soon.
 
-    Strategy:
-    1. Teams with expiring caches (within ttl_threshold_hours), prioritizing oldest first
-    2. Active teams with missing caches (fallback if we have capacity)
-
-    Note: Recently updated teams are handled by Django signals, so we don't need to
-    explicitly refresh them here.
+    Scans Redis for cache keys with TTL below threshold and returns the corresponding teams.
+    This is used by the hourly job to refresh caches before they expire.
 
     Args:
-        ttl_threshold_hours: Refresh caches that will expire within this many hours
-        batch_size: Maximum number of teams to return
+        ttl_threshold_hours: Refresh caches expiring within this many hours
 
     Returns:
-        List of Team objects that need cache refresh, ordered by priority
+        List of Team objects whose caches need refresh
     """
-    teams_to_refresh: list[Team] = []
+    import re
 
-    expiring_tokens: list[str] = []
+    expiring_tokens = []
+
     try:
         redis_client = get_client()
-        pattern = f"cache/team_tokens/*/team_metadata/full_metadata.json"
-
+        pattern = "cache/team_tokens/*/team_metadata/full_metadata.json"
         ttl_threshold_seconds = ttl_threshold_hours * 3600
         token_pattern = r"cache/team_tokens/([^/]+)/"
 
         for key in redis_client.scan_iter(match=pattern, count=1000):
-            if len(expiring_tokens) >= batch_size:
-                break
-
             ttl = redis_client.ttl(key)
             if 0 < ttl < ttl_threshold_seconds:
                 key_str = key.decode("utf-8") if isinstance(key, bytes) else key
@@ -297,53 +307,44 @@ def get_teams_needing_refresh(
                 if match:
                     expiring_tokens.append(match.group(1))
 
-        if expiring_tokens:
-            teams = Team.objects.filter(api_token__in=expiring_tokens).order_by("updated_at")[:batch_size]
-            teams_to_refresh.extend(teams)
+        if not expiring_tokens:
+            logger.info("No caches expiring soon")
+            return []
 
-    except Exception as e:
-        logger.warning("Error checking cache TTLs", error=str(e))
+        teams = list(Team.objects.filter(api_token__in=expiring_tokens).select_related("organization", "project"))
 
-    if len(teams_to_refresh) < batch_size:
-        remaining = batch_size - len(teams_to_refresh)
-
-        existing_team_ids = [t.id for t in teams_to_refresh]
-        additional_teams = (
-            Team.objects.exclude(id__in=existing_team_ids)
-            .filter(ingested_event=True)
-            .order_by("-updated_at")[:remaining]
+        logger.info(
+            "Found teams with expiring caches",
+            team_count=len(teams),
+            ttl_threshold_hours=ttl_threshold_hours,
         )
 
-        teams_to_refresh.extend(additional_teams)
+        return teams
 
-    expiring_tokens_set = set(expiring_tokens)
-    logger.info(
-        "Found teams needing cache refresh",
-        team_count=len(teams_to_refresh),
-        expiring_cache_count=len([t for t in teams_to_refresh if t.api_token in expiring_tokens_set]),
-    )
-
-    return teams_to_refresh
+    except Exception as e:
+        logger.exception("Error finding expiring caches", error=str(e))
+        capture_exception(e)
+        return []
 
 
-def refresh_stale_caches(
-    ttl_threshold_hours: int = 24,
-    batch_size: int = 100,
-) -> tuple[int, int]:
+def refresh_expiring_caches(ttl_threshold_hours: int = 24) -> tuple[int, int]:
     """
-    Refresh caches for teams that need it based on intelligent criteria.
+    Refresh caches that are expiring soon to prevent cache misses.
+
+    This is the main hourly job that keeps caches fresh. It:
+    1. Finds all cache entries with TTL < threshold
+    2. Refreshes them with new data and full TTL
 
     Args:
         ttl_threshold_hours: Refresh caches expiring within this many hours
-        batch_size: Maximum number of teams to refresh in one run
 
     Returns:
         Tuple of (successful_refreshes, failed_refreshes)
     """
-    teams = get_teams_needing_refresh(
-        ttl_threshold_hours=ttl_threshold_hours,
-        batch_size=batch_size,
-    )
+    teams = get_teams_with_expiring_caches(ttl_threshold_hours=ttl_threshold_hours)
+
+    if not teams:
+        return 0, 0
 
     successful = 0
     failed = 0
@@ -355,15 +356,102 @@ def refresh_stale_caches(
             else:
                 failed += 1
         except Exception as e:
-            logger.exception("Error refreshing cache for team", team_id=team.id, error=str(e))
+            logger.exception("Error refreshing expiring cache", team_id=team.id, error=str(e))
             capture_exception(e)
             failed += 1
 
     logger.info(
-        "Cache refresh completed",
+        "Expiring cache refresh completed",
         successful=successful,
         failed=failed,
         total_teams=len(teams),
+    )
+
+    return successful, failed
+
+
+def warm_all_team_caches(
+    batch_size: int = 100,
+    invalidate_first: bool = False,
+    stagger_ttl: bool = True,
+    min_ttl_days: int = 5,
+    max_ttl_days: int = 7,
+) -> tuple[int, int]:
+    """
+    Warm cache for all teams.
+
+    Run as a management command for initial cache build or when schema changes require
+    cache invalidation. Processes all teams in batches with staggered TTLs to avoid
+    synchronized expiration. Continues on errors.
+
+    Args:
+        batch_size: Number of teams to process at a time
+        invalidate_first: If True, clear all caches before warming
+        stagger_ttl: If True, randomize TTLs between min/max to avoid synchronized expiration
+        min_ttl_days: Minimum TTL in days (when staggering)
+        max_ttl_days: Maximum TTL in days (when staggering)
+
+    Returns:
+        Tuple of (successful_updates, failed_updates)
+    """
+    if invalidate_first:
+        logger.info("Invalidating all existing caches before warming")
+        invalidated = invalidate_all_team_metadata_caches()
+        logger.info("Invalidated caches", count=invalidated)
+
+    teams_queryset = Team.objects.select_related("organization", "project")
+    total_teams = teams_queryset.count()
+
+    logger.info(
+        "Starting cache warm",
+        total_teams=total_teams,
+        batch_size=batch_size,
+        stagger_ttl=stagger_ttl,
+        invalidate_first=invalidate_first,
+    )
+
+    successful = 0
+    failed = 0
+    processed = 0
+
+    last_id = 0
+    while True:
+        batch = list(teams_queryset.filter(id__gt=last_id).order_by("id")[:batch_size])
+        if not batch:
+            break
+
+        for team in batch:
+            try:
+                if stagger_ttl:
+                    ttl_seconds = random.randint(min_ttl_days * 24 * 3600, max_ttl_days * 24 * 3600)
+                    team_metadata_hypercache.update_cache(team, ttl=ttl_seconds)
+                else:
+                    update_team_metadata_cache(team)
+
+                successful += 1
+            except Exception as e:
+                logger.warning("Failed to warm cache for team", team_id=team.id, error=str(e))
+                failed += 1
+
+            processed += 1
+
+        last_id = batch[-1].id
+
+        if processed % (batch_size * 10) == 0:
+            logger.info(
+                "Cache warm progress",
+                processed=processed,
+                total=total_teams,
+                successful=successful,
+                failed=failed,
+                percent=round(100 * processed / total_teams, 1),
+            )
+
+    logger.info(
+        "Cache warm completed",
+        total_teams=total_teams,
+        successful=successful,
+        failed=failed,
     )
 
     return successful, failed

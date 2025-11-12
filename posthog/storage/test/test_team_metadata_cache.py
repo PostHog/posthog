@@ -17,7 +17,7 @@ from posthog.storage.team_metadata_cache import (
     TEAM_METADATA_TEAMS_PROCESSED_COUNTER,
     clear_team_metadata_cache,
     get_team_metadata,
-    get_teams_needing_refresh,
+    get_teams_with_expiring_caches,
     update_team_metadata_cache,
 )
 from posthog.tasks.team_metadata import refresh_stale_team_metadata_cache, update_team_metadata_cache_task
@@ -172,126 +172,76 @@ class TestCacheStats(BaseTest):
         self.assertEqual(stats["ttl_distribution"]["expires_24h"], 1)
 
 
-class TestGetTeamsNeedingRefresh(TransactionTestCase):
-    """Test get_teams_needing_refresh query performance."""
+class TestGetTeamsWithExpiringCaches(TransactionTestCase):
+    """Test get_teams_with_expiring_caches functionality."""
 
     def setUp(self):
         super().setUp()
         self.organization = Organization.objects.create(name="Test Org")
 
     @patch("posthog.storage.team_metadata_cache.get_client")
-    def test_query_count_with_few_teams(self, mock_get_client):
-        """Test that query count is constant with 3 teams."""
-        # Create 3 teams
-        teams = [
-            Team.objects.create(
-                organization=self.organization,
-                name=f"Team {i}",
-                ingested_event=True,
-            )
-            for i in range(3)
-        ]
+    def test_returns_teams_with_expiring_ttl(self, mock_get_client):
+        """Teams with TTL < threshold should be returned."""
+        team1 = Team.objects.create(
+            organization=self.organization,
+            name="Team 1",
+            ingested_event=True,
+        )
+        team2 = Team.objects.create(
+            organization=self.organization,
+            name="Team 2",
+            ingested_event=True,
+        )
 
-        # Mock Redis to return expiring tokens for 2 teams
+        # Mock Redis to return keys with low TTL
         mock_redis = MagicMock()
         mock_get_client.return_value = mock_redis
         mock_redis.scan_iter.return_value = [
-            f"cache/team_tokens/{teams[0].api_token}/team_metadata/full_metadata.json".encode(),
-            f"cache/team_tokens/{teams[1].api_token}/team_metadata/full_metadata.json".encode(),
+            f"cache/team_tokens/{team1.api_token}/team_metadata/full_metadata.json".encode(),
+            f"cache/team_tokens/{team2.api_token}/team_metadata/full_metadata.json".encode(),
         ]
-        mock_redis.ttl.return_value = 3600  # 1 hour TTL (expiring soon)
+        mock_redis.ttl.return_value = 3600  # 1 hour (expiring soon)
 
-        # Should be exactly 2 queries:
-        # 1. Get teams with expiring caches
-        # 2. Get additional active teams (if needed)
-        with self.assertNumQueries(2):
-            result = get_teams_needing_refresh(batch_size=10)
+        result = get_teams_with_expiring_caches(ttl_threshold_hours=24)
 
-        self.assertGreater(len(result), 0)
+        # Both teams have expiring caches
+        self.assertEqual(len(result), 2)
+        self.assertIn(team1, result)
+        self.assertIn(team2, result)
 
     @patch("posthog.storage.team_metadata_cache.get_client")
-    def test_query_count_with_many_teams(self, mock_get_client):
-        """Test that query count remains constant with 50 teams."""
-        # Create 50 teams
-        teams = [
-            Team.objects.create(
-                organization=self.organization,
-                name=f"Team {i}",
-                ingested_event=True,
-            )
-            for i in range(50)
-        ]
+    def test_skips_teams_with_fresh_ttl(self, mock_get_client):
+        """Teams with TTL > threshold should not be returned."""
+        team = Team.objects.create(
+            organization=self.organization,
+            name="Team",
+            ingested_event=True,
+        )
 
-        # Mock Redis to return expiring tokens for 20 teams
+        # Mock Redis to return key with high TTL
         mock_redis = MagicMock()
         mock_get_client.return_value = mock_redis
-        expiring_keys = [
-            f"cache/team_tokens/{team.api_token}/team_metadata/full_metadata.json".encode() for team in teams[:20]
+        mock_redis.scan_iter.return_value = [
+            f"cache/team_tokens/{team.api_token}/team_metadata/full_metadata.json".encode(),
         ]
-        mock_redis.scan_iter.return_value = expiring_keys
-        mock_redis.ttl.return_value = 3600  # 1 hour TTL
+        mock_redis.ttl.return_value = 5 * 24 * 3600  # 5 days (fresh)
 
-        # Should still be exactly 2 queries regardless of team count
-        with self.assertNumQueries(2):
-            result = get_teams_needing_refresh(batch_size=100)
+        result = get_teams_with_expiring_caches(ttl_threshold_hours=24)
 
-        self.assertGreater(len(result), 0)
-        # Should get the 20 teams with expiring caches plus up to 80 more
-        self.assertLessEqual(len(result), 100)
+        # Team has fresh cache
+        self.assertEqual(len(result), 0)
 
     @patch("posthog.storage.team_metadata_cache.get_client")
-    def test_query_count_when_batch_filled_by_expiring(self, mock_get_client):
-        """Test query count when batch_size is filled by expiring caches only."""
-        # Create 20 teams
-        teams = [
-            Team.objects.create(
-                organization=self.organization,
-                name=f"Team {i}",
-                ingested_event=True,
-            )
-            for i in range(20)
-        ]
-
-        # Mock Redis to return expiring tokens for all 20 teams
+    def test_returns_empty_when_no_expiring_caches(self, mock_get_client):
+        """Should return empty list when no caches are expiring."""
+        # Mock Redis to return no keys
         mock_redis = MagicMock()
         mock_get_client.return_value = mock_redis
-        expiring_keys = [
-            f"cache/team_tokens/{team.api_token}/team_metadata/full_metadata.json".encode() for team in teams
-        ]
-        mock_redis.scan_iter.return_value = expiring_keys
-        mock_redis.ttl.return_value = 3600  # 1 hour TTL
+        mock_redis.scan_iter.return_value = []
 
-        # When batch_size is filled by expiring caches, should only be 1 query
-        # (no need for the second query to find additional active teams)
-        with self.assertNumQueries(1):
-            result = get_teams_needing_refresh(batch_size=10)
+        result = get_teams_with_expiring_caches(ttl_threshold_hours=24)
 
-        self.assertEqual(len(result), 10)
-
-    @patch("posthog.storage.team_metadata_cache.get_client")
-    def test_query_count_with_redis_error(self, mock_get_client):
-        """Test that query count is still constant even when Redis fails."""
-        # Create 10 teams
-        for i in range(10):
-            Team.objects.create(
-                organization=self.organization,
-                name=f"Team {i}",
-                ingested_event=True,
-            )
-
-        # Mock Redis to raise an exception
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.scan_iter.side_effect = Exception("Redis connection failed")
-
-        # Should gracefully handle the error and fall back to DB-only query
-        # Should be exactly 1 query (finding active teams)
-        with self.assertNumQueries(1):
-            result = get_teams_needing_refresh(batch_size=5)
-
-        # Should still return teams (from the fallback query)
-        self.assertGreater(len(result), 0)
-        self.assertLessEqual(len(result), 5)
+        self.assertEqual(len(result), 0)
 
 
 class TestTeamMetadataCacheBatchMetrics(BaseTest):
