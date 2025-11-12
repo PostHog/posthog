@@ -185,7 +185,7 @@ describe('utils', () => {
                     properties: [],
                     rollout_percentage: 100,
                     description:
-                        'Added by shipping experiment variant - enables 100% rollout of selected variant to all users',
+                        'Added automatically when the experiment variant was shipped',
                 },
                 { properties: [], rollout_percentage: 100 },
             ],
