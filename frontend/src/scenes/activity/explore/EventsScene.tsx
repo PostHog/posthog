@@ -22,10 +22,10 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
         <SceneContent>
             <LemonTabs activeKey={ActivityTab.ExploreEvents} tabs={tabs} sceneInset className="mb-3" />
             <SceneTitleSection
-                name={sceneConfigurations[Scene.ExploreEvents].name}
-                description={sceneConfigurations[Scene.ExploreEvents].description}
+                name={sceneConfigurations[Scene.Activity].name}
+                description={sceneConfigurations[Scene.Activity].description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.ExploreEvents].iconType || 'default_icon_type',
+                    type: sceneConfigurations[Scene.Activity].iconType || 'default_icon_type',
                 }}
             />
             <Query
