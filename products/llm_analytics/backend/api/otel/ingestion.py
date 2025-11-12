@@ -23,6 +23,8 @@ from rest_framework.response import Response
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import Team
 
+from .parser import parse_baggage_header, parse_otlp_request
+
 logger = structlog.get_logger(__name__)
 
 # OpenTelemetry limits (aligned with plugin-server validation)
@@ -118,30 +120,45 @@ def otel_traces_endpoint(request: HttpRequest, project_id: int) -> Response:
     )
 
     try:
-        # Parse OTLP protobuf (TODO: implement parser)
-        # For now, return a placeholder response
-        # parsed_request = parse_otlp_trace_request(protobuf_data)
+        # Parse baggage from headers (for session context)
+        baggage_header = request.headers.get("baggage")
+        baggage = parse_baggage_header(baggage_header) if baggage_header else {}
+
+        # Parse OTLP protobuf
+        parsed_request = parse_otlp_trace_request(protobuf_data)
+
+        logger.info(
+            "otel_traces_parsed",
+            team_id=team.id,
+            spans_count=len(parsed_request["spans"]),
+            has_baggage=bool(baggage),
+        )
 
         # Validate request
-        # validation_errors = validate_otlp_request(parsed_request)
-        # if validation_errors:
-        #     return Response(
-        #         {"errors": validation_errors},
-        #         status=status.HTTP_400_BAD_REQUEST,
-        #     )
+        validation_errors = validate_otlp_request(parsed_request)
+        if validation_errors:
+            logger.warning(
+                "otel_traces_validation_failed",
+                team_id=team.id,
+                errors=validation_errors,
+            )
+            return Response(
+                {"error": "Validation failed", "details": validation_errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        # Transform spans to AI events
-        # events = transform_spans_to_ai_events(parsed_request, team)
+        # Transform spans to AI events (TODO: Step 2)
+        # events = transform_spans_to_ai_events(parsed_request, baggage, team)
 
-        # Route to capture pipeline
+        # Route to capture pipeline (TODO: Step 3)
         # capture_events(events, team)
 
         return Response(
             {
                 "status": "success",
-                "message": "Traces accepted for processing (stub implementation)",
-                # "spans_received": len(parsed_request.spans),
-                # "events_created": len(events),
+                "message": "Traces parsed and validated successfully",
+                "spans_received": len(parsed_request["spans"]),
+                # "events_created": len(events),  # Will add in step 3
             },
             status=status.HTTP_200_OK,
         )
@@ -174,13 +191,12 @@ def parse_otlp_trace_request(protobuf_data: bytes) -> dict[str, Any]:
     """
     Parse OTLP ExportTraceServiceRequest from protobuf bytes.
 
-    TODO: Implement using opentelemetry-proto package
-
     Returns dict with:
-    - resource_spans: list of ResourceSpans
-    - spans: flattened list of Span objects
+    - spans: list of parsed span dicts
+    - resource: dict of resource attributes
+    - scope: dict of instrumentation scope info
     """
-    raise NotImplementedError("OTLP protobuf parsing not yet implemented")
+    return parse_otlp_request(protobuf_data)
 
 
 def validate_otlp_request(parsed_request: dict[str, Any]) -> list[dict[str, Any]]:
@@ -190,12 +206,80 @@ def validate_otlp_request(parsed_request: dict[str, Any]) -> list[dict[str, Any]
     Returns list of validation errors (empty if valid).
     """
     errors = []
+    spans = parsed_request.get("spans", [])
 
-    # TODO: Implement validation
-    # - Check span count
-    # - Check attribute counts
-    # - Check attribute value sizes
-    # - Check span name lengths
+    # Check span count
+    if len(spans) > OTEL_LIMITS["MAX_SPANS_PER_REQUEST"]:
+        errors.append(
+            {
+                "field": "request.spans",
+                "value": len(spans),
+                "limit": OTEL_LIMITS["MAX_SPANS_PER_REQUEST"],
+                "message": f"Request contains {len(spans)} spans, maximum is {OTEL_LIMITS['MAX_SPANS_PER_REQUEST']}. Configure batch size in your OTel SDK (e.g., OTEL_BSP_MAX_EXPORT_BATCH_SIZE).",
+            }
+        )
+
+    # Validate each span
+    for i, span in enumerate(spans):
+        # Check span name length
+        span_name = span.get("name", "")
+        if len(span_name) > OTEL_LIMITS["MAX_SPAN_NAME_LENGTH"]:
+            errors.append(
+                {
+                    "field": f"span[{i}].name",
+                    "value": len(span_name),
+                    "limit": OTEL_LIMITS["MAX_SPAN_NAME_LENGTH"],
+                    "message": f"Span name exceeds {OTEL_LIMITS['MAX_SPAN_NAME_LENGTH']} characters.",
+                }
+            )
+
+        # Check attribute count
+        attributes = span.get("attributes", {})
+        if len(attributes) > OTEL_LIMITS["MAX_ATTRIBUTES_PER_SPAN"]:
+            errors.append(
+                {
+                    "field": f"span[{i}].attributes",
+                    "value": len(attributes),
+                    "limit": OTEL_LIMITS["MAX_ATTRIBUTES_PER_SPAN"],
+                    "message": f"Span has {len(attributes)} attributes, maximum is {OTEL_LIMITS['MAX_ATTRIBUTES_PER_SPAN']}.",
+                }
+            )
+
+        # Check attribute value sizes
+        for key, value in attributes.items():
+            if isinstance(value, str) and len(value) > OTEL_LIMITS["MAX_ATTRIBUTE_VALUE_LENGTH"]:
+                errors.append(
+                    {
+                        "field": f"span[{i}].attributes.{key}",
+                        "value": len(value),
+                        "limit": OTEL_LIMITS["MAX_ATTRIBUTE_VALUE_LENGTH"],
+                        "message": f"Attribute '{key}' exceeds {OTEL_LIMITS['MAX_ATTRIBUTE_VALUE_LENGTH']} bytes ({len(value)} bytes). Consider reducing payload size.",
+                    }
+                )
+
+        # Check event count
+        events = span.get("events", [])
+        if len(events) > OTEL_LIMITS["MAX_EVENTS_PER_SPAN"]:
+            errors.append(
+                {
+                    "field": f"span[{i}].events",
+                    "value": len(events),
+                    "limit": OTEL_LIMITS["MAX_EVENTS_PER_SPAN"],
+                    "message": f"Span has {len(events)} events, maximum is {OTEL_LIMITS['MAX_EVENTS_PER_SPAN']}.",
+                }
+            )
+
+        # Check link count
+        links = span.get("links", [])
+        if len(links) > OTEL_LIMITS["MAX_LINKS_PER_SPAN"]:
+            errors.append(
+                {
+                    "field": f"span[{i}].links",
+                    "value": len(links),
+                    "limit": OTEL_LIMITS["MAX_LINKS_PER_SPAN"],
+                    "message": f"Span has {len(links)} links, maximum is {OTEL_LIMITS['MAX_LINKS_PER_SPAN']}.",
+                }
+            )
 
     return errors
 
