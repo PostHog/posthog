@@ -123,6 +123,11 @@ TEAM_METADATA_FIELDS = [
 ]
 
 
+# ===================================================================
+# Private helpers
+# ===================================================================
+
+
 def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMissing:
     """
     Load full team metadata from the database.
@@ -176,6 +181,10 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
         return HyperCacheStoreMissing()
 
 
+# ===================================================================
+# Module initialization
+# ===================================================================
+
 # Use dedicated flags cache if available, otherwise fall back to shared cache
 if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES:
     _team_metadata_cache_client = caches[FLAGS_DEDICATED_CACHE_ALIAS]
@@ -193,6 +202,11 @@ team_metadata_hypercache = HyperCache(
     cache_miss_ttl=TEAM_METADATA_CACHE_MISS_TTL,
     cache_client=_team_metadata_cache_client,
 )
+
+
+# ===================================================================
+# Public API - Core cache operations
+# ===================================================================
 
 
 def get_team_metadata(team: Team | str | int) -> dict[str, Any] | None:
@@ -242,6 +256,11 @@ def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = 
 
     team_id = team.id if isinstance(team, Team) else "unknown"
     logger.info("Cleared metadata cache", team_id=team_id)
+
+
+# ===================================================================
+# Batch refresh operations
+# ===================================================================
 
 
 def get_teams_needing_refresh(
@@ -356,6 +375,11 @@ def refresh_stale_caches(
     )
 
     return successful, failed
+
+
+# ===================================================================
+# Stats and observability
+# ===================================================================
 
 
 def get_cache_stats() -> dict[str, Any]:

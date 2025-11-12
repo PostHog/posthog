@@ -7,6 +7,7 @@ Provides async tasks for updating and syncing team metadata caches.
 import time
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models.signals import post_save, pre_delete
 from django.dispatch import receiver
@@ -21,6 +22,8 @@ from posthog.storage.team_metadata_cache import (
     TEAM_METADATA_CACHE_COVERAGE_GAUGE,
     TEAM_METADATA_TEAMS_PROCESSED_COUNTER,
     clear_team_metadata_cache,
+    get_cache_stats,
+    refresh_stale_caches,
     update_team_metadata_cache,
 )
 from posthog.tasks.utils import CeleryQueue
@@ -69,7 +72,6 @@ def refresh_stale_team_metadata_cache() -> None:
     Note: Recently updated teams are handled by Django signals automatically,
     so they don't need to be included here.
     """
-    from posthog.storage.team_metadata_cache import get_cache_stats, refresh_stale_caches
 
     start_time = time.time()
     logger.info("Starting intelligent team metadata cache sync")
@@ -77,7 +79,7 @@ def refresh_stale_team_metadata_cache() -> None:
     try:
         stats_before = get_cache_stats()
         logger.info(
-            "Cache stats before refresh",
+            "Team metadata cache stats before refresh",
             total_cached=stats_before.get("total_cached", 0),
             total_teams=stats_before.get("total_teams", 0),
             coverage=stats_before.get("cache_coverage", "unknown"),
@@ -102,7 +104,7 @@ def refresh_stale_team_metadata_cache() -> None:
         TEAM_METADATA_BATCH_REFRESH_COUNTER.labels(result="success").inc()
 
         logger.info(
-            "Completed intelligent team metadata cache sync",
+            "Completed team metadata cache refresh",
             successful_refreshes=successful,
             failed_refreshes=failed,
             cache_coverage_after=stats_after.get("cache_coverage", "unknown"),
@@ -145,9 +147,8 @@ def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, creat
 @receiver(pre_delete, sender=Team)
 def clear_team_metadata_cache_on_delete(sender: type[Team], instance: Team, **kwargs: Any) -> None:
     """Clear team metadata cache when a Team is deleted."""
-    from django.conf import settings
 
     # Clear immediately since the team is about to be deleted
-    # In tests, only clear Redis to avoid S3 timestamp issues with frozen time
+    # NB: For unit tests, only clear Redis to avoid S3 timestamp issues with frozen time
     kinds = ["redis"] if settings.TEST else None
     clear_team_metadata_cache(instance, kinds=kinds)
