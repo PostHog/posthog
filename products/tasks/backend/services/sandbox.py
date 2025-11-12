@@ -9,6 +9,8 @@ from django.conf import settings
 import modal
 from pydantic import BaseModel
 
+from posthog.exceptions_capture import capture_exception
+
 from products.tasks.backend.constants import SETUP_REPOSITORY_PROMPT
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.exceptions import (
@@ -110,6 +112,7 @@ class Sandbox:
                         image = modal.Image.from_id(snapshot.external_id)
                     except Exception as e:
                         logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")
+                        capture_exception(e)
 
             secrets = []
             if config.environment_variables:
@@ -158,8 +161,9 @@ class Sandbox:
             try:
                 process = sb.exec("echo", "test")
                 process.wait()
-            except Exception:
+            except Exception as e:
                 status = SandboxStatus.SHUTDOWN
+                capture_exception(e)
 
             sandbox = Sandbox(sandbox=sb, status=status, config=config)
 
@@ -169,6 +173,7 @@ class Sandbox:
 
         except Exception as e:
             logger.exception(f"Failed to retrieve sandbox {sandbox_id}: {e}")
+            capture_exception(e)
             raise SandboxNotFoundError(f"Sandbox {sandbox_id} not found", {"sandbox_id": sandbox_id, "error": str(e)})
 
     def execute(
@@ -202,12 +207,14 @@ class Sandbox:
 
             return result
 
-        except TimeoutError:
+        except TimeoutError as e:
+            capture_exception(e)
             raise SandboxTimeoutError(
                 f"Execution timed out after {timeout_seconds} seconds",
                 {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
             )
         except Exception as e:
+            capture_exception(e)
             logger.exception(f"Failed to execute command: {e}")
             raise SandboxExecutionError(
                 f"Failed to execute command",
