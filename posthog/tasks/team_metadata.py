@@ -56,10 +56,10 @@ def refresh_stale_team_metadata_cache() -> None:
 
     This task runs periodically and only refreshes caches that:
     1. Are about to expire (within 24 hours by default)
-    2. Belong to recently updated teams (within 1 hour by default)
-    3. Are missing or corrupted
+    2. Are missing for active teams
 
-    This is much more efficient than refreshing all caches blindly.
+    Note: Recently updated teams are handled by Django signals automatically,
+    so they don't need to be included here.
     """
     from posthog.storage.team_metadata_cache import get_cache_stats, refresh_stale_caches
 
@@ -78,7 +78,6 @@ def refresh_stale_team_metadata_cache() -> None:
     # Refresh caches that need it
     successful, failed = refresh_stale_caches(
         ttl_threshold_hours=24,  # Refresh caches expiring in next 24 hours
-        recently_updated_hours=1,  # Include teams updated in last hour
         batch_size=200,  # Process up to 200 teams per run
     )
 

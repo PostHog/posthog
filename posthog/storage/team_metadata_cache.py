@@ -29,14 +29,17 @@ Note: Redis adds ~100 bytes overhead per key. S3 storage uses similar compressio
 """
 
 import os
-from datetime import UTC, datetime, timedelta
+import re
+from datetime import UTC, datetime
 from typing import Any
 
-from django.core.exceptions import ObjectDoesNotExist
+from django.conf import settings
+from django.core.cache import caches
 from django.db import transaction
 
 import structlog
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
@@ -106,7 +109,7 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
             team = HyperCache.team_from_key(team_key)
 
             # Ensure related objects are loaded - more reliable approach
-            if isinstance(team, Team) and not Team.organization.is_cached(team) or not Team.project.is_cached(team):
+            if isinstance(team, Team) and (not Team.organization.is_cached(team) or not Team.project.is_cached(team)):
                 team = Team.objects.select_related("organization", "project").get(id=team.id)
 
             # Build the metadata dictionary with all specified fields
@@ -141,16 +144,32 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
         logger.warning("Team not found for cache lookup")
         return HyperCacheStoreMissing()
 
-	except Exception as e:
-	      logger.exception(
-	          "Error loading team metadata",
-	          error_type=type(e).__name__,  # Help debugging
-	          team_key_type=type(team_key).__name__,  # Add context
-	      )
-	      return HyperCacheStoreMissing()
+    except Exception as e:
+        logger.exception(
+            "Error loading team metadata",
+            error_type=type(e).__name__,  # Help debugging
+            team_key_type=type(team_key).__name__,  # Add context
+        )
+        return HyperCacheStoreMissing()
 
 
 # Create the HyperCache instance for team metadata
+# Use dedicated flags cache if available, otherwise fall back to shared cache
+if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES:
+    _team_metadata_cache_client = caches[FLAGS_DEDICATED_CACHE_ALIAS]
+    logger.info(
+        "Using dedicated flags cache for team metadata",
+        cache_alias=FLAGS_DEDICATED_CACHE_ALIAS,
+    )
+else:
+    from django.core.cache import cache
+
+    _team_metadata_cache_client = cache
+    logger.warning(
+        "Dedicated flags cache not configured, using shared cache for team metadata",
+        cache_alias="default",
+    )
+
 team_metadata_hypercache = HyperCache(
     namespace="team_metadata",
     value="full_metadata.json",
@@ -158,6 +177,7 @@ team_metadata_hypercache = HyperCache(
     load_fn=_load_team_metadata,
     cache_ttl=TEAM_METADATA_CACHE_TTL,
     cache_miss_ttl=TEAM_METADATA_CACHE_MISS_TTL,
+    cache_client=_team_metadata_cache_client,
 )
 
 
@@ -212,93 +232,80 @@ def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = 
 
 def get_teams_needing_refresh(
     ttl_threshold_hours: int = 24,
-    recently_updated_hours: int = 1,
     batch_size: int = 100,
 ) -> list[Team]:
     """
-    Get teams that need their cache refreshed based on intelligent criteria.
+    Get teams that need their cache refreshed.
 
     Strategy:
-    1. Teams that have been updated recently (within recently_updated_hours)
-    2. Teams whose cache entries are about to expire (within ttl_threshold_hours)
-    3. Teams that are frequently accessed but have stale caches
+    1. Teams with expiring caches (within ttl_threshold_hours), prioritizing oldest first
+    2. Active teams with missing caches (fallback if we have capacity)
+
+    Note: Recently updated teams are handled by Django signals, so we don't need to
+    explicitly refresh them here.
 
     Args:
         ttl_threshold_hours: Refresh caches that will expire within this many hours
-        recently_updated_hours: Include teams updated within this many hours
         batch_size: Maximum number of teams to return
 
     Returns:
-        List of Team objects that need cache refresh
+        List of Team objects that need cache refresh, ordered by priority
     """
-    import re
-
-    from django.utils import timezone
-
     teams_to_refresh = []
-    now = timezone.now()
 
-    # 1. Get teams updated recently (these likely have stale cache)
-    recent_cutoff = now - timedelta(hours=recently_updated_hours)
-    recently_updated = Team.objects.filter(updated_at__gte=recent_cutoff).values_list("id", flat=True)[
-        : batch_size // 2
-    ]
-
-    teams_to_refresh.extend(list(recently_updated))
-
-    # 2. Check Redis TTLs to find caches about to expire
+    # Find teams with expiring caches from Redis
+    expiring_tokens = []
     try:
         redis_client = get_client()
-        # HyperCache uses format: cache/team_tokens/{token}/team_metadata/full_metadata.json
         pattern = f"cache/team_tokens/*/team_metadata/*"
 
-        # Build the list of expiring tokens
-	   expiring_tokens = []
-	   ttl_threshold_seconds = ttl_threshold_hours * 3600
-	   token_pattern = r"cache/team_tokens/([^/]+)/"
-	
-	   # Calculate how many expiring teams we can actually use
-	   remaining_slots = batch_size - len(teams_to_refresh)
-	
-	   for key in redis_client.scan_iter(match=pattern, count=1000):
-	       # Stop early if we have enough
-	       if len(expiring_tokens) >= remaining_slots:
-	           break
-	
-	       ttl = redis_client.ttl(key)
-	       if 0 < ttl < ttl_threshold_seconds:
-	           key_str = key.decode("utf-8") if isinstance(key, bytes) else key
-	           match = re.search(token_pattern, key_str)
-	           if match:
-	               expiring_tokens.append(match.group(1))
-	
-	   # Single query to fetch all teams
-	   if expiring_tokens:
-	       teams = Team.objects.filter(api_token__in=expiring_tokens).values_list("id", flat=True)
-	       teams_to_refresh.extend(teams)
+        ttl_threshold_seconds = ttl_threshold_hours * 3600
+        token_pattern = r"cache/team_tokens/([^/]+)/"
+
+        for key in redis_client.scan_iter(match=pattern, count=1000):
+            if len(expiring_tokens) >= batch_size:
+                break
+
+            ttl = redis_client.ttl(key)
+            if 0 < ttl < ttl_threshold_seconds:
+                key_str = key.decode("utf-8") if isinstance(key, bytes) else key
+                match = re.search(token_pattern, key_str)
+                if match:
+                    expiring_tokens.append(match.group(1))
+
+        # Get teams with expiring caches, ordered by oldest first (most stale)
+        if expiring_tokens:
+            teams = Team.objects.filter(api_token__in=expiring_tokens).order_by("updated_at")[:batch_size]
+            teams_to_refresh.extend(teams)
 
     except Exception as e:
         logger.warning("Error checking cache TTLs", error=str(e))
 
-    # Remove duplicates and fetch the actual Team objects
-    unique_team_ids = list(set(teams_to_refresh))[:batch_size]
+    # If we haven't reached batch_size, find active teams that might need cache refresh
+    if len(teams_to_refresh) < batch_size:
+        remaining = batch_size - len(teams_to_refresh)
 
-    if unique_team_ids:
-        teams = Team.objects.filter(id__in=unique_team_ids)
-        logger.info(
-            "Found teams needing cache refresh",
-            team_count=len(teams),
-            recently_updated_count=len(recently_updated),
-            expiring_soon_count=len(expiring_soon),
+        # Find active teams (with ingested events) that aren't already in our refresh list
+        existing_team_ids = [t.id for t in teams_to_refresh]
+        additional_teams = (
+            Team.objects.exclude(id__in=existing_team_ids)
+            .filter(ingested_event=True)
+            .order_by("-updated_at")[:remaining]
         )
-        return list(teams)
 
-    return []
+        teams_to_refresh.extend(additional_teams)
+
+    logger.info(
+        "Found teams needing cache refresh",
+        team_count=len(teams_to_refresh),
+        expiring_cache_count=len([t for t in teams_to_refresh if t.api_token in expiring_tokens]),
+    )
+
+    return teams_to_refresh
 
 
 def refresh_stale_caches(
     ttl_threshold_hours: int = 24,
-    recently_updated_hours: int = 1,
     batch_size: int = 100,
 ) -> tuple[int, int]:
     """
@@ -306,7 +313,6 @@ def refresh_stale_caches(
 
     Args:
         ttl_threshold_hours: Refresh caches expiring within this many hours
-        recently_updated_hours: Include teams updated within this many hours
         batch_size: Maximum number of teams to refresh in one run
 
     Returns:
@@ -314,7 +320,6 @@ def refresh_stale_caches(
     """
     teams = get_teams_needing_refresh(
         ttl_threshold_hours=ttl_threshold_hours,
-        recently_updated_hours=recently_updated_hours,
         batch_size=batch_size,
     )
 

@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Optional
 
 from django.core.cache import cache
+from django.core.cache.backends.base import BaseCache
 
 import structlog
 from posthoganalytics import capture_exception
@@ -65,6 +66,7 @@ class HyperCache:
         token_based: bool = False,
         cache_ttl: int = DEFAULT_CACHE_TTL,
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
+        cache_client: Optional[BaseCache] = None,
     ):
         self.namespace = namespace
         self.value = value
@@ -72,6 +74,7 @@ class HyperCache:
         self.token_based = token_based
         self.cache_ttl = cache_ttl
         self.cache_miss_ttl = cache_miss_ttl
+        self.cache_client = cache_client or cache
 
     @staticmethod
     def team_from_key(key: KeyType) -> Team:
@@ -98,7 +101,7 @@ class HyperCache:
 
     def get_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str]:
         cache_key = self.get_cache_key(key)
-        data = cache.get(cache_key)
+        data = self.cache_client.get(cache_key)
 
         if data:
             HYPERCACHE_CACHE_COUNTER.labels(result="hit_redis", namespace=self.namespace, value=self.value).inc()
@@ -163,16 +166,16 @@ class HyperCache:
         """
         kinds = kinds or ["redis", "s3"]
         if "redis" in kinds:
-            cache.delete(self.get_cache_key(key))
+            self.cache_client.delete(self.get_cache_key(key))
         if "s3" in kinds:
             object_storage.delete(self.get_cache_key(key))
 
     def _set_cache_value_redis(self, key: KeyType, data: dict | None | HyperCacheStoreMissing):
         key = self.get_cache_key(key)
         if data is None or isinstance(data, HyperCacheStoreMissing):
-            cache.set(key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
+            self.cache_client.set(key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
         else:
-            cache.set(key, json.dumps(data), timeout=self.cache_ttl)
+            self.cache_client.set(key, json.dumps(data), timeout=self.cache_ttl)
 
     def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing):
         key = self.get_cache_key(key)
