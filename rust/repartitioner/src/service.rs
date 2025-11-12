@@ -8,7 +8,7 @@ use rdkafka::{
     consumer::{Consumer, StreamConsumer},
     error::{KafkaError, RDKafkaErrorCode},
     message::{BorrowedHeaders, BorrowedMessage},
-    producer::FutureRecord,
+    producer::{FutureRecord, Producer},
     ClientConfig, Message,
 };
 use std::time::Duration;
@@ -19,7 +19,10 @@ use crate::config::Config;
 use crate::repartitioners::compute_propdefs_v1_key_by_team_id;
 
 const KAFKA_CONSUMER_ERROR: &str = "kafka_consumer_error";
+const KAFKA_PRODUCER_ERROR: &str = "kafka_producer_error";
 const KAFKA_MESSAGE_CONSUMED: &str = "kafka_message_consumed";
+const KAFKA_MESSAGE_PROCESSED: &str = "kafka_message_processed";
+const KAFKA_MESSAGE_PRODUCED: &str = "kafka_message_produced";
 const REPARTITIONER_PROCESSING_ERROR: &str = "repartitioner_processing_error";
 pub struct RepartitionerService {
     config: Config,
@@ -106,6 +109,8 @@ impl RepartitionerService {
 
             match self.consumer.recv().await {
                 Ok(message) => {
+                    metrics::counter!(KAFKA_MESSAGE_CONSUMED).increment(1);
+
                     if let Err(e) = self.process_message(&message).await {
                         // Processing error mean we can't obtain the new partition key.
                         // this should be exceedingly rare, but if it happens, we have
@@ -113,8 +118,9 @@ impl RepartitionerService {
                         error!("Failed to process message, dropping it: {}", e);
                         metrics::counter!(REPARTITIONER_PROCESSING_ERROR).increment(1);
                     } else {
-                        metrics::counter!(KAFKA_MESSAGE_CONSUMED).increment(1);
+                        metrics::counter!(KAFKA_MESSAGE_PROCESSED).increment(1);
                     }
+
                     // clear error count and store offset best-effort
                     kafka_error_count = 0;
                     let _ignored = self.consumer.store_offset(
@@ -127,17 +133,37 @@ impl RepartitionerService {
                     kafka_error_count += 1;
                     if let Some(e) = self.handle_kafka_error(e, kafka_error_count).await {
                         if e == KafkaError::Canceled {
+                            self.flush_producer();
                             return Ok(());
                         }
+
                         consumer_health
                             .report_status(health::ComponentStatus::Unhealthy)
                             .await;
+                        self.flush_producer();
                         return Err(anyhow::anyhow!(
                             "FATAL Kafka error - terminating pod: {}",
                             e
                         ));
                     }
                 }
+            }
+        }
+    }
+
+    fn flush_producer(&self) {
+        match self.producer.flush(Duration::from_secs(
+            self.config.kafka_producer_graceful_shutdown_secs,
+        )) {
+            Ok(_) => (),
+
+            Err(e) => {
+                warn!("Failed to flush producer on graceful shutdown: {e:?}");
+                metrics::counter!(
+                    KAFKA_PRODUCER_ERROR,
+                    &[("level", "warn"), ("error", "flush_producer"),]
+                )
+                .increment(1);
             }
         }
     }
@@ -308,11 +334,28 @@ impl RepartitionerService {
             .context("Failed to send message to output topic")?;
 
         match future.await {
-            Ok(Ok(_)) => Ok(()),
-            Ok(Err((e, _))) => Err(anyhow::anyhow!("Failed to send: {:?}", e))
-                .context("Failed to send message to output topic"),
-            Err(_) => Err(anyhow::anyhow!("Send future was canceled"))
-                .context("Failed to send message to output topic"),
+            Ok(Ok(_)) => {
+                metrics::counter!(KAFKA_MESSAGE_PRODUCED).increment(1);
+                Ok(())
+            }
+            Ok(Err((e, _))) => {
+                metrics::counter!(
+                    KAFKA_PRODUCER_ERROR,
+                    &[("level", "error"), ("error", "send_failed"),]
+                )
+                .increment(1);
+                Err(anyhow::anyhow!("Failed to send: {:?}", e))
+                    .context("Failed to send message to output topic")
+            }
+            Err(_) => {
+                metrics::counter!(
+                    KAFKA_PRODUCER_ERROR,
+                    &[("level", "warn"), ("error", "send_future_canceled"),]
+                )
+                .increment(1);
+                Err(anyhow::anyhow!("Send future was canceled"))
+                    .context("Failed to send message to output topic")
+            }
         }
     }
 

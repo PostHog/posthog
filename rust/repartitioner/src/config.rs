@@ -19,6 +19,9 @@ pub struct Config {
     #[envconfig(default = "20")]
     pub kafka_producer_linger_ms: u32,
 
+    #[envconfig(default = "10")]
+    pub kafka_producer_graceful_shutdown_secs: u64,
+
     #[envconfig(default = "400")]
     pub kafka_producer_queue_mib: u32,
 
