@@ -54,6 +54,17 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
         // Future: recurring schedule fields can be added here
     }),
+    z.object({
+        type: z.literal('batch'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        filters: z.object({
+            properties: z.array(z.any()).optional(),
+            cohorts: z.array(z.any()).optional(),
+        }),
+        scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
+        // Future: recurring schedule fields can be added here
+    }),
 ])
 
 const HogFlowActionSchema = z.discriminatedUnion('type', [

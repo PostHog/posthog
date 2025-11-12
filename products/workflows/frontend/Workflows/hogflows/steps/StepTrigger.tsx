@@ -1,8 +1,19 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
+import { Fragment } from 'node_modules/@types/react'
 import posthog from 'posthog-js'
+import { id } from 'zod/v4/locales'
 
-import { IconBolt, IconButton, IconClock, IconLeave, IconPlusSmall, IconTarget, IconWebhooks } from '@posthog/icons'
+import {
+    IconBolt,
+    IconButton,
+    IconClock,
+    IconLeave,
+    IconPeople,
+    IconPlusSmall,
+    IconTarget,
+    IconWebhooks,
+} from '@posthog/icons'
 import {
     LemonButton,
     LemonCalendarSelectInput,
@@ -22,9 +33,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { IconAdsClick } from 'lib/lemon-ui/icons'
+import { IconAdsClick, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
+
+import { taxonomicGroupTypes } from 'products/error_tracking/frontend/components/IssueFilters/FilterGroup'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters } from '../filters/HogFlowFilters'
@@ -106,6 +119,20 @@ export function StepTriggerConfiguration({
         })
     }
 
+    if (featureFlags[FEATURE_FLAGS.WORKFLOWS_COHORT_TRIGGERS]) {
+        triggerOptions.splice(4, 0, {
+            label: 'Cohort',
+            value: 'cohort',
+            icon: <IconPeople />,
+            labelInMenu: (
+                <div className="flex flex-col my-1">
+                    <div className="font-semibold">Cohort</div>
+                    <p className="text-xs text-muted">Trigger or schedule a workflow for every member of a cohort</p>
+                </div>
+            ),
+        })
+    }
+
     return (
         <div className="flex flex-col items-start w-full gap-2">
             <span className="flex gap-1">
@@ -166,13 +193,20 @@ export function StepTriggerConfiguration({
                                         },
                                         scheduled_at: undefined,
                                     })
-                                  : value === 'tracking_pixel'
+                                  : value === 'batch'
                                     ? setWorkflowActionConfig(node.id, {
-                                          type: 'tracking_pixel',
-                                          template_id: 'template-source-webhook-pixel',
-                                          inputs: {},
+                                          type: 'batch',
+                                          template_id: 'template-source-webhook-batch',
+                                          filters: {},
+                                          scheduled_at: undefined,
                                       })
-                                    : null
+                                    : value === 'tracking_pixel'
+                                      ? setWorkflowActionConfig(node.id, {
+                                            type: 'tracking_pixel',
+                                            template_id: 'template-source-webhook-pixel',
+                                            inputs: {},
+                                        })
+                                      : null
                     }}
                 />
             </LemonField.Pure>
@@ -184,6 +218,8 @@ export function StepTriggerConfiguration({
                 <StepTriggerConfigurationManual />
             ) : node.data.config.type === 'schedule' ? (
                 <StepTriggerConfigurationSchedule action={node.data} config={node.data.config} />
+            ) : node.data.config.type === 'batch' ? (
+                <StepTriggerConfigurationBatch action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'tracking_pixel' ? (
                 <StepTriggerConfigurationTrackingPixel action={node.data} config={node.data.config} />
             ) : null}
@@ -332,6 +368,93 @@ function StepTriggerConfigurationSchedule({
                                     template_id: config.template_id,
                                     template_uuid: config.template_uuid,
                                     inputs: config.inputs,
+                                    scheduled_at: date ? date.toISOString() : undefined,
+                                })
+                            }}
+                            granularity="minute"
+                            selectionPeriod="upcoming"
+                            showTimeToggle={false}
+                        />
+                        {scheduledDateTime && (
+                            <div className="text-xs text-muted">
+                                Timezone: {dayjs.tz.guess()} • Scheduled for:{' '}
+                                {scheduledDateTime.format('MMMM D, YYYY [at] h:mm A')}
+                            </div>
+                        )}
+                    </div>
+                </LemonField.Pure>
+            </div>
+        </>
+    )
+}
+
+function StepTriggerConfigurationBatch({
+    action,
+    config,
+}: {
+    action: Extract<HogFlowAction, { type: 'trigger' }>
+    config: Extract<HogFlowAction['config'], { type: 'batch' }>
+}): JSX.Element {
+    const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const { actionValidationErrorsById } = useValues(workflowLogic)
+    const validationResult = actionValidationErrorsById[action.id]
+
+    const scheduledDateTime = config.scheduled_at ? dayjs(config.scheduled_at) : null
+
+    return (
+        <>
+            <div className="flex flex-col gap-2">
+                <p className="mb-0">Schedule this workflow to run for each person in a group you define.</p>
+                <LemonField.Pure label="Which group?" error={validationResult?.errors?.cohort_id}>
+                    <div>
+                        <PropertyFilters
+                            orFiltering={true}
+                            pageKey={`feature-flag-${id}-${group.sort_key}-${filterGroups.length}-${
+                                filters.aggregation_group_type_index ?? ''
+                            }`}
+                            propertyFilters={group?.properties}
+                            logicalRowDivider
+                            addText="Add condition"
+                            onChange={(properties) => updateConditionSet(index, undefined, properties)}
+                            taxonomicGroupTypes={taxonomicGroupTypes}
+                            taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
+                            hasRowOperator={false}
+                            sendAllKeyUpdates
+                            allowRelativeDateOptions
+                            excludedProperties={
+                                featureFlagKey
+                                    ? { [TaxonomicFilterGroupType.FeatureFlags]: [featureFlagKey] }
+                                    : undefined
+                            }
+                            errorMessages={
+                                propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
+                                    ? propertySelectErrors[index].properties?.map((message, index) => {
+                                          return message.value ? (
+                                              <div
+                                                  key={index}
+                                                  className="text-danger flex items-center gap-1 text-sm Field--error"
+                                              >
+                                                  <IconErrorOutline className="text-xl" /> {message.value}
+                                              </div>
+                                          ) : (
+                                              <Fragment key={index} />
+                                          )
+                                      })
+                                    : null
+                            }
+                            exactMatchFeatureFlagCohortOperators={true}
+                            hideBehavioralCohorts={true}
+                        />
+                    </div>
+                </LemonField.Pure>
+                <LemonField.Pure label="Scheduled time" error={validationResult?.errors?.scheduled_at}>
+                    <div className="flex flex-col gap-2">
+                        <LemonCalendarSelectInput
+                            value={scheduledDateTime}
+                            onChange={(date) => {
+                                setWorkflowActionConfig(action.id, {
+                                    type: 'cohort',
+                                    cohort_id: config.cohort_id,
                                     scheduled_at: date ? date.toISOString() : undefined,
                                 })
                             }}
