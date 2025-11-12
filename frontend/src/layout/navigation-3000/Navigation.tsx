@@ -5,7 +5,9 @@ import { ReactNode, useEffect, useRef } from 'react'
 
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandBar } from 'lib/components/CommandBar/CommandBar'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { SceneConfig } from 'scenes/sceneTypes'
 
@@ -30,9 +32,12 @@ export function Navigation({
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const mainRef = useRef<HTMLElement>(null)
     const { mainContentRect } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
+
+    const isAiOnlyMode = !!featureFlags[FEATURE_FLAGS.AI_DOGFOODING_MODE]
 
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
@@ -78,7 +83,7 @@ export function Navigation({
                 Skip to content
             </a>
 
-            <PanelLayout />
+            {!isAiOnlyMode && <PanelLayout />}
 
             <FloatingContainerContext.Provider value={mainRef}>
                 <main

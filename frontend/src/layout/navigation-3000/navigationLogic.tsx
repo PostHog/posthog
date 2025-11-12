@@ -336,10 +336,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     })),
     selectors({
         mode: [
-            (s) => [s.sceneConfig, s.isCurrentOrganizationUnavailable],
-            (sceneConfig, isCurrentOrganizationUnavailable): Navigation3000Mode => {
+            (s) => [s.sceneConfig, s.isCurrentOrganizationUnavailable, featureFlagLogic.selectors.featureFlags],
+            (sceneConfig, isCurrentOrganizationUnavailable, featureFlags): Navigation3000Mode => {
                 if (isCurrentOrganizationUnavailable) {
                     return 'minimal'
+                }
+                // If ai-only mode is enabled, hide the navigation
+                if (featureFlags[FEATURE_FLAGS.AI_DOGFOODING_MODE]) {
+                    return 'none'
                 }
                 return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
                     ? 'minimal'

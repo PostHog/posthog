@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -1033,6 +1033,13 @@ export const sceneLogic = kea<sceneLogicType>([
             const sceneConfig = sceneConfigurations[sceneId] || {}
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
+            const { featureFlags } = values
+
+            // If ai-only mode is enabled, always redirect to Scene.Max
+            if (featureFlags[FEATURE_FLAGS.AI_DOGFOODING_MODE] && sceneId !== Scene.Max && user) {
+                router.actions.replace(urls.max())
+                return
+            }
 
             if (sceneId === Scene.Signup && preflight && !preflight.can_create_org) {
                 // If user is on an already initiated self-hosted instance, redirect away from signup
