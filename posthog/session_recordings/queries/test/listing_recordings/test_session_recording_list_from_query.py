@@ -198,7 +198,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             active_milliseconds=1980 * 1000 * 0.4,  # 40% of the total expected duration
         )
 
-        session_recordings, more_recordings_available, _ = self._filter_recordings_by()
+        session_recordings, more_recordings_available, _, _ = self._filter_recordings_by()
 
         assert session_recordings == [
             {
@@ -302,7 +302,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             active_milliseconds=0,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _, _) = self._filter_recordings_by(
             {
                 "having_predicates": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]',
             }
@@ -316,7 +316,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             (session_id_total_is_61, 61, 59.0),
         ]
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _, _) = self._filter_recordings_by(
             {
                 "having_predicates": '[{"type":"recording","key":"active_seconds","value":"60","operator":"gt"}]',
             }
@@ -326,7 +326,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             (session_id_active_is_61, 59, 61.0)
         ]
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _, _) = self._filter_recordings_by(
             {
                 "having_predicates": '[{"type":"recording","key":"inactive_seconds","value":"60","operator":"gt"}]',
             }
@@ -374,7 +374,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             kafka_timestamp=(datetime.utcnow() - relativedelta(minutes=3)),
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({})
+        (session_recordings, _, _, _) = self._filter_recordings_by({})
         assert sorted(
             [(s["session_id"], s["ongoing"]) for s in session_recordings],
             key=lambda x: x[0],
@@ -433,7 +433,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             active_milliseconds=1980 * 1000 * 0.4,  # 40% of the total expected duration
         )
 
-        (session_recordings, more_recordings_available, _) = self._filter_recordings_by({"limit": 1, "offset": 0})
+        (session_recordings, more_recordings_available, _, _) = self._filter_recordings_by({"limit": 1, "offset": 0})
 
         assert session_recordings == [
             {
@@ -462,7 +462,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert more_recordings_available is True
 
-        (session_recordings, more_recordings_available, _) = self._filter_recordings_by({"limit": 1, "offset": 1})
+        (session_recordings, more_recordings_available, _, _) = self._filter_recordings_by({"limit": 1, "offset": 1})
 
         assert session_recordings == [
             {
@@ -655,7 +655,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_url="https://on-second-received-event-but-actually-first.com",
         )
 
-        session_recordings, more_recordings_available, _ = self._filter_recordings_by()
+        session_recordings, more_recordings_available, _, _ = self._filter_recordings_by()
 
         assert sorted(
             [{"session_id": r["session_id"], "first_url": r["first_url"]} for r in session_recordings],
@@ -716,7 +716,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             active_milliseconds=20 * 1000 * 0.5,  # 50% of the total expected duration
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by()
+        (session_recordings, _, _, _) = self._filter_recordings_by()
 
         assert [{"session": r["session_id"], "user": r["distinct_id"]} for r in session_recordings] == [
             {"session": session_id_two, "user": user}
@@ -975,7 +975,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             active_milliseconds=61000,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _, _) = self._filter_recordings_by(
             {
                 "events": [
                     {
@@ -993,7 +993,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             (session_id_total_is_61, 61, 59.0)
         ]
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _, _) = self._filter_recordings_by(
             {
                 "events": [
                     {
@@ -1458,7 +1458,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_url="https://recieved-out-of-order.com/first",
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _, _) = self._filter_recordings_by(
             {
                 "events": [
                     {
@@ -1975,7 +1975,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _, _) = self._filter_recordings_by(
             {
                 "date_to": day_line.strftime("%Y-%m-%d"),
                 "date_from": (day_line - relativedelta(days=10)).strftime("%Y-%m-%d"),
@@ -2526,9 +2526,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        # (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["info"]})
+        # (session_recordings, _, _, _) = self._filter_recordings_by({"console_logs": ["info"]})
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _, _) = self._filter_recordings_by(
             {
                 "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}]',
                 "operand": "AND",
@@ -2582,7 +2582,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _, _) = self._filter_recordings_by(
             {
                 "console_log_filters": '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}]',
                 "operand": "AND",
@@ -2634,7 +2634,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _, _) = self._filter_recordings_by(
             {
                 "console_log_filters": '[{"key": "level", "value": ["error"], "operator": "exact", "type": "log_entry"}]',
                 "operand": "AND",
@@ -3817,7 +3817,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             ["1", "2"],
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by(
+        (session_recordings, _, _, _) = self._filter_recordings_by(
             {
                 "events": [
                     {
