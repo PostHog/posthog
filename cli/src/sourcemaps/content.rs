@@ -49,6 +49,10 @@ impl SourceMapFile {
         self.inner.content.release_id.clone()
     }
 
+    pub fn has_release_id(&self) -> bool {
+        self.get_release_id().is_some()
+    }
+
     pub fn apply_adjustment(&mut self, adjustment: SourceMap) -> Result<()> {
         let new_content = {
             let content = serde_json::to_string(&self.inner.content)?.into_bytes();
