@@ -32,7 +32,7 @@ def get_object_storage_endpoint() -> str:
     Production mode uses the AWS S3.
     """
     if settings.DEBUG:
-        val = dagster.EnvVar("EVALS_DIND_OBJECT_STORAGE_ENDPOINT").get_value("http://objectstorage.posthog.orb.local")
+        val = dagster.EnvVar("EVALS_DIND_OBJECT_STORAGE_ENDPOINT").get_value("http://seaweedfs:8333")
         if not val:
             raise ValueError("EVALS_DIND_OBJECT_STORAGE_ENDPOINT is not set")
         return val

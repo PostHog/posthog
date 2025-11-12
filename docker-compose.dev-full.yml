@@ -218,7 +218,6 @@ services:
             - redis
             - clickhouse
             - kafka
-            - objectstorage
             - temporal
 
     cyclotron-janitor:

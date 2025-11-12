@@ -11,10 +11,12 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "127.0.0.1 kafka clickhouse objectstorage db" >> /etc/hosts
+# Ensure service hostnames resolve inside the host container context if needed
+echo "127.0.0.1 kafka clickhouse seaweedfs db" >> /etc/hosts
 
 echo "🚀 Starting services..."
-docker compose -f docker-compose.dev.yml -p evals up -d db clickhouse objectstorage
+# Start only required deps for evals (SeaweedFS for S3)
+docker compose -f docker-compose.dev.yml -p evals up -d db clickhouse seaweedfs
 
 echo "🔄 Waiting for services to start..."
 bin/check_postgres_up & bin/check_kafka_clickhouse_up
