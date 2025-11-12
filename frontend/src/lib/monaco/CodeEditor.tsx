@@ -56,9 +56,7 @@ function initEditor(
     editorProps: Omit<CodeEditorProps, 'options' | 'onMount' | 'queryKey' | 'value'>,
     options: editor.IStandaloneEditorConstructionOptions,
     builtCodeEditorLogic: BuiltLogic<codeEditorLogicType>
-): MonacoDisposable[] {
-    let disposables: MonacoDisposable[] = []
-
+): void {
     // This gives autocomplete access to the specific editor
     const model = editor.getModel()
     if (model) {
@@ -66,19 +64,19 @@ function initEditor(
     }
 
     if (editorProps?.language === 'hog') {
-        disposables = initHogLanguage(monaco)
+        initHogLanguage(monaco)
     }
     if (editorProps?.language === 'hogQL' || editorProps?.language === 'hogQLExpr') {
-        disposables = initHogQLLanguage(monaco, editorProps.language as HogLanguage)
+        initHogQLLanguage(monaco, editorProps.language as HogLanguage)
     }
     if (editorProps?.language === 'hogTemplate') {
-        disposables = initHogTemplateLanguage(monaco)
+        initHogTemplateLanguage(monaco)
     }
     if (editorProps?.language === 'hogJson') {
-        disposables = initHogJsonLanguage(monaco)
+        initHogJsonLanguage(monaco)
     }
     if (editorProps?.language === 'liquid') {
-        disposables = initLiquidLanguage(monaco)
+        initLiquidLanguage(monaco)
     }
     if (options.tabFocusMode || editorProps.onPressUpNoValue) {
         editor.onKeyDown((evt) => {
@@ -122,8 +120,6 @@ function initEditor(
             }
         })
     }
-
-    return disposables
 }
 
 export function CodeEditor({
@@ -248,8 +244,7 @@ export function CodeEditor({
 
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
         setMonacoAndEditor([monaco, editor])
-        const disposables = initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
-        monacoDisposables.current.push(...disposables)
+        initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
 
         // Override Monaco's suggestion widget styling to prevent truncation
         const styleId = 'monaco-suggestion-widget-fix'
