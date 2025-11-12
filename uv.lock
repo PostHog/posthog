@@ -1411,16 +1411,16 @@ wheels = [
 
 [[package]]
 name = "django"
-version = "5.0.14"
+version = "5.1.14"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
     { name = "sqlparse" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9d/a4/cc0205045386b5be8eecb15a95f290383d103f0db5f7e34f93dcc340d5b0/Django-5.0.14.tar.gz", hash = "sha256:29019a5763dbd48da1720d687c3522ef40d1c61be6fb2fad27ed79e9f655bc11", size = 10644306, upload-time = "2025-04-02T11:24:41.396Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6e/f9/284077f0e61f633e5279518a9ac5924ade4bef12bc841174ca48c57f2438/django-5.1.14.tar.gz", hash = "sha256:b98409fb31fdd6e8c3a6ba2eef3415cc5c0020057b43b21ba7af6eff5f014831", size = 10720998, upload-time = "2025-11-05T14:07:56.294Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c0/93/eabde8789f41910845567ebbff5aacd52fd80e54c934ce15b83d5f552d2c/Django-5.0.14-py3-none-any.whl", hash = "sha256:e762bef8629ee704de215ebbd32062b84f4e56327eed412e5544f6f6eb1dfd74", size = 8185934, upload-time = "2025-04-02T11:24:36.888Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/67/8839eb1d70b5688b7375dce24ccf216e6ab25ee9e6361f22973520d13cd4/django-5.1.14-py3-none-any.whl", hash = "sha256:2a4b9c20404fd1bf50aaaa5542a19d860594cba1354f688f642feb271b91df27", size = 8260068, upload-time = "2025-11-05T14:07:53.26Z" },
 ]
 
 [[package]]
@@ -1600,14 +1600,15 @@ wheels = [
 
 [[package]]
 name = "django-prometheus"
-version = "2.3.1"
+version = "2.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "django" },
     { name = "prometheus-client" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e1/51/485b4122e00f2b8efec8a6d718ef4ce6b150231e49398e554ce1151f65c3/django-prometheus-2.3.1.tar.gz", hash = "sha256:f9c8b6c780c9419ea01043c63a437d79db2c33353451347894408184ad9c3e1e", size = 24718, upload-time = "2023-05-02T19:53:58.42Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/98/f4/cb39ddd2a41e07a274c4e162c076e906ae232d63b66bbabdea0300878877/django_prometheus-2.4.1.tar.gz", hash = "sha256:073628243d2a6de6a8a8c20e5b512872dfb85d66e1b60b28bcf1eca0155dad95", size = 24464, upload-time = "2025-06-25T15:45:37.149Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3a/75/fb3d4f056f9ed4f8848817d5afd7a1d949632ab117452ccd179e3839cfc4/django_prometheus-2.3.1-py2.py3-none-any.whl", hash = "sha256:cf9b26f7ba2e4568f08f8f91480a2882023f5908579681bcf06a4d2465f12168", size = 29081, upload-time = "2023-05-02T19:53:20.421Z" },
+    { url = "https://files.pythonhosted.org/packages/01/50/9c5e022fa92574e5d20606687f15a2aa255e10512a17d11a8216fa117f72/django_prometheus-2.4.1-py2.py3-none-any.whl", hash = "sha256:7fe5af7f7c9ad9cd8a429fe0f3f1bf651f0e244f77162147869eab7ec09cc5e7", size = 29541, upload-time = "2025-06-25T15:45:35.433Z" },
 ]
 
 [[package]]
@@ -4510,7 +4511,7 @@ requires-dist = [
     { name = "deltalake", specifier = "==0.25.2" },
     { name = "disposable-email-domains", specifier = ">=0.0.140" },
     { name = "dj-database-url", specifier = "==0.5.0" },
-    { name = "django", specifier = "~=5.0.0" },
+    { name = "django", specifier = "~=5.1.14" },
     { name = "django-admin-inline-paginator", specifier = "===0.4.0" },
     { name = "django-axes", extras = ["ipware"], specifier = "==8.0.0" },
     { name = "django-cors-headers", specifier = "~=4.8.0" },
@@ -4520,7 +4521,7 @@ requires-dist = [
     { name = "django-loginas", specifier = "==0.3.11" },
     { name = "django-oauth-toolkit", specifier = ">=3.0.1" },
     { name = "django-picklefield", specifier = "~=3.3.0" },
-    { name = "django-prometheus", specifier = "~=2.3.1" },
+    { name = "django-prometheus", specifier = "~=2.4.0" },
     { name = "django-redis", specifier = "==5.2.0" },
     { name = "django-scim2", specifier = "==0.19.0" },
     { name = "django-statsd", specifier = "~=2.7.0" },
