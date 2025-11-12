@@ -44,6 +44,7 @@ class TestWebAnalyticsAssistantFilters(APIBaseTest):
         assert filters.date_from == "-7d"
         assert filters.date_to is None
         assert filters.doPathCleaning is True
+        assert filters.compareFilter is not None
         assert filters.compareFilter.compare is True
         assert len(filters.properties) == 1
         assert filters.properties[0].key == "$geoip_country_code"
