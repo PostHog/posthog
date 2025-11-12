@@ -1103,10 +1103,7 @@ export const experimentLogic = kea<experimentLogicType>([
             // Trigger Hogfetti celebration with cascading delays
             const trigger = values.hogfettiTrigger
             if (trigger) {
-            // Trigger Hogfetti celebration with cascading delays
-            const trigger = values.hogfettiTrigger
-            if (trigger) {
-                [0, 400, 800].forEach(delay => setTimeout(trigger, delay))
+                ;[0, 400, 800].forEach((delay) => setTimeout(trigger, delay))
             }
         },
         shipVariantFailure: ({ error }) => {
