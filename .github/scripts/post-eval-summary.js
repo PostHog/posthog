@@ -8,6 +8,7 @@ module.exports = ({ github, context, fs }) => {
         .readFileSync('eval_results.jsonl', 'utf8')
         .trim()
         .split('\n')
+        .filter((line) => line.trim().length > 0)
         .map((line) => JSON.parse(line))
 
     if (evalResults.length === 0) {
