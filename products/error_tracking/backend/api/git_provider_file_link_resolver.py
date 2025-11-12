@@ -42,22 +42,6 @@ def prepare_github_search_query(q):
     return " ".join("".join(result).split())
 
 
-def prepare_gitlab_search_query(q):
-    """Sanitize code sample for GitLab search by removing special characters but NOT preserving quotes."""
-    if not q:
-        return ""
-
-    result = []
-    for char in q:
-        # Remove ALL special characters including quotes/backticks
-        if char in ".,:;/\\=*!?#$&+^|~<>(){}[]\"'`":
-            result.append(" ")
-        else:
-            result.append(char)
-
-    return " ".join("".join(result).split())
-
-
 def get_github_file_url(code_sample: str, token: str, owner: str, repository: str, file_name: str) -> str | None:
     """Search GitHub code using the Code Search API. Returns URL to first match or None."""
     code_query = prepare_github_search_query(code_sample)
@@ -92,11 +76,10 @@ def get_gitlab_file_url(
     code_sample: str, token: str, owner: str, repository: str, file_name: str, gitlab_url: str = "https://gitlab.com"
 ) -> str | None:
     """Search GitLab code using the Search API. Returns URL to first match or None."""
-    code_query = prepare_gitlab_search_query(code_sample)
     project_path = f"{owner}/{repository}"
     encoded_project_path = urllib.parse.quote(project_path, safe="")
     search_scope = "blobs"
-    encoded_search = urllib.parse.quote(code_query)
+    encoded_search = urllib.parse.quote(code_sample.strip())
     url = f"{gitlab_url}/api/v4/projects/{encoded_project_path}/search?scope={search_scope}&search={encoded_search}"
 
     headers = {
@@ -182,7 +165,25 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not owner or not repository or not code_sample or not file_name:
             return Response({"found": False, "error": "owner, repository, code_sample, and file_name are required"})
 
+        # Try with PostHog's token first (public repos on gitlab.com)
+        if settings.GITLAB_TOKEN:
+
+            url = get_gitlab_file_url(
+                code_sample=code_sample,
+                token=settings.GITLAB_TOKEN,
+                owner=owner,
+                repository=repository,
+                file_name=file_name,
+                gitlab_url="https://gitlab.com",
+            )
+
+            if url:
+                return Response({"found": True, "url": url})
+
+        # Try with team's GitLab integrations (private repos and self-hosted)
         integrations = Integration.objects.filter(team_id=self.team.id, kind="gitlab")
+
+        print("\n\n\n didnt find using public token, trying integrations")
 
         if not integrations:
             return Response({"found": False})
@@ -212,6 +213,7 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             for future in as_completed(future_to_integration):
                 url = future.result()
+                print("\n\n\n url: ", url)
                 if url:
                     return Response({"found": True, "url": url})
 
