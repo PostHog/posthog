@@ -54,9 +54,9 @@ class CustomerIOClient:
             if hasattr(e, "response") and e.response:
                 # Do NOT log response text to avoid leaking sensitive information
                 status_info = f"Status: {e.response.status_code}"
-                logger.error(f"API request failed. {error_msg}. {status_info}")
+                logger.exception(f"API request failed. {error_msg}. {status_info}")
             else:
-                logger.error(f"API request failed. {error_msg}")
+                logger.exception(f"API request failed. {error_msg}")
             raise CustomerIOAPIError(error_msg)
         except requests.exceptions.RequestException as e:
             raise CustomerIOAPIError(f"Request failed: {e}")
