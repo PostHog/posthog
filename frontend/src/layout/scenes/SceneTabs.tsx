@@ -194,7 +194,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                             }}
                             tooltip={
                                 <>
-                                    New tab <KeyboardShortcut command b />
+                                    New tab <KeyboardShortcut command option t />
                                 </>
                             }
                             tooltipPlacement="bottom"
@@ -256,9 +256,10 @@ interface SceneTabProps {
 }
 
 function SceneTabComponent({ tab, className, isDragging, containerClassName }: SceneTabProps): JSX.Element {
+    const { tabs } = useValues(sceneLogic)
     const inputRef = useRef<HTMLInputElement>(null)
     const isPinned = !!tab.pinned
-    const canRemoveTab = !isPinned
+    const canRemoveTab = !isPinned && tabs.length > 1
     const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
     const { editingTabId } = useValues(sceneLogic)
     const [editValue, setEditValue] = useState('')
@@ -293,7 +294,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName }: S
                 fullWidth
                 className="border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
             >
-                {canRemoveTab && (
+                {!isPinned && (
                     <ButtonPrimitive
                         onClick={(e) => {
                             e.stopPropagation()
@@ -307,12 +308,16 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName }: S
                         tooltip={
                             tab.active ? (
                                 <>
-                                    Close active tab <KeyboardShortcut shift command b />
+                                    Close active tab <KeyboardShortcut command option w />
                                 </>
                             ) : (
                                 'Close tab'
                             )
                         }
+                        disabled={!canRemoveTab}
+                        disabledReasons={{
+                            'Can not close last tab': !canRemoveTab,
+                        }}
                     >
                         <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
                     </ButtonPrimitive>

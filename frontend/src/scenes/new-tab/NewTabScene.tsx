@@ -48,6 +48,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     useEffect(() => {
         setNewTabSearchInputRef(commandInputRef)
     }, [setNewTabSearchInputRef])
+
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
     return (

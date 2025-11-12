@@ -15,6 +15,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
+import { isMac } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -1541,7 +1542,73 @@ export const sceneLogic = kea<sceneLogicType>([
     afterMount(({ actions, cache, values }) => {
         cache.disposables.add(() => {
             const onKeyDown = (event: KeyboardEvent): void => {
-                if (((event.ctrlKey || event.metaKey) && event.key === 'b') || event.key === 'k') {
+                const commandKey = isMac() ? event.metaKey : event.ctrlKey
+                const optionKey = event.altKey
+                const keyCode = event.code?.toLowerCase()
+                const key = event.key?.toLowerCase()
+                const activeTab = values.activeTab
+                const isPinnedTab = !!activeTab?.pinned
+                const canCloseTab = values.tabs.length > 1 && !isPinnedTab
+
+                // Helper function to check if this is the T or W key
+                const isTKey = keyCode === 'keyt' || key === 't'
+                const isWKey = keyCode === 'keyw' || key === 'w'
+                const isKKey = keyCode === 'keyk' || key === 'k'
+                const isBKey = keyCode === 'keyb' || key === 'b'
+
+                // New shortcuts: Command+Option+T for new tab, Command+Option+W for close tab
+                if (commandKey && optionKey) {
+                    const element = event.target as HTMLElement
+                    if (element?.closest('.NotebookEditor')) {
+                        return
+                    }
+
+                    if (isTKey) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        actions.newTab()
+                        return
+                    }
+
+                    if (isWKey) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        if (activeTab && canCloseTab) {
+                            actions.removeTab(activeTab)
+                        }
+                        return
+                    }
+                }
+
+                // If cmd k, open current page new tab page / if already on the new tab page focus the search input
+                if (commandKey && isKKey) {
+                    lemonToast.info(
+                        <>
+                            We've removed <KeyboardShortcut command k /> search bar and replaced it with new tab page.
+                        </>
+                    )
+
+                    if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
+                        const activeTabId = values.activeTabId
+                        const mountedLogic = activeTabId ? newTabSceneLogic.findMounted({ tabId: activeTabId }) : null
+                        if (mountedLogic) {
+                            mountedLogic.actions.focusNewTabSearchInput()
+                        } else {
+                            // If no mounted logic found, try with default key
+                            const defaultLogic = newTabSceneLogic.findMounted({ tabId: 'default' })
+                            if (defaultLogic) {
+                                defaultLogic.actions.focusNewTabSearchInput()
+                            }
+                        }
+                        return
+                    }
+                    router.actions.replace(urls.newTab())
+
+                    return
+                }
+
+                // Existing shortcuts (to be deprecated)
+                if ((commandKey && isBKey) || isKKey) {
                     const element = event.target as HTMLElement
                     if (element?.closest('.NotebookEditor')) {
                         return
@@ -1550,40 +1617,10 @@ export const sceneLogic = kea<sceneLogicType>([
                     event.preventDefault()
                     event.stopPropagation()
                     if (event.shiftKey) {
-                        if (values.activeTab) {
-                            actions.removeTab(values.activeTab)
+                        if (activeTab && canCloseTab) {
+                            actions.removeTab(activeTab)
                         }
                     } else {
-                        // If cmd k, open current page new tab page / if already on the new tab page focus the search input
-                        if (event.key === 'k') {
-                            // Off ramp
-                            lemonToast.info(
-                                <>
-                                    We've removed <KeyboardShortcut command k /> search bar and replaced it with new tab
-                                    page.
-                                </>
-                            )
-
-                            if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
-                                const activeTabId = values.activeTabId
-                                const mountedLogic = activeTabId
-                                    ? newTabSceneLogic.findMounted({ tabId: activeTabId })
-                                    : null
-                                if (mountedLogic) {
-                                    mountedLogic.actions.focusNewTabSearchInput()
-                                } else {
-                                    // If no mounted logic found, try with default key
-                                    const defaultLogic = newTabSceneLogic.findMounted({ tabId: 'default' })
-                                    if (defaultLogic) {
-                                        defaultLogic.actions.focusNewTabSearchInput()
-                                    }
-                                }
-                                return
-                            }
-                            router.actions.replace(urls.newTab())
-
-                            return
-                        }
                         // else open a new tab as normal
                         actions.newTab()
                     }
