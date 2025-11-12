@@ -126,11 +126,14 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
 
                 current_members_sql, query_params = await build_query(cohort)
 
+                # Add cohort identifiers to query parameters
+                query_params = {**query_params, "team_id": cohort.team_id, "cohort_id": cohort.id}
+
                 # Wrap with comparison to previous membership to detect changes
                 final_query = f"""
                     SELECT
-                        {cohort.team_id} as team_id,
-                        {cohort.id} as cohort_id,
+                        %(team_id)s as team_id,
+                        %(cohort_id)s as cohort_id,
                         COALESCE(current_matches.id, previous_members.person_id) as person_id,
                         now64() as last_updated,
                         CASE
@@ -147,8 +150,8 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                         SELECT team_id, person_id, argMax(status, last_updated) as status
                         FROM cohort_membership
                         WHERE
-                            team_id = {cohort.team_id}
-                            AND cohort_id = {cohort.id}
+                            team_id = %(team_id)s
+                            AND cohort_id = %(cohort_id)s
                         GROUP BY team_id, person_id
                         HAVING status = 'entered'
                     ) previous_members ON current_matches.id = previous_members.person_id
