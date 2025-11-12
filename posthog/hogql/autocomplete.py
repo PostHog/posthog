@@ -474,7 +474,7 @@ def get_hogql_autocomplete(
                             break
 
             if query.language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE):
-                # For Hog and Liquid, first add all local variables in scope
+                # For Hog, first add all local variables in scope
                 hog_vars = gather_hog_variables_in_scope(root_node, node)
                 extend_responses(
                     keys=hog_vars,
