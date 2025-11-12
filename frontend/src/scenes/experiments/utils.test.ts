@@ -96,7 +96,12 @@ describe('utils', () => {
                 ],
             },
             groups: [
-                { properties: [], rollout_percentage: 100 },
+                {
+                    properties: [],
+                    rollout_percentage: 100,
+                    description:
+                        'Added by shipping experiment variant - enables 100% rollout of selected variant to all users',
+                },
                 { properties: [], rollout_percentage: 100 },
             ],
         }
@@ -176,7 +181,12 @@ describe('utils', () => {
                 ],
             },
             groups: [
-                { properties: [], rollout_percentage: 100 },
+                {
+                    properties: [],
+                    rollout_percentage: 100,
+                    description:
+                        'Added by shipping experiment variant - enables 100% rollout of selected variant to all users',
+                },
                 { properties: [], rollout_percentage: 100 },
             ],
         }
