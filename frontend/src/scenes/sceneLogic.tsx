@@ -430,8 +430,8 @@ export const sceneLogic = kea<sceneLogicType>([
                         pathname: addProjectIdIfMissing(pathname),
                         search,
                         hash,
-                        title: 'New tab',
-                        iconType: 'blank',
+                        title: 'Search',
+                        iconType: 'search',
                         pinned: false,
                     }
                     return sortTabsPinnedFirst([...baseTabs, newTab])
@@ -454,8 +454,8 @@ export const sceneLogic = kea<sceneLogicType>([
                             pathname: '/new',
                             search: '',
                             hash: '',
-                            title: 'New tab',
-                            iconType: 'blank',
+                            title: 'Search',
+                            iconType: 'search',
                             pinned: false,
                         })
                     }

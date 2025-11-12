@@ -7,14 +7,13 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useEffect, useRef, useState } from 'react'
 
-import { IconPlus, IconSearch, IconX } from '@posthog/icons'
+import { IconPlus, IconX } from '@posthog/icons'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -22,7 +21,6 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
-import { newTabSceneLogic } from '~/scenes/new-tab/newTabSceneLogic'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -40,12 +38,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile, isLayoutPanelVisible } = useValues(panelLayoutLogic)
 
-    // Find the active tab to get its ID for the newTabSceneLogic
-    const activeTab = tabs.find((tab) => tab.active)
-    const activeTabId = activeTab?.id
-
     // Get the focus action from the newTabSceneLogic for the active tab
-    const { focusNewTabSearchInput } = useActions(newTabSceneLogic({ tabId: activeTabId }))
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
@@ -92,7 +85,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     return (
         <div
             className={cn(
-                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 relative',
+                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 relative pl-3',
                 className
             )}
         >
@@ -106,36 +99,6 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                     {isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
                 </ButtonPrimitive>
             )}
-
-            {/* Open new tab on current page */}
-            <Link
-                to={urls.newTab()}
-                onClick={(e) => {
-                    // If we're already on the new tab scene, just focus the search input
-                    if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
-                        e.preventDefault()
-                        focusNewTabSearchInput()
-                    }
-                }}
-                buttonProps={{
-                    iconOnly: true,
-                    className: 'z-20 rounded-lg text-tertiary hover:text-primary',
-                }}
-                tooltip={
-                    <div className="flex flex-col gap-1">
-                        <span>
-                            Open new tab page <KeyboardShortcut command k />
-                        </span>
-                        <span>
-                            Open command bar <KeyboardShortcut command shift k />
-                        </span>
-                    </div>
-                }
-                tooltipPlacement="bottom"
-                tooltipCloseDelayMs={0}
-            >
-                <IconSearch />
-            </Link>
 
             {/* Line between tabs and main content */}
             <div
@@ -353,7 +316,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName }: S
                         className
                     )}
                     tooltip={
-                        tab.customTitle && tab.customTitle !== 'New tab'
+                        tab.customTitle && tab.customTitle !== 'Search'
                             ? `${tab.customTitle} (${tab.title})`
                             : tab.title
                     }

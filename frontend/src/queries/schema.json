@@ -13917,7 +13917,8 @@
                 "home",
                 "apps",
                 "live",
-                "chat"
+                "chat",
+                "search"
             ],
             "type": "string"
         },

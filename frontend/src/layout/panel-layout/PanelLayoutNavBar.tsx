@@ -13,6 +13,7 @@ import {
     IconGear,
     IconHome,
     IconPeople,
+    IconSearch,
     IconShortcut,
     IconToolbar,
 } from '@posthog/icons'
@@ -147,6 +148,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 handleStaticNavbarItemClick(urls.projectRoot(), true)
             },
             tooltip: 'Home',
+        },
+        {
+            identifier: 'Search',
+            label: 'Search',
+            icon: <IconSearch />,
+            to: urls.newTab(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.newTab(), true)
+            },
+            tooltip: 'Search',
         },
         {
             identifier: 'Products',
