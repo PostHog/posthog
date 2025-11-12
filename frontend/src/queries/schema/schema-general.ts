@@ -887,6 +887,7 @@ export interface GoalLine {
     borderColor?: string
     displayLabel?: boolean
     displayIfCrossed?: boolean
+    position?: 'start' | 'end'
 }
 
 export interface ChartAxis {
