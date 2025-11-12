@@ -286,6 +286,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             )
         else:
             # New format: event_data provided directly
+            assert inputs.event_data is not None, "event_data must be provided when not using legacy format"
             event_data = inputs.event_data.copy()
             # Normalize: ensure properties is a dict, not a string
             if isinstance(event_data.get("properties"), str):
