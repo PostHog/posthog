@@ -819,9 +819,14 @@ def bulk_log_activity(log_entries: list[LogActivityEntry], batch_size: int = 500
         return []
 
     def _do_bulk_create():
-        return ActivityLog.objects.bulk_create(activity_logs, batch_size=batch_size)
+        created_logs = ActivityLog.objects.bulk_create(activity_logs, batch_size=batch_size)
 
-    created_logs = (
+        for log in created_logs:
+            post_save.send(sender=ActivityLog, instance=log, created=True)
+
+        return created_logs
+
+    return (
         _handle_activity_log_transaction(
             _do_bulk_create,
             {
@@ -833,11 +838,6 @@ def bulk_log_activity(log_entries: list[LogActivityEntry], batch_size: int = 500
         )
         or []
     )
-
-    for log in created_logs:
-        post_save.send(sender=ActivityLog, instance=log, created=True)
-
-    return created_logs
 
 
 @dataclasses.dataclass(frozen=True)
