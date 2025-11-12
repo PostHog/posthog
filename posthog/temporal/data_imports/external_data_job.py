@@ -19,6 +19,8 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
+from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.common.base import ResumableSource
 from posthog.temporal.data_imports.workflow_activities.calculate_table_size import (
     CalculateTableSizeActivityInputs,
     calculate_table_size_activity,
@@ -190,7 +192,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
 
     if inputs.internal_error:
         logger.exception(
-            f"External data job failed for external data schema {inputs.schema_id} with error: {inputs.internal_error}"
+            f"External data job failed for external data schema {inputs.schema_id} on job {inputs.job_id} with error: {inputs.internal_error}"
         )
 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
@@ -358,9 +360,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 reset_pipeline=inputs.reset_pipeline,
             )
 
+            is_resumable_source = False
+            if source_type is not None:
+                source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+                is_resumable_source = isinstance(source, ResumableSource)
+
             timeout_params = (
                 {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=9)}
-                if incremental
+                if incremental or is_resumable_source
                 else {"start_to_close_timeout": dt.timedelta(hours=24), "retry_policy": RetryPolicy(maximum_attempts=3)}
             )
 
