@@ -38,5 +38,20 @@
       ]
     }
   ],
-  "answered": false
+  "answered": true,
+  "answers": [
+    {
+      "questionId": "q1",
+      "selectedOption": "Something else? (Please specify)",
+      "customInput": "we're jsut testing"
+    },
+    {
+      "questionId": "q2",
+      "selectedOption": "In the 'We're hiring!' section (lines 109-115) - works well for fun/personality content"
+    },
+    {
+      "questionId": "q3",
+      "selectedOption": "An image or emoji-based visual element accompanying existing content"
+    }
+  ]
 }
