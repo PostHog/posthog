@@ -8,6 +8,8 @@ import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
 
 import { HogLanguage } from '~/queries/schema/schema-general'
 
+import { MonacoDisposable } from '../CodeEditor'
+
 export const conf: () => languages.LanguageConfiguration = () => ({
     wordPattern: /(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g,
 
@@ -248,14 +250,20 @@ export const language: () => languages.IMonarchLanguage = () => ({
     },
 })
 
-export function initHogLanguage(monaco: Monaco): void {
+export function initHogLanguage(monaco: Monaco): MonacoDisposable[] {
+    const disposables: MonacoDisposable[] = []
+
     if (!monaco.languages.getLanguages().some(({ id }) => id === 'hog')) {
         monaco.languages.register({ id: 'hog', extensions: ['.hog'], mimetypes: ['application/hog'] })
-        monaco.languages.setLanguageConfiguration('hog', conf())
-        monaco.languages.setMonarchTokensProvider('hog', language())
-        monaco.languages.registerCompletionItemProvider('hog', hogQLAutocompleteProvider(HogLanguage.hog))
-        monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider())
+        disposables.push(monaco.languages.setLanguageConfiguration('hog', conf()))
+        disposables.push(monaco.languages.setMonarchTokensProvider('hog', language()))
+        disposables.push(
+            monaco.languages.registerCompletionItemProvider('hog', hogQLAutocompleteProvider(HogLanguage.hog))
+        )
+        disposables.push(monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider()))
     }
+
+    return disposables
 }
 
 /* oxlint-enable no-useless-escape */

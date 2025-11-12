@@ -26,6 +26,8 @@ if (loader) {
     loader.config({ monaco })
 }
 
+export type MonacoDisposable = { dispose: () => void }
+
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
     queryKey?: string
     autocompleteContext?: string
@@ -54,7 +56,9 @@ function initEditor(
     editorProps: Omit<CodeEditorProps, 'options' | 'onMount' | 'queryKey' | 'value'>,
     options: editor.IStandaloneEditorConstructionOptions,
     builtCodeEditorLogic: BuiltLogic<codeEditorLogicType>
-): void {
+): MonacoDisposable[] {
+    let disposables: MonacoDisposable[] = []
+
     // This gives autocomplete access to the specific editor
     const model = editor.getModel()
     if (model) {
@@ -62,19 +66,19 @@ function initEditor(
     }
 
     if (editorProps?.language === 'hog') {
-        initHogLanguage(monaco)
+        disposables = initHogLanguage(monaco)
     }
     if (editorProps?.language === 'hogQL' || editorProps?.language === 'hogQLExpr') {
-        initHogQLLanguage(monaco, editorProps.language as HogLanguage)
+        disposables = initHogQLLanguage(monaco, editorProps.language as HogLanguage)
     }
     if (editorProps?.language === 'hogTemplate') {
-        initHogTemplateLanguage(monaco)
+        disposables = initHogTemplateLanguage(monaco)
     }
     if (editorProps?.language === 'hogJson') {
-        initHogJsonLanguage(monaco)
+        disposables = initHogJsonLanguage(monaco)
     }
     if (editorProps?.language === 'liquid') {
-        initLiquidLanguage(monaco)
+        disposables = initLiquidLanguage(monaco)
     }
     if (options.tabFocusMode || editorProps.onPressUpNoValue) {
         editor.onKeyDown((evt) => {
@@ -118,6 +122,8 @@ function initEditor(
             }
         })
     }
+
+    return disposables
 }
 
 export function CodeEditor({
@@ -242,7 +248,8 @@ export function CodeEditor({
 
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
         setMonacoAndEditor([monaco, editor])
-        initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
+        const disposables = initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
+        monacoDisposables.current.push(...disposables)
 
         // Override Monaco's suggestion widget styling to prevent truncation
         const styleId = 'monaco-suggestion-widget-fix'

@@ -7,6 +7,8 @@ import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
 
 import { HogLanguage } from '~/queries/schema/schema-general'
 
+import { MonacoDisposable } from '../CodeEditor'
+
 export const conf: () => languages.LanguageConfiguration = () => ({
     comments: {
         lineComment: '--',
@@ -857,7 +859,9 @@ export const language: () => languages.IMonarchLanguage = () => ({
     },
 })
 
-export function initHogQLLanguage(monaco: Monaco, lang: HogLanguage = HogLanguage.hogQL): void {
+export function initHogQLLanguage(monaco: Monaco, lang: HogLanguage = HogLanguage.hogQL): MonacoDisposable[] {
+    const disposables: MonacoDisposable[] = []
+
     if (!monaco.languages.getLanguages().some(({ id }) => id === lang)) {
         monaco.languages.register(
             lang === 'hogQL'
@@ -871,9 +875,11 @@ export function initHogQLLanguage(monaco: Monaco, lang: HogLanguage = HogLanguag
                       mimetypes: ['application/hogql+expr'],
                   }
         )
-        monaco.languages.setLanguageConfiguration(lang, conf())
-        monaco.languages.setMonarchTokensProvider(lang, language())
-        monaco.languages.registerCompletionItemProvider(lang, hogQLAutocompleteProvider(lang))
-        monaco.languages.registerCodeActionProvider(lang, hogQLMetadataProvider())
+        disposables.push(monaco.languages.setLanguageConfiguration(lang, conf()))
+        disposables.push(monaco.languages.setMonarchTokensProvider(lang, language()))
+        disposables.push(monaco.languages.registerCompletionItemProvider(lang, hogQLAutocompleteProvider(lang)))
+        disposables.push(monaco.languages.registerCodeActionProvider(lang, hogQLMetadataProvider()))
     }
+
+    return disposables
 }
