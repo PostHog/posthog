@@ -342,6 +342,36 @@ migrations:
         description: Sync feature flags from configuration
         services:
             - postgresql
+    migrations:dump-postgres:
+        cmd: |
+            mkdir -p .postgres-backups
+            BACKUP_FILE="${1:-.postgres-backups/posthog_backup_$(date +%Y%m%d_%H%M%S).sql.gz}"
+            docker compose exec -T db pg_dumpall --clean -U posthog | gzip > "$BACKUP_FILE"
+            echo "✅ Backup saved to: $BACKUP_FILE"
+        description: Dump all PostgreSQL databases to compressed backup file
+        services:
+            - postgresql
+            - docker
+    migrations:restore-postgres:
+        cmd: |
+            if [ -z "$1" ]; then
+                LATEST=$(ls -t .postgres-backups/*.sql.gz 2>/dev/null | head -1)
+                if [ -z "$LATEST" ]; then
+                    echo "❌ Error: No backup file specified and no backups found in .postgres-backups/"
+                    echo "Usage: hogli migrations:restore-postgres [backup-file]"
+                    exit 1
+                fi
+                echo "Using latest backup: $LATEST"
+                BACKUP_FILE="$LATEST"
+            else
+                BACKUP_FILE="$1"
+            fi
+            gunzip -c "$BACKUP_FILE" | docker compose exec -T db psql -U posthog
+            echo "✅ Restored from: $BACKUP_FILE"
+        description: Restore PostgreSQL databases from backup file (defaults to latest)
+        services:
+            - postgresql
+            - docker
     migrations:upgrade-postgres:
         bin_script: upgrade-postgres
         description: Upgrade PostgreSQL from version 12 to 15 (interactive migration tool)
