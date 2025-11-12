@@ -25,18 +25,18 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-24 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-09-03 23:59:59.000000', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2025-09-03 12:00:00.000000', 6, 'UTC')), 0), ifNull(greater(active_seconds, 8.0), 0))
-  ORDER BY start_time DESC
-  LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 101 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionSummarizationNodeFilterGeneration.test_get_session_ids_respects_limit
@@ -65,18 +65,18 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-27 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-31 23:59:59.000000', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2025-09-03 12:00:00.000000', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 2
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 2 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   format_csv_allow_double_quotes=0,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionSummarizationNodeFilterGeneration.test_use_current_filters_with_date_range
@@ -105,18 +105,18 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-27 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-31 23:59:59.000000', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2025-09-03 12:00:00.000000', 6, 'UTC')), 0), ifNull(greater(active_seconds, 7.0), 0))
-  ORDER BY start_time DESC
-  LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 101 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionSummarizationNodeFilterGeneration.test_use_current_filters_with_os_and_events
@@ -174,17 +174,17 @@
                                                                                                                                                                                                                                                                                                                   LIMIT 10000))))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(greater(active_seconds, 6.0), 0))
-  ORDER BY start_time DESC
-  LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 101 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
