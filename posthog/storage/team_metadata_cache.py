@@ -19,7 +19,7 @@ Typical ranges (based on preliminary analysis):
 To get accurate estimates for your data, run:
     python manage.py analyze_team_cache_sizes
 
-to will sample the cache and provide percentile-based memory projections.
+Tool will sample the cache and provide percentile-based memory projections.
 
 Configuration:
 - Redis TTL: 7 days (configurable via TEAM_METADATA_CACHE_TTL env var)
