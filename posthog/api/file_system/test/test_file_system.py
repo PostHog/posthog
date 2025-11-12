@@ -1,4 +1,6 @@
+from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC
+from typing import Any, TypedDict, cast
 
 import pytest
 from freezegun import freeze_time
@@ -20,6 +22,14 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.notebooks.backend.models import Notebook
 
 from ee.models.rbac.access_control import AccessControl
+
+
+class RestoreTestCase(TypedDict, total=False):
+    file_type: str
+    scope: str
+    factory: Callable[[], dict[str, Any]]
+    supports_restore: bool
+    extra_restore_fields: list[str]
 
 
 class TestFileSystemAPI(APIBaseTest):
@@ -1523,7 +1533,7 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
         assert folder.depth == 1
 
     def test_delete_and_restore_activity_logs_for_supported_file_types(self):
-        cases = [
+        cases: list[RestoreTestCase] = [
             {
                 "file_type": "insight",
                 "scope": "Insight",
@@ -1628,8 +1638,10 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
                     )
                     self.assertIsNotNone(restore_log, f"Expected restore log for {case['scope']}")
 
-                    detail = restore_log.detail or {}
-                    changes = detail.get("changes", [])
+                    assert restore_log is not None
+
+                    detail = cast(dict[str, Any], restore_log.detail or {})
+                    changes = cast(Iterable[Mapping[str, Any]], detail.get("changes", []))
                     self.assertTrue(
                         any(change.get("field") == "deleted" and change.get("after") is False for change in changes),
                         f"Expected deleted change for {case['scope']} restore",
