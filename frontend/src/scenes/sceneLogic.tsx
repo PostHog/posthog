@@ -1582,11 +1582,22 @@ export const sceneLogic = kea<sceneLogicType>([
 
                 // If cmd k, open current page new tab page / if already on the new tab page focus the search input
                 if (commandKey && isKKey) {
-                    lemonToast.info(
-                        <>
-                            We've removed <KeyboardShortcut command k /> search bar and replaced it with new tab page.
-                        </>
-                    )
+                    const CMD_K_TOAST_DISMISSED_KEY = 'cmd-k-searchbar-off-ramp-dismissed'
+                    const isDismissed = localStorage.getItem(CMD_K_TOAST_DISMISSED_KEY) === 'true'
+
+                    if (!isDismissed) {
+                        lemonToast.info(
+                            <>
+                                We've removed <KeyboardShortcut command k /> search bar and replaced it with new tab
+                                page.
+                            </>,
+                            {
+                                onClose: () => {
+                                    localStorage.setItem(CMD_K_TOAST_DISMISSED_KEY, 'true')
+                                },
+                            }
+                        )
+                    }
 
                     if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
                         const activeTabId = values.activeTabId
