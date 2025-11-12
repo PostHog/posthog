@@ -8,10 +8,6 @@ from django.shortcuts import redirect, render
 
 
 class RealtimeCohortCalculationForm(forms.Form):
-    days = forms.IntegerField(initial=30, min_value=1, help_text="Number of days to look back", label="Days Lookback")
-    min_matches = forms.IntegerField(
-        initial=3, min_value=1, help_text="Minimum number of matches required", label="Minimum Matches"
-    )
     parallelism = forms.IntegerField(
         initial=10,
         min_value=1,
@@ -47,8 +43,6 @@ def analyze_realtime_cohort_calculation_view(request):
         form = RealtimeCohortCalculationForm(request.POST)
         if form.is_valid():
             command_args = []
-            command_args.extend(["--days", str(form.cleaned_data["days"])])
-            command_args.extend(["--min-matches", str(form.cleaned_data["min_matches"])])
             command_args.extend(["--parallelism", str(form.cleaned_data["parallelism"])])
             command_args.extend(["--workflows-per-batch", str(form.cleaned_data["workflows_per_batch"])])
             command_args.extend(["--batch-delay-minutes", str(form.cleaned_data["batch_delay_minutes"])])

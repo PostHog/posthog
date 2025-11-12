@@ -22,18 +22,6 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--days",
-            type=int,
-            default=30,
-            help="Number of days to look back (default: 30)",
-        )
-        parser.add_argument(
-            "--min-matches",
-            type=int,
-            default=3,
-            help="Minimum number of matches required (default: 3)",
-        )
-        parser.add_argument(
             "--parallelism",
             type=int,
             default=10,
@@ -53,24 +41,18 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        days = options.get("days", 30)
-        min_matches = options.get("min_matches", 3)
         parallelism = options.get("parallelism", 10)
         workflows_per_batch = options.get("workflows_per_batch", 5)
         batch_delay_minutes = options.get("batch_delay_minutes", 5)
 
         logger.info(
             "Starting realtime cohort calculation coordinator",
-            days=days,
-            min_matches=min_matches,
             parallelism=parallelism,
             workflows_per_batch=workflows_per_batch,
             batch_delay_minutes=batch_delay_minutes,
         )
 
         self.run_temporal_workflow(
-            days=days,
-            min_matches=min_matches,
             parallelism=parallelism,
             workflows_per_batch=workflows_per_batch,
             batch_delay_minutes=batch_delay_minutes,
@@ -86,8 +68,6 @@ class Command(BaseCommand):
 
     def run_temporal_workflow(
         self,
-        days: int,
-        min_matches: int,
         parallelism: int,
         workflows_per_batch: int,
         batch_delay_minutes: int,
@@ -100,8 +80,6 @@ class Command(BaseCommand):
 
             # Create coordinator workflow inputs
             inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
-                days=days,
-                min_matches=min_matches,
                 parallelism=parallelism,
                 workflows_per_batch=workflows_per_batch,
                 batch_delay_minutes=batch_delay_minutes,
