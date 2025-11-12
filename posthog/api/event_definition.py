@@ -312,6 +312,59 @@ class EventDefinitionViewSet(
             serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore
         return serializer_class
 
+    def perform_create(self, serializer):
+        """Handle context and side effects for event definition creation."""
+        user = cast(User, self.request.user)
+
+        event_definition = serializer.save(
+            team_id=self.team_id,
+            project_id=self.project_id,
+            updated_by=user,
+            created_at=None,  # Will be populated when first real event is ingested
+            last_seen_at=None,
+        )
+
+        # Log activity for audit trail
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=user,
+            was_impersonated=is_impersonated_session(self.request),
+            item_id=str(event_definition.id),
+            scope="EventDefinition",
+            activity="created",
+            detail=Detail(name=event_definition.name, changes=None),
+        )
+
+    def perform_update(self, serializer):
+        """Handle context and side effects for event definition updates."""
+        user = cast(User, self.request.user)
+        instance = serializer.instance
+
+        # Capture before state for activity logging
+        before_state = {k: instance.__dict__[k] for k in serializer.validated_data.keys() if k in instance.__dict__}
+        # Handle tags None -> [] to avoid spurious activity logs
+        if "tags" not in before_state or before_state["tags"] is None:
+            before_state["tags"] = []
+
+        event_definition = serializer.save(updated_by=user)
+
+        # Log activity for audit trail
+        from posthog.models.activity_logging.activity_log import dict_changes_between
+
+        changes = dict_changes_between("EventDefinition", before_state, serializer.validated_data, True)
+
+        log_activity(
+            organization_id=None,
+            team_id=self.team_id,
+            user=user,
+            item_id=str(event_definition.id),
+            scope="EventDefinition",
+            activity="changed",
+            was_impersonated=is_impersonated_session(self.request),
+            detail=Detail(name=str(event_definition.name), changes=changes),
+        )
+
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: EventDefinition = self.get_object()
         instance_id: str = str(instance.id)
