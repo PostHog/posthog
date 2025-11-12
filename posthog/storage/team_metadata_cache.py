@@ -34,7 +34,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from django.conf import settings
-from django.core.cache import caches
+from django.core.cache import cache, caches
 from django.db import transaction
 
 import structlog
@@ -189,8 +189,6 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
 if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES:
     _team_metadata_cache_client = caches[FLAGS_DEDICATED_CACHE_ALIAS]
 else:
-    from django.core.cache import cache
-
     _team_metadata_cache_client = cache
 
 team_metadata_hypercache = HyperCache(

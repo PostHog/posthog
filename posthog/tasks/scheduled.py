@@ -114,11 +114,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="warm team access caches",
     )
 
-    # Team metadata cache sync - hourly (intelligent refresh)
+    # Team metadata cache sync - hourly
     sender.add_periodic_task(
         crontab(hour="*", minute="0"),
         refresh_stale_team_metadata_cache.s(),
-        name="intelligent team metadata cache sync",
+        name="team metadata cache sync",
     )
 
     # Update events table partitions twice a week

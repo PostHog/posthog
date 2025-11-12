@@ -63,6 +63,10 @@ def refresh_stale_team_metadata_cache() -> None:
     so they don't need to be included here.
     """
 
+    if not settings.FLAGS_REDIS_URL:
+        logger.info("Flags Redis URL not set, skipping team metadata cache refresh")
+        return
+
     start_time = time.time()
     logger.info("Starting intelligent team metadata cache sync")
 
