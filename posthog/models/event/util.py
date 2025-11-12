@@ -16,6 +16,7 @@ from posthog.models import Group
 from posthog.models.element.element import Element, chain_to_elements, elements_to_string
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
 from posthog.models.person import Person
+from posthog.models.person.person_api import PersonAPI
 from posthog.models.team import Team
 from posthog.settings import TEST
 
@@ -180,10 +181,7 @@ def bulk_create_events(
             person_created_at = person.created_at
         else:
             try:
-                person = Person.objects.get(
-                    persondistinctid__distinct_id=event["distinct_id"],
-                    persondistinctid__team_id=team_id,
-                )
+                person = PersonAPI.get_person_by_distinct_id(team_id, event["distinct_id"])
                 person_properties = person.properties
                 person_id = person.uuid
                 person_created_at = person.created_at

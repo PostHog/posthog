@@ -1,12 +1,11 @@
 from typing import Any, Optional
 
-from django.db import connections, models, router, transaction
+from django.db import connections, models, transaction
 from django.db.models import F, Q
 
 from posthog.models.utils import UUIDT
 
 from ..team import Team
-from .missing_person import uuidFromDistinctId
 
 MAX_LIMIT_DISTINCT_IDS = 2500
 
@@ -85,52 +84,52 @@ class Person(models.Model):
         for distinct_id in distinct_ids:
             self.add_distinct_id(distinct_id)
 
-    def split_person(self, main_distinct_id: Optional[str], max_splits: Optional[int] = None):
-        original_person = Person.objects.get(pk=self.pk)
-        distinct_ids = original_person.distinct_ids
-        original_person_version = original_person.version or 0
-        if not main_distinct_id:
-            self.properties = {}
-            self.save()
-            main_distinct_id = distinct_ids[0]
+    # def split_person(self, main_distinct_id: Optional[str], max_splits: Optional[int] = None):
+    #     original_person = Person.objects.get(pk=self.pk)
+    #     distinct_ids = original_person.distinct_ids
+    #     original_person_version = original_person.version or 0
+    #     if not main_distinct_id:
+    #         self.properties = {}
+    #         self.save()
+    #         main_distinct_id = distinct_ids[0]
 
-        if max_splits is not None and len(distinct_ids) > max_splits:
-            # Split the last N distinct_ids of the list
-            distinct_ids = distinct_ids[-1 * max_splits :]
+    #     if max_splits is not None and len(distinct_ids) > max_splits:
+    #         # Split the last N distinct_ids of the list
+    #         distinct_ids = distinct_ids[-1 * max_splits :]
 
-        for distinct_id in distinct_ids:
-            if not distinct_id == main_distinct_id:
-                db_alias = router.db_for_write(PersonDistinctId) or "default"
-                with transaction.atomic(using=db_alias):
-                    pdi = PersonDistinctId.objects.select_for_update().get(person=self, distinct_id=distinct_id)
-                    person, _ = Person.objects.get_or_create(
-                        uuid=uuidFromDistinctId(self.team_id, distinct_id),
-                        team_id=self.team_id,
-                        defaults={
-                            # Set version higher than delete events (which use version + 100).
-                            # Keep in sync with: posthog/models/person/util.py:222 (_delete_person)
-                            # and plugin-server/src/utils/db/utils.ts:152 (generateKafkaPersonUpdateMessage)
-                            "version": original_person_version + 101,
-                        },
-                    )
-                    pdi.person_id = str(person.id)
-                    # Set distinct_id version higher than delete events (which use pdi.version + 100).
-                    # This ensures the split distinct_id overrides any deleted distinct_id.
-                    pdi.version = (pdi.version or 0) + 101
-                    pdi.save(update_fields=["version", "person_id"])
+    #     for distinct_id in distinct_ids:
+    #         if not distinct_id == main_distinct_id:
+    #             db_alias = router.db_for_write(PersonDistinctId) or "default"
+    #             with transaction.atomic(using=db_alias):
+    #                 pdi = PersonDistinctId.objects.select_for_update().get(person=self, distinct_id=distinct_id)
+    #                 person, _ = Person.objects.get_or_create(
+    #                     uuid=uuidFromDistinctId(self.team_id, distinct_id),
+    #                     team_id=self.team_id,
+    #                     defaults={
+    #                         # Set version higher than delete events (which use version + 100).
+    #                         # Keep in sync with: posthog/models/person/util.py:222 (_delete_person)
+    #                         # and plugin-server/src/utils/db/utils.ts:152 (generateKafkaPersonUpdateMessage)
+    #                         "version": original_person_version + 101,
+    #                     },
+    #                 )
+    #                 pdi.person_id = str(person.id)
+    #                 # Set distinct_id version higher than delete events (which use pdi.version + 100).
+    #                 # This ensures the split distinct_id overrides any deleted distinct_id.
+    #                 pdi.version = (pdi.version or 0) + 101
+    #                 pdi.save(update_fields=["version", "person_id"])
 
-                from posthog.models.person.util import create_person, create_person_distinct_id
+    #             from posthog.models.person.util import create_person, create_person_distinct_id
 
-                create_person_distinct_id(
-                    team_id=self.team_id,
-                    distinct_id=distinct_id,
-                    person_id=str(person.uuid),
-                    is_deleted=False,
-                    version=pdi.version,
-                )
-                create_person(
-                    team_id=self.team_id, uuid=str(person.uuid), version=person.version, created_at=person.created_at
-                )
+    #             create_person_distinct_id(
+    #                 team_id=self.team_id,
+    #                 distinct_id=distinct_id,
+    #                 person_id=str(person.uuid),
+    #                 is_deleted=False,
+    #                 version=pdi.version,
+    #             )
+    #             create_person(
+    #                 team_id=self.team_id, uuid=str(person.uuid), version=person.version, created_at=person.created_at
+    #             )
 
 
 class PersonDistinctId(models.Model):

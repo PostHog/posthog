@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.kafka_client.client import KafkaProducer
-from posthog.models import Person
+from posthog.models.person.person_api import PersonAPI
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -52,7 +52,7 @@ def run(options):
     person_id = options["person_id"]
     max_splits = options["max_splits"]
 
-    person = Person.objects.get(pk=person_id)
+    person = PersonAPI.get_person(team_id, person_id)
     if person.team_id != team_id:
         logger.error(f"Specified person belongs to different team {person.team_id}")
         exit(1)
