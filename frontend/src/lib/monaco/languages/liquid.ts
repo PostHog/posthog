@@ -1,10 +1,7 @@
 import { Monaco } from '@monaco-editor/react'
 import { languages } from 'monaco-editor'
 
-import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
-
-import { HogLanguage } from '~/queries/schema/schema-general'
 
 export const conf: () => languages.LanguageConfiguration = () => ({
     wordPattern: /(-?\d*\.\d\w*)|([^`~!@#$%^&*()\-=+[\]{}|;:'",.<>/?\s]+)/g,
@@ -143,7 +140,6 @@ export function initLiquidLanguage(monaco: Monaco): void {
         })
         monaco.languages.setLanguageConfiguration('liquid', conf())
         monaco.languages.setMonarchTokensProvider('liquid', language())
-        monaco.languages.registerCompletionItemProvider('liquid', hogQLAutocompleteProvider(HogLanguage.liquid))
         monaco.languages.registerCodeActionProvider('liquid', hogQLMetadataProvider())
     }
 }

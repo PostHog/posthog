@@ -432,11 +432,6 @@ def get_hogql_autocomplete(
             elif query.language == HogLanguage.HOG_TEMPLATE:
                 with timings.measure("parse_template"):
                     root_node = parse_string_template(query_to_try, timings=timings)
-            elif query.language == HogLanguage.LIQUID:
-                with timings.measure("parse_liquid"):
-                    # Liquid templates are handled similarly to Hog templates for autocomplete
-                    # We treat them as string templates but with Liquid syntax
-                    root_node = parse_string_template(query_to_try, timings=timings)
             elif query.language == HogLanguage.HOG:
                 with timings.measure("parse_program"):
                     root_node = parse_program(query_to_try, timings=timings)
@@ -478,7 +473,7 @@ def get_hogql_autocomplete(
                         if loop_globals != query.globals:
                             break
 
-            if query.language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE, HogLanguage.LIQUID):
+            if query.language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE):
                 # For Hog and Liquid, first add all local variables in scope
                 hog_vars = gather_hog_variables_in_scope(root_node, node)
                 extend_responses(
@@ -486,14 +481,12 @@ def get_hogql_autocomplete(
                     suggestions=response.suggestions,
                     kind=AutocompleteCompletionItemKind.VARIABLE,
                 )
-                # Only add Hog functions for non-Liquid templates
-                if query.language != HogLanguage.LIQUID:
-                    extend_responses(
-                        ALL_HOG_FUNCTIONS,
-                        response.suggestions,
-                        AutocompleteCompletionItemKind.FUNCTION,
-                        insert_text=lambda key: f"{key}()",
-                    )
+                extend_responses(
+                    ALL_HOG_FUNCTIONS,
+                    response.suggestions,
+                    AutocompleteCompletionItemKind.FUNCTION,
+                    insert_text=lambda key: f"{key}()",
+                )
 
             if isinstance(query.globals, dict):
                 # Override globals if a local variable has the same name
