@@ -1,6 +1,7 @@
 import { ReleaseGitMetadata } from 'lib/components/Errors/types'
 
 export type GitProvider = 'github' | 'gitlab' | 'unknown'
+export const supportedProviders: GitProvider[] = ['github', 'gitlab']
 
 export class GitMetadataParser {
     static getViewCommitLink(git: ReleaseGitMetadata): string | undefined {

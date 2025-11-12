@@ -49,7 +49,6 @@ def prepare_gitlab_search_query(q):
 
     result = []
     for char in q:
-        # Remove special characters that can make search too restrictive
         if char in ".,:;/\\=*!?#$&+^|~<>(){}[]\"'`":
             result.append(" ")
         else:
@@ -83,7 +82,7 @@ def get_github_file_url(code_sample: str, token: str, owner: str, repository: st
         else:
             logger.warning("github_code_search_failed", status_code=response.status_code)
             return None
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.exception("github_code_search_request_failed", error=str(e))
         return None
 
@@ -101,14 +100,14 @@ def get_gitlab_file_url(
         "Content-Type": "application/json",
     }
 
-    # GitLab search behavior varies depending on repo visibility and current plan. It is not really documented to I decided to just run multiple searches.
+    # GitLab search behavior varies depending on repo visibility and current plan. Seems like under some conditions
+    # the search uses different engine - it is not documented so I decided to run multiple searches just to be safe
     search_variants = [
         code_sample.strip(),
         prepare_gitlab_search_query(code_sample),
     ]
 
-    def try_search(search_query):
-        """Try a single search variant."""
+    def execute_single_search_variant(search_query):
         if not search_query:
             return None
 
@@ -127,20 +126,21 @@ def get_gitlab_file_url(
                             ref = item.get("ref", "")
                             if ref and item_path:
                                 return f"{gitlab_url}/{owner}/{repository}/-/blob/{ref}/{item_path}"
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             logger.exception("gitlab_code_search_request_failed", error=str(e))
 
         return None
 
     with ThreadPoolExecutor(max_workers=len(search_variants)) as executor:
-        future_to_variant = {executor.submit(try_search, variant): variant for variant in search_variants}
+        future_to_variant = {
+            executor.submit(execute_single_search_variant, variant): variant for variant in search_variants
+        }
 
         for future in as_completed(future_to_variant):
             url = future.result()
             if url:
                 return url
 
-    logger.warning("gitlab_code_search_no_results", owner=owner, repository=repository, file_name=file_name)
     return None
 
 
