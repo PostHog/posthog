@@ -15,14 +15,22 @@ from django.conf import settings
 
 import brotli
 import orjson
+import psycopg
 import pyarrow as pa
+import psycopg.adapt
 import pyarrow.parquet as pq
+import psycopg.types.array
 from psycopg import sql
 
 from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
-from products.batch_exports.backend.temporal.pipeline.table import Table, TypeTupleToCastMapping, are_types_compatible
+from products.batch_exports.backend.temporal.pipeline.table import (
+    Field,
+    Table,
+    TypeTupleToCastMapping,
+    are_types_compatible,
+)
 
 logger = get_write_only_logger()
 
@@ -606,13 +614,21 @@ def remove_escaped_whitespace_recursive(value):
             return value
 
 
-def ensure_curly_brackets_array(v: list[typing.Any]) -> str:
-    """Convert list to str and replace ends with curly braces for PostgreSQL arrays.
+def _ensure_curly_brackets_array(v: list[typing.Any]) -> str:
+    """Convert list to PostgreSQL array literal format with proper escaping.
 
-    NOTE: This doesn't support nested arrays (i.e. multi-dimensional arrays).
+    Supports nested arrays and properly escapes special characters.
+    Uses psycopg3's ListDumper for correct PostgreSQL array formatting.
     """
-    str_list = str(v)
-    return f"{{{str_list[1:len(str_list)-1]}}}"
+
+    tx = psycopg.adapt.Transformer()
+    dumper = psycopg.types.array.ListDumper(list, tx)
+    result = dumper.dump(v)
+    assert result is not None
+    # Result can be bytes or memoryview, convert to string
+    if isinstance(result, memoryview):
+        result = bytes(result)
+    return result.decode("utf-8")
 
 
 class CSVStreamTransformer:
@@ -685,12 +701,27 @@ class CSVStreamTransformer:
 
         rows = []
         for record in record_batch.select(column_names).to_pylist():
-            rows.append({k: ensure_curly_brackets_array(v) if isinstance(v, list) else v for k, v in record.items()})
+            rows.append({k: _ensure_curly_brackets_array(v) if isinstance(v, list) else v for k, v in record.items()})
 
         writer.writerows(rows)
         text_wrapper.flush()
 
         return buffer.getvalue()
+
+
+class IncompatibleTypesError(TypeError):
+    """Exception for incompatible types between source and destination.
+
+    We subclass `TypeError` as Temporal matches on exception name to decide whether to
+    retry or not. With a subclass this means we can decide whether this particular error
+    is retryable or not while allowing callers to still handle it with
+    `except TypeError`.
+    """
+
+    def __init__(self, field: Field, array_type: pa.DataType):
+        super().__init__(
+            f"'{field.name}' has incoming type '{array_type}' which is not compatible with destination field's type: '{field.data_type}'"
+        )
 
 
 class SchemaTransformer:
@@ -700,9 +731,11 @@ class SchemaTransformer:
         self,
         table: Table,
         extra_compatible_types: TypeTupleToCastMapping | None = None,
+        raise_on_incompatible: bool = False,
     ):
         self.table = table
         self.extra_compatible_types = extra_compatible_types
+        self.raise_on_incompatible = raise_on_incompatible
 
     async def iter(
         self,
@@ -714,7 +747,10 @@ class SchemaTransformer:
     def cast_record_batch(self, record_batch: pa.RecordBatch) -> pa.RecordBatch:
         """Cast a record batch into a new schema that matches `self.table`.
 
-        If the record batch's schema already matches table, then nothing is cast.
+        If the record batch's schema already matches table, then nothing is cast. If a
+        particular field cannot be cast to the corresponding target field type, then an
+        exception is raised when `self.raise_on_incompatible` is `True`, otherwise we
+        optimistically assume the destination can handle the inconsistency.
         """
         field_names = [field.name for field in self.table.fields]
 
@@ -730,12 +766,19 @@ class SchemaTransformer:
 
             if compatible:
                 assert cast is not None, "If types are compatible cast function should be defined"
-
                 arrays.append(cast(array))
             else:
-                raise TypeError(
-                    f"'{field_name}' has type '{array.type}' which is not compatible with field's type: '{field.data_type}'"
+                if self.raise_on_incompatible:
+                    raise IncompatibleTypesError(field, array.type)
+
+                logger.warning(
+                    "Detected incompatible types",
+                    field=field.name,
+                    source_type=array.type,
+                    field_type=field.data_type,
+                    table=self.table.fully_qualified_name,
                 )
+                arrays.append(array)
 
         return pa.RecordBatch.from_arrays(
             arrays,

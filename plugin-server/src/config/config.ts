@@ -343,11 +343,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
 
-        // Workflows
-        MAILJET_PUBLIC_KEY: '',
-        MAILJET_SECRET_KEY: '',
-
-        // SES
+        // SES (Workflows email sending)
         SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',

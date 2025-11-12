@@ -1,3 +1,4 @@
+import colors from 'ansi-colors'
 import equal from 'fast-deep-equal'
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -13,10 +14,11 @@ import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
+import { JsonType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 import { zoomDateRange } from './filters/zoom-utils'
 import type { logsLogicType } from './logsLogicType'
+import { ParsedLogMessage } from './types'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
@@ -91,6 +93,7 @@ export const logsLogic = kea<logsLogicType>([
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
+        setPrettifyJson: (prettifyJson: boolean) => ({ prettifyJson }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
             filterGroup,
             openFilterOnInsert,
@@ -149,6 +152,13 @@ export const logsLogic = kea<logsLogicType>([
             true as boolean,
             {
                 setWrapBody: (_, { wrapBody }) => wrapBody,
+            },
+        ],
+        prettifyJson: [
+            true as boolean,
+            { persist: true },
+            {
+                setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
             },
         ],
         timestampFormat: [
@@ -218,7 +228,7 @@ export const logsLogic = kea<logsLogicType>([
 
                     const response = await api.logs.query({
                         query: {
-                            limit: 99,
+                            limit: 100,
                             offset: values.logs.length,
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
@@ -278,6 +288,21 @@ export const logsLogic = kea<logsLogicType>([
                     : dateRange.date_to,
                 explicitDate: dateRange.explicitDate,
             }),
+        ],
+        parsedLogs: [
+            (s) => [s.logs],
+            (logs: LogMessage[]): ParsedLogMessage[] => {
+                return logs.map((log: LogMessage) => {
+                    const cleanBody = colors.unstyle(log.body)
+                    let parsedBody: JsonType | null = null
+                    try {
+                        parsedBody = JSON.parse(cleanBody)
+                    } catch {
+                        // Not JSON, that's fine
+                    }
+                    return { ...log, cleanBody, parsedBody }
+                })
+            },
         ],
         sparklineData: [
             (s) => [s.sparkline],
