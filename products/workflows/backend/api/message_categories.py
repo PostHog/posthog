@@ -112,7 +112,7 @@ class MessageCategoryViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        import_service = CustomerIOImportService(team=self.team, api_key="not_needed", user=request.user)
+        import_service = CustomerIOImportService(team=self.team, api_key=None, user=request.user)
 
         # Process CSV synchronously (should be fast enough for reasonable file sizes)
         result = import_service.process_preferences_csv(csv_file)

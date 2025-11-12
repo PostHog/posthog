@@ -284,13 +284,27 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
         csv_content = """email,id,cio_subscription_preferences
 user1@example.com,cio_1,"{""topics"": {""topic_1"": false}}"
 """
+        # Create service with None API key since CSV doesn't need it
+        service = CustomerIOImportService(self.team, api_key=None, user=self.user)
 
         # Process CSV without creating categories first
-        result = self.service.process_preferences_csv(StringIO(csv_content))
+        result = service.process_preferences_csv(StringIO(csv_content))
 
         # Should fail gracefully
         assert result["status"] == "failed"
         assert "No categories found" in result["details"]
+
+    def test_api_import_without_api_key(self):
+        """Test API import fails when API key is None"""
+        service = CustomerIOImportService(self.team, api_key=None, user=self.user)
+
+        # Run import without API key
+        result = service.import_api_data()
+
+        # Should fail with appropriate error
+        assert result["status"] == "failed"
+        assert len(result["errors"]) == 1
+        assert "API key is required" in result["errors"][0]
 
     def test_unique_user_tracking_across_api_and_csv(self):
         """Test that unique users are tracked correctly across API and CSV imports"""

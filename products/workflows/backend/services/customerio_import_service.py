@@ -2,7 +2,7 @@ import io
 import csv
 import json
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from django.db import transaction
 
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class CustomerIOImportService:
-    def __init__(self, team: Team, api_key: str, user):
+    def __init__(self, team: Team, api_key: Optional[str], user):
         self.team = team
         self.user = user
         self.client = None
@@ -37,6 +37,11 @@ class CustomerIOImportService:
 
     def import_api_data(self) -> dict[str, Any]:
         """Import categories and globally unsubscribed users via API"""
+        if not self.api_key:
+            self.progress["status"] = "failed"
+            self.progress["errors"].append("API key is required for Customer.io API import")
+            return self.progress
+
         try:
             # Step 1: Validate credentials
             # Try US region first
@@ -415,16 +420,9 @@ class CustomerIOImportService:
 
         except Exception as e:
             logger.exception(f"Error bulk updating all preferences: {e}")
-            # Fall back to individual updates
-            for email in emails:
-                try:
-                    recipient_pref = MessageRecipientPreference.get_or_create_for_identifier(
-                        team_id=self.team.id, identifier=email
-                    )
-                    for category_id in category_ids:
-                        recipient_pref.set_preference(category_id, PreferenceStatus.OPTED_OUT)
-                except Exception as individual_error:
-                    self.progress["errors"].append(f"Failed to update {email}: {str(individual_error)[:100]}")
+            # Don't fall back to individual updates - it would make performance worse
+            # Instead, record the batch failure and continue
+            self.progress["errors"].append(f"Failed to update batch of {len(emails)} users: {str(e)[:200]}")
 
     def _load_topic_mapping(self) -> None:
         """Load topic mapping from existing categories"""

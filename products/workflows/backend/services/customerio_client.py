@@ -21,10 +21,8 @@ class CustomerIOClient:
         self.timeout = timeout
         self.BASE_URL = self.EU_BASE_URL if region.lower() == "eu" else self.US_BASE_URL
         self.session = requests.Session()
-        # Customer.io App API uses the key directly as Bearer token
-        self.session.headers.update(
-            {"Authorization": f"Bearer {app_api_key}", "Accept": "application/json", "Content-Type": "application/json"}
-        )
+        # Don't store credentials in session headers - add them per request instead
+        self.session.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
 
     def _make_request(
         self,
@@ -37,11 +35,14 @@ class CustomerIOClient:
         url = f"{self.BASE_URL}{endpoint}"
 
         try:
+            # Add Authorization header per request instead of storing in session
+            headers = {"Authorization": f"Bearer {self.api_key}"}
             response = self.session.request(
                 method=method,
                 url=url,
                 params=params,
                 json=json_data,
+                headers=headers,
                 timeout=self.timeout,
             )
             response.raise_for_status()
@@ -51,7 +52,13 @@ class CustomerIOClient:
         except requests.exceptions.HTTPError as e:
             error_msg = f"Customer.io API error: {e}"
             if hasattr(e, "response") and e.response:
-                error_msg = f"{error_msg}. Status: {e.response.status_code}. Response: {e.response.text}"
+                # Sanitize response text to avoid leaking API keys
+                response_text = e.response.text
+                if self.api_key and len(self.api_key) > 4:
+                    # Replace API key with masked version if it appears in response
+                    masked_key = f"{self.api_key[:4]}...{self.api_key[-4:]}"
+                    response_text = response_text.replace(self.api_key, masked_key)
+                error_msg = f"{error_msg}. Status: {e.response.status_code}. Response: {response_text}"
             logger.exception(f"API request failed: {error_msg}")
             raise CustomerIOAPIError(error_msg)
         except requests.exceptions.RequestException as e:
