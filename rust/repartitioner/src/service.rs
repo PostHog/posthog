@@ -6,7 +6,7 @@ use common_kafka::{
 use health::HealthRegistry;
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
-    message::{BorrowedMessage, Headers},
+    message::{BorrowedHeaders, BorrowedMessage},
     producer::FutureRecord,
     ClientConfig, Message,
 };
@@ -14,11 +14,12 @@ use std::time::Duration;
 use tracing::{error, info};
 
 use crate::config::Config;
+use crate::repartitioners::compute_propdefs_v1_key;
 
 pub struct RepartitionerService {
+    config: Config,
     consumer: StreamConsumer,
     producer: rdkafka::producer::FutureProducer<KafkaContext>,
-    destination_topic: String,
     health: HealthRegistry,
 }
 
@@ -76,9 +77,9 @@ impl RepartitionerService {
         );
 
         Ok(Self {
+            config,
             consumer,
             producer,
-            destination_topic: config.kafka_destination_topic,
             health,
         })
     }
@@ -112,35 +113,32 @@ impl RepartitionerService {
     }
 
     async fn process_message(&self, message: &BorrowedMessage<'_>) -> Result<()> {
-        let payload = message.payload().context("Message has no payload")?;
+        let payload = message.payload();
+        let headers = message.headers();
         let key = message.key();
 
         // Compute new partition key (example: using a hash of the payload)
         // You can customize this logic based on your requirements
-        let new_key = self.compute_partition_key(payload, key);
+        let new_key = match self.compute_partition_key(key, headers, payload) {
+            Ok(key) => key,
+            Err(e) => {
+                error!("Failed to compute partition key: {}", e);
+                return Err(e);
+            }
+        };
 
         // Build record with new partition key, using borrowed payload
         // Headers are converted from BorrowedHeaders to OwnedHeaders only when needed
         // (FutureRecord requires OwnedHeaders due to async send semantics)
-        let headers = message.headers().map(|h| {
-            use rdkafka::message::OwnedHeaders;
-            let mut owned = OwnedHeaders::new();
-            for header in h.iter() {
-                owned = owned.insert(rdkafka::message::Header {
-                    key: header.key,
-                    value: header.value,
-                });
-            }
-            owned
-        });
+        let owned_headers = message.headers().map(|h| h.detach());
 
         let record = FutureRecord {
-            topic: &self.destination_topic,
-            partition: None,
+            topic: &self.config.kafka_destination_topic,
+            partition: None, // producer will hash the message key to assign a destination partition
             key: Some(&new_key),
-            payload: Some(payload),
-            timestamp: None,
-            headers,
+            payload,
+            timestamp: message.timestamp().to_millis(),
+            headers: owned_headers,
         };
 
         // Send to Kafka
@@ -159,18 +157,21 @@ impl RepartitionerService {
         }
     }
 
-    fn compute_partition_key(&self, payload: &[u8], original_key: Option<&[u8]>) -> Vec<u8> {
-        // Example implementation: hash the payload
-        // You can customize this to use any partition key strategy you need
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+    /// match the repartitioning function to the value in the deploy env config
+    fn compute_partition_key(
+        &self,
+        source_key: Option<&[u8]>,
+        headers: Option<&BorrowedHeaders>,
+        payload: Option<&[u8]>,
+    ) -> Result<Vec<u8>> {
+        match self.config.partition_key_compute_fn.as_str() {
+            "propdefs_v1" => compute_propdefs_v1_key(source_key, headers, payload),
 
-        let mut hasher = DefaultHasher::new();
-        payload.hash(&mut hasher);
-        if let Some(key) = original_key {
-            key.hash(&mut hasher);
+            // TODO: map more repartitioning functions here as needed
+            _ => Err(anyhow::anyhow!(
+                "Unknown partition key compute function: {}",
+                self.config.partition_key_compute_fn
+            )),
         }
-        let hash = hasher.finish();
-        hash.to_le_bytes().to_vec()
     }
 }

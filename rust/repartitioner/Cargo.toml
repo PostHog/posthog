@@ -16,6 +16,8 @@ health = { path = "../common/health" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 rdkafka = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 serve-metrics = { path = "../common/serve_metrics" }
 tokio = { workspace = true }
 tracing = { workspace = true }

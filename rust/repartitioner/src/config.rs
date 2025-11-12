@@ -6,12 +6,6 @@ pub struct Config {
     #[envconfig(default = "localhost:9092")]
     pub kafka_hosts: String,
 
-    #[envconfig(default = "repartitioner")]
-    pub kafka_consumer_group: String,
-
-    #[envconfig(default = "events")]
-    pub kafka_source_topic: String,
-
     #[envconfig(default = "latest")]
     pub kafka_consumer_offset_reset: String,
 
@@ -20,10 +14,6 @@ pub struct Config {
 
     #[envconfig(default = "5000")]
     pub kafka_consumer_auto_commit_interval_ms: u32,
-
-    // Destination topic configuration
-    #[envconfig(default = "events_repartitioned")]
-    pub kafka_destination_topic: String,
 
     // Producer configuration
     #[envconfig(default = "20")]
@@ -43,6 +33,20 @@ pub struct Config {
 
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
+
+    // Service specific configuration
+    #[envconfig(default = "repartitioner")]
+    pub kafka_consumer_group: String,
+
+    #[envconfig(default = "events")]
+    pub kafka_source_topic: String,
+
+    // Destination topic configuration
+    #[envconfig(default = "events_repartitioned")]
+    pub kafka_destination_topic: String,
+
+    #[envconfig(default = "propdefs_v1")]
+    pub partition_key_compute_fn: String,
 
     // HTTP server configuration
     #[envconfig(default = "0.0.0.0:8080")]
