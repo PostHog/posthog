@@ -54,6 +54,9 @@ export function LinkedHogFunctions({
         return undefined
     }
 
+    const hogFunctionFilterList: CyclotronJobFiltersType[] | undefined =
+        forceFilterGroups ?? subTemplateIds?.map(getFiltersFromSubTemplateId).filter((filters) => !!filters)
+
     return showNewDestination ? (
         <HogFunctionTemplateList
             type={templateType}
@@ -70,7 +73,7 @@ export function LinkedHogFunctions({
     ) : (
         <HogFunctionList
             key={logicKey}
-            forceFilterGroups={forceFilterGroups}
+            forceFilterGroups={hogFunctionFilterList}
             type={type}
             hideFeedback={hideFeedback}
             extraControls={
