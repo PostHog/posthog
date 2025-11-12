@@ -245,6 +245,7 @@ export enum ProductKey {
     LINKS = 'links',
     ENDPOINTS = 'endpoints',
     CUSTOMER_ANALYTICS = 'customer_analytics',
+    LOGS = 'logs',
 }
 
 type ProductKeyUnion = `${ProductKey}`
