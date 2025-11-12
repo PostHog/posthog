@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlparse
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -91,6 +92,7 @@ class TestSyncUserSettingsCommand(BaseTest):
         home_settings = UserHomeSettings.objects.get(user=self.user, team=self.team)
         assert len(home_settings.tabs) == 1
         assert home_settings.tabs[0]["id"] == "cloud_tab"
+        assert home_settings.homepage is not None
         assert home_settings.homepage["id"] == "cloud_home"
 
         # Verify shortcuts were synced
@@ -248,7 +250,7 @@ class TestSyncUserSettingsCommand(BaseTest):
 
         # Verify API was called with correct host
         calls = [call[0][0] for call in mock_get.call_args_list]
-        assert any("https://eu.posthog.com" in call for call in calls)
+        assert any(urlparse(call).netloc == "eu.posthog.com" for call in calls)
 
     @parameterized.expand(
         [
