@@ -24,6 +24,7 @@ from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import Team
 
 from .parser import parse_baggage_header, parse_otlp_request
+from .transformer import transform_span_to_ai_event
 
 logger = structlog.get_logger(__name__)
 
@@ -147,8 +148,14 @@ def otel_traces_endpoint(request: HttpRequest, project_id: int) -> Response:
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Transform spans to AI events (TODO: Step 2)
-        # events = transform_spans_to_ai_events(parsed_request, baggage, team)
+        # Transform spans to AI events
+        events = transform_spans_to_ai_events(parsed_request, baggage)
+
+        logger.info(
+            "otel_traces_transformed",
+            team_id=team.id,
+            events_created=len(events),
+        )
 
         # Route to capture pipeline (TODO: Step 3)
         # capture_events(events, team)
@@ -156,9 +163,9 @@ def otel_traces_endpoint(request: HttpRequest, project_id: int) -> Response:
         return Response(
             {
                 "status": "success",
-                "message": "Traces parsed and validated successfully",
+                "message": "Traces transformed successfully",
                 "spans_received": len(parsed_request["spans"]),
-                # "events_created": len(events),  # Will add in step 3
+                "events_created": len(events),
             },
             status=status.HTTP_200_OK,
         )
@@ -284,7 +291,7 @@ def validate_otlp_request(parsed_request: dict[str, Any]) -> list[dict[str, Any]
     return errors
 
 
-def transform_spans_to_ai_events(parsed_request: dict[str, Any], team: Team) -> list[dict[str, Any]]:
+def transform_spans_to_ai_events(parsed_request: dict[str, Any], baggage: dict[str, str]) -> list[dict[str, Any]]:
     """
     Transform OTel spans to PostHog AI events.
 
@@ -292,14 +299,16 @@ def transform_spans_to_ai_events(parsed_request: dict[str, Any], team: Team) -> 
     1. PostHog native (posthog.ai.*)
     2. GenAI semantic conventions (gen_ai.*)
     """
-    # TODO: Implement transformation
-    # - Extract attributes using conventions
-    # - Determine event type ($ai_generation, $ai_span, etc.)
-    # - Build event properties
-    # - Calculate latency
-    # - Handle baggage for session context
+    spans = parsed_request.get("spans", [])
+    resource = parsed_request.get("resource", {})
+    scope = parsed_request.get("scope", {})
 
-    raise NotImplementedError("Span transformation not yet implemented")
+    events = []
+    for span in spans:
+        event = transform_span_to_ai_event(span, resource, scope, baggage)
+        events.append(event)
+
+    return events
 
 
 def capture_events(events: list[dict[str, Any]], team: Team) -> None:
