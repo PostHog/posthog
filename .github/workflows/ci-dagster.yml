@@ -84,6 +84,12 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
+            - name: Free disk space (Depot runner)
+              run: |
+                  echo "Before cleanup:" && df -h || true
+                  rm -rf /tmp/* || true
+                  echo "After cleanup:" && df -h || true
+
             - name: Start stack with Docker Compose
               run: |
                   export CLICKHOUSE_SERVER_IMAGE_VERSION=${{ matrix.clickhouse-server-image }}
