@@ -13,7 +13,6 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langgraph.errors import NodeInterrupt
 from langgraph.types import Send
 from posthoganalytics import capture_exception
 
@@ -484,21 +483,6 @@ class AgentToolsExecutable(BaseAgentExecutable):
             return PartialAssistantState(
                 messages=result.artifact.messages,
             )
-
-        # If this is a navigation tool call, pause the graph execution
-        # so that the frontend can re-initialise Max with a new set of contextual tools.
-        if tool_call.name == "navigate":
-            navigate_message = AssistantToolCallMessage(
-                content=str(result.content) if result.content else "",
-                ui_payload={tool_call.name: result.artifact},
-                id=str(uuid4()),
-                tool_call_id=tool_call.id,
-            )
-            # Raising a `NodeInterrupt` ensures the assistant graph stops here and
-            # surfaces the navigation confirmation to the client. The next user
-            # interaction will resume the graph with potentially different
-            # contextual tools.
-            raise NodeInterrupt(navigate_message)
 
         tool_message = AssistantToolCallMessage(
             content=str(result.content) if result.content else "",
