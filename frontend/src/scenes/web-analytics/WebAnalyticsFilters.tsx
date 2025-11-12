@@ -99,7 +99,7 @@ const WebAnalyticsAIFilters = (): JSX.Element => {
                 if (toolOutput.properties !== undefined) {
                     setWebAnalyticsFilters(toolOutput.properties)
                 }
-                if (toolOutput.date_from !== undefined || toolOutput.date_to !== undefined) {
+                if (toolOutput.date_from !== undefined && toolOutput.date_to !== undefined) {
                     setDates(toolOutput.date_from, toolOutput.date_to)
                 }
                 if (toolOutput.doPathCleaning !== undefined) {
