@@ -7,10 +7,13 @@ const ISSUE_REOPENED: &str = "error_tracking_issue_reopened";
 const SYMBOL_SET_SAVED: &str = "error_tracking_symbol_set_saved";
 const SYMBOL_SET_DELETED: &str = "error_tracking_symbol_set_deleted";
 
-pub fn capture_issue_created(team_id: i32, issue_id: Uuid) {
+pub fn capture_issue_created(team_id: i32, issue_id: Uuid, sentry_integration: bool) {
     let mut event = Event::new_anon(ISSUE_CREATED);
     event.insert_prop("team_id", team_id).unwrap();
     event.insert_prop("issue_id", issue_id.to_string()).unwrap();
+    event
+        .insert_prop("sentry_integration", sentry_integration)
+        .unwrap();
     spawning_capture(event);
 }
 

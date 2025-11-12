@@ -343,6 +343,10 @@
             "required": ["columns", "hogql", "limit", "offset", "results"],
             "type": "object"
         },
+        "AgentMode": {
+            "enum": ["product_analytics", "noop"],
+            "type": "string"
+        },
         "AggregationAxisFormat": {
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled", "currency"],
             "type": "string"
@@ -464,6 +468,9 @@
                 },
                 {
                     "$ref": "#/definitions/EventsQuery"
+                },
+                {
+                    "$ref": "#/definitions/SessionsQuery"
                 },
                 {
                     "$ref": "#/definitions/ActorsQuery"
@@ -726,6 +733,9 @@
                 },
                 {
                     "$ref": "#/definitions/EventsQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/SessionsQueryResponse"
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
@@ -1827,7 +1837,6 @@
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
                 "create_message_template",
-                "navigate",
                 "filter_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
@@ -3582,6 +3591,13 @@
                 "baseline": {
                     "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
+                "breakdown_results": {
+                    "description": "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentBreakdownResult"
+                    },
+                    "type": "array"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -4770,6 +4786,12 @@
                 "baseline": {
                     "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
+                "breakdown_results": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentBreakdownResult"
+                    },
+                    "type": "array"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -5707,6 +5729,104 @@
                     "description": "List of session IDs that had no matching events",
                     "items": {
                         "type": "string"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "columns",
+                "hogql",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone",
+                "types"
+            ],
+            "type": "object"
+        },
+        "CachedSessionsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "items": {},
+                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -8766,6 +8886,66 @@
                             "additionalProperties": false,
                             "properties": {
                                 "columns": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "offset": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
+                                "results": {
+                                    "items": {
+                                        "items": {},
+                                        "type": "array"
+                                    },
+                                    "type": "array"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                },
+                                "types": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["columns", "hogql", "results", "types"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "columns": {
                                     "items": {
                                         "type": "string"
                                     },
@@ -9605,6 +9785,9 @@
                             "$ref": "#/definitions/SessionAttributionExplorerQuery"
                         },
                         {
+                            "$ref": "#/definitions/SessionsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
                         },
                         {
@@ -9856,6 +10039,10 @@
             },
             "required": ["key", "operator", "type"],
             "type": "object"
+        },
+        "DataWarehouseSyncInterval": {
+            "enum": ["5min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
+            "type": "string"
         },
         "DataWarehouseViewLink": {
             "additionalProperties": false,
@@ -10757,6 +10944,10 @@
                 "is_active": {
                     "type": "boolean"
                 },
+                "is_materialized": {
+                    "description": "Whether this endpoint's query results are materialized to S3",
+                    "type": "boolean"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -10769,6 +10960,10 @@
                             "$ref": "#/definitions/InsightQueryNode"
                         }
                     ]
+                },
+                "sync_frequency": {
+                    "$ref": "#/definitions/DataWarehouseSyncInterval",
+                    "description": "How frequently should the underlying materialized view be updated"
                 }
             },
             "type": "object"
@@ -11115,6 +11310,9 @@
                 "first_event": {
                     "additionalProperties": false,
                     "properties": {
+                        "distinct_id": {
+                            "type": "string"
+                        },
                         "properties": {
                             "type": "string"
                         },
@@ -11125,7 +11323,7 @@
                             "type": "string"
                         }
                     },
-                    "required": ["uuid", "timestamp", "properties"],
+                    "required": ["uuid", "distinct_id", "timestamp", "properties"],
                     "type": "object"
                 },
                 "first_seen": {
@@ -11141,6 +11339,9 @@
                 "last_event": {
                     "additionalProperties": false,
                     "properties": {
+                        "distinct_id": {
+                            "type": "string"
+                        },
                         "properties": {
                             "type": "string"
                         },
@@ -11151,7 +11352,7 @@
                             "type": "string"
                         }
                     },
-                    "required": ["uuid", "timestamp", "properties"],
+                    "required": ["uuid", "distinct_id", "timestamp", "properties"],
                     "type": "object"
                 },
                 "last_seen": {
@@ -12286,6 +12487,42 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
+        "ExperimentBreakdownResult": {
+            "additionalProperties": false,
+            "description": "Represents experiment results for a single breakdown combination. Each breakdown is treated as an independent A/B test with its own baseline and variants. For multiple breakdowns, values are in the same order as breakdownFilter.breakdowns.",
+            "properties": {
+                "baseline": {
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated",
+                    "description": "Control variant stats for this breakdown"
+                },
+                "breakdown_value": {
+                    "description": "The breakdown values as an array (e.g., [\"MacOS\", \"Chrome\"] for multi-breakdown, [\"Chrome\"] for single)",
+                    "items": {
+                        "$ref": "#/definitions/BreakdownKeyType"
+                    },
+                    "type": "array"
+                },
+                "variants": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultFrequentist"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultBayesian"
+                            },
+                            "type": "array"
+                        }
+                    ],
+                    "description": "Test variant results with statistical comparisons for this breakdown"
+                }
+            },
+            "required": ["breakdown_value", "baseline", "variants"],
+            "type": "object"
+        },
         "ExperimentDataWarehouseNode": {
             "additionalProperties": false,
             "properties": {
@@ -12511,6 +12748,9 @@
         "ExperimentFunnelMetric": {
             "additionalProperties": false,
             "properties": {
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter"
+                },
                 "conversion_window": {
                     "$ref": "#/definitions/integer"
                 },
@@ -12804,6 +13044,9 @@
         "ExperimentMeanMetric": {
             "additionalProperties": false,
             "properties": {
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter"
+                },
                 "conversion_window": {
                     "$ref": "#/definitions/integer"
                 },
@@ -12898,6 +13141,9 @@
         "ExperimentMetricBaseProperties": {
             "additionalProperties": false,
             "properties": {
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter"
+                },
                 "conversion_window": {
                     "$ref": "#/definitions/integer"
                 },
@@ -13097,6 +13343,13 @@
                 "baseline": {
                     "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
+                "breakdown_results": {
+                    "description": "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentBreakdownResult"
+                    },
+                    "type": "array"
+                },
                 "credible_intervals": {
                     "additionalProperties": {
                         "items": {
@@ -13177,6 +13430,9 @@
         "ExperimentRatioMetric": {
             "additionalProperties": false,
             "properties": {
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter"
+                },
                 "conversion_window": {
                     "$ref": "#/definitions/integer"
                 },
@@ -14868,6 +15124,10 @@
                     "type": "boolean"
                 },
                 "label": {
+                    "type": "string"
+                },
+                "position": {
+                    "enum": ["start", "end"],
                     "type": "string"
                 },
                 "value": {
@@ -18289,6 +18549,12 @@
                 "baseline": {
                     "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
+                "breakdown_results": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentBreakdownResult"
+                    },
+                    "type": "array"
+                },
                 "variant_results": {
                     "anyOf": [
                         {
@@ -18316,6 +18582,7 @@
                 "ActionsNode",
                 "DataWarehouseNode",
                 "EventsQuery",
+                "SessionsQuery",
                 "PersonsNode",
                 "HogQuery",
                 "HogQLQuery",
@@ -18531,6 +18798,9 @@
                 },
                 "pathsHogQLExpression": {
                     "type": "string"
+                },
+                "showFullUrls": {
+                    "type": "boolean"
                 },
                 "startPoint": {
                     "type": "string"
@@ -19181,6 +19451,66 @@
         "QueryResponseAlternative": {
             "anyOf": [
                 {
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "items": {},
+                                "type": "array"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["columns", "hogql", "results", "types"],
                     "type": "object"
                 },
                 {
@@ -20194,6 +20524,13 @@
                     "properties": {
                         "baseline": {
                             "$ref": "#/definitions/ExperimentStatsBaseValidated"
+                        },
+                        "breakdown_results": {
+                            "description": "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.",
+                            "items": {
+                                "$ref": "#/definitions/ExperimentBreakdownResult"
+                            },
+                            "type": "array"
                         },
                         "credible_intervals": {
                             "additionalProperties": {
@@ -21589,6 +21926,66 @@
                         }
                     },
                     "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "items": {},
+                                "type": "array"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["columns", "hogql", "results", "types"],
                     "type": "object"
                 },
                 {
@@ -23021,6 +23418,9 @@
                     "$ref": "#/definitions/EventsQuery"
                 },
                 {
+                    "$ref": "#/definitions/SessionsQuery"
+                },
+                {
                     "$ref": "#/definitions/ActorsQuery"
                 },
                 {
@@ -23435,6 +23835,10 @@
                     },
                     "type": "array"
                 },
+                "after": {
+                    "description": "Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page.",
+                    "type": "string"
+                },
                 "comment_text": {
                     "$ref": "#/definitions/RecordingPropertyFilter"
                 },
@@ -23536,6 +23940,10 @@
             "properties": {
                 "has_next": {
                     "type": "boolean"
+                },
+                "next_cursor": {
+                    "description": "Cursor for the next page. Contains the ordering value and session_id from the last record.",
+                    "type": "string"
                 },
                 "results": {
                     "items": {
@@ -23700,6 +24108,13 @@
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day"
                 },
+                "retentionCustomBrackets": {
+                    "description": "Custom brackets for retention calculations",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
                 "retentionReference": {
                     "description": "Whether retention is with regard to initial cohort size, or that of the previous period.",
                     "enum": ["total", "previous"],
@@ -23710,6 +24125,17 @@
                 },
                 "returningEntity": {
                     "$ref": "#/definitions/RetentionEntity"
+                },
+                "selectedInterval": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The selected interval to display across all cohorts (null = show all intervals for each cohort)"
                 },
                 "showTrendLines": {
                     "type": "boolean"
@@ -25531,6 +25957,150 @@
             "required": ["id", "viewed", "viewers", "recording_duration", "start_time", "end_time", "snapshot_source"],
             "type": "object"
         },
+        "SessionsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "after": {
+                    "description": "Only fetch sessions that started after this timestamp",
+                    "type": "string"
+                },
+                "before": {
+                    "description": "Only fetch sessions that started before this timestamp",
+                    "type": "string"
+                },
+                "filterTestAccounts": {
+                    "description": "Filter test accounts",
+                    "type": "boolean"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyFilterLike"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "SessionsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to return"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to skip before returning rows"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "personId": {
+                    "description": "Show sessions for a given person",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/SessionsQueryResponse"
+                },
+                "select": {
+                    "description": "Return a limited set of data. Required.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                },
+                "where": {
+                    "description": "HogQL filters to apply on returned data",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "select"],
+            "type": "object"
+        },
+        "SessionsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "items": {},
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["columns", "hogql", "results", "types"],
+            "type": "object"
+        },
         "SessionsTimelineQuery": {
             "additionalProperties": false,
             "properties": {
@@ -25641,6 +26211,9 @@
                 "description": {
                     "type": "string"
                 },
+                "distance": {
+                    "type": "number"
+                },
                 "first_seen": {
                     "type": "string"
                 },
@@ -25657,7 +26230,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "name", "description", "library", "status", "first_seen"],
+            "required": ["id", "name", "description", "library", "status", "first_seen", "distance"],
             "type": "object"
         },
         "SimpleIntervalType": {

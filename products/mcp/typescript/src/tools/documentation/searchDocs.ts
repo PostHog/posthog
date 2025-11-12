@@ -1,13 +1,14 @@
+import type { z } from 'zod'
+
 import { docsSearch } from '@/inkeepApi'
 import { DocumentationSearchSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = DocumentationSearchSchema
 
 type Params = z.infer<typeof schema>
 
-export const searchDocsHandler = async (context: Context, params: Params) => {
+export const searchDocsHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { query } = params
     const inkeepApiKey = context.env.INKEEP_API_KEY
 

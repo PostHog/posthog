@@ -545,6 +545,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                 context={{
                                                     refresh: 'force_blocking',
                                                     fileNameForExport: cohort.name,
+                                                    cohortId: cohortId,
                                                     dataNodeLogicKey: dataNodeLogicKey,
                                                     columns: canRemovePersonFromCohort
                                                         ? {

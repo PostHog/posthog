@@ -3,7 +3,6 @@ import { useState } from 'react'
 
 import { IconChevronDown, IconMagicWand } from '@posthog/icons'
 
-import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -90,16 +89,10 @@ function StacktraceIssueDisplay({
 }: {
     issue?: ErrorTrackingRelationalIssue
     issueLoading: boolean
-} & Omit<StacktraceBaseDisplayProps, 'renderLoading' | 'renderEmpty'>): JSX.Element {
+} & Omit<StacktraceBaseDisplayProps, 'renderEmpty'>): JSX.Element {
     const { showAsText } = useValues(exceptionCardLogic)
     const componentProps = {
         ...stacktraceDisplayProps,
-        renderLoading: (renderHeader: (props: ExceptionHeaderProps) => JSX.Element) =>
-            renderHeader({
-                type: issue?.name ?? undefined,
-                value: issue?.description ?? undefined,
-                loading: issueLoading,
-            }),
         renderEmpty: () => <StacktraceEmptyDisplay />,
     }
     return showAsText ? <StacktraceTextDisplay {...componentProps} /> : <StacktraceGenericDisplay {...componentProps} />

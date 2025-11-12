@@ -797,7 +797,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         self, existing_flag=None, filters=None, name=None, active=False, flag_name_suffix=None
     ):
         with create_flag_with_survey_errors():
+            # Ensure the request method is set correctly for validation
             if existing_flag:
+                self.context["request"].method = "PATCH"
                 existing_flag_serializer = FeatureFlagSerializer(
                     existing_flag,
                     data={"filters": filters},
@@ -806,7 +808,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 )
                 existing_flag_serializer.is_valid(raise_exception=True)
                 return existing_flag_serializer.save()
-            elif name and filters:
+            else:
+                self.context["request"].method = "POST"
                 random_id = generate("1234567890abcdef", 10)
                 feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{random_id}{flag_name_suffix or ''}")
                 feature_flag_serializer = FeatureFlagSerializer(
@@ -822,8 +825,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
                 feature_flag_serializer.is_valid(raise_exception=True)
                 return feature_flag_serializer.save()
-            else:
-                raise serializers.ValidationError("Targeting flag for survey failed, invalid parameters.")
 
 
 class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):

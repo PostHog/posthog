@@ -46,6 +46,10 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         else:
             counts_with_sampling = parse_expr("counts")
 
+        # Use exact dates when exact_timerange is enabled
+        date_to_filter = "{date_to}" if self.exact_timerange else "{date_to_start_of_interval}"
+        date_from_filter = "{date_from}" if self.exact_timerange else "{date_from_start_of_interval}"
+
         placeholders = {
             **self.query_date_range.to_placeholders(),
             "events_query": self.events_query,
@@ -54,9 +58,9 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         }
         with self.timings.measure("lifecycle_query"):
             lifecycle_query = parse_select(
-                """
+                f"""
                     SELECT groupArray(start_of_period) AS date,
-                           groupArray({counts_with_sampling}) AS total,
+                           groupArray({{counts_with_sampling}}) AS total,
                            status
                     FROM (
                         SELECT
@@ -68,7 +72,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                                 periods.start_of_period as start_of_period,
                                 0 AS counts,
                                 status
-                            FROM {periods_query} as periods
+                            FROM {{periods_query}} as periods
                             CROSS JOIN (
                                 SELECT status
                                 FROM (SELECT 1)
@@ -78,11 +82,11 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                             UNION ALL
                             SELECT
                                 start_of_period, count(DISTINCT actor_id) AS counts, status
-                            FROM {events_query}
+                            FROM {{events_query}}
                             GROUP BY start_of_period, status
                         )
-                        WHERE start_of_period <= {date_to_start_of_interval}
-                            AND start_of_period >= {date_from_start_of_interval}
+                        WHERE start_of_period <= {date_to_filter}
+                            AND start_of_period >= {date_from_filter}
                         GROUP BY start_of_period, status
                         ORDER BY start_of_period ASC
                     )
@@ -223,6 +227,10 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
 
         return None
 
+    @property
+    def exact_timerange(self):
+        return self.query.dateRange and self.query.dateRange.explicitDate
+
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
@@ -231,6 +239,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             interval=self.query.interval,
             now=datetime.now(),
             earliest_timestamp_fallback=self._earliest_timestamp,
+            exact_timerange=self.exact_timerange,
         )
 
     @cached_property

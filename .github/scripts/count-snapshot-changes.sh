@@ -38,7 +38,7 @@ DIFF_FILE="/tmp/snapshot-diff.txt"
 # Run OptiPNG if there are added or modified files
 if [ "$ADDED" -gt 0 ] || [ "$MODIFIED" -gt 0 ]; then
     echo "Running OptiPNG optimization on $((ADDED + MODIFIED)) files..." >&2
-    apt-get update -qq && apt-get install -y -qq optipng >/dev/null 2>&1 || true
+    sudo apt-get update -qq && sudo apt-get install -y -qq optipng >/dev/null 2>&1 || true
 
     # Find PNG files that were added or modified
     while IFS= read -r line; do

@@ -521,7 +521,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'Calculate a conversion rate for <events or actions>…',
             },
         ],
-        tooltip: 'Max can generate insights from natural language and tweak existing ones.',
+        tooltip: 'PostHog AI can generate insights from natural language and tweak existing ones.',
     },
     {
         label: 'SQL',
@@ -532,7 +532,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             },
         ],
         url: urls.sqlEditor(),
-        tooltip: 'Max can generate SQL queries for your PostHog data, both analytics and the data warehouse.',
+        tooltip: 'PostHog AI can generate SQL queries for your PostHog data, both analytics and the data warehouse.',
     },
     {
         label: 'Session replay',
@@ -543,7 +543,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             },
         ],
         url: productUrls.replay(),
-        tooltip: 'Max can find session recordings for you.',
+        tooltip: 'PostHog AI can find session recordings for you.',
     },
     {
         label: 'SDK setup',
@@ -571,7 +571,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'How can I set up the product analytics in…',
             },
         ],
-        tooltip: 'Max can help you set up PostHog SDKs in your stack.',
+        tooltip: 'PostHog AI can help you set up PostHog SDKs in your stack.',
     },
     {
         label: 'Surveys',
@@ -591,7 +591,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             },
         ],
         url: urls.surveys(),
-        tooltip: 'Max can help you create surveys to collect feedback from your users.',
+        tooltip: 'PostHog AI can help you create surveys to collect feedback from your users.',
     },
     {
         label: 'Docs',
