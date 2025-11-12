@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.schema import (
+    AgentMode,
     AssistantMessage,
     ContextMessage,
     DashboardFilter,
@@ -646,3 +647,20 @@ Query results: 42 events
 
         context_manager = AssistantContextManager(self.team, self.user, RunnableConfig(configurable={}))
         self.assertIsNone(context_manager.get_billing_context())
+
+    async def test_get_context_prompts_with_agent_mode_at_start(self):
+        """Test that mode prompt is added when feature flag is enabled and message is at start"""
+        with patch.object(AssistantContextManager, "_has_agent_modes_feature_flag", return_value=True):
+            state = AssistantState(
+                messages=[HumanMessage(content="Test", id="1")],
+                start_id="1",
+                agent_mode=AgentMode.PRODUCT_ANALYTICS,
+            )
+
+            result = await self.context_manager.get_state_messages_with_context(state)
+
+            assert result is not None
+            self.assertEqual(len(result), 2)
+            assert isinstance(result[0], ContextMessage)
+            self.assertIn("Your initial mode is", result[0].content)
+            self.assertIsInstance(result[1], HumanMessage)
