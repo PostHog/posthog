@@ -87,7 +87,10 @@ jobs:
             - name: Free disk space (Depot runner)
               run: |
                   echo "Before cleanup:" && df -h || true
-                  rm -rf /tmp/* || true
+                  # Remove only writable entries in /tmp (avoid permission errors)
+                  find /tmp -mindepth 1 -maxdepth 1 -writable -exec rm -rf {} + || true
+                  # Clear user caches
+                  rm -rf "$HOME/.cache" || true
                   echo "After cleanup:" && df -h || true
 
             - name: Start stack with Docker Compose
