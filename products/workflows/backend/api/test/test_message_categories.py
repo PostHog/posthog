@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import MessageCategory, Team
@@ -151,34 +150,6 @@ class TestMessageCategoryAPI(APIBaseTest):
         response = self.client.delete(f"/api/environments/{self.team.id}/messaging_categories/{category.id}/")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    @parameterized.expand(
-        [
-            # Test case 1: Valid CSV file
-            (
-                b'email,id,cio_subscription_preferences\nuser@example.com,1,"{""topics"": {""1"": false}}"',
-                "test.csv",
-                "text/csv",
-                status.HTTP_200_OK,
-                "completed",
-            ),
-            # Test case 2: Empty CSV file
-            (
-                b"",
-                "empty.csv",
-                "text/csv",
-                status.HTTP_200_OK,
-                "completed",
-            ),
-            # Test case 3: CSV with only headers
-            (
-                b"email,id,cio_subscription_preferences",
-                "headers_only.csv",
-                "text/csv",
-                status.HTTP_200_OK,
-                "completed",
-            ),
-        ]
-    )
     def test_import_preferences_csv_missing_file(self):
         """Test CSV import fails when file is missing"""
         response = self.client.post(
