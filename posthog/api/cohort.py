@@ -1206,12 +1206,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             item_id=instance.id,
             scope="Cohort",
             activity="created",
-            detail=Detail(
-                changes=[
-                    Change(type="Cohort", action="created", field="people", before=0, after=instance.people.count())
-                ],
-                name=instance.name,
-            ),
+            detail=Detail(name=instance.name),
         )
 
     def perform_update(self, serializer):
