@@ -5,6 +5,8 @@ import React, { useContext } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
 
+// TEST: Trigger snapshot updates to verify workflow improvements
+
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { Link } from '../Link'
 import { PopoverOverlayContext, PopoverReferenceContext } from '../Popover'
