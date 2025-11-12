@@ -190,7 +190,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
 
     if inputs.internal_error:
         logger.exception(
-            f"External data job failed for external data schema {inputs.schema_id} with error: {inputs.internal_error}"
+            f"External data job failed for external data schema {inputs.schema_id} on job {inputs.job_id} with error: {inputs.internal_error}"
         )
 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
