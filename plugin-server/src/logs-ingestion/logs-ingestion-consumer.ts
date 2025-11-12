@@ -114,7 +114,7 @@ export class LogsIngestionConsumer {
 
                     if (!team) {
                         // Write to DLQ topic maybe?
-                        logger.error('team_not_found')
+                        logger.error('team_not_found', { missing_team_for_token: token });
                         logMessageDroppedCounter.inc({ reason: 'team_not_found' })
                         return
                     }
