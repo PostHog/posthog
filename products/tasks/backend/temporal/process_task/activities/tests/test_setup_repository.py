@@ -47,15 +47,12 @@ class TestSetupRepositoryActivity:
                 mock_get_token.return_value = ""
                 async_to_sync(activity_environment.run)(clone_repository, clone_input)
 
-            check_before = sandbox.execute(
-                "ls -la /tmp/workspace/repos/posthog/posthog-js/ | grep node_modules || echo 'no node_modules'"
-            )
-            assert "no node_modules" in check_before.stdout
-
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.setup_repository.Sandbox._get_setup_command"
             ) as mock_setup_cmd:
-                mock_setup_cmd.return_value = "pnpm install"
+                mock_setup_cmd.return_value = (
+                    "echo 'hello world' > test_setup.txt && git add test_setup.txt && git commit -m 'test setup'"
+                )
 
                 setup_input = SetupRepositoryInput(
                     sandbox_id=sandbox.id,
@@ -68,11 +65,8 @@ class TestSetupRepositoryActivity:
 
                 assert result is not None
 
-            check_after = sandbox.execute(
-                "ls -la /tmp/workspace/repos/posthog/posthog-js/ | grep node_modules || echo 'no node_modules'"
-            )
-            assert "node_modules" in check_after.stdout
-            assert "no node_modules" not in check_after.stdout
+            check_file = sandbox.execute("cat /tmp/workspace/repos/posthog/posthog-js/test_setup.txt")
+            assert "hello world" in check_file.stdout
 
         finally:
             if sandbox:
@@ -112,7 +106,7 @@ class TestSetupRepositoryActivity:
         )
 
         with pytest.raises(SandboxNotFoundError):
-            activity_environment.run(setup_repository, setup_input)
+            async_to_sync(activity_environment.run)(setup_repository, setup_input)
 
     @pytest.mark.django_db
     def test_setup_repository_fails_with_uncommitted_changes(self, activity_environment, github_integration):

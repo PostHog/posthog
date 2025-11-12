@@ -47,6 +47,7 @@ class TestCreateSandboxFromSnapshotActivity:
                 snapshot_id=str(snapshot.id),
                 task_id=test_task.id,
                 distinct_id="test-user-id",
+                team_id=test_task.team_id,
                 github_integration_id=github_integration.id,
             )
             output = async_to_sync(activity_environment.run)(create_sandbox_from_snapshot, input_data)
@@ -82,6 +83,7 @@ class TestCreateSandboxFromSnapshotActivity:
             snapshot_id=str(uuid.uuid4()),
             task_id="test-task-456",
             distinct_id="test-user-id",
+            team_id=github_integration.team_id,
             github_integration_id=github_integration.id,
         )
 
@@ -100,6 +102,7 @@ class TestCreateSandboxFromSnapshotActivity:
                 snapshot_id=str(snapshot.id),
                 task_id=test_task.id,
                 distinct_id="test-user-id",
+                team_id=test_task.team_id,
                 github_integration_id=github_integration.id,
             )
 
