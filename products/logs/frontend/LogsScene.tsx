@@ -1,4 +1,3 @@
-import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -39,7 +38,7 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, prettifyJson, logs, sparklineData, logsLoading, sparklineLoading, timestampFormat } =
+    const { wrapBody, prettifyJson, parsedLogs, sparklineData, logsLoading, sparklineLoading, timestampFormat } =
         useValues(logsLogic)
     const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
 
@@ -89,7 +88,7 @@ export function LogsScene(): JSX.Element {
             <div className="flex-1 overflow-y-auto border rounded bg-bg-light">
                 <LemonTable
                     hideScrollbar
-                    dataSource={logs}
+                    dataSource={parsedLogs}
                     loading={logsLoading}
                     size="small"
                     embedded
@@ -112,19 +111,11 @@ export function LogsScene(): JSX.Element {
                             title: 'Message',
                             key: 'body',
                             dataIndex: 'body',
-                            render: (_, { body }) => {
-                                const cleanBody = colors.unstyle(body)
-                                let parsed: any = null
-                                try {
-                                    parsed = JSON.parse(cleanBody)
-                                } catch {
-                                    // Not JSON, that's fine
-                                }
-
-                                if (parsed && prettifyJson) {
+                            render: (_, { cleanBody, parsedBody }) => {
+                                if (parsedBody && prettifyJson) {
                                     return (
                                         <pre className={cn('text-xs', wrapBody ? '' : 'whitespace-nowrap')}>
-                                            {JSON.stringify(parsed, null, 2)}
+                                            {JSON.stringify(parsedBody, null, 2)}
                                         </pre>
                                     )
                                 }
