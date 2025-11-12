@@ -14891,6 +14891,10 @@
                 "label": {
                     "type": "string"
                 },
+                "position": {
+                    "enum": ["start", "end"],
+                    "type": "string"
+                },
                 "value": {
                     "type": "number"
                 }

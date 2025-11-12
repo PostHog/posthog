@@ -1686,6 +1686,11 @@ class FunnelVizType(StrEnum):
     TRENDS = "trends"
 
 
+class Position(StrEnum):
+    START = "start"
+    END = "end"
+
+
 class GoalLine(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1694,6 +1699,7 @@ class GoalLine(BaseModel):
     displayIfCrossed: Optional[bool] = None
     displayLabel: Optional[bool] = None
     label: str
+    position: Optional[Position] = None
     value: float
 
 
