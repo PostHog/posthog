@@ -1,0 +1,42 @@
+{
+  "actionabilityScore": 0.25,
+  "context": "Task is to add 'ice cream' to the PostHog README, but the description is too vague to determine intent. The README is a comprehensive product overview with sections for features, SDKs, setup guides, and hiring information.",
+  "keyFiles": [
+    "/Users/lucasfaria/src/array-workspace/posthog/README.md"
+  ],
+  "blockers": [
+    "Task description is minimal ('x') - unclear what 'ice cream' refers to or where it should be added",
+    "No context on whether this is: a reference/metaphor, a feature name, documentation content, or something else",
+    "Cannot determine appropriate placement without understanding the purpose"
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "question": "What does 'ice cream' refer to in the context of this README update?",
+      "options": [
+        "A reference to PostHog's hedgehog mascot's favorite food (add to 'We're hiring!' section as a fun fact or Easter egg)",
+        "A new feature or product capability that should be documented (add to the features list in the features section)",
+        "A code example or tutorial section (create new documentation with ice cream-related example/demo)"
+      ]
+    },
+    {
+      "id": "q2",
+      "question": "Where should the ice cream reference be placed in the README?",
+      "options": [
+        "In the 'We're hiring!' section (lines 109-115) - works well for fun/personality content",
+        "In the features list (lines 24-35) - if this is a new PostHog capability or feature",
+        "In a new section (create 'Fun facts' or 'Fun things to know' section after 'Learning more about PostHog')"
+      ]
+    },
+    {
+      "id": "q3",
+      "question": "What type of content should be added about ice cream?",
+      "options": [
+        "A single-line joke or fun fact (e.g., 'The PostHog hedgehog loves ice cream 🍦')",
+        "A multi-line paragraph or section (e.g., explanation of a feature or concept using ice cream metaphor)",
+        "An image or emoji-based visual element accompanying existing content"
+      ]
+    }
+  ],
+  "answered": false
+}
