@@ -78,6 +78,9 @@ TEAM_METADATA_CACHE_TTL = int(os.environ.get("TEAM_METADATA_CACHE_TTL", str(60 *
 TEAM_METADATA_CACHE_MISS_TTL = int(os.environ.get("TEAM_METADATA_CACHE_MISS_TTL", str(60 * 60 * 24)))  # Default: 1 day
 
 # List of fields to cache - full team object with 38 core fields
+# NOTE: Includes secret tokens (api_token, secret_api_token, secret_api_token_backup)
+# for flags service consumption. These are stored in dedicated redis + potentially S3.
+# This is acceptable for our threat model where flags service needs auth tokens to validate requests.
 TEAM_METADATA_FIELDS = [
     "id",
     "project_id",
@@ -365,7 +368,7 @@ def get_cache_stats() -> dict[str, Any]:
     try:
         redis_client = get_client()
         # HyperCache uses format: cache/team_tokens/{token}/team_metadata/full_metadata.json
-        pattern = f"cache/team_tokens/*/team_metadata/*"
+        pattern = f"cache/team_tokens/*/team_metadata/full_metadata.json"
 
         total_keys = 0
         ttl_buckets = {
@@ -409,6 +412,9 @@ def get_cache_stats() -> dict[str, Any]:
         # Get total teams for comparison
         total_teams = Team.objects.count()
 
+        # Calculate coverage percentage
+        coverage_percent = (total_keys / total_teams * 100) if total_teams else 0
+
         # Calculate size statistics if we have samples
         size_stats = {}
         if sample_sizes:
@@ -426,7 +432,8 @@ def get_cache_stats() -> dict[str, Any]:
         return {
             "total_cached": total_keys,
             "total_teams": total_teams,
-            "cache_coverage": f"{(total_keys / total_teams * 100):.1f}%" if total_teams else "0%",
+            "cache_coverage": f"{coverage_percent:.1f}%",
+            "cache_coverage_percent": coverage_percent,
             "ttl_distribution": ttl_buckets,
             "size_statistics": size_stats,
             "namespace": team_metadata_hypercache.namespace,
