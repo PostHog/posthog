@@ -960,8 +960,7 @@ describe('Experiments', { concurrent: false }, () => {
             const stopParams = {
                 experimentId: experiment.id,
                 data: {
-                    end_date: new Date().toISOString(),
-                    conclusion: 'stopped_early' as const,
+                    conclude: 'stopped_early' as const,
                     conclusion_comment: 'Test completed successfully',
                 },
             }
@@ -970,8 +969,8 @@ describe('Experiments', { concurrent: false }, () => {
             const stoppedExperiment = parseToolResponse(updateResult)
 
             expect(stoppedExperiment.end_date).toBeTruthy()
-            // Note: API may not set conclusion field automatically, it depends on the backend implementation
-            // The important thing is that end_date is set, indicating the experiment is stopped
+            expect(stoppedExperiment.conclusion).toBe('stopped_early')
+            // The end_date is automatically set when conclude is provided
 
             trackExperiment(experiment)
         })
