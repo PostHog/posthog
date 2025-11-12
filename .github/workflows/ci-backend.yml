@@ -588,6 +588,33 @@ jobs:
 
             # Pre-tests
 
+            - name: Check disk BEFORE Docker Compose
+              shell: bash
+              run: |
+                  echo "=== BEFORE DOCKER COMPOSE ==="
+                  df -hT
+                  echo ""
+                  echo "=== Root Filesystem Breakdown ==="
+                  sudo du -sh /* 2>/dev/null | sort -h
+                  echo ""
+                  echo "=== Detailed Tooling Directories (top 20) ==="
+                  sudo du -sh /opt/* /usr/* /var/* 2>/dev/null | sort -h | tail -20
+                  echo ""
+                  echo "=== Hostedtoolcache ==="
+                  sudo du -sh /opt/hostedtoolcache/* 2>/dev/null | sort -h || echo "No hostedtoolcache"
+                  echo ""
+                  echo "=== Android SDK ==="
+                  sudo du -sh /usr/local/lib/android 2>/dev/null || echo "No Android SDK"
+                  echo ""
+                  echo "=== Docker Pre-pull Storage ==="
+                  sudo du -sh /var/lib/docker 2>/dev/null || echo "No /var/lib/docker"
+                  echo ""
+                  echo "=== Journal Logs ==="
+                  journalctl --disk-usage 2>/dev/null || echo "journalctl not available"
+                  echo ""
+                  echo "=== Docker Images ==="
+                  docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | head -20
+
             # Copies the fully versioned UDF xml file for use in CI testing
             - name: Stop/Start stack with Docker Compose
               shell: bash
@@ -724,6 +751,39 @@ jobs:
                   bin/check_kafka_clickhouse_up
                   bin/check_postgres_up
 
+            - name: Check disk AFTER Docker Compose
+              shell: bash
+              run: |
+                  echo "=== AFTER DOCKER COMPOSE UP ==="
+                  df -hT
+                  echo ""
+                  echo "=== Docker System ==="
+                  docker system df
+                  echo ""
+                  echo "=== Docker System Detailed ==="
+                  docker system df -v | head -n 80
+                  echo ""
+                  echo "=== Root Filesystem Breakdown ==="
+                  sudo du -sh /* 2>/dev/null | sort -h
+                  echo ""
+                  echo "=== Docker Root Dir ==="
+                  docker info | grep "Docker Root Dir"
+                  echo ""
+                  echo "=== /mnt Contents ==="
+                  ls -lah /mnt/ && du -sh /mnt/* 2>/dev/null || echo "No /mnt"
+                  echo ""
+                  echo "=== Docker Containers ==="
+                  docker ps -a
+                  echo ""
+                  echo "=== Docker Volumes ==="
+                  docker volume ls
+                  echo ""
+                  echo "=== Data Directory ==="
+                  [ -d "data" ] && du -sh data/* 2>/dev/null || echo "No data directory"
+                  echo ""
+                  echo "=== Workspace Size ==="
+                  du -sh ./ 2>/dev/null || true
+
             - name: Wait for Temporal
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               shell: bash
@@ -814,6 +874,37 @@ jobs:
                   fi
 
             # Post tests
+            - name: Check disk AFTER tests (Core segment)
+              if: always()
+              shell: bash
+              run: |
+                  echo "=== AFTER TESTS (Shard ${{ matrix.group }}/${{ matrix.concurrency }}) ==="
+                  df -hT
+                  echo ""
+                  echo "=== Docker System ==="
+                  docker system df
+                  echo ""
+                  echo "=== Docker System Detailed ==="
+                  docker system df -v | head -n 80
+                  echo ""
+                  echo "=== Root Filesystem Breakdown ==="
+                  sudo du -sh /* 2>/dev/null | sort -h
+                  echo ""
+                  echo "=== Workspace Top Dirs ==="
+                  du -sh ./* 2>/dev/null | sort -h | tail -n 10
+                  echo ""
+                  echo "=== Python Packages Size ==="
+                  du -sh $pythonLocation/lib/python*/site-packages 2>/dev/null || echo "No Python packages found"
+                  echo ""
+                  echo "=== Rust Artifacts ==="
+                  du -sh rust/target 2>/dev/null || echo "No Rust target directory"
+                  echo ""
+                  echo "=== SeaweedFS Storage ==="
+                  docker exec seaweedfs du -sh /data 2>/dev/null || echo "SeaweedFS not available"
+                  echo ""
+                  echo "=== Data Directory ==="
+                  [ -d "data" ] && du -sh data/* 2>/dev/null || echo "No data directory"
+
             - name: Show docker compose logs on failure
               if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-decide-read-replica-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
               shell: bash
