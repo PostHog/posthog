@@ -42,6 +42,22 @@ def prepare_github_search_query(q):
     return " ".join("".join(result).split())
 
 
+def prepare_gitlab_search_query(q):
+    """Sanitize code sample for GitLab search by removing special characters."""
+    if not q:
+        return ""
+
+    result = []
+    for char in q:
+        # Remove special characters that can make search too restrictive
+        if char in ".,:;/\\=*!?#$&+^|~<>(){}[]\"'`":
+            result.append(" ")
+        else:
+            result.append(char)
+
+    return " ".join("".join(result).split())
+
+
 def get_github_file_url(code_sample: str, token: str, owner: str, repository: str, file_name: str) -> str | None:
     """Search GitHub code using the Code Search API. Returns URL to first match or None."""
     code_query = prepare_github_search_query(code_sample)
@@ -79,34 +95,43 @@ def get_gitlab_file_url(
     project_path = f"{owner}/{repository}"
     encoded_project_path = urllib.parse.quote(project_path, safe="")
     search_scope = "blobs"
-    encoded_search = urllib.parse.quote(code_sample.strip())
-    url = f"{gitlab_url}/api/v4/projects/{encoded_project_path}/search?scope={search_scope}&search={encoded_search}"
 
     headers = {
         "PRIVATE-TOKEN": token,
         "Content-Type": "application/json",
     }
 
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
+    # GitLab search behavior varies depending on repo visibility and current plan. It is not really documented to I decided to just run multiple searches.
+    search_variants = [
+        code_sample.strip(),
+        prepare_gitlab_search_query(code_sample),
+    ]
 
-        if response.status_code == 200:
-            data = response.json()
-            if data:
-                for item in data:
-                    item_path = item.get("path", "")
-                    if file_name in item_path:
-                        ref = item.get("ref", "")
-                        if ref and item_path:
-                            return f"{gitlab_url}/{owner}/{repository}/-/blob/{ref}/{item_path}"
-                return None
-            return None
-        else:
-            logger.warning("gitlab_code_search_failed", status_code=response.status_code, response_text=response.text)
-            return None
-    except requests.exceptions.RequestException as e:
-        logger.exception("gitlab_code_search_request_failed", error=str(e))
-        return None
+    for search_query in search_variants:
+        if not search_query:
+            continue
+
+        encoded_search = urllib.parse.quote(search_query)
+        url = f"{gitlab_url}/api/v4/projects/{encoded_project_path}/search?scope={search_scope}&search={encoded_search}"
+
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+
+            if response.status_code == 200:
+                data = response.json()
+                if data:
+                    for item in data:
+                        item_path = item.get("path", "")
+                        if file_name in item_path:
+                            ref = item.get("ref", "")
+                            if ref and item_path:
+                                return f"{gitlab_url}/{owner}/{repository}/-/blob/{ref}/{item_path}"
+        except requests.exceptions.RequestException as e:
+            logger.exception("gitlab_code_search_request_failed", error=str(e))
+            continue
+
+    logger.warning("gitlab_code_search_no_results", owner=owner, repository=repository, file_name=file_name)
+    return None
 
 
 class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -167,7 +192,6 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         # Try with PostHog's token first (public repos on gitlab.com)
         if settings.GITLAB_TOKEN:
-
             url = get_gitlab_file_url(
                 code_sample=code_sample,
                 token=settings.GITLAB_TOKEN,
@@ -182,8 +206,6 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         # Try with team's GitLab integrations (private repos and self-hosted)
         integrations = Integration.objects.filter(team_id=self.team.id, kind="gitlab")
-
-        print("\n\n\n didnt find using public token, trying integrations")
 
         if not integrations:
             return Response({"found": False})
@@ -213,7 +235,6 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             for future in as_completed(future_to_integration):
                 url = future.result()
-                print("\n\n\n url: ", url)
                 if url:
                     return Response({"found": True, "url": url})
 
