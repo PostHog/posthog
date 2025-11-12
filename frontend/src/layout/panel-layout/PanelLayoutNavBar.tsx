@@ -38,6 +38,7 @@ import { SidePanelTab } from '~/types'
 
 import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
 import { ProjectMenu } from '../../lib/components/Account/ProjectMenu'
+import { KeyboardShortcut } from '../navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
@@ -138,6 +139,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         onClick?: (e?: React.KeyboardEvent) => void
         tooltip?: React.ReactNode
         tooltipDocLink?: string
+        forceTooltip?: boolean
     }[] = [
         {
             identifier: 'ProjectHomepage',
@@ -157,7 +159,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.newTab(), true)
             },
-            tooltip: 'Search',
+            forceTooltip: true,
+            tooltip: (
+                <div className="flex flex-col gap-1">
+                    <span>
+                        Open search <KeyboardShortcut command k />
+                    </span>
+                    <span>
+                        Open command palette <KeyboardShortcut command shift k />
+                    </span>
+                </div>
+            ),
         },
         {
             identifier: 'Products',
@@ -340,8 +352,13 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                     className="group"
                                                     menuItem={!isLayoutNavCollapsed}
                                                     iconOnly={isLayoutNavCollapsed}
-                                                    tooltip={isLayoutNavCollapsed ? item.tooltip : undefined}
+                                                    tooltip={
+                                                        isLayoutNavCollapsed || item.forceTooltip
+                                                            ? item.tooltip
+                                                            : undefined
+                                                    }
                                                     tooltipPlacement="right"
+                                                    tooltipCloseDelayMs={item.tooltipDocLink ? undefined : 0}
                                                     tooltipDocLink={item.tooltipDocLink}
                                                     data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
                                                 >
@@ -378,8 +395,13 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             active: isStaticNavItemActive(item.identifier),
                                                         }}
                                                         to={item.to}
-                                                        tooltip={isLayoutNavCollapsed ? item.tooltip : undefined}
+                                                        tooltip={
+                                                            isLayoutNavCollapsed || item.forceTooltip
+                                                                ? item.tooltip
+                                                                : undefined
+                                                        }
                                                         tooltipPlacement="right"
+                                                        tooltipCloseDelayMs={item.tooltipDocLink ? undefined : 0}
                                                         tooltipDocLink={item.tooltipDocLink}
                                                     >
                                                         <span
