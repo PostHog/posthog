@@ -4,6 +4,7 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     StringDatabaseField,
     Table,
+    UUIDDatabaseField,
 )
 
 
@@ -13,7 +14,7 @@ class CohortMembershipTable(Table):
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "cohort_id": IntegerDatabaseField(name="cohort_id", nullable=False),
-        "person_id": StringDatabaseField(name="person_id", nullable=False),
+        "person_id": UUIDDatabaseField(name="person_id", nullable=False),
         "status": StringDatabaseField(name="status", nullable=False),
         "last_updated": DateTimeDatabaseField(name="last_updated", nullable=False),
     }

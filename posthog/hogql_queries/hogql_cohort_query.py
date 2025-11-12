@@ -673,7 +673,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         if not condition_hash:
             cohort_id = self.cohort.id if self.cohort else "unknown"
             raise ValueError(
-                f"BUG: Realtime cohort (cohort_id={cohort_id}) has behavioral property without conditionHash. "
+                f"Realtime cohort (cohort_id={cohort_id}) has behavioral property without conditionHash. "
                 f"All realtime cohorts MUST have conditionHash for behavioral filters. Property: {prop}"
             )
 
@@ -698,8 +698,8 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         )
         date_from_datetime = query_date_range.date_from()
 
-        # Map operator to SQL comparison
-        operator_sql_map = {
+        # Map operator to SQL comparison - validated to prevent SQL injection
+        VALID_OPERATORS: dict[str, str] = {
             "gte": ">=",
             "lte": "<=",
             "gt": ">",
@@ -707,7 +707,13 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             "eq": "=",
             "exact": "=",
         }
-        sql_operator = operator_sql_map.get(prop.operator, "=")
+        operator_str = str(prop.operator) if prop.operator else "eq"
+        if operator_str not in VALID_OPERATORS:
+            raise ValidationError(
+                f"Invalid operator for performed_event_multiple: {prop.operator}. "
+                f"Must be one of: {', '.join(VALID_OPERATORS.keys())}"
+            )
+        sql_operator = VALID_OPERATORS[operator_str]
 
         query_str = f"""
             SELECT
@@ -721,7 +727,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                     AND condition = {{condition_hash}}
                     AND date >= toDate({{date_from}})
                 GROUP BY distinct_id
-                HAVING event_count {sql_operator} {min_matches}
+                HAVING event_count {sql_operator} {{min_matches}}
             ) AS pfe
             INNER JOIN
             (
@@ -743,6 +749,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                     "team_id": ast.Constant(value=self.team.pk),
                     "condition_hash": ast.Constant(value=condition_hash),
                     "date_from": ast.Constant(value=date_from_datetime),
+                    "min_matches": ast.Constant(value=min_matches),
                 },
             ),
         )
