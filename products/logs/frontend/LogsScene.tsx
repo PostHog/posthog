@@ -25,6 +25,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
+import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
 import { LogsFilterGroup } from 'products/logs/frontend/components/filters/LogsFilters/FilterGroup'
 
 import { AttributeBreakdowns } from './AttributeBreakdowns'
@@ -93,6 +94,12 @@ export function LogsScene(): JSX.Element {
                     size="small"
                     embedded
                     columns={[
+                        {
+                            title: '',
+                            key: 'actions',
+                            width: 0,
+                            render: (_, record) => <LogsTableRowActions log={record} />,
+                        },
                         {
                             title: 'Timestamp',
                             key: 'timestamp',
