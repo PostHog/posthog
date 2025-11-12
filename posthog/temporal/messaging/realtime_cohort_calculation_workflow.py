@@ -25,6 +25,32 @@ from posthog.temporal.common.logger import get_logger
 LOGGER = get_logger(__name__)
 
 
+def get_cohort_calculation_success_metric():
+    """Counter for successful cohort calculations."""
+    return temporalio.activity.metric_meter().create_counter(
+        "realtime_cohort_calculation_success", "Number of successful realtime cohort calculations"
+    )
+
+
+def get_cohort_calculation_failure_metric():
+    """Counter for failed cohort calculations."""
+    return temporalio.activity.metric_meter().create_counter(
+        "realtime_cohort_calculation_failure", "Number of failed realtime cohort calculations"
+    )
+
+
+def get_membership_changed_metric(status: str):
+    """Counter for cohort membership changes by status (entered/left)."""
+    return (
+        temporalio.activity.metric_meter()
+        .with_additional_attributes({"status": status})
+        .create_counter(
+            "realtime_cohort_membership_changed",
+            "Number of cohort membership changes (people entering or leaving cohorts)",
+        )
+    )
+
+
 @dataclasses.dataclass
 class RealtimeCohortCalculationWorkflowInputs:
     """Inputs for the realtime cohort calculation workflow."""
@@ -133,12 +159,13 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 ):
                     async with get_client(team_id=cohort.team_id) as client:
                         async for row in client.stream_query_as_jsonl(final_query, query_parameters=query_params):
+                            status = row["status"]
                             payload = {
                                 "team_id": row["team_id"],
                                 "cohort_id": row["cohort_id"],
                                 "person_id": str(row["person_id"]),
                                 "last_updated": str(row["last_updated"]),
-                                "status": row["status"],
+                                "status": status,
                             }
                             await asyncio.to_thread(
                                 kafka_producer.produce,
@@ -147,7 +174,17 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                                 data=payload,
                             )
 
+                            # Track membership change (entered/left)
+                            get_membership_changed_metric(status).add(1)
+
+                # Record successful cohort calculation
+                get_cohort_calculation_success_metric().add(1)
+                cohorts_count += 1
+
             except Exception as e:
+                # Record failed cohort calculation
+                get_cohort_calculation_failure_metric().add(1)
+
                 logger.exception(
                     f"Error calculating cohort {cohort.id}: {type(e).__name__}: {str(e)}",
                     cohort_id=cohort.id,
@@ -155,8 +192,6 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     error_message=str(e),
                 )
                 continue
-
-            cohorts_count += 1
 
         end_time = time.time()
         duration_seconds = end_time - start_time
