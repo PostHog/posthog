@@ -263,7 +263,7 @@ async fn create_dedicated_redis_clients(
         (None, None) => {
             if writer_url.is_some() || reader_url.is_some() {
                 tracing::warn!(
-                    "Dedicated flags Redis connection failed, falling back to shared Redis"
+                    "Both dedicated flags Redis connections failed falling back to shared Redis"
                 );
             } else {
                 tracing::info!(
