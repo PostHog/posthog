@@ -249,38 +249,30 @@ def get_teams_needing_refresh(
         # HyperCache uses format: cache/team_tokens/{token}/team_metadata/full_metadata.json
         pattern = f"cache/team_tokens/*/team_metadata/*"
 
-        # Scan for all team metadata cache keys
-        cache_keys = []
-        for key in redis_client.scan_iter(match=pattern, count=1000):
-            cache_keys.append(key)
-            if len(cache_keys) >= batch_size * 2:  # Check more than we need
-                break
-
-        # Check TTLs and find ones expiring soon
-        ttl_threshold_seconds = ttl_threshold_hours * 3600
-        expiring_soon = []
-
-        # Regex to extract token from HyperCache key format
-        token_pattern = r"cache/team_tokens/([^/]+)/"
-
-        for key in cache_keys:
-            ttl = redis_client.ttl(key)
-            if 0 < ttl < ttl_threshold_seconds:
-                # Extract token from the key
-                key_str = key.decode("utf-8") if isinstance(key, bytes) else key
-
-                match = re.search(token_pattern, key_str)
-                if match:
-                    token = match.group(1)
-                    try:
-                        team = Team.objects.get(api_token=token)
-                        expiring_soon.append(team.id)
-                    except Team.DoesNotExist:
-                        pass
-
-        # Add teams with expiring caches
-        remaining_slots = batch_size - len(teams_to_refresh)
-        teams_to_refresh.extend(expiring_soon[:remaining_slots])
+        # Build the list of expiring tokens
+	   expiring_tokens = []
+	   ttl_threshold_seconds = ttl_threshold_hours * 3600
+	   token_pattern = r"cache/team_tokens/([^/]+)/"
+	
+	   # Calculate how many expiring teams we can actually use
+	   remaining_slots = batch_size - len(teams_to_refresh)
+	
+	   for key in redis_client.scan_iter(match=pattern, count=1000):
+	       # Stop early if we have enough
+	       if len(expiring_tokens) >= remaining_slots:
+	           break
+	
+	       ttl = redis_client.ttl(key)
+	       if 0 < ttl < ttl_threshold_seconds:
+	           key_str = key.decode("utf-8") if isinstance(key, bytes) else key
+	           match = re.search(token_pattern, key_str)
+	           if match:
+	               expiring_tokens.append(match.group(1))
+	
+	   # Single query to fetch all teams
+	   if expiring_tokens:
+	       teams = Team.objects.filter(api_token__in=expiring_tokens).values_list("id", flat=True)
+	       teams_to_refresh.extend(teams)
 
     except Exception as e:
         logger.warning("Error checking cache TTLs", error=str(e))
