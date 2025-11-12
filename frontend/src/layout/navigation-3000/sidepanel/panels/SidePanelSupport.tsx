@@ -261,6 +261,7 @@ const SupportResponseTimesTable = ({
 export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { isEmailFormOpen, title: supportPanelTitle, targetArea } = useValues(supportLogic)
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest, setSendSupportRequestValue } =
         useActions(supportLogic)
@@ -408,17 +409,19 @@ export function SidePanelSupport(): JSX.Element {
                                         >
                                             {billingLoading ? 'Loading...' : 'Email our support engineers'}
                                         </LemonButton>
-                                        <Tooltip title="Start a screen recording to walk us through your issue">
-                                            <LemonButton
-                                                type="secondary"
-                                                center
-                                                onClick={handleStartFeedbackRecording}
-                                                icon={<IconRecord color="red" />}
-                                                className="flex-1"
-                                            >
-                                                Show us what's happening
-                                            </LemonButton>
-                                        </Tooltip>
+                                        {featureFlags[FEATURE_FLAGS.FEEDBACK_AUDIO_RECORDING] && (
+                                            <Tooltip title="Start a screen recording to walk us through your issue">
+                                                <LemonButton
+                                                    type="secondary"
+                                                    center
+                                                    onClick={handleStartFeedbackRecording}
+                                                    icon={<IconRecord color="red" />}
+                                                    className="flex-1"
+                                                >
+                                                    Show us your issue
+                                                </LemonButton>
+                                            </Tooltip>
+                                        )}
                                     </div>
                                 </Section>
                             )}
