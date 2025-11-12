@@ -52,14 +52,11 @@ class CustomerIOClient:
         except requests.exceptions.HTTPError as e:
             error_msg = f"Customer.io API error: {e}"
             if hasattr(e, "response") and e.response:
-                # Sanitize response text to avoid leaking API keys
-                response_text = e.response.text
-                if self.api_key and len(self.api_key) > 4:
-                    # Replace API key with masked version if it appears in response
-                    masked_key = f"{self.api_key[:4]}...{self.api_key[-4:]}"
-                    response_text = response_text.replace(self.api_key, masked_key)
-                error_msg = f"{error_msg}. Status: {e.response.status_code}. Response: {response_text}"
-            logger.exception(f"API request failed: {error_msg}")
+                # Do NOT log response text to avoid leaking sensitive information
+                status_info = f"Status: {e.response.status_code}"
+                logger.error(f"API request failed. {error_msg}. {status_info}")
+            else:
+                logger.error(f"API request failed. {error_msg}")
             raise CustomerIOAPIError(error_msg)
         except requests.exceptions.RequestException as e:
             raise CustomerIOAPIError(f"Request failed: {e}")
