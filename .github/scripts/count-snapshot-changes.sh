@@ -35,22 +35,22 @@ DELETED=$(grep '^D' /tmp/snapshot-diff.txt | wc -l | xargs)
 # Track which file to read from for JSON building
 DIFF_FILE="/tmp/snapshot-diff.txt"
 
-# Run OptiPNG if there are added or modified files
+# Run Oxipng if there are added or modified files
 if [ "$ADDED" -gt 0 ] || [ "$MODIFIED" -gt 0 ]; then
-    echo "Running OptiPNG optimization on $((ADDED + MODIFIED)) files..." >&2
-    sudo apt-get update -qq && sudo apt-get install -y -qq optipng >/dev/null 2>&1 || true
+    echo "Running Oxipng optimization on $((ADDED + MODIFIED)) PNG files..." >&2
 
-    echo "::group::OptiPNG optimization" >&2
-    # Find PNG files and optimize in parallel using all CPU cores
-    # xargs -P 0 uses all available cores (one optipng process per core)
-    # Use -o2 with explicit zlib params for deterministic, reproducible compression:
-    # -zc9 = max compression, -zm8 = default mem level, -zs0 = default strategy
-    # -f0 = no PNG filters (most deterministic), -quiet = minimal output
-    grep -E '^[AM].*\.png$' /tmp/snapshot-diff.txt | awk '{print $2}' | \
-        xargs -I {} -P 0 -n 1 bash -c '[ -f "$1" ] && optipng -clobber -o2 -zc9 -zm8 -zs0 -f0 -strip all -quiet "$1" || true' _ {}
+    echo "::group::Oxipng optimization" >&2
+    # Optimize changed PNGs using Oxipng via npx
+    # --threads=0 uses all CPU cores (oxipng parallelizes internally)
+    # --opt max for best compression, --strip safe for deterministic output
+    # --alpha to optimize transparent pixels, oxipng is deterministic by default
+    PNG_FILES=$(grep -E '^[AM].*\.png$' /tmp/snapshot-diff.txt | awk '{print $2}' | tr '\n' ' ')
+    if [ -n "$PNG_FILES" ]; then
+        npx --yes oxipng@latest --threads=0 --opt max --strip safe --alpha --quiet $PNG_FILES || true
+    fi
     echo "::endgroup::" >&2
 
-    # Re-count after OptiPNG (may have eliminated some diffs)
+    # Re-count after Oxipng (may have eliminated some diffs)
     git diff --cached --name-status "$SNAPSHOT_DIR" > /tmp/snapshot-diff-after.txt || true
     DIFF_FILE="/tmp/snapshot-diff-after.txt"
     ADDED=$(grep '^A' /tmp/snapshot-diff-after.txt | wc -l | xargs)
