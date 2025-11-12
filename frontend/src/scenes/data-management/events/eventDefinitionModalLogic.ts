@@ -25,7 +25,7 @@ export const eventDefinitionModalLogic = kea<eventDefinitionModalLogicType>([
     path(['scenes', 'data-management', 'events', 'eventDefinitionModalLogic']),
     props({} as EventDefinitionModalLogicProps),
     key((props) => props.onSuccess?.toString() || 'default'),
-    forms(({ props }) => ({
+    forms(({ props, actions }) => ({
         eventDefinitionForm: {
             defaults: {
                 name: '',
@@ -55,8 +55,9 @@ export const eventDefinitionModalLogic = kea<eventDefinitionModalLogicType>([
                     await api.eventDefinitions.create(payload)
 
                     lemonToast.success(`Event "${formValues.name}" created successfully`)
-                    props.onClose()
+                    actions.resetEventDefinitionForm()
                     props.onSuccess?.()
+                    props.onClose()
                 } catch (error: any) {
                     const errorMessage = error?.detail || error?.message || 'Failed to create event definition'
                     lemonToast.error(errorMessage)

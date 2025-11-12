@@ -8,6 +8,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { userLogic } from 'scenes/userLogic'
 
+import { tagsModel } from '~/models/tagsModel'
 import { AvailableFeature, UserBasicType } from '~/types'
 
 import { eventDefinitionModalLogic } from './eventDefinitionModalLogic'
@@ -23,6 +24,7 @@ export function EventDefinitionModal({ isOpen, onClose, onSuccess }: EventDefini
     const { eventDefinitionForm, isEventDefinitionFormSubmitting } = useValues(logic)
     const { setEventDefinitionFormValue: setFormValue, submitEventDefinitionForm } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { tags } = useValues(tagsModel)
 
     const hasIngestionTaxonomy = hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)
 
@@ -83,8 +85,8 @@ export function EventDefinitionModal({ isOpen, onClose, onSuccess }: EventDefini
                     <ObjectTags
                         tags={eventDefinitionForm.tags || []}
                         onChange={(tags) => setFormValue('tags', tags)}
-                        saving={false}
-                        className="mb-2"
+                        saving={isEventDefinitionFormSubmitting}
+                        tagsAvailable={tags.filter((tag) => !eventDefinitionForm.tags?.includes(tag))}
                         data-attr="event-definition-tags-input"
                     />
                 </LemonField>
