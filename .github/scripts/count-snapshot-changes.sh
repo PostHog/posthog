@@ -41,16 +41,10 @@ if [ "$ADDED" -gt 0 ] || [ "$MODIFIED" -gt 0 ]; then
     sudo apt-get update -qq && sudo apt-get install -y -qq optipng >/dev/null 2>&1 || true
 
     echo "::group::OptiPNG optimization" >&2
-    # Find PNG files that were added or modified
-    while IFS= read -r line; do
-        status=$(echo "$line" | awk '{print $1}')
-        file=$(echo "$line" | awk '{print $2}')
-        if [[ "$status" == "A" || "$status" == "M" ]] && [[ "$file" == *.png ]]; then
-            if [ -f "$file" ]; then
-                optipng -clobber -o4 -strip all "$file" || true
-            fi
-        fi
-    done < /tmp/snapshot-diff.txt
+    # Find PNG files and optimize in parallel using all CPU cores
+    # xargs -P 0 uses all available cores (one optipng process per core)
+    grep -E '^[AM].*\.png$' /tmp/snapshot-diff.txt | awk '{print $2}' | \
+        xargs -I {} -P 0 -n 1 bash -c '[ -f "$1" ] && optipng -clobber -o4 -strip all "$1" || true' _ {}
     echo "::endgroup::" >&2
 
     # Re-count after OptiPNG (may have eliminated some diffs)

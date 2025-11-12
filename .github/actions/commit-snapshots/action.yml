@@ -49,12 +49,14 @@ runs:
               if [ -d "${{ inputs.patch-path }}" ]; then
                 PATCHES=$(find "${{ inputs.patch-path }}" -name "*.patch" | sort)
                 if [ -n "$PATCHES" ]; then
+                  echo "::group::Applying snapshot patches"
                   echo "Applying patches from ${{ inputs.patch-path }}..."
                   for patch in $PATCHES; do
                     echo "Applying $patch"
                     git apply --index "$patch"
                   done
                   echo "Applied all patches successfully"
+                  echo "::endgroup::"
                 else
                   echo "No patch files found in ${{ inputs.patch-path }}"
                 fi
