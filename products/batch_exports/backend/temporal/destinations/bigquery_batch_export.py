@@ -88,6 +88,7 @@ COMPATIBLE_TYPES: TypeTupleToCastMapping = {
     # BigQuery deals with timestamps in microseconds, but it does interpret timestamps
     # in milliseconds correctly, so we don't need to cast.
     (pa.timestamp("ms", tz="UTC"), pa.timestamp("us", tz="UTC")): _noop_cast,
+    (pa.timestamp("ms", tz="Etc/UTC"), pa.timestamp("us", tz="UTC")): _noop_cast,
     # We assume this is a destination field created from a ClickHouse `DateTime` that
     # has  been updated to `DateTime64(3)`.
     # This would mean the field would have been created as a BigQuery 'INT64', but we
