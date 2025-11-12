@@ -107,9 +107,10 @@ def get_gitlab_file_url(
         prepare_gitlab_search_query(code_sample),
     ]
 
-    for search_query in search_variants:
+    def try_search(search_query):
+        """Try a single search variant."""
         if not search_query:
-            continue
+            return None
 
         encoded_search = urllib.parse.quote(search_query)
         url = f"{gitlab_url}/api/v4/projects/{encoded_project_path}/search?scope={search_scope}&search={encoded_search}"
@@ -128,7 +129,16 @@ def get_gitlab_file_url(
                                 return f"{gitlab_url}/{owner}/{repository}/-/blob/{ref}/{item_path}"
         except requests.exceptions.RequestException as e:
             logger.exception("gitlab_code_search_request_failed", error=str(e))
-            continue
+
+        return None
+
+    with ThreadPoolExecutor(max_workers=len(search_variants)) as executor:
+        future_to_variant = {executor.submit(try_search, variant): variant for variant in search_variants}
+
+        for future in as_completed(future_to_variant):
+            url = future.result()
+            if url:
+                return url
 
     logger.warning("gitlab_code_search_no_results", owner=owner, repository=repository, file_name=file_name)
     return None
