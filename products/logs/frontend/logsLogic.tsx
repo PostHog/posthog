@@ -14,7 +14,7 @@ import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { JsonType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
+import { JsonType, PropertyFilterType, PropertyGroupFilter, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { zoomDateRange } from './filters/zoom-utils'
 import type { logsLogicType } from './logsLogicType'
@@ -103,6 +103,11 @@ export const logsLogic = kea<logsLogicType>([
         zoomDateRange: (multiplier: number) => ({ multiplier }),
         setDateRangeFromSparkline: (startIndex: number, endIndex: number) => ({ startIndex, endIndex }),
         setTimestampFormat: (timestampFormat: 'absolute' | 'relative') => ({ timestampFormat }),
+        addFilter: (key: string, value: string, operator: PropertyOperator = PropertyOperator.Exact) => ({
+            key,
+            value,
+            operator,
+        }),
     }),
 
     reducers({
@@ -391,6 +396,24 @@ export const logsLogic = kea<logsLogicType>([
                 date_to: dateTo,
             }
             actions.setDateRange(newDateRange)
+        },
+        addFilter: ({ key, value, operator }) => {
+            const currentGroup = values.filterGroup.values[0] as UniversalFiltersGroup
+
+            const newGroup: UniversalFiltersGroup = {
+                ...currentGroup,
+                values: [
+                    ...currentGroup.values,
+                    {
+                        key,
+                        value: [value],
+                        operator,
+                        type: PropertyFilterType.Log,
+                    },
+                ],
+            }
+
+            actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, false)
         },
     })),
 ])
