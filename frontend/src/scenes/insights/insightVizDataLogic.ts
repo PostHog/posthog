@@ -193,7 +193,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         supportsCompare: [
             (s) => [s.querySource, s.display, s.dateRange],
             (q, display, dateRange) =>
-                (isTrendsQuery(q) || isStickinessQuery(q)) &&
+                (isTrendsQuery(q) || isStickinessQuery(q) || isWebAnalyticsInsightQuery(q)) &&
                 display !== ChartDisplayType.WorldMap &&
                 display !== ChartDisplayType.CalendarHeatmap &&
                 dateRange?.date_from !== 'all',

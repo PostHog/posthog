@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
-import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -42,10 +41,6 @@ export function WebAnalyticsEditorFilters({ query, embedded }: WebAnalyticsEdito
                     className={clsx('bg-surface-primary')}
                     right={
                         <>
-                            <CompareFilter
-                                compareFilter={query.compareFilter}
-                                updateCompareFilter={(compareFilter) => updateQuerySource({ compareFilter } as any)}
-                            />
                             <WebConversionGoal
                                 value={query.conversionGoal ?? null}
                                 onChange={(conversionGoal) =>
