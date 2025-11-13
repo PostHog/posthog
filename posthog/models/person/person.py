@@ -121,6 +121,20 @@ class DualPersonManager(models.Manager):
             results.append(instance)
         return results
 
+    def create(self, *args: Any, **kwargs: Any):
+        """Handle person creation with distinct_ids support.
+
+        During migration: creates go to old table by default.
+        TODO: After migration, route new IDs to new table based on sequence.
+        """
+        with transaction.atomic(using=self.db):
+            if not kwargs.get("distinct_ids"):
+                return super().create(*args, **kwargs)
+            distinct_ids = kwargs.pop("distinct_ids")
+            person = super().create(*args, **kwargs)
+            person._add_distinct_ids(distinct_ids)
+            return person
+
     def get_by_id(self, person_id: int, team_id: Optional[int] = None):
         """Get person by ID, routing based on ID cutoff.
 
@@ -220,6 +234,16 @@ class Person(models.Model):
             .order_by("id")
             .values_list("distinct_id")
         ]
+
+    @distinct_ids.setter
+    def distinct_ids(self, value: list[str]) -> None:
+        """Allow setting distinct_ids for compatibility with code that assigns to it.
+
+        NOTE: This is mainly for test compatibility. Production code should use
+        add_distinct_id() or _add_distinct_ids() instead.
+        """
+        # Store as simple strings for _distinct_ids cache
+        self._distinct_ids = value
 
     @property
     def email(self) -> Optional[str]:
