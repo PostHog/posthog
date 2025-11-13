@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, cast
 
 from django.conf import settings
-from django.db.models import Q, QuerySet
+from django.db.models import Func, IntegerField, QuerySet
 
 import structlog
 import posthoganalytics
@@ -329,7 +329,7 @@ def log_session_summary_group_activity(
         item_id=summary.id,
         scope="SessionGroupSummary",
         activity=activity,
-        detail=Detail(changes=changes, name=summary.name),
+        detail=Detail(changes=changes, name=summary.title),
     )
 
 
@@ -348,6 +348,10 @@ class SessionGroupSummaryViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, vie
         queryset = queryset.filter(team=self.team)
         queryset = queryset.select_related("created_by", "team")
         if self.action == "list":
+            # Annotate with session_count for sorting
+            queryset = queryset.annotate(
+                session_count=Func("session_ids", function="CARDINALITY", output_field=IntegerField())
+            )
             queryset = self._filter_list_request(self.request, queryset)
         order = self.request.GET.get("order", None)
         if order:
@@ -368,7 +372,7 @@ class SessionGroupSummaryViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, vie
             elif key == "date_to" and isinstance(value, str):
                 queryset = queryset.filter(created_at__lt=relative_date_parse(value, self.team.timezone_info))
             elif key == "search":
-                queryset = queryset.filter(Q(name__icontains=value))
+                queryset = queryset.filter(title__icontains=value)
         return queryset
 
     def perform_destroy(self, instance: SessionGroupSummary) -> None:

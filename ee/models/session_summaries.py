@@ -266,7 +266,6 @@ class SessionGroupSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
         session_ids=["session1", "session2", "session3"],
         summary=enriched_patterns.model_dump(),  # EnrichedSessionGroupSummaryPatternsList
         extra_summary_context={"focus_area": "checkout flow"},
-        extra_input_context={"custom_field": "value"},
         run_metadata={"model_used": "claude-3-5-sonnet", "visual_confirmation": False},
         created_by=user,
     )
