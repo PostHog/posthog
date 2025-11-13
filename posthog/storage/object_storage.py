@@ -270,7 +270,7 @@ def object_storage_client() -> ObjectStorageClient:
                     signature_version="s3v4",
                     connect_timeout=1,
                     retries={"max_attempts": 1},
-                    s3={"addressing_style": "path"},
+                    # s3={"addressing_style": "path"},
                 ),
                 region_name=settings.OBJECT_STORAGE_REGION,
             )

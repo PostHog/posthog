@@ -675,7 +675,7 @@ def client() -> SessionRecordingV2ObjectStorageBase:
                     signature_version="s3v4",
                     connect_timeout=1,
                     retries={"max_attempts": 1},
-                    s3={"addressing_style": "path"},
+                    # s3={"addressing_style": "path"},
                 ),
                 region_name=settings.SESSION_RECORDING_V2_S3_REGION,
             ),
@@ -706,7 +706,7 @@ async def async_client() -> AsyncIterator[AsyncSessionRecordingV2ObjectStorage]:
                 signature_version="s3v4",
                 connect_timeout=1,
                 retries={"max_attempts": 1},
-                s3={"addressing_style": "path"},
+                # s3={"addressing_style": "path"},
             ),
             region_name=settings.SESSION_RECORDING_V2_S3_REGION,
         ) as client:
