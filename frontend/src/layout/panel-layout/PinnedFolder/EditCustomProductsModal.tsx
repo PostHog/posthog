@@ -41,70 +41,68 @@ export function EditCustomProductsModal(): JSX.Element {
                 <div>
                     <p className="text-sm text-muted">
                         Select which products you want to see in your sidebar. You can change this anytime.
+                        {customProductsLoading && <Spinner />}
                     </p>
                 </div>
 
-                {customProductsLoading && customProducts.length === 0 ? (
-                    <div className="flex items-center justify-center py-8">
-                        <Spinner />
-                    </div>
-                ) : (
-                    <div className="flex flex-col gap-4 mb-4 px-2">
-                        {categories.map((category: string) => {
-                            const products = productsByCategory.get(category) || []
+                <div className="flex flex-col gap-4 mb-4 px-2">
+                    {categories.map((category: string) => {
+                        const products = productsByCategory.get(category) || []
 
-                            return (
-                                <div key={category}>
-                                    <h3 className="text-xs font-semibold text-tertiary mb-2 pl-6">{category}</h3>
-                                    <div className="space-y-1">
-                                        {products.map((product: FileSystemImport) => {
-                                            const icon = iconForType(
-                                                (product.iconType ?? undefined) as any,
-                                                product.iconColor
-                                            )
-                                            const isLoading = productLoading[product.path] || false
-                                            return (
-                                                <LemonCheckbox
-                                                    key={product.path}
-                                                    checked={selectedPaths.has(product.path)}
-                                                    onChange={() => toggleProduct(product.path)}
-                                                    disabledReason={isLoading ? 'Saving...' : undefined}
-                                                    label={
-                                                        <span className="flex items-center gap-2">
-                                                            {icon}
-                                                            <span>{product.path}</span>
-                                                            {product.tags?.length && (
-                                                                <>
-                                                                    {product.tags.map((tag: string) => (
-                                                                        <LemonTag
-                                                                            key={tag}
-                                                                            type={
-                                                                                tag === 'alpha'
-                                                                                    ? 'completion'
-                                                                                    : tag === 'beta'
-                                                                                      ? 'warning'
-                                                                                      : 'success'
-                                                                            }
-                                                                            size="small"
-                                                                            className="relative top-[1px]"
-                                                                        >
-                                                                            {tag.toUpperCase()}
-                                                                        </LemonTag>
-                                                                    ))}
-                                                                </>
-                                                            )}
-                                                            {isLoading && <Spinner size="small" />}
-                                                        </span>
-                                                    }
-                                                />
-                                            )
-                                        })}
-                                    </div>
+                        return (
+                            <div key={category}>
+                                <h3 className="text-xs font-semibold text-tertiary mb-2 pl-6">{category}</h3>
+                                <div className="space-y-1">
+                                    {products.map((product: FileSystemImport) => {
+                                        const icon = iconForType(product.iconType ?? undefined, product.iconColor)
+                                        const isLoading = productLoading[product.path] || false
+                                        return (
+                                            <LemonCheckbox
+                                                key={product.path}
+                                                checked={selectedPaths.has(product.path)}
+                                                onChange={() => toggleProduct(product.path)}
+                                                disabledReason={
+                                                    isLoading
+                                                        ? 'Saving...'
+                                                        : customProductsLoading && customProducts.length === 0
+                                                          ? 'Loading...'
+                                                          : undefined
+                                                }
+                                                label={
+                                                    <span className="flex items-center gap-2">
+                                                        {icon}
+                                                        <span>{product.path}</span>
+                                                        {product.tags?.length && (
+                                                            <>
+                                                                {product.tags.map((tag: string) => (
+                                                                    <LemonTag
+                                                                        key={tag}
+                                                                        type={
+                                                                            tag === 'alpha'
+                                                                                ? 'completion'
+                                                                                : tag === 'beta'
+                                                                                  ? 'warning'
+                                                                                  : 'success'
+                                                                        }
+                                                                        size="small"
+                                                                        className="relative top-[1px]"
+                                                                    >
+                                                                        {tag.toUpperCase()}
+                                                                    </LemonTag>
+                                                                ))}
+                                                            </>
+                                                        )}
+                                                        {isLoading && <Spinner size="small" />}
+                                                    </span>
+                                                }
+                                            />
+                                        )
+                                    })}
                                 </div>
-                            )
-                        })}
-                    </div>
-                )}
+                            </div>
+                        )
+                    })}
+                </div>
 
                 <div className="flex flex-col items-start gap-2 border-t pt-4">
                     <LemonCheckbox
