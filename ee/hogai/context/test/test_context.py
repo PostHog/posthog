@@ -453,18 +453,15 @@ Query results: 42 events
             configurable={
                 "contextual_tools": {
                     "search_session_recordings": {"current_filters": {}},
-                    "navigate": {"page_key": "insights"},
                 }
             }
         )
         context_manager = AssistantContextManager(self.team, self.user, config)
         tools = context_manager.get_contextual_tools()
 
-        self.assertEqual(len(tools), 2)
+        self.assertEqual(len(tools), 1)
         self.assertIn("search_session_recordings", tools)
-        self.assertIn("navigate", tools)
         self.assertEqual(tools["search_session_recordings"], {"current_filters": {}})
-        self.assertEqual(tools["navigate"], {"page_key": "insights"})
 
     def test_get_contextual_tools_empty(self):
         """Test extraction of contextual tools returns empty dict when no tools"""

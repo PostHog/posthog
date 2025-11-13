@@ -90,6 +90,20 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_cohort_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_cohort_membership
+  (
+      `team_id` Int64,
+      `cohort_id` Int64,
+      `person_id` UUID,
+      `status` Enum8('entered' = 1, 'left' = 2, 'member' = 3, 'not_member' = 4),
+      `last_updated` DateTime64(6)
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'cohort_membership_changed', kafka_group_name = 'clickhouse_cohort_membership_changed', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_issue_fingerprint_embeddings]
   '''
   
@@ -492,6 +506,23 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_precalculated_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_precalculated_events
+  (
+      team_id Int64,
+      evaluation_timestamp DateTime64(6),
+      distinct_id String,
+      person_id UUID,
+      condition String,
+      uuid UUID,
+      source String
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_prefiltered_events', kafka_group_name = 'clickhouse_prefiltered_events', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_session_recording_events]
   '''
   
@@ -722,6 +753,35 @@
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.channel_definition', '{replica}-{shard}')
   ORDER BY (domain, kind);
   
+  '''
+# ---
+# name: test_create_table_query[cohort_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS cohort_membership
+  (
+      team_id Int64,
+      cohort_id Int64,
+      person_id UUID,
+      status Enum8('entered' = 1, 'left' = 2),
+      last_updated DateTime64(6) DEFAULT now64()
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.cohort_membership', '{replica}-{shard}', last_updated)
+  ORDER BY (team_id, cohort_id, person_id)
+  
+  '''
+# ---
+# name: test_create_table_query[cohort_membership_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS cohort_membership_mv TO writable_cohort_membership
+  AS SELECT
+      team_id,
+      cohort_id,
+      person_id,
+      multiIf(status = 'member', 'entered', status = 'not_member', 'left', status) AS status,
+      last_updated
+  FROM kafka_cohort_membership
+      
   '''
 # ---
 # name: test_create_table_query[cohortpeople]
@@ -1308,6 +1368,20 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_cohort_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_cohort_membership
+  (
+      `team_id` Int64,
+      `cohort_id` Int64,
+      `person_id` UUID,
+      `status` Enum8('entered' = 1, 'left' = 2, 'member' = 3, 'not_member' = 4),
+      `last_updated` DateTime64(6)
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'cohort_membership_changed', kafka_group_name = 'clickhouse_cohort_membership_changed', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_error_tracking_issue_fingerprint_embeddings]
   '''
   
@@ -1707,6 +1781,23 @@
       embedding Array(Float64) -- The embedding itself
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_document_embeddings_test', kafka_group_name = 'clickhouse_document_embeddings', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_precalculated_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_precalculated_events
+  (
+      team_id Int64,
+      evaluation_timestamp DateTime64(6),
+      distinct_id String,
+      person_id UUID,
+      condition String,
+      uuid UUID,
+      source String
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_prefiltered_events', kafka_group_name = 'clickhouse_prefiltered_events', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
   
   '''
 # ---
@@ -2307,6 +2398,25 @@
   _partition
   FROM posthog_test.kafka_posthog_document_embeddings
   
+  '''
+# ---
+# name: test_create_table_query[precalculated_events_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS precalculated_events_mv TO writable_precalculated_events
+  AS SELECT
+      team_id,
+      toDate(evaluation_timestamp) AS date,
+      distinct_id,
+      person_id,
+      condition,
+      uuid,
+      source,
+      _timestamp,
+      _offset,
+      _partition
+  FROM kafka_precalculated_events
+      
   '''
 # ---
 # name: test_create_table_query[query_log_archive]
@@ -3765,6 +3875,27 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_precalculated_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_precalculated_events
+  (
+      team_id Int64,
+      date Date,
+      distinct_id String,
+      person_id UUID,
+      condition String,
+      uuid UUID,
+      source String,
+      _timestamp DateTime64(6),
+      _partition UInt64,
+      _offset UInt64
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_precalculated_events', '{replica}', _timestamp)
+  PARTITION BY toYYYYMM(date)
+  ORDER BY (team_id, condition, date, distinct_id, uuid)
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_raw_sessions]
   '''
   
@@ -4658,6 +4789,20 @@
   
   '''
 # ---
+# name: test_create_table_query[writable_cohort_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_cohort_membership
+  (
+      team_id Int64,
+      cohort_id Int64,
+      person_id UUID,
+      status Enum8('entered' = 1, 'left' = 2),
+      last_updated DateTime64(6) DEFAULT now64()
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'cohort_membership')
+  
+  '''
+# ---
 # name: test_create_table_query[writable_error_tracking_issue_fingerprint_overrides]
   '''
   
@@ -4929,6 +5074,25 @@
   , _offset UInt64
   
   ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'plugin_log_entries')
+  
+  '''
+# ---
+# name: test_create_table_query[writable_precalculated_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_precalculated_events
+  (
+      team_id Int64,
+      date Date,
+      distinct_id String,
+      person_id UUID,
+      condition String,
+      uuid UUID,
+      source String,
+      _timestamp DateTime64(6),
+      _partition UInt64,
+      _offset UInt64
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_precalculated_events', sipHash64(distinct_id))
   
   '''
 # ---
@@ -5350,6 +5514,21 @@
       type_if_organic String NULL
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.channel_definition', '{replica}-{shard}')
   ORDER BY (domain, kind);
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[cohort_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS cohort_membership
+  (
+      team_id Int64,
+      cohort_id Int64,
+      person_id UUID,
+      status Enum8('entered' = 1, 'left' = 2),
+      last_updated DateTime64(6) DEFAULT now64()
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.cohort_membership', '{replica}-{shard}', last_updated)
+  ORDER BY (team_id, cohort_id, person_id)
   
   '''
 # ---
@@ -6232,6 +6411,27 @@
   ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
   
   SETTINGS storage_policy = 'hot_to_cold'
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_precalculated_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_precalculated_events
+  (
+      team_id Int64,
+      date Date,
+      distinct_id String,
+      person_id UUID,
+      condition String,
+      uuid UUID,
+      source String,
+      _timestamp DateTime64(6),
+      _partition UInt64,
+      _offset UInt64
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_precalculated_events', '{replica}', _timestamp)
+  PARTITION BY toYYYYMM(date)
+  ORDER BY (team_id, condition, date, distinct_id, uuid)
   
   '''
 # ---

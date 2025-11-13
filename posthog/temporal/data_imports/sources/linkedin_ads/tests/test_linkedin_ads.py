@@ -257,7 +257,7 @@ class TestLinkedinAdsSource:
         )
 
         # Process the rows to trigger the client call
-        rows = list(result.items)
+        rows = list(result.items())
         assert len(rows) == 1
 
         # Verify client was called with correct date parameters

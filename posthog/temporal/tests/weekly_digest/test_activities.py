@@ -602,9 +602,14 @@ async def test_send_weekly_digest_batch(mock_redis, common_input, digest):
                 "name": "Test Team",
                 "dashboards": [{"name": "Test Dashboard", "id": 1}],
                 "event_definitions": [],
-                "experiments_launched": [],
+                "experiments_launched": [
+                    {"name": "Experiment A", "id": 1, "start_date": "2024-01-01T00:00:00Z"},
+                    {"name": "Experiment B", "id": 2, "start_date": "2024-01-01T00:00:00Z"}
+                ],
                 "experiments_completed": [],
-                "external_data_sources": [],
+                "external_data_sources": [
+                    {"source_type": "stripe", "id": "12345678-1234-1234-1234-123456789abc"}
+                ],
                 "feature_flags": [],
                 "filters": [],
                 "recordings": [],
@@ -622,7 +627,6 @@ async def test_send_weekly_digest_batch(mock_redis, common_input, digest):
 
     mock_ph_client = MagicMock()
     mock_ph_client.capture = MagicMock()
-    mock_ph_client.shutdown = MagicMock()
 
     mock_messaging_record = MagicMock()
     mock_messaging_record.sent_at = None
@@ -640,7 +644,6 @@ async def test_send_weekly_digest_batch(mock_redis, common_input, digest):
 
     # Verify PostHog client was called
     mock_ph_client.capture.assert_called_once()
-    mock_ph_client.shutdown.assert_called_once()
 
     # Verify messaging record was updated
     mock_messaging_objects.abulk_update.assert_called_once()
@@ -674,9 +677,14 @@ async def test_send_weekly_digest_batch_dry_run(mock_redis, common_input, digest
                 "name": "Test Team",
                 "dashboards": [{"name": "Test Dashboard", "id": 1}],
                 "event_definitions": [],
-                "experiments_launched": [],
+                "experiments_launched": [
+                    {"name": "Experiment A", "id": 1, "start_date": "2024-01-01T00:00:00Z"},
+                    {"name": "Experiment B", "id": 2, "start_date": "2024-01-01T00:00:00Z"}
+                ],
                 "experiments_completed": [],
-                "external_data_sources": [],
+                "external_data_sources": [
+                    {"source_type": "stripe", "id": "12345678-1234-1234-1234-123456789abc"}
+                ],
                 "feature_flags": [],
                 "filters": [],
                 "recordings": [],
@@ -694,7 +702,6 @@ async def test_send_weekly_digest_batch_dry_run(mock_redis, common_input, digest
 
     mock_ph_client = MagicMock()
     mock_ph_client.capture = MagicMock()
-    mock_ph_client.shutdown = MagicMock()
 
     mock_messaging_record = MagicMock()
     mock_messaging_record.sent_at = None
@@ -711,4 +718,3 @@ async def test_send_weekly_digest_batch_dry_run(mock_redis, common_input, digest
 
     # In dry run mode, PostHog client should not be called
     mock_ph_client.capture.assert_not_called()
-    mock_ph_client.shutdown.assert_called_once()

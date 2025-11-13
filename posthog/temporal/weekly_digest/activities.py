@@ -452,6 +452,7 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
 
 
 RECORD_BATCH_SIZE = 100
+DIGEST_ITEM_COUNT_THRESHOLD = 4
 
 
 @activity.defn(name="send-weekly-digest-batch")
@@ -465,7 +466,7 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
         empty_org_digest_count = 0
         empty_user_digest_count = 0
 
-        ph_client: Posthog = get_regional_ph_client()
+        ph_client: Posthog = get_regional_ph_client(sync_mode=True)
 
         if not ph_client and not input.dry_run:
             logger.error("Failed to set up Posthog client")
@@ -486,9 +487,9 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         )
                         continue
 
-                    org_digest = OrganizationDigest.model_validate_json(raw_digest)
+                    org_digest: OrganizationDigest = OrganizationDigest.model_validate_json(raw_digest)
 
-                    if org_digest.is_empty():
+                    if org_digest.is_empty() or org_digest.count_items() < DIGEST_ITEM_COUNT_THRESHOLD:
                         logger.warning(
                             "Got empty digest for organization, skipping...", organization_id=organization.id
                         )
@@ -512,7 +513,10 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         )
                         user_specific_digest: OrganizationDigest = org_digest.filter_for_user(user_notify_teams)
 
-                        if user_specific_digest.is_empty():
+                        if (
+                            user_specific_digest.is_empty()
+                            or user_specific_digest.count_items() < DIGEST_ITEM_COUNT_THRESHOLD
+                        ):
                             logger.warning(
                                 "Got empty digest for user, skipping...",
                                 organization_id=organization.id,
@@ -560,9 +564,6 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
 
         if len(messaging_record_batch) > 0:
             await MessagingRecord.objects.abulk_update(messaging_record_batch, ["sent_at"])
-
-        if ph_client:
-            ph_client.shutdown()
 
         logger.info(
             "Finished sending weekly digest batch",
