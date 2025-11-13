@@ -442,6 +442,14 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 actions.setCommonFilters(searchParams.commonFilters as CommonFilters)
             }
         },
+        '/heatmaps/new': (_, searchParams) => {
+            if (searchParams.pageURL && searchParams.pageURL !== values.displayUrl) {
+                actions.setDisplayUrl(searchParams.pageURL)
+            }
+            if (searchParams.dataUrl && searchParams.dataUrl !== values.dataUrl) {
+                actions.setDataUrl(searchParams.dataUrl)
+            }
+        },
         '/heatmaps/recording': (_, searchParams) => {
             if (searchParams.iframeStorage) {
                 const replayFrameData = JSON.parse(
