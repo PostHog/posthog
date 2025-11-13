@@ -9,6 +9,7 @@ from ..team import Team
 from .missing_person import uuidFromDistinctId
 
 MAX_LIMIT_DISTINCT_IDS = 2500
+PERSON_ID_CUTOFF = 1000000000  # IDs < 1B in old table, >= 1B in new table
 
 if "persons_db_reader" in connections:
     READ_DB_FOR_PERSONS = "persons_db_reader"
@@ -16,6 +17,83 @@ elif "replica" in connections:
     READ_DB_FOR_PERSONS = "replica"
 else:
     READ_DB_FOR_PERSONS = "default"
+
+
+class PersonOld(models.Model):
+    """Old non-partitioned person table (posthog_person)."""
+
+    id = models.BigAutoField(primary_key=True)
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
+    properties_last_updated_at = models.JSONField(default=dict, null=True, blank=True)
+    properties_last_operation = models.JSONField(null=True, blank=True)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    properties = models.JSONField(default=dict)
+    is_user = models.IntegerField(null=True, blank=True, db_column="is_user_id")
+    is_identified = models.BooleanField(default=False)
+    uuid = models.UUIDField(db_index=True, default=UUIDT, editable=False)
+    version = models.BigIntegerField(null=True, blank=True)
+
+    class Meta:
+        managed = False
+        db_table = "posthog_person"
+
+
+class PersonNew(models.Model):
+    """New hash-partitioned person table (posthog_person_new)."""
+
+    id = models.BigAutoField(primary_key=True)
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
+    properties_last_updated_at = models.JSONField(default=dict, null=True, blank=True)
+    properties_last_operation = models.JSONField(null=True, blank=True)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    properties = models.JSONField(default=dict)
+    is_user = models.IntegerField(null=True, blank=True, db_column="is_user_id")
+    is_identified = models.BooleanField(default=False)
+    uuid = models.UUIDField(db_index=True, default=UUIDT, editable=False)
+    version = models.BigIntegerField(null=True, blank=True)
+
+    class Meta:
+        managed = False
+        db_table = "posthog_person_new"
+
+
+class DualPersonManager(models.Manager):
+    """Manager that reads from both person tables based on ID cutoff."""
+
+    def get_by_id(self, person_id: int, team_id: Optional[int] = None):
+        """Get person by ID, routing to correct table based on ID cutoff."""
+        if person_id < PERSON_ID_CUTOFF:
+            query = PersonOld.objects.filter(id=person_id)
+        else:
+            query = PersonNew.objects.filter(id=person_id)
+
+        if team_id is not None:
+            query = query.filter(team_id=team_id)
+
+        return query.first()
+
+    def get_by_uuid(self, team_id: int, uuid: str):
+        """Get person by UUID, trying new table first then falling back to old."""
+        person = PersonNew.objects.filter(team_id=team_id, uuid=uuid).first()
+        if not person:
+            person = PersonOld.objects.filter(team_id=team_id, uuid=uuid).first()
+        return person
+
+    def get_queryset(self):
+        """Default queryset points to new table for .filter() calls."""
+        return PersonNew.objects.all()
+
+    def create(self, *args: Any, **kwargs: Any):
+        """Create person in new table by default."""
+        with transaction.atomic(using=self.db):
+            if not kwargs.get("distinct_ids"):
+                return PersonNew.objects.create(*args, **kwargs)
+            distinct_ids = kwargs.pop("distinct_ids")
+            person = PersonNew.objects.create(*args, **kwargs)
+            # Convert to Person instance for _add_distinct_ids compatibility
+            person.__class__ = Person
+            person._add_distinct_ids(distinct_ids)
+            return person
 
 
 class PersonManager(models.Manager):
@@ -52,11 +130,13 @@ class Person(models.Model):
 
     # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
 
-    objects = PersonManager()
+    objects = DualPersonManager()
+    legacy_objects = PersonManager()  # Keep old manager for backward compatibility
 
     class Meta:
         # migrations managed via rust/persons_migrations
         managed = False
+        db_table = "posthog_person_new"  # Default table for ORM, actual queries route via DualPersonManager
 
     @property
     def distinct_ids(self) -> list[str]:
