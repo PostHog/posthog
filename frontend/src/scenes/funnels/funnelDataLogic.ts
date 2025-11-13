@@ -151,8 +151,15 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
 
         results: [
-            (s) => [s.insightData, s.querySource],
-            (insightData, querySource): FunnelResultType => {
+            (s) => [s.insightData, s.vizQuerySource, s.querySource],
+            (insightData, vizQuerySource, querySource): FunnelResultType => {
+                // Web analytics queries should not be processed as funnels, even though their response
+                // structure may look similar. InsightVizDisplay unconditionally mounts funnelDataLogic,
+                // so we need explicit guards to prevent web analytics data from being misinterpreted.
+                if (isWebStatsTableQuery(vizQuerySource) || isWebOverviewQuery(vizQuerySource)) {
+                    return []
+                }
+
                 // TODO: after hooking up data manager, check that we have a funnels result here
                 // We check both the legacy filter approach (insightData.filters.insight) and the new
                 // query-based approach (querySource.kind) because tests still use the legacy approach.
@@ -183,18 +190,27 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         steps: [
-            (s) => [s.insightData, s.querySource, s.breakdownFilter, s.results, s.isTimeToConvertFunnel],
+            (s) => [
+                s.insightData,
+                s.vizQuerySource,
+                s.querySource,
+                s.breakdownFilter,
+                s.results,
+                s.isTimeToConvertFunnel,
+            ],
             (
                 insightData,
+                vizQuerySource,
                 querySource,
                 breakdownFilter,
                 results,
                 isTimeToConvertFunnel
             ): FunnelStepWithNestedBreakdown[] => {
-                // Web analytics queries should not use funnel steps logic. They sometimes have funnel-like results
-                // because of the way the backend structures data, but they are not funnels so we make sure to return
-                // early here.
-                if (isWebStatsTableQuery(querySource) || isWebOverviewQuery(querySource)) {
+                // Web analytics queries should not be processed as funnels. Their breakdown results can have
+                // a similar array structure to funnel breakdowns, which could cause them to incorrectly pass
+                // through funnel aggregation logic. Check vizQuerySource (the raw query) not querySource
+                // (which is null for non-funnels after filtering).
+                if (isWebStatsTableQuery(vizQuerySource) || isWebOverviewQuery(vizQuerySource)) {
                     return []
                 }
 
@@ -336,8 +352,15 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         hasFunnelResults: [
-            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource],
-            (insightData, funnelsFilter, steps, histogramGraphData, querySource) => {
+            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.vizQuerySource, s.querySource],
+            (insightData, funnelsFilter, steps, histogramGraphData, vizQuerySource, querySource) => {
+                // Web analytics queries should never return true for hasFunnelResults, even if their
+                // data structure looks similar to funnels. This prevents InsightVizDisplay from trying
+                // to render funnel-specific UI components for web analytics queries.
+                if (isWebStatsTableQuery(vizQuerySource) || isWebOverviewQuery(vizQuerySource)) {
+                    return false
+                }
+
                 if (
                     // TODO: Ideally we don't check filters anymore, but tests are still using this
                     insightData?.filters?.insight !== InsightType.FUNNELS &&
