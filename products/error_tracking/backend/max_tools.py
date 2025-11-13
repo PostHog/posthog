@@ -213,7 +213,7 @@ class ErrorTrackingIssueImpactTool(MaxTool):
 
 
 class ErrorTrackingExplainIssueArgs(BaseModel):
-    """TODO: is this needed"""
+    """TODO: is this needed?"""
 
 
 class ErrorTrackingExplainIssueOutput(BaseModel):
@@ -264,15 +264,14 @@ class ErrorTrackingExplainIssueTool(MaxTool):
 
     def _format_explanation_for_user(self, summary: ErrorTrackingExplainIssueOutput, issue_name: str) -> str:
         lines = []
-        lines.append(f"✅ **Issue: '{issue_name}'**")
+        lines.append(f"### Issue: {issue_name}")
 
-        lines.append("\n**📊 Generic description**")
         lines.append(summary.generic_description)
 
-        lines.append("\n**📊 Specific problem**")
+        lines.append("\n#### What's happening?")
         lines.append(summary.specific_problem)
 
-        lines.append("\n**📊 Possible solutions:**")
+        lines.append("\n#### How to fix it:")
         for option in summary.possible_resolutions:
             lines.append(option)
 
