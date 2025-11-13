@@ -188,7 +188,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             setup_repository,
             setup_repo_input,
-            start_to_close_timeout=timedelta(seconds=30),
+            start_to_close_timeout=timedelta(minutes=30),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 

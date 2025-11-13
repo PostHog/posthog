@@ -4,9 +4,6 @@ from django.conf import settings
 
 from temporalio import activity
 
-from posthog.models import PersonalAPIKey
-from posthog.models.personal_api_key import hash_key_value
-from posthog.models.utils import generate_random_token_personal, mask_key_value
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import SandboxSnapshot, Task
@@ -16,10 +13,10 @@ from products.tasks.backend.temporal.exceptions import (
     PersonalAPIKeyError,
     SnapshotNotFoundError,
     SnapshotNotReadyError,
-    TaskInvalidStateError,
     TaskNotFoundError,
 )
 from products.tasks.backend.temporal.observability import log_activity_execution
+from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_setup import _create_personal_api_key
 from products.tasks.backend.temporal.process_task.utils import get_github_token, get_sandbox_name_for_task
 
 
@@ -30,47 +27,6 @@ class CreateSandboxFromSnapshotInput:
     distinct_id: str
     team_id: int
     github_integration_id: int
-
-
-def _create_personal_api_key(task: Task) -> tuple[str, PersonalAPIKey]:
-    scopes = _get_default_scopes()
-
-    value = generate_random_token_personal()
-
-    mask_value = mask_key_value(value)
-    secure_value = hash_key_value(value)
-
-    if not task.created_by:
-        raise TaskInvalidStateError(
-            f"Task {task.id} has no created_by user",
-            {"task_id": task.id},
-            cause=RuntimeError(f"Task {task.id} missing created_by field"),
-        )
-
-    assert task.created_by is not None
-
-    personal_api_key = PersonalAPIKey.objects.create(
-        user=task.created_by,
-        label=f"Task Agent - {task.title[:20]}",
-        secure_value=secure_value,
-        mask_value=mask_value,
-        scopes=scopes,
-        scoped_teams=[task.team_id],
-    )
-
-    return value, personal_api_key
-
-
-def _get_default_scopes() -> list[str]:
-    scopes = [
-        "error_tracking:read",
-        "user:read",
-        "organization:read",
-        "project:read",
-        "task:write",
-    ]
-
-    return scopes
 
 
 @dataclass
