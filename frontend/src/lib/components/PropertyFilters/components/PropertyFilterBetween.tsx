@@ -36,7 +36,11 @@ export function PropertyFilterBetween({ value, onSet, size }: PropertyFilterBetw
                 data-attr="prop-val"
                 onChange={(val) => {
                     setLocalMin(val)
-                    onSet(localMax === undefined || val === undefined ? null : [val, localMax])
+                    if (localMax === undefined || val === undefined) {
+                        onSet(null)
+                    } else if (val < localMax) {
+                        onSet([val, localMax])
+                    }
                 }}
                 placeholder="min"
                 size={size}
@@ -49,7 +53,11 @@ export function PropertyFilterBetween({ value, onSet, size }: PropertyFilterBetw
                 data-attr="prop-val"
                 onChange={(val) => {
                     setLocalMax(val)
-                    onSet(localMin === undefined || val === undefined ? null : [localMin, val])
+                    if (localMin === undefined || val === undefined) {
+                        onSet(null)
+                    } else if (localMin < val) {
+                        onSet([localMin, val])
+                    }
                 }}
                 placeholder="max"
                 size={size}
