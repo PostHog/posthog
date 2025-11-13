@@ -24,11 +24,6 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     icon: <IconTableChart />,
                     label: 'Table',
                 },
-                {
-                    value: ChartDisplayType.BoldNumber,
-                    icon: <Icon123 />,
-                    label: 'Number',
-                },
             ],
         },
         {
@@ -63,6 +58,11 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     value: ChartDisplayType.ActionsPie,
                     icon: <IconPieChart />,
                     label: 'Pie chart',
+                },
+                {
+                    value: ChartDisplayType.BoldNumber,
+                    icon: <Icon123 />,
+                    label: 'Number',
                 },
             ],
         },
