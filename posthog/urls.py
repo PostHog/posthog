@@ -247,9 +247,9 @@ urlpatterns = [
 
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
-    # that in production we expose these metrics on a separate port, to ensure
-    # external clients cannot see them. See the gunicorn setup for details on
-    # what we do.
+    # that in production we expose these metrics on a separate port (8001), to ensure
+    # external clients cannot see them. See bin/granian_metrics.py and bin/unit_metrics.py
+    # for details on the production metrics setup.
     urlpatterns.append(path("_metrics", ExportToDjangoView))
     # Temporal codec server endpoint for UI decryption - locally only for now
     urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))

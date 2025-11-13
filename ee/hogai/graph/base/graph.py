@@ -3,7 +3,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
-from langgraph.graph.state import StateGraph
+from langgraph.graph.state import CompiledStateGraph, StateGraph
 
 from posthog.models import Team, User
 
@@ -74,7 +74,11 @@ class BaseAssistantGraph(Generic[StateType, PartialStateType], ABC):
         self._graph.add_edge(from_node, to_node)
         return self
 
-    def add_node(self, node: "MaxNodeName", action: BaseAssistantNode[StateType, PartialStateType]):
+    def add_node(
+        self,
+        node: "MaxNodeName",
+        action: BaseAssistantNode[StateType, PartialStateType] | CompiledStateGraph,
+    ):
         self._graph.add_node(node, action)
         return self
 

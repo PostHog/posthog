@@ -1,11 +1,12 @@
 import json
 import time
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
+from django.utils import timezone
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -16,7 +17,9 @@ from posthog.schema import (
     AssistantHogQLQuery,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
+    CurrencyCode,
     FunnelsQuery,
+    FunnelVizType,
     HogQLQuery,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
@@ -36,7 +39,7 @@ from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
-from posthog.models.team.team import Team
+from posthog.models import Team
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.sync import database_sync_to_async
 
@@ -49,6 +52,22 @@ from ee.hogai.graph.query_executor.format import (
     RevenueAnalyticsTopCustomersResultsFormatter,
     SQLResultsFormatter,
     TrendsResultsFormatter,
+)
+from ee.hogai.utils.prompt import format_prompt_string
+
+from .prompts import (
+    FALLBACK_EXAMPLE_PROMPT,
+    FUNNEL_STEPS_EXAMPLE_PROMPT,
+    FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT,
+    FUNNEL_TRENDS_EXAMPLE_PROMPT,
+    QUERY_RESULTS_PROMPT,
+    RETENTION_EXAMPLE_PROMPT,
+    REVENUE_ANALYTICS_GROSS_REVENUE_EXAMPLE_PROMPT,
+    REVENUE_ANALYTICS_METRICS_EXAMPLE_PROMPT,
+    REVENUE_ANALYTICS_MRR_EXAMPLE_PROMPT,
+    REVENUE_ANALYTICS_TOP_CUSTOMERS_EXAMPLE_PROMPT,
+    SQL_EXAMPLE_PROMPT,
+    TRENDS_EXAMPLE_PROMPT,
 )
 
 logger = structlog.get_logger(__name__)
@@ -69,6 +88,14 @@ SupportedQueryTypes = (
     | RevenueAnalyticsMRRQuery
     | RevenueAnalyticsTopCustomersQuery
 )
+
+
+class QueryExecutorError(Exception):
+    """
+    Exception raised when there is an error executing a query.
+    """
+
+    pass
 
 
 class AssistantQueryExecutor:
@@ -354,8 +381,8 @@ class AssistantQueryExecutor:
                     err_message = ", ".join(map(str, err.detail))
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
-            raise Exception(f"There was an error running this query: {err_message}")
-        except Exception:
+            raise QueryExecutorError(err_message)
+        except:
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution
             if debug_timing:
@@ -427,3 +454,77 @@ class AssistantQueryExecutor:
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} _compress_results failed after {elapsed:.3f}s for {query_type}")
             raise
+
+
+def is_revenue_analytics_query(query: SupportedQueryTypes) -> bool:
+    return isinstance(
+        query,
+        RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery,
+    )
+
+
+def get_example_prompt(query: SupportedQueryTypes) -> str:
+    if isinstance(query, AssistantTrendsQuery | TrendsQuery):
+        return TRENDS_EXAMPLE_PROMPT
+    if isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
+        if (
+            not query.funnelsFilter
+            or not query.funnelsFilter.funnelVizType
+            or query.funnelsFilter.funnelVizType == FunnelVizType.STEPS
+        ):
+            return FUNNEL_STEPS_EXAMPLE_PROMPT
+        if query.funnelsFilter.funnelVizType == FunnelVizType.TIME_TO_CONVERT:
+            return FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT
+        return FUNNEL_TRENDS_EXAMPLE_PROMPT
+    if isinstance(query, AssistantRetentionQuery | RetentionQuery):
+        return RETENTION_EXAMPLE_PROMPT
+    if isinstance(query, AssistantHogQLQuery | HogQLQuery):
+        return SQL_EXAMPLE_PROMPT
+    if isinstance(query, RevenueAnalyticsGrossRevenueQuery):
+        return REVENUE_ANALYTICS_GROSS_REVENUE_EXAMPLE_PROMPT
+    if isinstance(query, RevenueAnalyticsMetricsQuery):
+        return REVENUE_ANALYTICS_METRICS_EXAMPLE_PROMPT
+    if isinstance(query, RevenueAnalyticsMRRQuery):
+        return REVENUE_ANALYTICS_MRR_EXAMPLE_PROMPT
+    if isinstance(query, RevenueAnalyticsTopCustomersQuery):
+        return REVENUE_ANALYTICS_TOP_CUSTOMERS_EXAMPLE_PROMPT
+    raise NotImplementedError(f"Unsupported query type: {type(query)}")
+
+
+async def execute_and_format_query(team: Team, query: SupportedQueryTypes) -> str:
+    """
+    Executes a supported query and formats the results for the AI assistant:
+
+    ```
+    Format description...
+
+    Query results...
+    ```
+
+    Args:
+        team: The team to execute the query on.
+        query: The query to execute.
+
+    Returns:
+        The formatted query results.
+    """
+    utc_now_datetime = timezone.now().astimezone(UTC)
+    query_runner = AssistantQueryExecutor(team, utc_now_datetime)
+    results, used_fallback = await query_runner.arun_and_format_query(query)
+    example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else get_example_prompt(query)
+    currency = team.base_currency or CurrencyCode.USD.value
+
+    query_result = format_prompt_string(
+        QUERY_RESULTS_PROMPT,
+        query_kind=query.kind,
+        results=results,
+        utc_datetime_display=utc_now_datetime.strftime("%Y-%m-%d %H:%M:%S"),
+        project_datetime_display=utc_now_datetime.astimezone(team.timezone_info).strftime("%Y-%m-%d %H:%M:%S"),
+        project_timezone=team.timezone_info.tzname(utc_now_datetime),
+        currency=currency if is_revenue_analytics_query(query) else None,
+    )
+
+    return f"{example_prompt}\n\n{query_result}"

@@ -24,8 +24,6 @@ from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
-from ee.hogai.utils.types.base import AssistantNodeName
-from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class HogQLGeneratorArgs(BaseModel):
@@ -65,10 +63,6 @@ class HogQLGeneratorNode(
     def __init__(self, team: Team, user: User, toolkit_class: HogQLGeneratorToolkit):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.HOGQL_GENERATOR
-
     def _get_system_prompt(self) -> ChatPromptTemplate:
         """Get default system prompts. Override in subclasses for custom prompts."""
 
@@ -107,10 +101,6 @@ class HogQLGeneratorToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, Taxonom
     def __init__(self, team: Team, user: User, toolkit_class: HogQLGeneratorToolkit):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.HOGQL_GENERATOR_TOOLS
-
 
 class HogQLGeneratorGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[FinalAnswerArgs]]):
     def __init__(self, team: Team, user: User):
@@ -139,6 +129,7 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
             "change": user_prompt,
             "output": None,
             "tool_progress_messages": [],
+            "billable": True,
             **self.context,
         }
 

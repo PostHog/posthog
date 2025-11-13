@@ -32,6 +32,11 @@ SESSION_REPLAY_RRWEB_SCRIPT = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT", None, 
 # can be a comma separated list of team ids or '*' to allow all teams
 SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS = get_list(get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", ""))
 
+if settings.DEBUG:
+    # in debug mode we allow all teams to use custom rrweb scripts
+    SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS = ["*"]
+    SESSION_REPLAY_RRWEB_SCRIPT = "posthog-recorder"
+
 # an AI model to use for session recording filters
 SESSION_REPLAY_AI_REGEX_MODEL = get_from_env("SESSION_REPLAY_AI_REGEX_MODEL", "gpt-4.1-mini")
 

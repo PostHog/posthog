@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+set -e
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📦 PostHog Session Recording Migration (MinIO → SeaweedFS)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "This script will migrate your existing session recordings from"
+echo "MinIO to SeaweedFS storage."
+echo ""
+echo "⚠️  Important:"
+echo "  - Keep this script running until completion"
+echo "  - The migration runs in the background and won't block new recordings"
+echo "  - You can monitor progress in the output"
+echo ""
+
+read -r -p "Do you want to start the migration? [y/N] " response
+if [[ ! "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+then
+    echo "Migration cancelled."
+    exit 0
+fi
+
+echo ""
+echo "🚀 Starting migration..."
+echo ""
+
+# Run the migration script inside the plugins container
+docker-compose run --rm \
+    -e OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000 \
+    -e OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user \
+    -e OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password \
+    -e SESSION_RECORDING_V2_S3_ENDPOINT=http://seaweedfs:8333 \
+    -e SESSION_RECORDING_V2_S3_ACCESS_KEY_ID=any \
+    -e SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY=any \
+    plugins \
+    node plugin-server/bin/migrate-minio-to-seaweedfs.js "$@"
+
+if [ $? -eq 0 ]; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "✅ Migration completed successfully!"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "To mark the migration as complete in your .env file, run:"
+    echo ""
+    echo "  sed -i 's/SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS=pending_migration/SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS=completed/' .env"
+    echo ""
+else
+    echo ""
+    echo "❌ Migration failed. Check the output above for errors."
+    echo ""
+    echo "You can retry by running this script again with --resume:"
+    echo ""
+    echo "  ./bin/migrate-session-recordings-hobby --resume"
+    echo ""
+    exit 1
+fi
+

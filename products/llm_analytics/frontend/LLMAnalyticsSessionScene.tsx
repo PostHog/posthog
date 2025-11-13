@@ -14,7 +14,7 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { llmAnalyticsSessionDataLogic } from './llmAnalyticsSessionDataLogic'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
-import { formatLLMCost } from './utils'
+import { formatLLMCost, getTraceTimestamp } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsSessionScene,
@@ -132,7 +132,9 @@ function SessionSceneWrapper(): JSX.Element {
                                                         </LemonTag>
                                                     )}
                                                     <Link
-                                                        to={urls.llmAnalyticsTrace(trace.id)}
+                                                        to={urls.llmAnalyticsTrace(trace.id, {
+                                                            timestamp: getTraceTimestamp(trace.createdAt),
+                                                        })}
                                                         onClick={(e) => e.stopPropagation()}
                                                         className="text-xs"
                                                     >

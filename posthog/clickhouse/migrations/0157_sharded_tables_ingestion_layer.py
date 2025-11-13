@@ -36,13 +36,6 @@ from posthog.models.app_metrics2.sql import (
     KAFKA_APP_METRICS2_TABLE_SQL,
     WRITABLE_APP_METRICS2_TABLE_SQL,
 )
-from posthog.models.behavioral_cohorts.sql import (
-    BEHAVIORAL_COHORTS_MATCHES_MV_SQL,
-    BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL,
-    DROP_BEHAVIORAL_COHORTS_MATCHES_KAFKA_TABLE_SQL,
-    DROP_BEHAVIORAL_COHORTS_MATCHES_MV_SQL,
-    KAFKA_BEHAVIORAL_COHORTS_MATCHES_TABLE_SQL,
-)
 from posthog.models.ingestion_warnings.sql import (
     DROP_INGESTION_WARNINGS_TABLE_MV_SQL,
     DROP_KAFKA_INGESTION_WARNINGS_TABLE_SQL,
@@ -109,12 +102,6 @@ operations = [
     run_sql_with_exceptions(WRITABLE_INGESTION_WARNINGS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
     run_sql_with_exceptions(KAFKA_INGESTION_WARNINGS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
     run_sql_with_exceptions(INGESTION_WARNINGS_MV_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
-    # behavioral cohorts
-    run_sql_with_exceptions(DROP_BEHAVIORAL_COHORTS_MATCHES_MV_SQL(), node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(DROP_BEHAVIORAL_COHORTS_MATCHES_KAFKA_TABLE_SQL(), node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
-    run_sql_with_exceptions(KAFKA_BEHAVIORAL_COHORTS_MATCHES_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
-    run_sql_with_exceptions(BEHAVIORAL_COHORTS_MATCHES_MV_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
     # dead letter queue
     run_sql_with_exceptions(DROP_DEAD_LETTER_QUEUE_MV_TABLE_SQL, node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL, node_roles=[NodeRole.DATA]),

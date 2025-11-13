@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Any, TypedDict, cast
 
 from django.db import transaction
-from django.dispatch import receiver
 from django.utils.timezone import now
 
 import structlog
@@ -47,7 +46,7 @@ from posthog.batch_exports.service import (
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.integration import DatabricksIntegration, DatabricksIntegrationError, Integration
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
@@ -384,6 +383,21 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("HTTP batch exports only support the events model")
 
         return attrs
+
+    def validate_filters(self, filters):
+        if filters is None:
+            return filters
+
+        if not isinstance(filters, list):
+            raise serializers.ValidationError("'filters' should be an array of filters")
+
+        for filter in filters:
+            if isinstance(filter, dict) and any(key in filter for key in ("data_interval_start", "data_interval_end")):
+                raise serializers.ValidationError(
+                    "'data_interval_start' and 'data_interval_end' are run attributes and not 'filters'."
+                    " Trigger a backfill if you wish to manually control which periods to batch export."
+                )
+        return filters
 
     # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
@@ -1007,7 +1021,7 @@ class BatchExportContext(ActivityContextBase):
     created_by_user_name: str | None
 
 
-@receiver(model_activity_signal, sender=BatchExport)
+@mutable_receiver(model_activity_signal, sender=BatchExport)
 def handle_batch_export_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

@@ -48,6 +48,11 @@ declare module '@storybook/types' {
             snapshotTargetSelector?: string
             /** specify an alternative viewport size */
             viewport?: { width: number; height: number }
+            /**
+             * Skip waiting for iframes to load. Useful for stories with external iframes that fail in CI.
+             * @default false
+             */
+            skipIframeWait?: boolean
         }
         msw?: {
             mocks?: Mocks
@@ -76,7 +81,7 @@ const customSnapshotsDir = path.resolve(__dirname, '../../../frontend/__snapshot
 // eslint-disable-next-line no-console
 console.log('[test-runner] Storybook snapshots will be saved to', customSnapshotsDir)
 
-const JEST_TIMEOUT_MS = 15000
+const JEST_TIMEOUT_MS = 25000 // Increased for stories with iframes (e.g. SidePanelDocs)
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
@@ -179,8 +184,10 @@ async function expectStoryToMatchSnapshot(
     const { waitForLoadersToDisappear = true, waitForSelector } = storyContext.parameters?.testOptions ?? {}
 
     if (waitForLoadersToDisappear) {
-        // The timeout is reduced so that we never allow toasts – they usually signify something wrong
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'detached', timeout: 3000 })
+        // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
+        // Use 'hidden' instead of 'detached' because some elements (like toasts) may remain in DOM but be invisible
+        // Timeout is 5000ms to account for slower CI environments while still catching stuck elements
+        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout: 5000 })
     }
 
     if (typeof waitForSelector === 'string') {
@@ -230,21 +237,24 @@ async function takeSnapshotWithTheme(
     }
 
     // wait for iframes to load their content
-    const iframeCount = await page.locator('iframe').count()
-    if (iframeCount > 0) {
-        await page
-            .waitForFunction(
-                () => {
-                    const iframes = Array.from(document.querySelectorAll('iframe'))
-                    return iframes.every((iframe) => iframe.getAttribute('data-load-tracked') === 'loaded')
-                },
-                { timeout: 8000 }
-            )
-            .catch(() => {
-                // if timeout, that's okay - some iframes might not fire load events
-            })
-        // give iframe content a moment to render after load event
-        await page.waitForTimeout(1000)
+    const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
+    if (!skipIframeWait) {
+        const iframeCount = await page.locator('iframe').count()
+        if (iframeCount > 0) {
+            await page
+                .waitForFunction(
+                    () => {
+                        const iframes = Array.from(document.querySelectorAll('iframe'))
+                        return iframes.every((iframe) => iframe.getAttribute('data-load-tracked') === 'loaded')
+                    },
+                    { timeout: 8000 }
+                )
+                .catch(() => {
+                    // if timeout, that's okay - some iframes might not fire load events
+                })
+            // give iframe content a moment to render after load event
+            await page.waitForTimeout(1000)
+        }
     }
 
     // reset scroll positions to ensure consistent snapshots

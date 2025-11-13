@@ -246,7 +246,7 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             session_recording_list_instance = SessionRecordingListFromQuery(
                 query=match_everyone_filter, team=self.team, hogql_query_modifiers=None
             )
-            (session_recordings, _, _) = session_recording_list_instance.run()
+            (session_recordings, _, _, _) = session_recording_list_instance.run()
 
             assert sorted([x["session_id"] for x in session_recordings]) == sorted([session_id_one, session_id_two])
 
@@ -266,7 +266,7 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             session_recording_list_instance = SessionRecordingListFromQuery(
                 query=match_bla_filter, team=self.team, hogql_query_modifiers=None
             )
-            (session_recordings, _, _) = session_recording_list_instance.run()
+            (session_recordings, _, _, _) = session_recording_list_instance.run()
 
             assert len(session_recordings) == 1
             assert session_recordings[0]["session_id"] == session_id_one
@@ -332,5 +332,155 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             session_recording_list_instance = SessionRecordingListFromQuery(
                 query=query, team=self.team, hogql_query_modifiers=None
             )
-            (session_recordings, _, _) = session_recording_list_instance.run()
+            (session_recordings, _, _, _) = session_recording_list_instance.run()
             assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_two, session_id_one])
+
+    def test_cursor_based_pagination_single_page(self):
+        """Test cursor pagination with results fitting in single page"""
+        session_id_one = f"test_cursor_pagination_single_page-1-{uuid4()}"
+        session_id_two = f"test_cursor_pagination_single_page-2-{uuid4()}"
+
+        produce_replay_summary(
+            session_id=session_id_one,
+            team_id=self.team.pk,
+            first_timestamp=self.base_time,
+            last_timestamp=self.base_time + relativedelta(seconds=30),
+        )
+        produce_replay_summary(
+            session_id=session_id_two,
+            team_id=self.team.pk,
+            first_timestamp=self.base_time + relativedelta(seconds=10),
+            last_timestamp=self.base_time + relativedelta(seconds=40),
+        )
+
+        # First page with cursor pagination (no cursor, limit 10)
+        query = RecordingsQuery.model_validate({"limit": 10})
+        result = SessionRecordingListFromQuery(query=query, team=self.team, hogql_query_modifiers=None).run()
+
+        # Should have all results, no more pages
+        self.assertEqual(len(result.results), 2)
+        self.assertFalse(result.has_more_recording)
+        self.assertIsNone(result.next_cursor)
+
+    def test_cursor_based_pagination_multiple_pages(self):
+        """Test cursor pagination across multiple pages"""
+        base_session_id = f"test_cursor_pagination_multi_page-{uuid4()}"
+        # Create 5 sessions
+        for i in range(5):
+            produce_replay_summary(
+                session_id=f"{base_session_id}-{i}",
+                team_id=self.team.pk,
+                first_timestamp=self.base_time + relativedelta(seconds=i * 10),
+                last_timestamp=self.base_time + relativedelta(seconds=i * 10 + 30),
+            )
+
+        # Page 1: Get first 2 items
+        query = RecordingsQuery.model_validate({"limit": 2, "order": "start_time", "order_direction": "DESC"})
+        result = SessionRecordingListFromQuery(query=query, team=self.team, hogql_query_modifiers=None).run()
+
+        self.assertEqual(len(result.results), 2)
+        self.assertTrue(result.has_more_recording)
+        self.assertIsNotNone(result.next_cursor)
+        page1_ids = [r["session_id"] for r in result.results]
+
+        # Page 2: Use cursor to get next 2 items
+        query2 = RecordingsQuery.model_validate(
+            {"limit": 2, "order": "start_time", "order_direction": "DESC", "after": result.next_cursor}
+        )
+        result2 = SessionRecordingListFromQuery(query=query2, team=self.team, hogql_query_modifiers=None).run()
+
+        self.assertEqual(len(result2.results), 2)
+        self.assertTrue(result2.has_more_recording)
+        self.assertIsNotNone(result2.next_cursor)
+        page2_ids = [r["session_id"] for r in result2.results]
+
+        # Page 3: Get last item
+        query3 = RecordingsQuery.model_validate(
+            {"limit": 2, "order": "start_time", "order_direction": "DESC", "after": result2.next_cursor}
+        )
+        result3 = SessionRecordingListFromQuery(query=query3, team=self.team, hogql_query_modifiers=None).run()
+
+        self.assertEqual(len(result3.results), 1)
+        self.assertFalse(result3.has_more_recording)
+        self.assertIsNone(result3.next_cursor)
+        page3_ids = [r["session_id"] for r in result3.results]
+
+        # Verify no duplicates across pages
+        all_ids = page1_ids + page2_ids + page3_ids
+        self.assertEqual(len(all_ids), 5)
+        self.assertEqual(len(set(all_ids)), 5)  # All unique
+
+    def test_cursor_pagination_with_different_ordering_fields(self):
+        """Test cursor pagination works correctly with console_error_count ordering"""
+        base_session_id = f"test_cursor_diff_order-{uuid4()}"
+
+        # Create sessions with different error counts
+        produce_replay_summary(
+            session_id=f"{base_session_id}-1",
+            team_id=self.team.pk,
+            console_error_count=5,
+            first_timestamp=self.base_time,
+            last_timestamp=self.base_time + relativedelta(seconds=30),
+        )
+        produce_replay_summary(
+            session_id=f"{base_session_id}-2",
+            team_id=self.team.pk,
+            console_error_count=3,
+            first_timestamp=self.base_time + relativedelta(seconds=10),
+            last_timestamp=self.base_time + relativedelta(seconds=40),
+        )
+        produce_replay_summary(
+            session_id=f"{base_session_id}-3",
+            team_id=self.team.pk,
+            console_error_count=7,
+            first_timestamp=self.base_time + relativedelta(seconds=20),
+            last_timestamp=self.base_time + relativedelta(seconds=50),
+        )
+
+        # Page 1: Order by console_error_count DESC, get 2 items
+        query = RecordingsQuery.model_validate({"limit": 2, "order": "console_error_count", "order_direction": "DESC"})
+        result = SessionRecordingListFromQuery(query=query, team=self.team, hogql_query_modifiers=None).run()
+
+        self.assertEqual(len(result.results), 2)
+        self.assertTrue(result.has_more_recording)
+        # First should have 7 errors, second should have 5
+        self.assertEqual(result.results[0]["console_error_count"], 7)
+        self.assertEqual(result.results[1]["console_error_count"], 5)
+
+        # Page 2: Use cursor
+        query2 = RecordingsQuery.model_validate(
+            {"limit": 2, "order": "console_error_count", "order_direction": "DESC", "after": result.next_cursor}
+        )
+        result2 = SessionRecordingListFromQuery(query=query2, team=self.team, hogql_query_modifiers=None).run()
+
+        self.assertEqual(len(result2.results), 1)
+        self.assertFalse(result2.has_more_recording)
+        self.assertEqual(result2.results[0]["console_error_count"], 3)
+
+    def test_backward_compatibility_offset_still_works(self):
+        """Test that offset-based pagination still works for backward compatibility"""
+        base_session_id = f"test_offset_compat-{uuid4()}"
+
+        for i in range(5):
+            produce_replay_summary(
+                session_id=f"{base_session_id}-{i}",
+                team_id=self.team.pk,
+                first_timestamp=self.base_time + relativedelta(seconds=i * 10),
+                last_timestamp=self.base_time + relativedelta(seconds=i * 10 + 30),
+            )
+
+        # Use offset pagination
+        query = RecordingsQuery.model_validate({"limit": 2, "offset": 0})
+        result = SessionRecordingListFromQuery(query=query, team=self.team, hogql_query_modifiers=None).run()
+
+        self.assertEqual(len(result.results), 2)
+        self.assertTrue(result.has_more_recording)
+        # Should not have cursor when using offset
+        self.assertIsNone(result.next_cursor)
+
+        # Get second page with offset
+        query2 = RecordingsQuery.model_validate({"limit": 2, "offset": 2})
+        result2 = SessionRecordingListFromQuery(query=query2, team=self.team, hogql_query_modifiers=None).run()
+
+        self.assertEqual(len(result2.results), 2)
+        self.assertTrue(result2.has_more_recording)

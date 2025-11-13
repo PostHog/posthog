@@ -193,9 +193,6 @@ pub struct Config {
     #[envconfig(default = "")]
     pub redis_reader_url: String,
 
-    #[envconfig(default = "")]
-    pub redis_writer_url: String,
-
     // Dedicated Redis for feature flags (critical path: team cache + flags cache)
     // When empty, falls back to shared Redis URLs above
     #[envconfig(default = "")]
@@ -203,9 +200,6 @@ pub struct Config {
 
     #[envconfig(default = "")]
     pub flags_redis_reader_url: String,
-
-    #[envconfig(default = "")]
-    pub flags_redis_writer_url: String,
 
     // Controls whether to read from dedicated Redis cache
     // false = Mode 2: dual-write to both caches, read from shared (warming phase)
@@ -451,6 +445,18 @@ pub struct Config {
     // Log-only mode for IP-based rate limiting (defaults to true for safe rollout)
     #[envconfig(from = "FLAGS_IP_RATE_LIMIT_LOG_ONLY", default = "true")]
     pub flags_ip_rate_limit_log_only: FlexBool,
+
+    // Redis compression configuration
+    // When enabled, uses zstd compression for Redis values above threshold
+    // The `default_test_config()` sets this to true for test/development scenarios.
+    #[envconfig(from = "REDIS_COMPRESSION_ENABLED", default = "false")]
+    pub redis_compression_enabled: FlexBool,
+
+    // Number of times to retry creating a Redis client before giving up
+    // Helps handle transient network issues during startup
+    // Set to 0 to disable retries (fail immediately on first error)
+    #[envconfig(from = "REDIS_CLIENT_RETRY_COUNT", default = "3")]
+    pub redis_client_retry_count: u32,
 }
 
 impl Config {
@@ -459,10 +465,8 @@ impl Config {
             address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
             redis_url: "redis://localhost:6379/".to_string(),
             redis_reader_url: "".to_string(),
-            redis_writer_url: "".to_string(),
             flags_redis_url: "".to_string(),
             flags_redis_reader_url: "".to_string(),
-            flags_redis_writer_url: "".to_string(),
             flags_redis_enabled: FlexBool(false),
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
                 .to_string(),
@@ -525,6 +529,8 @@ impl Config {
             flags_ip_replenish_rate: 100.0,
             flags_rate_limit_log_only: FlexBool(true),
             flags_ip_rate_limit_log_only: FlexBool(true),
+            redis_compression_enabled: FlexBool(true),
+            redis_client_retry_count: 3,
         }
     }
 
@@ -551,11 +557,7 @@ impl Config {
     }
 
     pub fn get_redis_writer_url(&self) -> &str {
-        if self.redis_writer_url.is_empty() {
-            &self.redis_url
-        } else {
-            &self.redis_writer_url
-        }
+        &self.redis_url
     }
 
     /// Get the Redis URL for flags cache reads (critical path: team cache + flags cache)
@@ -573,9 +575,7 @@ impl Config {
     /// Get the Redis URL for flags cache writes (critical path: team cache + flags cache)
     /// Returns None if dedicated flags Redis is not configured
     pub fn get_flags_redis_writer_url(&self) -> Option<&str> {
-        if !self.flags_redis_writer_url.is_empty() {
-            Some(&self.flags_redis_writer_url)
-        } else if !self.flags_redis_url.is_empty() {
+        if !self.flags_redis_url.is_empty() {
             Some(&self.flags_redis_url)
         } else {
             None

@@ -1,3 +1,5 @@
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+
 import {
     type CreatedResources,
     SAMPLE_HOGQL_QUERIES,
@@ -18,7 +20,6 @@ import getAllInsightsTool from '@/tools/insights/getAll'
 import queryInsightTool from '@/tools/insights/query'
 import updateInsightTool from '@/tools/insights/update'
 import type { Context } from '@/tools/types'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 describe('Insights', { concurrent: false }, () => {
     // All tests run sequentially to avoid conflicts with shared PostHog project
@@ -57,7 +58,7 @@ describe('Insights', { concurrent: false }, () => {
             const result = await createTool.handler(context, params)
 
             const insightData = parseToolResponse(result)
-            expect(insightData.id).toBeDefined()
+            expect(insightData.id).toBeTruthy()
             expect(insightData.name).toBe(params.data.name)
             expect(insightData.url).toContain('/insights/')
 
@@ -77,7 +78,7 @@ describe('Insights', { concurrent: false }, () => {
             const result = await createTool.handler(context, params)
 
             const insightData = parseToolResponse(result)
-            expect(insightData.id).toBeDefined()
+            expect(insightData.id).toBeTruthy()
             expect(insightData.name).toBe(params.data.name)
 
             createdResources.insights.push(insightData.id)
@@ -97,7 +98,7 @@ describe('Insights', { concurrent: false }, () => {
             const result = await createTool.handler(context, params)
 
             const insightData = parseToolResponse(result)
-            expect(insightData.id).toBeDefined()
+            expect(insightData.id).toBeTruthy()
             expect(insightData.name).toBe(params.data.name)
 
             createdResources.insights.push(insightData.id)

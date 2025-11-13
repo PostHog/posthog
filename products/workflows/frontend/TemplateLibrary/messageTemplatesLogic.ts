@@ -74,6 +74,20 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                         return values.templates
                     }
                 },
+                duplicateTemplate: async (template: MessageTemplate) => {
+                    try {
+                        const duplicatedTemplate = await api.messaging.createTemplate({
+                            name: `${template.name} (copy)`,
+                            description: template.description,
+                            content: template.content,
+                        })
+                        lemonToast.success('Template duplicated successfully')
+                        return [...values.templates, duplicatedTemplate]
+                    } catch {
+                        lemonToast.error('Failed to duplicate template')
+                        return values.templates
+                    }
+                },
             },
         ],
     })),
