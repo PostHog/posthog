@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { LemonDropdown } from '@posthog/lemon-ui'
@@ -74,6 +74,12 @@ const UniversalSearch = (): JSX.Element => {
     }
 
     const onChange = useDebouncedCallback((value: string) => setSearchQuery(value), 250)
+
+    const { setSearchQuery: setTaxonomicSearchQuery } = useActions(taxonomicFilterLogic(taxonomicFilterLogicProps))
+
+    useEffect(() => {
+        setTaxonomicSearchQuery(searchQuery)
+    }, [searchQuery, setTaxonomicSearchQuery])
 
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
