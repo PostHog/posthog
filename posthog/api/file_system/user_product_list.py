@@ -49,7 +49,7 @@ class BulkUpdateUserProductListSerializer(serializers.Serializer):
 
 class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = UserProductList.objects.all()
-    scope_object = "user_product_list"
+    scope_object = "INTERNAL"
     serializer_class = UserProductListSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
