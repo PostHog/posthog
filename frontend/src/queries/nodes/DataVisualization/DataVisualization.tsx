@@ -31,7 +31,9 @@ import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature } from '../DataTable/queryFeatures'
+import { BarValue } from './Components/Charts/BarValue'
 import { LineGraph } from './Components/Charts/LineGraph'
+import { PieChart } from './Components/Charts/PieChart'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
@@ -205,16 +207,37 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         visualizationType === ChartDisplayType.ActionsLineGraph ||
         visualizationType === ChartDisplayType.ActionsBar ||
         visualizationType === ChartDisplayType.ActionsAreaGraph ||
-        visualizationType === ChartDisplayType.ActionsStackedBar
+        visualizationType === ChartDisplayType.ActionsStackedBar ||
+        visualizationType === ChartDisplayType.ActionsUnstackedBar ||
+        visualizationType === ChartDisplayType.ActionsLineGraphCumulative
     ) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+        let _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+
+        // Transform data for cumulative line chart
+        if (visualizationType === ChartDisplayType.ActionsLineGraphCumulative && _yData) {
+            _yData = _yData.map((series) => {
+                let cumulative = 0
+                return {
+                    ...series,
+                    data: series.data.map((value) => {
+                        cumulative += value
+                        return cumulative
+                    }),
+                }
+            })
+        }
+
         component = (
             <LineGraph
                 className="p-2"
                 xData={_xData}
                 yData={_yData}
-                visualizationType={visualizationType}
+                visualizationType={
+                    visualizationType === ChartDisplayType.ActionsLineGraphCumulative
+                        ? ChartDisplayType.ActionsLineGraph
+                        : visualizationType
+                }
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
                 goalLines={goalLines}
@@ -223,6 +246,30 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         )
     } else if (visualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
+    } else if (visualizationType === ChartDisplayType.ActionsPie) {
+        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+        component = (
+            <PieChart
+                className="p-2"
+                xData={_xData}
+                yData={_yData}
+                chartSettings={chartSettings}
+                presetChartHeight={presetChartHeight}
+            />
+        )
+    } else if (visualizationType === ChartDisplayType.ActionsBarValue) {
+        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+        component = (
+            <BarValue
+                className="p-2"
+                xData={_xData}
+                yData={_yData}
+                chartSettings={chartSettings}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     }
 
     return (
