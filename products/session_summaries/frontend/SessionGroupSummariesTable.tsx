@@ -55,9 +55,7 @@ export function SessionGroupSummariesTable(): JSX.Element {
     const { loadSessionGroupSummaries, setFilters, tableSortingChanged, deleteSessionGroupSummary } = useActions(
         sessionGroupSummariesTableLogic
     )
-
     useOnMountEffect(loadSessionGroupSummaries)
-
     const columns: LemonTableColumns<SessionGroupSummaryListItemType> = [
         nameColumn() as LemonTableColumn<
             SessionGroupSummaryListItemType,
@@ -96,7 +94,6 @@ export function SessionGroupSummariesTable(): JSX.Element {
             },
         },
     ]
-
     return (
         <SceneContent>
             <SceneTitleSection

@@ -120,6 +120,8 @@ export const sessionGroupSummariesTableLogic = kea<sessionGroupSummariesTableLog
                 }
             },
         ],
+    })),
+    selectors({
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -130,5 +132,5 @@ export const sessionGroupSummariesTableLogic = kea<sessionGroupSummariesTableLog
                 },
             ],
         ],
-    })),
+    }),
 ])
