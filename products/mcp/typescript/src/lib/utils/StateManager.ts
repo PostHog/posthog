@@ -31,6 +31,33 @@ export class StateManager {
     }
 
     private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
+        // Check if token is OAuth (pha_) or Personal API Key (phx_)
+        const isOAuthToken = this._api.config.apiToken.startsWith('pha_')
+
+        if (isOAuthToken) {
+            // Use OAuth introspection endpoint
+            const introspectResult = await this._api.oauth().introspect()
+            if (!introspectResult.success) {
+                throw new Error(`Failed to introspect OAuth token: ${introspectResult.error.message}`)
+            }
+
+            const introspection = introspectResult.data
+
+            if (!introspection.active) {
+                throw new Error('OAuth token is not active')
+            }
+
+            // Parse scopes from space-separated string if present
+            const scopes = introspection.scope ? introspection.scope.split(' ') : []
+
+            return {
+                scopes,
+                scoped_teams: introspection.scoped_teams,
+                scoped_organizations: introspection.scoped_organizations,
+            }
+        }
+
+        // Use personal API key endpoint
         const apiKeyResult = await this._api.apiKeys().current()
         if (!apiKeyResult.success) {
             throw new Error(`Failed to get API key: ${apiKeyResult.error.message}`)

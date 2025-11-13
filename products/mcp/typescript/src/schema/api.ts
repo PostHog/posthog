@@ -61,12 +61,21 @@ export const ApiUserSchema = z.object({
 })
 
 export const ApiRedactedPersonalApiKeySchema = z.object({
-    scopes: z.array(z.string()), // TODO: restrict available tools automatically based on scopes
+    scopes: z.array(z.string()),
     scoped_teams: z.array(z.number()),
     scoped_organizations: z.array(z.string()),
+})
+
+export const ApiOAuthIntrospectionSchema = z.object({
+    active: z.boolean(),
+    scope: z.string().optional(),
+    scoped_teams: z.array(z.number()),
+    scoped_organizations: z.array(z.string()),
+    exp: z.number().optional(),
 })
 
 export type ApiPropertyDefinition = z.infer<typeof ApiPropertyDefinitionSchema>
 export type ApiEventDefinition = z.infer<typeof ApiEventDefinitionSchema>
 export type ApiUser = z.infer<typeof ApiUserSchema>
 export type ApiRedactedPersonalApiKey = z.infer<typeof ApiRedactedPersonalApiKeySchema>
+export type ApiOAuthIntrospection = z.infer<typeof ApiOAuthIntrospectionSchema>
