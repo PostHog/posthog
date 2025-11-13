@@ -286,6 +286,7 @@ export type AssistantTool =
     | 'read_data'
     | 'todo_write'
     | 'filter_revenue_analytics'
+    | 'filter_web_analytics'
     | 'create_feature_flag'
     | 'create_experiment'
 
