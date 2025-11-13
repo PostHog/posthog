@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGraph, IconLifecycle, IconTrends } from '@posthog/icons'
+import { IconGraph, IconLifecycle, IconPieChart, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
-import { Icon123, IconAreaChart, IconTableChart } from 'lib/lemon-ui/icons'
+import { Icon123, IconAreaChart, IconCumulativeChart, IconTableChart } from 'lib/lemon-ui/icons'
 
 import { ChartDisplayType } from '~/types'
 
@@ -27,12 +27,12 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                 {
                     value: ChartDisplayType.BoldNumber,
                     icon: <Icon123 />,
-                    label: 'Big Number',
+                    label: 'Number',
                 },
             ],
         },
         {
-            title: 'Charts',
+            title: 'Time series',
             options: [
                 {
                     value: ChartDisplayType.ActionsLineGraph,
@@ -40,7 +40,12 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     label: 'Line chart',
                 },
                 {
-                    value: ChartDisplayType.ActionsBar,
+                    value: ChartDisplayType.ActionsAreaGraph,
+                    icon: <IconAreaChart />,
+                    label: 'Area chart',
+                },
+                {
+                    value: ChartDisplayType.ActionsUnstackedBar,
                     icon: <IconGraph />,
                     label: 'Bar chart',
                 },
@@ -49,10 +54,30 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     icon: <IconLifecycle />,
                     label: 'Stacked bar chart',
                 },
+            ],
+        },
+        {
+            title: 'Cumulative time series',
+            options: [
                 {
-                    value: ChartDisplayType.ActionsAreaGraph,
-                    icon: <IconAreaChart />,
-                    label: 'Area chart',
+                    value: ChartDisplayType.ActionsLineGraphCumulative,
+                    icon: <IconCumulativeChart />,
+                    label: 'Line chart (cumulative)',
+                },
+            ],
+        },
+        {
+            title: 'Total value',
+            options: [
+                {
+                    value: ChartDisplayType.ActionsPie,
+                    icon: <IconPieChart />,
+                    label: 'Pie chart',
+                },
+                {
+                    value: ChartDisplayType.ActionsBarValue,
+                    icon: <IconGraph className="rotate-90" />,
+                    label: 'Bar chart',
                 },
             ],
         },
