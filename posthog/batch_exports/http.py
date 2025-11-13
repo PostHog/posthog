@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Any, TypedDict, cast
 
 from django.db import transaction
-from django.dispatch import receiver
 from django.utils.timezone import now
 
 import structlog
@@ -47,7 +46,7 @@ from posthog.batch_exports.service import (
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.integration import DatabricksIntegration, DatabricksIntegrationError, Integration
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
@@ -1022,7 +1021,7 @@ class BatchExportContext(ActivityContextBase):
     created_by_user_name: str | None
 
 
-@receiver(model_activity_signal, sender=BatchExport)
+@mutable_receiver(model_activity_signal, sender=BatchExport)
 def handle_batch_export_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

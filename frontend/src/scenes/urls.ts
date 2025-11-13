@@ -105,6 +105,7 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
     products: (): string => '/products',
+    useCaseSelection: (): string => '/onboarding/use-case',
     onboarding: (productKey: string, stepKey?: OnboardingStepKey, sdk?: SDKKey): string =>
         `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}${
             sdk && stepKey ? '&sdk=' + sdk : sdk ? '?sdk=' + sdk : ''
@@ -152,7 +153,8 @@ export const urls = {
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    heatmapNew: (): string => `/heatmaps/new`,
+    heatmapNew: (params?: string): string =>
+        `/heatmaps/new${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmapRecording: (params?: string): string =>
         `/heatmaps/recording${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmap: (id: string | number): string => `/heatmaps/${id}`,

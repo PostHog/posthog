@@ -14,7 +14,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.models.messaging import MessagingRecord, get_email_hash
-from posthog.ph_client import get_regional_ph_client
+from posthog.ph_client import get_client as get_ph_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.sync import database_sync_to_async
@@ -51,7 +51,7 @@ from posthog.temporal.weekly_digest.types import (
     GenerateOrganizationDigestInput,
     OrganizationDigest,
     PlaylistCount,
-    RecordingList,
+    RecordingCount,
     SendWeeklyDigestBatchInput,
     SurveyList,
     TeamDigest,
@@ -262,7 +262,7 @@ async def generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
         )
 
 
-TTL_THRESHOLD = 7  # days
+TTL_THRESHOLD = 10  # days
 
 
 @activity.defn(name="generate-recording-lookup")
@@ -276,13 +276,13 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
             batch_end=input.batch[1],
         )
         logger = LOGGER.bind()
-        logger.info(f"Generating Replay recording batch")
+        logger.info(f"Generating Replay recording count batch")
 
         recording_count = 0
         team_count = 0
 
         async with redis.from_url(_redis_url(input.common)) as r, get_ch_client() as ch_client:
-            ch_query: str = SessionReplayEvents.get_soon_to_expire_sessions_query(format="JSON")
+            ch_query: str = SessionReplayEvents.count_soon_to_expire_sessions_query(format="JSON")
 
             batch_start, batch_end = input.batch
             async for team in query_teams_for_digest()[batch_start:batch_end]:
@@ -292,7 +292,6 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
                         "python_now": datetime.now(UTC),
                         "ttl_days": await database_sync_to_async(ttl_days)(team),
                         "ttl_threshold": TTL_THRESHOLD,
-                        "limit": 10,
                     }
 
                     raw_response: bytes = b""
@@ -304,23 +303,23 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
                         raw_response = await ch_response.content.read()
 
                     response = ClickHouseResponse.model_validate_json(raw_response)
-                    recordings = RecordingList.model_validate(response.data)
+                    expiring_recordings = RecordingCount.model_validate(response.data[0])
 
                     key: str = f"{input.digest.key}-expiring-recordings-{team.id}"
-                    await r.setex(key, input.common.redis_ttl, recordings.model_dump_json())
+                    await r.setex(key, input.common.redis_ttl, expiring_recordings.model_dump_json())
 
                     team_count += 1
-                    recording_count += len(recordings.root)
+                    recording_count += expiring_recordings.recording_count
                 except Exception as e:
                     logger.warning(
-                        f"Failed to generate Replay recordings for team {team.id}, skipping...",
+                        f"Failed to generate Replay recording count for team {team.id}, skipping...",
                         error=str(e),
                         team_id=team.id,
                     )
                     continue
 
         logger.info(
-            f"Finished generating Replay recording batch",
+            f"Finished generating Replay recording count batch",
             recording_count=recording_count,
             team_count=team_count,
         )
@@ -419,7 +418,7 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                                 external_data_sources=ExternalDataSourceList.model_validate_json(digest_data[4]),
                                 feature_flags=FeatureFlagList.model_validate_json(digest_data[5]),
                                 filters=FilterList.model_validate_json(digest_data[6]),
-                                recordings=RecordingList.model_validate_json(digest_data[7]),
+                                expiring_recordings=RecordingCount.model_validate_json(digest_data[7]),
                                 surveys_launched=SurveyList.model_validate_json(digest_data[8]),
                             )
                         )
@@ -466,7 +465,8 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
         empty_org_digest_count = 0
         empty_user_digest_count = 0
 
-        ph_client: Posthog = get_regional_ph_client(sync_mode=True)
+        # Only US deployment forwards email events to customer.io
+        ph_client: Posthog = get_ph_client(region="US", sync_mode=True)
 
         if not ph_client and not input.dry_run:
             logger.error("Failed to set up Posthog client")

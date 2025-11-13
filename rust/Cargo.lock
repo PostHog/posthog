@@ -1574,7 +1574,6 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "sha2",
  "thiserror 2.0.16",
  "tokio",
  "tonic 0.12.3",

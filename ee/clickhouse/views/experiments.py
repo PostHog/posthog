@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo
 
 from django.db.models import Case, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Now
-from django.dispatch import receiver
 
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -35,7 +34,7 @@ from posthog.models.experiment import (
 )
 from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
 from posthog.models.filters.filter import Filter
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -1099,7 +1098,7 @@ class EnterpriseExperimentsViewSet(
         )
 
 
-@receiver(model_activity_signal, sender=Experiment)
+@mutable_receiver(model_activity_signal, sender=Experiment)
 def handle_experiment_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
