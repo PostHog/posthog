@@ -239,9 +239,9 @@ def _expr_to_compare_op(
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
         return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
-    elif operator == PropertyOperator.LTE:
+    elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
         return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
-    elif operator == PropertyOperator.GTE:
+    elif operator == PropertyOperator.GTE or operator == PropertyOperator.MIN:
         return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:
         return ast.CompareOperation(

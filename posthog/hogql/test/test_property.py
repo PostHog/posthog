@@ -968,3 +968,28 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 {"type": "event_metadata", "key": "$group_3", "operator": "exact", "value": ["1", "2"]}, scope="group"
             )
+
+    def test_property_to_expr_min_max_operators(self):
+        # Test MIN operator (alias for GTE)
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "age", "operator": "min", "value": 18}),
+            self._parse_expr("properties.age >= 18"),
+        )
+
+        # Test MAX operator (alias for LTE)
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "age", "operator": "max", "value": 65}),
+            self._parse_expr("properties.age <= 65"),
+        )
+
+        # Test MIN with person properties
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "age", "operator": "min", "value": 25}),
+            self._parse_expr("person.properties.age >= 25"),
+        )
+
+        # Test MAX with person properties
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "score", "operator": "max", "value": 100}),
+            self._parse_expr("person.properties.score <= 100"),
+        )
