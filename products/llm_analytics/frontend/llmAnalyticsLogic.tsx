@@ -1161,11 +1161,11 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 groupsModel.selectors.groupsTaxonomicTypes,
             ],
             (
-                dateFilter,
-                shouldFilterTestAccounts,
-                propertyFilters,
-                errorsSort,
-                groupsTaxonomicTypes
+                dateFilter: { dateFrom: string | null; dateTo: string | null },
+                shouldFilterTestAccounts: boolean,
+                propertyFilters: AnyPropertyFilter[],
+                errorsSort: { column: string; direction: 'ASC' | 'DESC' },
+                groupsTaxonomicTypes: TaxonomicFilterGroupType[]
             ): DataTableNode => {
                 // Use the shared query template
                 // The SQL template uses Python's .format() escaping ({{ for literal {), so normalize those for HogQL
