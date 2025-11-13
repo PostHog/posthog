@@ -163,6 +163,9 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         if has_message and not is_idle:
             raise Conflict("Cannot resume streaming with a new message")
+        # If the frontend is trying to resume streaming for a finished conversation, return a conflict error
+        if not has_message and conversation.status == Conversation.Status.IDLE:
+            raise Conflict("Cannot continue streaming from an idle conversation")
 
         workflow_inputs = AssistantConversationRunnerWorkflowInputs(
             team_id=self.team_id,
