@@ -186,11 +186,11 @@ class DirectCommand(Command):
         # Use shell=True if command contains shell operators or is multiline
         has_operators = any(op in cmd_str for op in [" && ", " || ", "|", "\n"])
         if has_operators:
-            # Append args to the command string when using shell
-            # Use shlex.quote() to safely escape arguments for shell execution
+            # For shell commands, pass args as positional parameters using sh -c
             if args:
+                # Pass the script as first arg, script name as $0, then actual args as $1, $2, etc.
                 escaped_args = " ".join(shlex.quote(arg) for arg in args)
-                cmd_str = f"{cmd_str} {escaped_args}"
+                cmd_str = f"sh -c {shlex.quote(cmd_str)} -- {escaped_args}"
             _run(cmd_str, shell=True)
         else:
             # Use list format for simple commands without shell operators
