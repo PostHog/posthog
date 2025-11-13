@@ -1598,7 +1598,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                         return
                     }
-                    router.actions.replace(urls.newTab())
+                    router.actions.push(urls.newTab())
 
                     return
                 }
