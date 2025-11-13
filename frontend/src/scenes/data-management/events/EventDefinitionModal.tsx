@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { LemonButton, LemonInput, LemonInputSelect, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { userLogic } from 'scenes/userLogic'
 
@@ -48,6 +49,10 @@ export function EventDefinitionModal({ isOpen, onClose }: EventDefinitionModalPr
             }
         >
             <Form logic={eventDefinitionModalLogic} formKey="eventDefinitionForm" className="space-y-4">
+                <LemonBanner type="info">
+                    <strong>Note:</strong> Event names cannot be changed after creation. Choose your name carefully.
+                </LemonBanner>
+
                 <LemonField name="name" label="Event name">
                     <LemonInput
                         value={eventDefinitionForm.name}
