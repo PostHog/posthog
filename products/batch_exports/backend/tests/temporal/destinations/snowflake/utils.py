@@ -2,6 +2,7 @@ import os
 import re
 import gzip
 import json
+import typing
 import typing as t
 import datetime as dt
 import operator
@@ -90,6 +91,12 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
 ]
 
 
+class FakeMetadata(typing.NamedTuple):
+    name: str
+    type_code: int
+    is_nullable: bool
+
+
 class FakeSnowflakeCursor:
     """A fake Snowflake cursor that can fail on PUT and COPY queries."""
 
@@ -150,8 +157,9 @@ class FakeSnowflakeCursor:
         else:
             return [("test", "LOADED", 100, 99, 1, 1, "Some error on copy", 3)]
 
+    @property
     def description(self):
-        return []
+        return [FakeMetadata("uuid", 2, False)]
 
 
 class FakeSnowflakeConnection:
