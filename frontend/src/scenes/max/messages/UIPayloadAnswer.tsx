@@ -66,25 +66,25 @@ function RecordingsListContent(): JSX.Element {
     const hasRecordings = otherRecordings.length > 0
 
     return (
-        <div className="border-t">
+        <div className="*:border-t max-h-80 overflow-y-auto">
             {sessionRecordingsResponseLoading && !hasRecordings ? (
                 <div className="flex items-center justify-center gap-2 py-12 text-muted">
                     <Spinner textColored />
                     <span>Loading recordings...</span>
                 </div>
             ) : !hasRecordings ? (
-                <div className="py-12 text-center">
+                <div className="py-2">
                     <EmptyMessage title="No recordings found" description="No recordings match the specified filters" />
                 </div>
             ) : (
                 <>
-                    <div className="divide-y">
-                        {otherRecordings.map((recording) => (
-                            <SessionRecordingPreview key={recording.id} recording={recording} selectable={false} />
-                        ))}
-                    </div>
+                    {otherRecordings.map((recording) => (
+                        <div key={recording.id}>
+                            <SessionRecordingPreview recording={recording} selectable={false} />
+                        </div>
+                    ))}
                     {hasNext && (
-                        <div className="border-t p-3">
+                        <div className="p-3">
                             <LemonButton
                                 fullWidth
                                 type="secondary"
