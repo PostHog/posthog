@@ -1,0 +1,47 @@
+[
+    {
+        "timestamp": "2025-11-11T22:00:32.175000-08:00",
+        "insight_id": "2649893",
+        "cache_hit": true,
+        "cache_key": "cache_aeeb33d66f62fe80400538191b0299e6",
+        "calculation_trigger": null,
+        "execution_mode": "lazy_async",
+        "query_type": "HogQLQuery",
+        "response_time_ms": 46.97,
+        "query_duration_ms": null,
+        "has_error": null,
+        "is_cache_stale": true,
+        "cache_age_seconds": 3340.49,
+        "last_refresh": "2025-11-11T21:04:51.673208-08:00"
+    },
+    {
+        "timestamp": "2025-11-11T22:00:31.516000-08:00",
+        "insight_id": "2649893",
+        "cache_hit": false,
+        "cache_key": "cache_16592b28d35f2db2bb1275d023359a0c",
+        "calculation_trigger": null,
+        "execution_mode": "force_blocking",
+        "query_type": "HogQLQuery",
+        "response_time_ms": 212.4,
+        "query_duration_ms": 195.79,
+        "has_error": false,
+        "is_cache_stale": null,
+        "cache_age_seconds": null,
+        "last_refresh": null
+    },
+    {
+        "timestamp": "2025-11-11T21:57:07.573000-08:00",
+        "insight_id": "2649893",
+        "cache_hit": true,
+        "cache_key": "cache_aeeb33d66f62fe80400538191b0299e6",
+        "calculation_trigger": null,
+        "execution_mode": "force_cache",
+        "query_type": "HogQLQuery",
+        "response_time_ms": 12.81,
+        "query_duration_ms": null,
+        "has_error": null,
+        "is_cache_stale": true,
+        "cache_age_seconds": 3135.9,
+        "last_refresh": "2025-11-11T21:04:51.673208-08:00"
+    }
+]
