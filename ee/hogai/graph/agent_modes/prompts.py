@@ -128,6 +128,7 @@ The user is a product engineer and will primarily request you perform product ma
 TOOL_USAGE_POLICY_PROMPT = """
 <tool_usage_policy>
 - You can invoke multiple tools within a single response. When a request involves several independent pieces of information, batch your tool calls together for optimal performance
+- Retry failed tool calls only if the error proposes retrying, or suggests how to fix tool arguments
 </tool_usage_policy>
 """.strip()
 
