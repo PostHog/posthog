@@ -410,13 +410,13 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         icon: <IconShuffle />,
         displayFormatter: (toolCall) => {
             const modeName = isAgentMode(toolCall.args.new_mode) ? MODE_DEFINITIONS[toolCall.args.new_mode].name : null
-            const modeText = modeName ? ` to ${modeName}` : ''
+            const modeText = modeName ? ` to the ${modeName} mode` : 'mode'
 
             if (toolCall.status === 'completed') {
-                return `Switched agent mode${modeText}`
+                return `Switched agent ${modeText}`
             }
 
-            return `Switching agent mode${modeText}...`
+            return `Switching agent ${modeText}...`
         },
     },
     execute_sql: {
@@ -426,9 +426,9 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         icon: iconForType('insight/hog'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Edited SQL'
+                return 'Executed SQL'
             }
-            return 'Writing and tweaking SQL...'
+            return 'Writing an SQL query...'
         },
     },
     summarize_sessions: {
@@ -447,13 +447,13 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
 
 export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
     [AgentMode.ProductAnalytics]: {
-        name: 'Product analytics',
+        name: 'product analytics',
     },
     [AgentMode.SQL]: {
         name: 'SQL',
     },
     [AgentMode.SessionReplay]: {
-        name: 'Session replay',
+        name: 'session replay',
     },
 }
 

@@ -34,9 +34,9 @@ class AgentModeManager:
         self._user = user
         self._node_path = node_path
         if has_agent_modes_feature_flag(team, user):
-            self._mode = AgentMode.PRODUCT_ANALYTICS
-        else:
             self._mode = mode or AgentMode.PRODUCT_ANALYTICS
+        else:
+            self._mode = AgentMode.PRODUCT_ANALYTICS
 
     @property
     def node(self) -> "AgentExecutable":
