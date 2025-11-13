@@ -700,8 +700,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (response.has_active_dependents) {
                         dependentFlagsWarning = response.warning
                     }
-                } catch (error) {
-                    console.error('Failed to check dependent flags:', error)
+                } catch {
+                    lemonToast.error('Failed to check for dependent flags. Please try again.')
+                    return
                 }
             }
 
@@ -1347,7 +1348,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const updatedFlag = { ...values.featureFlag, active }
             await sharedListeners.checkDependentFlagsAndConfirm(
                 {
-                    originalFlag: values.featureFlag,
+                    originalFlag: values.originalFeatureFlag,
                     updatedFlag,
                     onConfirm: () => {
                         actions.saveFeatureFlag(updatedFlag)
