@@ -5,7 +5,10 @@ use walkdir::DirEntry;
 
 use crate::{
     api::releases::{Release, ReleaseBuilder},
-    sourcemaps::source_pairs::{read_pairs, SourcePair},
+    sourcemaps::{
+        content::SourceMapFile,
+        source_pairs::{read_pairs, SourcePair},
+    },
     utils::git::get_git_info,
 };
 
@@ -61,9 +64,14 @@ pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool) -> Re
         bail!("no source files found");
     }
 
-    let created_release_id = get_release_for_pairs(&directory, project, version, &pairs)?
-        .as_ref()
-        .map(|r| r.id.to_string());
+    let created_release_id = get_release_for_maps(
+        &directory,
+        project,
+        version,
+        pairs.iter().map(|p| &p.sourcemap),
+    )?
+    .as_ref()
+    .map(|r| r.id.to_string());
 
     pairs = inject_pairs(pairs, created_release_id)?;
 
@@ -97,16 +105,16 @@ pub fn inject_pairs(
     Ok(pairs)
 }
 
-pub fn get_release_for_pairs<'a>(
+pub fn get_release_for_maps<'a>(
     directory: &Path,
     project: &Option<String>,
     version: &Option<String>,
-    pairs: impl IntoIterator<Item = &'a SourcePair>,
+    maps: impl IntoIterator<Item = &'a SourceMapFile>,
 ) -> Result<Option<Release>> {
     // We need to fetch or create a release if: the user specified one, any pair is missing one, or the user
     // forced release overriding
     let needs_release =
-        project.is_some() || version.is_some() || pairs.into_iter().any(|p| !p.has_release_id());
+        project.is_some() || version.is_some() || maps.into_iter().any(|p| !p.has_release_id());
 
     let mut created_release = None;
     if needs_release {
