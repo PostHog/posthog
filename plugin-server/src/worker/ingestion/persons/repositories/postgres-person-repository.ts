@@ -89,6 +89,7 @@ export class PostgresPersonRepository
             return 'posthog_person'
         }
 
+        // Always return unsanitized name - callers must sanitize before SQL interpolation
         return numericPersonId >= this.options.newTableIdOffset ? this.options.newTableName : 'posthog_person'
     }
 
@@ -268,7 +269,7 @@ export class PostgresPersonRepository
             }
 
             const personId = distinctIdRows[0].person_id
-            const tableName = this.getTableName(personId)
+            const tableName = sanitizeSqlIdentifier(this.getTableName(personId))
             const forUpdateClause = options.forUpdate ? ' FOR UPDATE' : ''
 
             const personQuery = `
@@ -419,6 +420,7 @@ export class PostgresPersonRepository
             // Fetch from new table if needed
             if (newTablePersonIds.length > 0) {
                 const newTableConditions = newTablePersonIds.map((_, index) => `$${index + 1}`).join(', ')
+                const safeNewTableName = sanitizeSqlIdentifier(this.options.newTableName)
                 const newTableQuery = `
                     SELECT
                         id,
@@ -431,7 +433,7 @@ export class PostgresPersonRepository
                         is_user_id,
                         version,
                         is_identified
-                    FROM ${this.options.newTableName}
+                    FROM ${safeNewTableName}
                     WHERE id IN (${newTableConditions})`
 
                 const { rows: newTableRows } = await this.postgres.query<RawPerson>(
@@ -592,7 +594,7 @@ export class PostgresPersonRepository
 
             const tableName =
                 this.options.tableCutoverEnabled && this.options.newTableName && this.options.newTableIdOffset
-                    ? this.options.newTableName
+                    ? sanitizeSqlIdentifier(this.options.newTableName)
                     : 'posthog_person'
 
             const query =
@@ -686,7 +688,7 @@ export class PostgresPersonRepository
     async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
         let rows: { version: string }[] = []
         try {
-            const tableName = this.getTableName(person.id)
+            const tableName = sanitizeSqlIdentifier(this.getTableName(person.id))
             const result = await this.postgres.query<{ version: string }>(
                 tx ?? PostgresUse.PERSONS_WRITE,
                 `DELETE FROM ${tableName} WHERE team_id = $1 AND id = $2 RETURNING version`,
@@ -941,7 +943,7 @@ export class PostgresPersonRepository
     }
 
     async personPropertiesSize(personId: string, teamId: number): Promise<number> {
-        const tableName = this.getTableName(personId)
+        const tableName = sanitizeSqlIdentifier(this.getTableName(personId))
 
         // For partitioned tables, we need team_id for efficient querying
         const queryString = `
@@ -1001,7 +1003,7 @@ export class PostgresPersonRepository
         }
 
         const calculatePropertiesSize = this.options.calculatePropertiesSize
-        const tableName = this.getTableName(person.id)
+        const tableName = sanitizeSqlIdentifier(this.getTableName(person.id))
 
         // Add team_id and person_id to values for WHERE clause (for partitioning)
         const allValues = [...values, person.team_id, person.id]
@@ -1098,7 +1100,7 @@ export class PostgresPersonRepository
                 personUpdate.version,
             ]
 
-            const tableName = this.getTableName(personUpdate.id)
+            const tableName = sanitizeSqlIdentifier(this.getTableName(personUpdate.id))
             const queryString = `
                 UPDATE ${tableName} SET
                     properties = $1,
