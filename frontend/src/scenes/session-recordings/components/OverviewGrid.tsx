@@ -43,6 +43,7 @@ export function OverviewGridItem({
     itemKeyTooltip,
     onFilterClick,
     showFilter,
+    filterDisabledReason,
 }: {
     children?: ReactNode
     description: ReactNode
@@ -52,6 +53,7 @@ export function OverviewGridItem({
     itemKeyTooltip?: ReactNode
     onFilterClick?: () => void
     showFilter?: boolean
+    filterDisabledReason?: string
 }): JSX.Element {
     return (
         <div className="group flex flex-1 w-full justify-between items-center deprecated-space-x-4">
@@ -60,21 +62,27 @@ export function OverviewGridItem({
                     {icon} {label}
                 </Tooltip>
             </div>
-            <Tooltip title={description}>
-                <div className="overflow-x-auto flex items-center deprecated-space-x-2">
-                    {children}
-                    {showFilter && onFilterClick && (
+            <div className="overflow-x-auto flex items-center deprecated-space-x-2">
+                <Tooltip title={description}>{children}</Tooltip>
+                {showFilter && onFilterClick && (
+                    <Tooltip title={filterDisabledReason || 'Filter for recordings matching this'}>
                         <IconFilter
                             data-testid="filter-button"
-                            className="cursor-pointer text-secondary hover:text-primary transition-colors text-sm"
+                            className={
+                                filterDisabledReason
+                                    ? 'text-muted cursor-not-allowed text-sm'
+                                    : 'cursor-pointer text-secondary hover:text-primary transition-colors text-sm'
+                            }
                             onClick={(e) => {
                                 e.stopPropagation()
-                                onFilterClick()
+                                if (!filterDisabledReason) {
+                                    onFilterClick()
+                                }
                             }}
                         />
-                    )}
-                </div>
-            </Tooltip>
+                    </Tooltip>
+                )}
+            </div>
         </div>
     )
 }

@@ -50,6 +50,16 @@ export function PlayerSidebarOverviewGrid({
                             </LemonButton>
                         </Popover>
                         {displayOverviewItems.map((item) => {
+                            const isFilterable =
+                                item.type === 'property' &&
+                                item.value !== undefined &&
+                                item.value !== null &&
+                                item.value !== '-'
+                            const filterDisabledReason =
+                                item.type === 'property' && item.value !== undefined && !isFilterable
+                                    ? 'Cannot filter for missing values'
+                                    : undefined
+
                             return (
                                 <OverviewGridItem
                                     key={item.label}
@@ -59,10 +69,9 @@ export function PlayerSidebarOverviewGrid({
                                     itemKeyTooltip={item.keyTooltip}
                                     fadeLabel
                                     showFilter={item.type === 'property' && item.value !== undefined}
+                                    filterDisabledReason={filterDisabledReason}
                                     onFilterClick={
-                                        item.type === 'property' && item.value !== undefined
-                                            ? () => applyPropertyFilter(item.property, item.value)
-                                            : undefined
+                                        isFilterable ? () => applyPropertyFilter(item.property, item.value) : undefined
                                     }
                                 >
                                     <div className="flex flex-row items-center deprecated-space-x-2 justify-start font-medium">
