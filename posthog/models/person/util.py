@@ -247,7 +247,87 @@ def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> list[P
     return results
 
 
-def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet:
+def get_persons_by_uuids(
+    team_id: int,
+    uuids: list[str],
+    distinct_id_limit: int = 1000,
+    order_by: Optional[list[str]] = None,
+    only_fields: Optional[list[str]] = None,
+) -> list[Person]:
+    """Get persons by UUIDs during dual-table migration period.
+
+    Queries both posthog_person (old) and posthog_person_new tables, combining results.
+    Manually implements prefetching, ordering, and field limiting.
+
+    Args:
+        team_id: Team ID to filter by
+        uuids: List of person UUIDs to fetch
+        distinct_id_limit: Max PersonDistinctId objects to fetch per person
+        order_by: List of fields to order by (e.g., ["-created_at", "uuid"])
+        only_fields: List of fields to load (defers all others)
+
+    Returns:
+        List of Person instances with distinct_ids_cache prefetched
+    """
+    if not uuids:
+        return []
+
+    # Query both tables
+    old_qs = PersonOld.objects.db_manager(READ_DB_FOR_PERSONS).filter(uuid__in=uuids, team_id=team_id)
+    new_qs = PersonNew.objects.db_manager(READ_DB_FOR_PERSONS).filter(uuid__in=uuids, team_id=team_id)
+
+    # Apply field limiting if requested
+    if only_fields:
+        old_qs = old_qs.only(*only_fields)
+        new_qs = new_qs.only(*only_fields)
+
+    # Fetch results
+    old_persons = list(old_qs)
+    new_persons = list(new_qs)
+
+    # Manually prefetch PersonDistinctId for all persons
+    all_person_ids = [p.id for p in old_persons] + [p.id for p in new_persons]
+    if all_person_ids:
+        # Fetch PersonDistinctId objects with limit per person
+        distinct_id_objects = list(
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+                person_id__in=all_person_ids, team_id=team_id
+            )[: distinct_id_limit * len(all_person_ids)]
+        )
+
+        # Group by person_id and apply limit
+        person_to_distinct_ids: dict[int, list] = {}
+        for did in distinct_id_objects:
+            if did.person_id not in person_to_distinct_ids:
+                person_to_distinct_ids[did.person_id] = []
+            if len(person_to_distinct_ids[did.person_id]) < distinct_id_limit:
+                person_to_distinct_ids[did.person_id].append(did)
+
+        # Attach to persons as distinct_ids_cache
+        for person in old_persons + new_persons:
+            person.distinct_ids_cache = person_to_distinct_ids.get(person.id, [])
+
+    # Cast to Person type
+    results = []
+    for person in old_persons:
+        person.__class__ = Person
+        results.append(person)
+    for person in new_persons:
+        person.__class__ = Person
+        results.append(person)
+
+    # Apply ordering if requested
+    if order_by:
+        for field in reversed(order_by):
+            reverse = field.startswith("-")
+            field_name = field.lstrip("-")
+            results.sort(key=lambda x: getattr(x, field_name, None) or "", reverse=reverse)
+
+    return results
+
+
+def get_persons_by_uuids_legacy(team: Team, uuids: list[str]) -> QuerySet:
+    """Legacy helper - use get_persons_by_uuids() for dual-table support."""
     return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team.pk, uuid__in=uuids)
 
 
