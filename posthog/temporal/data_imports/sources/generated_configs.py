@@ -31,6 +31,12 @@ class BigQueryTemporaryDatasetConfig(config.Config):
 
 
 @config.config
+class BigQueryUseCustomRegionConfig(config.Config):
+    region: str
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
 class GoogleAdsIsMccAccountConfig(config.Config):
     mcc_client_id: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
@@ -58,6 +64,7 @@ class BigQuerySourceConfig(config.Config):
     temporary_dataset: BigQueryTemporaryDatasetConfig | None = config.value(
         alias="temporary-dataset", default_factory=lambda: None
     )
+    use_custom_region: BigQueryUseCustomRegionConfig | None = None
     dataset_project: BigQueryDatasetProjectConfig | None = None
 
 

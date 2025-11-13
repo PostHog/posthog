@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { isHogQLQuery } from '~/queries/utils'
-import { PropertyFilterType } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
@@ -78,14 +78,14 @@ export function LLMAnalyticsErrors(): JSX.Element {
                                                         {
                                                             type: PropertyFilterType.Event,
                                                             key: '$ai_is_error',
-                                                            operator: 'exact' as any,
+                                                            operator: PropertyOperator.Exact,
                                                             value: 'true',
                                                         },
                                                         // Then filter by key words from the error
                                                         ...tokens.map((token) => ({
                                                             type: PropertyFilterType.Event,
                                                             key: '$ai_error',
-                                                            operator: 'icontains' as any,
+                                                            operator: PropertyOperator.IContains,
                                                             value: token,
                                                         })),
                                                     ],

@@ -81,9 +81,19 @@ impl CustomRedisError {
             // NotFound is permanent - caller should handle this
             CustomRedisError::NotFound => true,
 
-            // For Redis errors, delegate to the inner error's method
-            CustomRedisError::Redis(err) => err.is_unrecoverable_error(),
+            // For Redis errors, check for specific unrecoverable kinds first
+            CustomRedisError::Redis(err) => {
+                Self::is_config_error(err) || err.is_unrecoverable_error()
+            }
         }
+    }
+
+    /// Check if a Redis error is a configuration error that should never be retried
+    fn is_config_error(err: &redis::RedisError) -> bool {
+        matches!(
+            err.kind(),
+            redis::ErrorKind::InvalidClientConfig | redis::ErrorKind::AuthenticationFailed
+        )
     }
 
     /// Determine the appropriate retry strategy for this error
@@ -108,8 +118,14 @@ impl CustomRedisError {
             // NotFound is permanent - caller should handle this
             CustomRedisError::NotFound => RetryMethod::NoRetry,
 
-            // For Redis errors, delegate to the inner error's method
-            CustomRedisError::Redis(err) => err.retry_method(),
+            // For Redis errors, check for specific non-retryable kinds first
+            CustomRedisError::Redis(err) => {
+                if Self::is_config_error(err) {
+                    RetryMethod::NoRetry
+                } else {
+                    err.retry_method()
+                }
+            }
         }
     }
 }
@@ -1351,6 +1367,60 @@ mod tests {
                 (RetryMethod::AskRedirect, RetryMethod::AskRedirect) => {}
                 _ => panic!("Delegation failed: retry methods don't match"),
             }
+        }
+
+        #[test]
+        fn test_invalid_client_config_is_unrecoverable() {
+            let err = CustomRedisError::Redis(Arc::new(redis::RedisError::from((
+                redis::ErrorKind::InvalidClientConfig,
+                "Redis URL did not parse",
+            ))));
+
+            assert!(
+                err.is_unrecoverable_error(),
+                "InvalidClientConfig should be unrecoverable"
+            );
+            assert!(
+                matches!(err.retry_method(), RetryMethod::NoRetry),
+                "InvalidClientConfig should not be retried"
+            );
+        }
+
+        #[test]
+        fn test_authentication_failed_is_unrecoverable() {
+            let err = CustomRedisError::Redis(Arc::new(redis::RedisError::from((
+                redis::ErrorKind::AuthenticationFailed,
+                "WRONGPASS invalid username-password pair",
+            ))));
+
+            assert!(
+                err.is_unrecoverable_error(),
+                "AuthenticationFailed should be unrecoverable"
+            );
+            assert!(
+                matches!(err.retry_method(), RetryMethod::NoRetry),
+                "AuthenticationFailed should not be retried"
+            );
+        }
+
+        #[test]
+        fn test_io_error_is_retryable() {
+            let err = CustomRedisError::Redis(Arc::new(redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "Connection refused",
+            ))));
+
+            // IoError is retryable (transient network issue)
+            assert!(
+                !err.is_unrecoverable_error(),
+                "IoError should be recoverable"
+            );
+            // The exact retry method depends on redis crate implementation,
+            // but it should not be NoRetry
+            assert!(
+                !matches!(err.retry_method(), RetryMethod::NoRetry),
+                "IoError should be retried"
+            );
         }
     }
 }

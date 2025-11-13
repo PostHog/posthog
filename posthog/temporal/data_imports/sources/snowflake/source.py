@@ -13,7 +13,7 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
@@ -35,7 +35,7 @@ SnowflakeErrors = {
 
 
 @SourceRegistry.register
-class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
+class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SNOWFLAKE

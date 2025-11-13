@@ -13,10 +13,10 @@ ADD COLUMN IF NOT EXISTS `mat_$ai_is_error` Nullable(String)
 COMMENT 'column_materializer::properties::$ai_is_error'
 """
 
-ADD_BLOOM_FILTER_INDEX_SHARDED_EVENTS = """
+ADD_SET_INDEX_SHARDED_EVENTS = """
 ALTER TABLE sharded_events
-ADD INDEX IF NOT EXISTS `bloom_filter_$ai_is_error` `mat_$ai_is_error`
-TYPE bloom_filter
+ADD INDEX IF NOT EXISTS `set_$ai_is_error` `mat_$ai_is_error`
+TYPE set(7)
 GRANULARITY 1
 """
 
@@ -31,7 +31,7 @@ operations = [
         is_alter_on_replicated_table=False,
     ),
     run_sql_with_exceptions(
-        ADD_BLOOM_FILTER_INDEX_SHARDED_EVENTS,
+        ADD_SET_INDEX_SHARDED_EVENTS,
         node_roles=[NodeRole.DATA],
         sharded=True,
         is_alter_on_replicated_table=True,

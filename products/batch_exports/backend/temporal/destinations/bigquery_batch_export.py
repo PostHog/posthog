@@ -44,7 +44,6 @@ from products.batch_exports.backend.temporal.pipeline.table import (
     Table,
     TableReference,
     TypeTupleToCastMapping,
-    _noop_cast,
 )
 from products.batch_exports.backend.temporal.pipeline.transformer import (
     ChunkTransformerProtocol,
@@ -78,16 +77,6 @@ LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 COMPATIBLE_TYPES: TypeTupleToCastMapping = {
-    # BigQuery doesn't have a unsigned type, so we hope we don't overflow.
-    # We could cast here and fail if the value overflows, but historically this hasn't
-    # come up.
-    (pa.uint64(), pa.int64()): _noop_cast,
-    # BigQuery doesn't have an int smaller than 'INT64', but can take any smaller number
-    # as an 'INT64', so we don't need to cast. No risk of overflow here.
-    (pa.uint8(), pa.int64()): _noop_cast,
-    # BigQuery deals with timestamps in microseconds, but it does interpret timestamps
-    # in milliseconds correctly, so we don't need to cast.
-    (pa.timestamp("ms", tz="UTC"), pa.timestamp("us", tz="UTC")): _noop_cast,
     # We assume this is a destination field created from a ClickHouse `DateTime` that
     # has  been updated to `DateTime64(3)`.
     # This would mean the field would have been created as a BigQuery 'INT64', but we
@@ -96,6 +85,7 @@ COMPATIBLE_TYPES: TypeTupleToCastMapping = {
     # This technically truncates the millisecond part of the value, but if it came from
     # a `DateTime` then we assume it is empty (as it would have been empty before).
     (pa.timestamp("ms", tz="UTC"), pa.int64()): TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
+    (pa.timestamp("ms", tz="Etc/UTC"), pa.int64()): TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
 }
 
 FileFormat = typing.Literal["Parquet", "JSONLines"]
