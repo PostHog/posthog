@@ -16,7 +16,6 @@ import { FunnelsFilter, FunnelsQuery, NodeKind } from '~/queries/schema/schema-g
 import { isFunnelsQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
-    FunnelAPIResponse,
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
     FunnelResultType,
@@ -153,9 +152,13 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
 
         results: [
             (s) => [s.insightData, s.querySource],
-            (insightData: FunnelAPIResponse | null, querySource): FunnelResultType => {
+            (insightData, querySource): FunnelResultType => {
                 // Only process results for funnel queries
-                if (!querySource || querySource.kind !== NodeKind.FunnelsQuery) {
+                // TODO: Ideally we don't check filters anymore, but tests are still using this
+                if (
+                    insightData?.filters?.insight !== InsightType.FUNNELS &&
+                    (!querySource || querySource.kind !== NodeKind.FunnelsQuery)
+                ) {
                     return []
                 }
 
