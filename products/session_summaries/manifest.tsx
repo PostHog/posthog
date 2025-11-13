@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconColor, FileSystemIconType, ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Session summaries',
@@ -31,7 +31,7 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         session_summaries: {
             name: 'Session summary',
-            iconType: 'insight/hog' as FileSystemIconType,
+            iconType: 'insight/hog',
             href: () => urls.sessionSummaries(),
             iconColor: [
                 'var(--color-product-session-replay-light)',

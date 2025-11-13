@@ -42,6 +42,10 @@ interface SessionDetailsModalProps {
 }
 
 export function SessionDetailsModal({ isOpen, onClose, event }: SessionDetailsModalProps): JSX.Element {
+    if (!event) {
+        return <></>
+    }
+
     const playerKey = 'session-details-modal'
     const sessionRecordingId = event.target_event.session_id
     // Raise error if recording id is not found
@@ -66,10 +70,6 @@ export function SessionDetailsModal({ isOpen, onClose, event }: SessionDetailsMo
             seekToTime(timeToSeeekTo(event.target_event.milliseconds_since_start))
         }
     }, [isOpen, event, sessionPlayerData, seekToTime])
-
-    if (!event) {
-        return <></>
-    }
 
     const formattedTimestamp = dayjs(event.target_event.timestamp).format('MMMM D, YYYY, h:mm A')
 

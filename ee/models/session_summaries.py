@@ -251,7 +251,7 @@ class SingleSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
         return f"Summary for session {self.session_id}"
 
 
-class GroupSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
+class SessionGroupSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
     """
     Stores LLM-generated summaries for groups of session replays.
     Each summary represents pattern analysis across multiple sessions.
@@ -260,7 +260,7 @@ class GroupSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
 
     # Create a new group summary
     from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
-    summary = GroupSessionSummary.objects.create(
+    summary = SessionGroupSummary.objects.create(
         team_id=team_id,
         name="Checkout flow analysis - Q4 2024",
         session_ids=["session1", "session2", "session3"],
@@ -272,16 +272,16 @@ class GroupSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
     )
 
     # Get a summary by UUID and team
-    summary = GroupSessionSummary.objects.get(id=summary_uuid, team_id=team_id)
+    summary = SessionGroupSummary.objects.get(id=summary_uuid, team_id=team_id)
 
     # Get all group summaries for a team
-    summaries = GroupSessionSummary.objects.filter(team_id=team_id)
+    summaries = SessionGroupSummary.objects.filter(team_id=team_id)
 
     # Get recent summaries ordered by creation date
-    recent_summaries = GroupSessionSummary.objects.filter(team_id=team_id).order_by("-created_at")[:10]
+    recent_summaries = SessionGroupSummary.objects.filter(team_id=team_id).order_by("-created_at")[:10]
 
     # Check if a summary exists
-    exists = GroupSessionSummary.objects.filter(id=summary_uuid, team_id=team_id).exists()
+    exists = SessionGroupSummary.objects.filter(id=summary_uuid, team_id=team_id).exists()
 
     # Update a summary (generally you'd create a new one instead)
     summary.summary = updated_patterns.model_dump()
@@ -289,7 +289,7 @@ class GroupSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
 
     # Delete old summaries (for cleanup jobs)
     old_date = timezone.now() - timedelta(days=365)
-    GroupSessionSummary.objects.filter(team_id=team_id, created_at__lt=old_date).delete()
+    SessionGroupSummary.objects.filter(team_id=team_id, created_at__lt=old_date).delete()
     """
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
