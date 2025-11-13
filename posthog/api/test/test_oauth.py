@@ -5,7 +5,6 @@ from typing import Optional, cast
 from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
 from freezegun import freeze_time
-from parameterized import parameterized
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
@@ -15,6 +14,7 @@ from django.utils import timezone
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.oauth import OAuthAuthorizationSerializer

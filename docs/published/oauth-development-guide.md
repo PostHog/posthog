@@ -377,6 +377,7 @@ This means you can introspect any token using your application's client credenti
 ### Response Format
 
 **Active Token Response**:
+
 ```json
 {
   "active": true,
@@ -389,6 +390,7 @@ This means you can introspect any token using your application's client credenti
 ```
 
 **Inactive/Invalid Token Response**:
+
 ```json
 {
   "active": false
