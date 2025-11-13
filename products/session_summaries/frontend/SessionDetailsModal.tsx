@@ -17,37 +17,32 @@ interface SessionDetailsModalProps {
 }
 
 export function SessionDetailsModal({ isOpen, onClose, event }: SessionDetailsModalProps): JSX.Element {
-    if (!event || !event.target_event) {
-        return <></>
-    }
-
     const playerKey = 'session-details-modal'
-    const sessionRecordingId = event.target_event.session_id
-    // Raise error if recording id is not found
-    if (!sessionRecordingId) {
-        throw new Error('Session recording id not found')
-    }
-
+    const sessionRecordingId = event?.target_event?.session_id
     const logicProps = {
-        sessionRecordingId,
+        sessionRecordingId: sessionRecordingId || '',
         playerKey,
         autoPlay: false,
     }
-
     const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { sessionPlayerData } = useValues(sessionRecordingPlayerLogic(logicProps))
     // Scrolling to a bit before the moment to better notice it
     const timeToSeeekTo = (ms: number): number => Math.max(ms - 4000, 0)
-
     // Seek to target event timestamp when modal opens and player is loaded
     useEffect(() => {
-        if (isOpen && event && sessionPlayerData) {
+        if (isOpen && event?.target_event && sessionPlayerData) {
             seekToTime(timeToSeeekTo(event.target_event.milliseconds_since_start))
         }
     }, [isOpen, event, sessionPlayerData, seekToTime])
-
+    // Handle conditional rendering after all hooks
+    if (!event || !event.target_event) {
+        return <></>
+    }
+    // Raise error if recording id is not found
+    if (!sessionRecordingId) {
+        throw new Error('Session recording id not found')
+    }
     const formattedTimestamp = dayjs(event.target_event.timestamp).format('MMMM D, YYYY, h:mm A')
-
     return (
         <LemonModal
             isOpen={isOpen}
