@@ -8,6 +8,7 @@ import type { customProductsLogicType } from './customProductsLogicType'
 export interface UserProductListItem {
     id: string
     product_path: string
+    enabled: boolean
     created_at: string
     updated_at: string
 }

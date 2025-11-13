@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -16,18 +15,15 @@ export function EditCustomProductsModal(): JSX.Element {
     const {
         isOpen,
         customProductsLoading,
+        customProducts,
         selectedPaths,
         allowSidebarSuggestions,
-        saving,
+        sidebarSuggestionsLoading,
         categories,
         productsByCategory,
+        productLoading,
     } = useValues(editCustomProductsModalLogic)
-    const { toggleProduct, setAllowSidebarSuggestions, save, closeModal } = useActions(editCustomProductsModalLogic)
-
-    const handleSave = (): void => {
-        save()
-        closeModal()
-    }
+    const { toggleProduct, toggleSidebarSuggestions, closeModal } = useActions(editCustomProductsModalLogic)
 
     return (
         <LemonModal
@@ -35,34 +31,25 @@ export function EditCustomProductsModal(): JSX.Element {
             onClose={closeModal}
             title="Edit my sidebar apps"
             footer={
-                <>
-                    <LemonButton
-                        type="secondary"
-                        onClick={closeModal}
-                        disabledReason={saving ? 'Saving...' : undefined}
-                    >
-                        Cancel
-                    </LemonButton>
-                    <LemonButton type="primary" onClick={handleSave} loading={saving || customProductsLoading}>
-                        Save
-                    </LemonButton>
-                </>
+                <LemonButton type="secondary" onClick={closeModal}>
+                    Close
+                </LemonButton>
             }
             width={600}
         >
-            <div className="space-y-4">
+            <div className="flex flex-col gap-2">
                 <div>
                     <p className="text-sm text-muted">
                         Select which products you want to see in your sidebar. You can change this anytime.
                     </p>
                 </div>
 
-                {customProductsLoading ? (
+                {customProductsLoading && customProducts.length === 0 ? (
                     <div className="flex items-center justify-center py-8">
                         <Spinner />
                     </div>
                 ) : (
-                    <ScrollableShadows direction="vertical" className="max-h-[300px]" innerClassName="space-y-4 px-2">
+                    <div className="flex flex-col gap-4 mb-4 px-2">
                         {categories.map((category: string) => {
                             const products = productsByCategory.get(category) || []
 
@@ -75,11 +62,13 @@ export function EditCustomProductsModal(): JSX.Element {
                                                 (product.iconType ?? undefined) as any,
                                                 product.iconColor
                                             )
+                                            const isLoading = productLoading[product.path] || false
                                             return (
                                                 <LemonCheckbox
                                                     key={product.path}
                                                     checked={selectedPaths.has(product.path)}
                                                     onChange={() => toggleProduct(product.path)}
+                                                    disabledReason={isLoading ? 'Saving...' : undefined}
                                                     label={
                                                         <span className="flex items-center gap-2">
                                                             {icon}
@@ -104,6 +93,7 @@ export function EditCustomProductsModal(): JSX.Element {
                                                                     ))}
                                                                 </>
                                                             )}
+                                                            {isLoading && <Spinner size="small" />}
                                                         </span>
                                                     }
                                                 />
@@ -113,14 +103,19 @@ export function EditCustomProductsModal(): JSX.Element {
                                 </div>
                             )
                         })}
-                    </ScrollableShadows>
+                    </div>
                 )}
 
                 <div className="flex flex-col items-start gap-2 border-t pt-4">
                     <LemonCheckbox
                         checked={allowSidebarSuggestions}
-                        onChange={setAllowSidebarSuggestions}
-                        label="Automatically suggest new products"
+                        onChange={toggleSidebarSuggestions}
+                        disabledReason={sidebarSuggestionsLoading ? 'Saving...' : undefined}
+                        label={
+                            <span className="flex items-center gap-2">
+                                <span>Automatically suggest new products</span>
+                            </span>
+                        }
                     />
                     <span className="text-sm text-muted">
                         When we detect you are using a new product, we'll automatically add it to your sidebar as a
