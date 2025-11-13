@@ -96,7 +96,8 @@ def run_cohort_query(
         # If calculation succeeded and we scheduled a delayed task, cancel it and run immediately
         # This avoids waiting 600s when the query completed quickly
         if delayed_task and history and query:
-            delayed_task.revoke()  # Cancel the delayed task
+            if delayed_task.state in ["PENDING", "RECEIVED"]:
+                delayed_task.revoke()  # Cancel the delayed task
 
             # Run immediately since the query already completed
             collect_cohort_query_stats.apply_async(

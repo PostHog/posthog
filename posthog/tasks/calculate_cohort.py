@@ -116,9 +116,6 @@ def reset_stuck_cohorts() -> None:
     # After resetting, these cohorts will be picked up by the next cohort calculation but we need to limit the number
     # of stuck cohorts that are reset at once to avoid overwhelming ClickHouse with too many
     # calculations for stuck cohorts
-    #
-    # Stuck cohorts are typically caused by worker crashes (OOMs, SIGKILL, etc.) where the
-    # exception handling in calculate_people_ch never runs
     reset_cohort_ids = []
     for cohort in get_stuck_cohort_calculation_candidates_queryset().order_by(
         F("last_calculation").asc(nulls_first=True)
@@ -131,9 +128,6 @@ def reset_stuck_cohorts() -> None:
         cohort.last_error_at = timezone.now()
         cohort.save(update_fields=["is_calculating", "errors_calculating", "last_error_at"])
         reset_cohort_ids.append(cohort.pk)
-
-        # Track as inferred OOM/worker crash for observability
-        COHORT_CALCULATION_FAILURES_COUNTER.labels(failure_type="stuck_inferred_oom").inc()
 
     COHORT_STUCK_RESETS_COUNTER.inc(len(reset_cohort_ids))
     logger.warning("reset_stuck_cohorts", cohort_ids=reset_cohort_ids, count=len(reset_cohort_ids))
@@ -488,7 +482,15 @@ def collect_cohort_query_stats(
         start_time = parser.parse(start_time_iso)
         query_stats = get_clickhouse_query_stats(tag_matcher, cohort_id, start_time, history.team.id)
 
-        if query_stats:
+        if query_stats:  # Skip if stats already collected (check if queries field is non-empty)
+            if history.queries:
+                logger.warning(
+                    "Query stats already collected, skipping duplicate collection",
+                    history_id=history_id,
+                    cohort_id=cohort_id,
+                )
+                return
+
             update_fields = []
 
             # Only update history if it's still in progress (no finished_at)
