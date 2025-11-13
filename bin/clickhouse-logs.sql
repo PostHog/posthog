@@ -151,8 +151,8 @@ SETTINGS
     kafka_thread_per_consumer = 1,
     kafka_num_consumers = 1,
     kafka_poll_timeout_ms=15000,
-    kafka_poll_max_batch_size=1,
-    kafka_max_block_size=1;
+    kafka_poll_max_batch_size=10,
+    kafka_max_block_size=10;
 
 drop table if exists kafka_logs_avro_mv;
 
