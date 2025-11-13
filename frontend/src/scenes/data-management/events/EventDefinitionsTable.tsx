@@ -170,14 +170,15 @@ export function EventDefinitionsTable(): JSX.Element {
                 </Link>
             </LemonBanner>
 
-            <div className={cn('flex justify-between items-center gap-2')}>
+            <div className={cn('flex flex-wrap justify-between items-center gap-2')}>
                 <LemonInput
                     type="search"
                     placeholder="Search for events"
                     onChange={(v) => setFilters({ event: v || '' })}
                     value={filters.event}
+                    className="flex-1 min-w-60"
                 />
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-shrink-0">
                     {hasTagging && (
                         <>
                             <span>Tags:</span>

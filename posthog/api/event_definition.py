@@ -316,13 +316,19 @@ class EventDefinitionViewSet(
         """Handle context and side effects for event definition creation."""
         user = cast(User, self.request.user)
 
-        event_definition = serializer.save(
-            team_id=self.team_id,
-            project_id=self.project_id,
-            updated_by=user,
-            created_at=None,  # Will be populated when first real event is ingested
-            last_seen_at=None,
-        )
+        # Build save kwargs - only include updated_by for enterprise
+        save_kwargs = {
+            "team_id": self.team_id,
+            "project_id": self.project_id,
+            "created_at": None,  # Will be populated when first real event is ingested
+            "last_seen_at": None,
+        }
+
+        # Add updated_by only for EnterpriseEventDefinition
+        if hasattr(serializer.Meta.model, "updated_by"):
+            save_kwargs["updated_by"] = user
+
+        event_definition = serializer.save(**save_kwargs)
 
         # Log activity for audit trail
         log_activity(
@@ -347,7 +353,12 @@ class EventDefinitionViewSet(
         if "tags" not in before_state or before_state["tags"] is None:
             before_state["tags"] = []
 
-        event_definition = serializer.save(updated_by=user)
+        # Only pass updated_by for EnterpriseEventDefinition
+        save_kwargs = {}
+        if hasattr(instance, "updated_by"):
+            save_kwargs["updated_by"] = user
+
+        event_definition = serializer.save(**save_kwargs)
 
         # Log activity for audit trail
         from posthog.models.activity_logging.activity_log import dict_changes_between
