@@ -17,7 +17,7 @@ export async function registerPrompts(server: McpServer, context: Context): Prom
                 description: prompt.description,
             },
             async () => ({
-                messages: prompt.messages,
+                messages: prompt.messages as any,
             })
         )
     }

@@ -22,6 +22,9 @@ describe('Manifest Integration', () => {
         // Verify manifest.json exists
         const manifestData = archive['manifest.json']
         expect(manifestData).toBeTruthy()
+        if (!manifestData) {
+            throw new Error('manifest.json not found in archive')
+        }
 
         // Verify manifest is valid JSON
         const manifestJson = strFromU8(manifestData)

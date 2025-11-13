@@ -39,7 +39,5 @@ export function loadManifest(archive: Unzipped): ResourceManifest {
         throw new Error('Manifest resources is missing "prompts" array')
     }
 
-    const templatesCount = manifest.templates?.length || 0
-
     return manifest
 }
