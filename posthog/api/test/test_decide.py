@@ -63,7 +63,9 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
         "masking": None,
         "urlTriggers": [],
         "urlBlocklist": [],
-        "scriptConfig": None,
+        "scriptConfig": {
+            "script": "posthog-recorder",
+        },
         "sampleRate": None,
         "eventTriggers": [],
         "triggerMatchType": None,

@@ -540,7 +540,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_flags_from_cache_or_pg_skips_cache_write_on_redis_unavailable() {
-        use common_redis::{CustomRedisError, MockRedisClient};
+        use common_redis::{CustomRedisError, MockRedisClient, RedisErrorKind};
 
         let context = TestContext::new(None).await;
         let team = context
@@ -548,11 +548,14 @@ mod tests {
             .await
             .expect("Failed to insert team");
 
-        // Set up mock redis_reader to return Other error (maps to RedisUnavailable)
+        // Set up mock redis_reader to return Redis error (maps to RedisUnavailable)
         let mut mock_reader = MockRedisClient::new();
         mock_reader.get_ret(
             &format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team.project_id()),
-            Err(CustomRedisError::Other("Connection refused".to_string())),
+            Err(CustomRedisError::from_redis_kind(
+                RedisErrorKind::IoError,
+                "Connection refused",
+            )),
         );
 
         // Set up mock redis_writer to track SET calls

@@ -81,6 +81,7 @@ def test_bigquery_destination_table_default():
         dataset_id="dataset-id",
         table_prefix="__posthog_import_schema_id",
         project_id=config.key_file.project_id,
+        location=None,
         dataset_project_id=None,
         private_key=config.key_file.private_key,
         private_key_id=config.key_file.private_key_id,
@@ -92,6 +93,7 @@ def test_bigquery_destination_table_default():
     mock_bigquery_source.assert_called_once_with(
         dataset_id=config.dataset_id,
         project_id=config.key_file.project_id,
+        location=None,
         dataset_project_id=None,
         private_key=config.key_file.private_key,
         private_key_id=config.key_file.private_key_id,
@@ -100,15 +102,16 @@ def test_bigquery_destination_table_default():
         table_name="schema",
         should_use_incremental_field=False,
         logger=mock.ANY,
-        bq_destination_table_id=f"project-id.dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse("2025-01-01T12:00:00.000Z").timestamp()).replace('.', '')}",
+        bq_destination_table_id=f"project-id.dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse('2025-01-01T12:00:00.000Z').timestamp()).replace('.', '')}",
         incremental_field=None,
         incremental_field_type=None,
         db_incremental_field_last_value=None,
     )
 
     mock_delete_table.assert_called_once_with(
-        table_id=f"project-id.dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse("2025-01-01T12:00:00.000Z").timestamp()).replace('.', '')}",
+        table_id=f"project-id.dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse('2025-01-01T12:00:00.000Z').timestamp()).replace('.', '')}",
         project_id=config.key_file.project_id,
+        location=None,
         private_key=config.key_file.private_key,
         private_key_id=config.key_file.private_key_id,
         client_email=config.key_file.client_email,
@@ -166,6 +169,7 @@ def test_bigquery_destination_table_with_dataset_project_set():
         dataset_id="dataset-id",
         table_prefix="__posthog_import_schema_id",
         project_id=config.key_file.project_id,
+        location=None,
         dataset_project_id="other-project-id",
         private_key=config.key_file.private_key,
         private_key_id=config.key_file.private_key_id,
@@ -177,6 +181,7 @@ def test_bigquery_destination_table_with_dataset_project_set():
     mock_bigquery_source.assert_called_once_with(
         dataset_id=config.dataset_id,
         project_id=config.key_file.project_id,
+        location=None,
         dataset_project_id="other-project-id",
         private_key=config.key_file.private_key,
         private_key_id=config.key_file.private_key_id,
@@ -185,15 +190,16 @@ def test_bigquery_destination_table_with_dataset_project_set():
         table_name="schema",
         should_use_incremental_field=False,
         logger=mock.ANY,
-        bq_destination_table_id=f"project-id.dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse("2025-01-01T12:00:00.000Z").timestamp()).replace('.', '')}",
+        bq_destination_table_id=f"project-id.dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse('2025-01-01T12:00:00.000Z').timestamp()).replace('.', '')}",
         incremental_field=None,
         incremental_field_type=None,
         db_incremental_field_last_value=None,
     )
 
     mock_delete_table.assert_called_once_with(
-        table_id=f"project-id.dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse("2025-01-01T12:00:00.000Z").timestamp()).replace('.', '')}",
+        table_id=f"project-id.dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse('2025-01-01T12:00:00.000Z').timestamp()).replace('.', '')}",
         project_id=config.key_file.project_id,
+        location=None,
         private_key=config.key_file.private_key,
         private_key_id=config.key_file.private_key_id,
         client_email=config.key_file.client_email,
@@ -251,6 +257,7 @@ def test_bigquery_destination_table_with_temporary_dataset_set():
         dataset_id="some-other-dataset-id",
         table_prefix="__posthog_import_schema_id",
         project_id=config.key_file.project_id,
+        location=None,
         dataset_project_id=None,
         private_key=config.key_file.private_key,
         private_key_id=config.key_file.private_key_id,
@@ -262,6 +269,7 @@ def test_bigquery_destination_table_with_temporary_dataset_set():
     mock_bigquery_source.assert_called_once_with(
         dataset_id=config.dataset_id,
         project_id=config.key_file.project_id,
+        location=None,
         dataset_project_id=None,
         private_key=config.key_file.private_key,
         private_key_id=config.key_file.private_key_id,
@@ -270,15 +278,16 @@ def test_bigquery_destination_table_with_temporary_dataset_set():
         table_name="schema",
         should_use_incremental_field=False,
         logger=mock.ANY,
-        bq_destination_table_id=f"project-id.some-other-dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse("2025-01-01T12:00:00.000Z").timestamp()).replace('.', '')}",
+        bq_destination_table_id=f"project-id.some-other-dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse('2025-01-01T12:00:00.000Z').timestamp()).replace('.', '')}",
         incremental_field=None,
         incremental_field_type=None,
         db_incremental_field_last_value=None,
     )
 
     mock_delete_table.assert_called_once_with(
-        table_id=f"project-id.some-other-dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse("2025-01-01T12:00:00.000Z").timestamp()).replace('.', '')}",
+        table_id=f"project-id.some-other-dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse('2025-01-01T12:00:00.000Z').timestamp()).replace('.', '')}",
         project_id=config.key_file.project_id,
+        location=None,
         private_key=config.key_file.private_key,
         private_key_id=config.key_file.private_key_id,
         client_email=config.key_file.client_email,
@@ -339,6 +348,7 @@ def test_bigquery_destination_table_with_both_temporary_dataset_and_dataset_proj
         dataset_id="some-other-dataset-id",
         table_prefix="__posthog_import_schema_id",
         project_id=config.key_file.project_id,
+        location=None,
         dataset_project_id="other-project-id",
         private_key=config.key_file.private_key,
         private_key_id=config.key_file.private_key_id,
@@ -350,6 +360,7 @@ def test_bigquery_destination_table_with_both_temporary_dataset_and_dataset_proj
     mock_bigquery_source.assert_called_once_with(
         dataset_id=config.dataset_id,
         project_id=config.key_file.project_id,
+        location=None,
         dataset_project_id="other-project-id",
         private_key=config.key_file.private_key,
         private_key_id=config.key_file.private_key_id,
@@ -358,15 +369,16 @@ def test_bigquery_destination_table_with_both_temporary_dataset_and_dataset_proj
         table_name="schema",
         should_use_incremental_field=False,
         logger=mock.ANY,
-        bq_destination_table_id=f"project-id.some-other-dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse("2025-01-01T12:00:00.000Z").timestamp()).replace('.', '')}",
+        bq_destination_table_id=f"project-id.some-other-dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse('2025-01-01T12:00:00.000Z').timestamp()).replace('.', '')}",
         incremental_field=None,
         incremental_field_type=None,
         db_incremental_field_last_value=None,
     )
 
     mock_delete_table.assert_called_once_with(
-        table_id=f"project-id.some-other-dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse("2025-01-01T12:00:00.000Z").timestamp()).replace('.', '')}",
+        table_id=f"project-id.some-other-dataset-id.__posthog_import_schema_id_job_id_{str(parser.parse('2025-01-01T12:00:00.000Z').timestamp()).replace('.', '')}",
         project_id=config.key_file.project_id,
+        location=None,
         private_key=config.key_file.private_key,
         private_key_id=config.key_file.private_key_id,
         client_email=config.key_file.client_email,

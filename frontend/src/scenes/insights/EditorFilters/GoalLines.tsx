@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEye, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { IconEyeHidden } from 'lib/lemon-ui/icons'
+import { GoalLinesList } from 'lib/components/GoalLinesList'
 
 import { InsightLogicProps } from '~/types'
 
@@ -20,44 +19,7 @@ export function GoalLines({ insightProps }: GoalLinesProps): JSX.Element {
 
     return (
         <div className="mt-1 mb-2">
-            {goalLines.map(({ label, value = 0, displayLabel = true }, goalLineIndex) => (
-                <div className="flex flex-1 gap-1 mb-1" key={`${goalLineIndex}`}>
-                    <SeriesLetter className="self-center" hasBreakdown={false} seriesIndex={goalLineIndex} />
-                    <LemonInput
-                        placeholder="Label"
-                        className="grow-2"
-                        value={label}
-                        suffix={
-                            <LemonButton
-                                size="small"
-                                noPadding
-                                icon={displayLabel ? <IconEye /> : <IconEyeHidden />}
-                                tooltip={displayLabel ? 'Display label' : 'Hide label'}
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    updateGoalLine(goalLineIndex, 'displayLabel', !displayLabel)
-                                }}
-                            />
-                        }
-                        onChange={(value) => updateGoalLine(goalLineIndex, 'label', value)}
-                    />
-                    <LemonInput
-                        placeholder="Value"
-                        className="grow"
-                        value={value.toString()}
-                        inputMode="numeric"
-                        onChange={(value) => updateGoalLine(goalLineIndex, 'value', parseInt(value))}
-                    />
-                    <LemonButton
-                        key="delete"
-                        icon={<IconTrash />}
-                        status="danger"
-                        title="Delete Goal Line"
-                        noPadding
-                        onClick={() => removeGoalLine(goalLineIndex)}
-                    />
-                </div>
-            ))}
+            <GoalLinesList goalLines={goalLines} removeGoalLine={removeGoalLine} updateGoalLine={updateGoalLine} />
 
             <LemonButton type="secondary" onClick={addGoalLine} icon={<IconPlusSmall />} sideIcon={null}>
                 Add goal line
