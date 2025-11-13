@@ -242,18 +242,18 @@ def _get_queryset(model_class: Any, model_config: ModelConfig):
 def _get_object_for_entry(model_config: ModelConfig, entry: FileSystem):
     model_class = _get_model_class(model_config)
     queryset = _get_queryset(model_class, model_config)
-    filters = {model_config.lookup_field: entry.ref}
+    filters: dict[str, Any] = {model_config.lookup_field: entry.ref}
     if model_config.team_field:
-        filters[model_config.team_field] = entry.team
+        filters[model_config.team_field] = entry.team_id
     return queryset.get(**filters)
 
 
 def _get_object_for_restore(model_config: ModelConfig, viewset: FileSystemViewSet, payload: dict[str, Any]):
     model_class = _get_model_class(model_config)
     queryset = _get_queryset(model_class, model_config)
-    filters = {model_config.lookup_field: payload["ref"]}
+    filters: dict[str, Any] = {model_config.lookup_field: payload["ref"]}
     if model_config.team_field:
-        filters[model_config.team_field] = viewset.team
+        filters[model_config.team_field] = viewset.team_id
     return queryset.get(**filters)
 
 
@@ -335,6 +335,16 @@ def _dashboard_post_restore(context: RestoreContext, dashboard: Any) -> None:
     )
 
 
+def _dashboard_post_delete(context: DeleteContext, dashboard: Any) -> None:
+    _log_file_system_activity(
+        context.viewset,
+        scope="Dashboard",
+        activity="deleted",
+        item_id=dashboard.id,
+        name=dashboard.name or "Untitled dashboard",
+    )
+
+
 def _experiment_post_restore(context: RestoreContext, experiment: Any) -> None:
     _log_restore_activity(
         context.viewset,
@@ -366,12 +376,15 @@ def _insight_post_restore(context: RestoreContext, insight: Any) -> None:
 
 
 def _link_post_delete(context: DeleteContext, link: Any) -> None:
-    link_name = getattr(link, "short_code", None) or getattr(link, "redirect_url", None) or context.entry.ref
+    ref = context.entry.ref
+    if ref is None:
+        return
+    link_name = getattr(link, "short_code", None) or getattr(link, "redirect_url", None) or ref
     _log_file_system_activity(
         context.viewset,
         scope="Link",
         activity="deleted",
-        item_id=context.entry.ref,
+        item_id=ref,
         name=link_name,
     )
 
@@ -490,12 +503,15 @@ def _survey_post_delete(context: DeleteContext, survey: Any) -> None:
     organization = context.organization
     if not organization:
         return
+    ref = context.entry.ref
+    if ref is None:
+        return
     log_activity(
         organization_id=organization.id,
         team_id=context.viewset.team_id,
         user=cast(User, context.viewset.request.user),
         was_impersonated=is_impersonated_session(context.viewset.request),
-        item_id=context.entry.ref,
+        item_id=ref,
         scope="Survey",
         activity="deleted",
         detail=Detail(name=survey.name),
@@ -512,11 +528,14 @@ def _early_access_feature_pre_delete(context: DeleteContext, feature: Any) -> No
 
 
 def _early_access_feature_post_delete(context: DeleteContext, feature: Any) -> None:
+    ref = context.entry.ref
+    if ref is None:
+        return
     _log_file_system_activity(
         context.viewset,
         scope="EarlyAccessFeature",
         activity="deleted",
-        item_id=context.entry.ref,
+        item_id=ref,
         name=feature.name or "Untitled feature",
     )
 
@@ -527,6 +546,7 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
         app_label="posthog",
         model_name="Dashboard",
         manager_name="objects_including_soft_deleted",
+        post_delete_hook=_dashboard_post_delete,
         post_restore_hook=_dashboard_post_restore,
     ),
     "feature_flag": ModelConfig(
