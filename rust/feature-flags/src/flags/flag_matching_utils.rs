@@ -376,16 +376,6 @@ fn are_overrides_useful_for_flag(
         .any(|filter| overrides.contains_key(&filter.key))
 }
 
-/// Check if a FlagError contains a foreign key constraint violation
-fn flag_error_is_foreign_key_constraint(error: &FlagError) -> bool {
-    match error {
-        FlagError::DatabaseError(sqlx_error, _) => {
-            common_database::is_foreign_key_constraint_error(sqlx_error)
-        }
-        _ => false,
-    }
-}
-
 /// Determines if a FlagError should trigger a retry
 fn should_retry_on_error(error: &FlagError) -> bool {
     match error {
@@ -984,9 +974,8 @@ pub async fn should_write_hash_key_override(
         let result =
             try_should_write_hash_key_override(router, team_id, &distinct_ids, project_id).await;
 
-        // Only retry on foreign key constraint errors (person deletion race condition)
         match &result {
-            Err(e) if flag_error_is_foreign_key_constraint(e) => {
+            Err(e) => {
                 // Increment retry counter for monitoring
                 common_metrics::inc(
                     FLAG_HASH_KEY_RETRIES_COUNTER,
@@ -1004,14 +993,12 @@ pub async fn should_write_hash_key_override(
                     team_id = %team_id,
                     distinct_id = %distinct_id,
                     error = ?e,
-                    "Hash key override check failed due to person deletion, will retry"
+                    "Hash key override check failed, will retry"
                 );
 
                 // Return error to trigger retry
                 result
             }
-            // For other errors, don't retry - return immediately to stop retrying
-            Err(_) => result,
             // Success case - return the result
             Ok(_) => result,
         }
