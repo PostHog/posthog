@@ -134,18 +134,37 @@ jobs:
               continue-on-error: true
 
             - name: Check disk BEFORE Docker Compose
+              shell: bash
               run: |
                   echo "=== BEFORE DOCKER COMPOSE ==="
-                  df -h
+                  df -hT
                   echo ""
-                  echo "=== Docker System ==="
-                  docker system df
+                  echo "=== Root Filesystem Breakdown ==="
+                  sudo du -sh /* 2>/dev/null | sort -h || echo "du command failed"
                   echo ""
-                  echo "=== Workspace Size ==="
-                  du -sh ./ 2>/dev/null || true
+                  echo "=== Detailed Tooling Directories (top 20) ==="
+                  sudo du -sh /opt/* /usr/* /var/* 2>/dev/null | sort -h | tail -20 || echo "du command failed"
+                  echo ""
+                  echo "=== Hostedtoolcache ==="
+                  sudo du -sh /opt/hostedtoolcache/* 2>/dev/null | sort -h || echo "No hostedtoolcache"
+                  echo ""
+                  echo "=== Android SDK ==="
+                  sudo du -sh /usr/local/lib/android 2>/dev/null || echo "No Android SDK"
+                  echo ""
+                  echo "=== Docker Pre-pull Storage ==="
+                  sudo du -sh /var/lib/docker 2>/dev/null || echo "No /var/lib/docker"
+                  echo ""
+                  echo "=== Journal Logs ==="
+                  journalctl --disk-usage 2>/dev/null || echo "journalctl not available"
                   echo ""
                   echo "=== Docker Images ==="
-                  docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | head -20
+                  docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | head -20 || true
+                  echo ""
+                  echo "=== DELETING ANDROID SDK ==="
+                  sudo rm -rf /usr/local/lib/android || echo "Failed to delete Android SDK"
+                  echo ""
+                  echo "=== Disk After Android SDK Deletion ==="
+                  df -hT
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -155,24 +174,37 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d &
 
             - name: Check disk AFTER Docker Compose
+              shell: bash
               run: |
                   echo "=== AFTER DOCKER COMPOSE UP ==="
-                  df -h
+                  df -hT
                   echo ""
                   echo "=== Docker System ==="
-                  docker system df
+                  docker system df || true
+                  echo ""
+                  echo "=== Docker System Detailed ==="
+                  docker system df -v | head -n 80 || true
+                  echo ""
+                  echo "=== Root Filesystem Breakdown ==="
+                  sudo du -sh /* 2>/dev/null | sort -h || echo "du command failed"
+                  echo ""
+                  echo "=== Docker Root Dir ==="
+                  docker info | grep "Docker Root Dir" || true
+                  echo ""
+                  echo "=== /mnt Contents ==="
+                  ls -lah /mnt/ 2>/dev/null && du -sh /mnt/* 2>/dev/null || echo "No /mnt"
                   echo ""
                   echo "=== Docker Containers ==="
-                  docker ps -a
+                  docker ps -a || true
                   echo ""
                   echo "=== Docker Volumes ==="
-                  docker volume ls
-                  echo ""
-                  echo "=== Inspect SeaweedFS storage ==="
-                  docker exec seaweedfs du -sh /data 2>/dev/null || echo "SeaweedFS not ready or not running"
+                  docker volume ls || true
                   echo ""
                   echo "=== Data Directory ==="
                   [ -d "data" ] && du -sh data/* 2>/dev/null || echo "No data directory"
+                  echo ""
+                  echo "=== Workspace Size ==="
+                  du -sh ./ 2>/dev/null || true
 
             - name: Set up Python
               uses: actions/setup-python@v5
@@ -818,24 +850,34 @@ jobs:
 
             - name: Check disk AFTER tests (Core segment)
               if: always()
+              shell: bash
               run: |
                   echo "=== AFTER TESTS (Shard ${{ matrix.group }}/${{ matrix.concurrency }}) ==="
-                  df -h
+                  df -hT
                   echo ""
                   echo "=== Docker System ==="
-                  docker system df
+                  docker system df || true
                   echo ""
                   echo "=== Docker System Detailed ==="
-                  docker system df -v | head -n 50
+                  docker system df -v | head -n 80 || true
                   echo ""
-                  echo "=== Inspect SeaweedFS storage ==="
+                  echo "=== Root Filesystem Breakdown ==="
+                  sudo du -sh /* 2>/dev/null | sort -h || echo "du command failed"
+                  echo ""
+                  echo "=== Workspace Top Dirs ==="
+                  du -sh ./* 2>/dev/null | sort -h | tail -n 10 || true
+                  echo ""
+                  echo "=== Python Packages Size ==="
+                  du -sh $pythonLocation/lib/python*/site-packages 2>/dev/null || echo "No Python packages found"
+                  echo ""
+                  echo "=== Rust Artifacts ==="
+                  du -sh rust/target 2>/dev/null || echo "No Rust target directory"
+                  echo ""
+                  echo "=== SeaweedFS Storage ==="
                   docker exec seaweedfs du -sh /data 2>/dev/null || echo "SeaweedFS not available"
                   echo ""
                   echo "=== Data Directory ==="
                   [ -d "data" ] && du -sh data/* 2>/dev/null || echo "No data directory"
-                  echo ""
-                  echo "=== Workspace Top Dirs ==="
-                  du -sh ./* 2>/dev/null | sort -h | tail -n 10
 
             # Uncomment this code to create an ssh-able console so you can debug issues with github actions
             # (Consider changing the timeout in ci-backend.yml to have more time)
