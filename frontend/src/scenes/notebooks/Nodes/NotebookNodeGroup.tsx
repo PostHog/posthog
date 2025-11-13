@@ -19,8 +19,7 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
     const { id, groupTypeIndex, title } = attributes
 
-    const logic = groupLogic({ groupKey: id, groupTypeIndex: groupTypeIndex })
-    const { groupData, groupDataLoading, groupTypeName } = useValues(logic)
+    const { groupData, groupDataLoading, groupTypeName } = useValues(groupLogic)
     const { setActions, insertAfter, setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     const groupDisplay = groupData ? groupDisplayId(groupData.group_key, groupData.group_properties) : 'Group'
