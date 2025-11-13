@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconFeatures, IconHelmet, IconMap } from '@posthog/icons'
+import { IconFeatures, IconHelmet, IconMap, IconBug, } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { SupportForm } from 'lib/components/Support/SupportForm'
@@ -400,6 +400,17 @@ export function SidePanelSupport(): JSX.Element {
                                             targetBlank
                                         >
                                             Vote on our roadmap
+                                        </LemonButton>
+                                    </li>
+                                    <li>
+                                        <LemonButton
+                                        type="secondary"
+                                        status="alt"
+                                        to="https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.md"
+                                        icon={<Iconbug/>}
+                                        targetBlank
+                                        >
+                                            Report a bug
                                         </LemonButton>
                                     </li>
                                     <li>
