@@ -2,6 +2,7 @@ import re
 import shlex
 import builtins
 from typing import Any, Optional, cast
+import logging
 
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
@@ -530,7 +531,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         organization=getattr(self, "organization", None),
                     )
                 except ValueError as exc:
-                    raise serializers.ValidationError({"detail": str(exc)})
+                    import logging
+                    logging.exception("Exception during undo_delete_object (type=%s, ref=%s)", item.get("type"), item.get("ref"))
+                    raise serializers.ValidationError({"detail": "An internal error occurred during undo delete."})
                 self._restore_file_system_path(restored_instance, item)
                 undo_results.append({"type": item["type"], "ref": item["ref"]})
 
