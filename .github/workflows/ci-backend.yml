@@ -614,6 +614,12 @@ jobs:
                   echo ""
                   echo "=== Docker Images ==="
                   docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | head -20 || true
+                  echo ""
+                  echo "=== DELETING ANDROID SDK ==="
+                  sudo rm -rf /usr/local/lib/android || echo "Failed to delete Android SDK"
+                  echo ""
+                  echo "=== Disk After Android SDK Deletion ==="
+                  df -hT
 
             # Copies the fully versioned UDF xml file for use in CI testing
             - name: Stop/Start stack with Docker Compose
