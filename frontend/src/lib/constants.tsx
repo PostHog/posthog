@@ -209,7 +209,7 @@ export const FEATURE_FLAGS = {
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     WORKFLOWS_SCHEDULED_TRIGGERS: 'workflows-scheduled-triggers', // owner: #team-workflows
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
-    WORKFLOWS_COHORT_TRIGGERS: 'workflows-cohort-triggers', // owner: #team-workflows
+    WORKFLOWS_BATCH_TRIGGERS: 'workflows-batch-triggers', // owner: #team-workflows
     ENVIRONMENTS_ROLLBACK: 'environments-rollback', // owner: @yasen-posthog #team-platform-features
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin

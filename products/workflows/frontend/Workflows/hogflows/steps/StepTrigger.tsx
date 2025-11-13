@@ -1,8 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { Fragment } from 'node_modules/@types/react'
 import posthog from 'posthog-js'
-import { id } from 'zod/v4/locales'
 
 import {
     IconBolt,
@@ -17,6 +15,7 @@ import {
 import {
     LemonButton,
     LemonCalendarSelectInput,
+    LemonCheckbox,
     LemonCollapse,
     LemonDivider,
     LemonLabel,
@@ -33,11 +32,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { IconAdsClick, IconErrorOutline } from 'lib/lemon-ui/icons'
+import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 
-import { taxonomicGroupTypes } from 'products/error_tracking/frontend/components/IssueFilters/FilterGroup'
+import { PropertyFilterType } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters } from '../filters/HogFlowFilters'
@@ -119,15 +118,17 @@ export function StepTriggerConfiguration({
         })
     }
 
-    if (featureFlags[FEATURE_FLAGS.WORKFLOWS_COHORT_TRIGGERS]) {
+    if (featureFlags[FEATURE_FLAGS.WORKFLOWS_BATCH_TRIGGERS]) {
         triggerOptions.splice(4, 0, {
-            label: 'Cohort',
-            value: 'cohort',
+            label: 'Batch',
+            value: 'batch',
             icon: <IconPeople />,
             labelInMenu: (
                 <div className="flex flex-col my-1">
-                    <div className="font-semibold">Cohort</div>
-                    <p className="text-xs text-muted">Trigger or schedule a workflow for every member of a cohort</p>
+                    <div className="font-semibold">Batch</div>
+                    <p className="text-xs text-muted">
+                        Trigger or schedule your workflow to run for each person in a group you define.
+                    </p>
                 </div>
             ),
         })
@@ -395,66 +396,67 @@ function StepTriggerConfigurationBatch({
     action: Extract<HogFlowAction, { type: 'trigger' }>
     config: Extract<HogFlowAction['config'], { type: 'batch' }>
 }): JSX.Element {
-    const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const validationResult = actionValidationErrorsById[action.id]
 
     const scheduledDateTime = config.scheduled_at ? dayjs(config.scheduled_at) : null
 
     return (
-        <>
-            <div className="flex flex-col gap-2">
-                <p className="mb-0">Schedule this workflow to run for each person in a group you define.</p>
-                <LemonField.Pure label="Which group?" error={validationResult?.errors?.cohort_id}>
-                    <div>
-                        <PropertyFilters
-                            orFiltering={true}
-                            pageKey={`feature-flag-${id}-${group.sort_key}-${filterGroups.length}-${
-                                filters.aggregation_group_type_index ?? ''
-                            }`}
-                            propertyFilters={group?.properties}
-                            logicalRowDivider
-                            addText="Add condition"
-                            onChange={(properties) => updateConditionSet(index, undefined, properties)}
-                            taxonomicGroupTypes={taxonomicGroupTypes}
-                            taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
-                            hasRowOperator={false}
-                            sendAllKeyUpdates
-                            allowRelativeDateOptions
-                            excludedProperties={
-                                featureFlagKey
-                                    ? { [TaxonomicFilterGroupType.FeatureFlags]: [featureFlagKey] }
-                                    : undefined
-                            }
-                            errorMessages={
-                                propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
-                                    ? propertySelectErrors[index].properties?.map((message, index) => {
-                                          return message.value ? (
-                                              <div
-                                                  key={index}
-                                                  className="text-danger flex items-center gap-1 text-sm Field--error"
-                                              >
-                                                  <IconErrorOutline className="text-xl" /> {message.value}
-                                              </div>
-                                          ) : (
-                                              <Fragment key={index} />
-                                          )
-                                      })
-                                    : null
-                            }
-                            exactMatchFeatureFlagCohortOperators={true}
-                            hideBehavioralCohorts={true}
-                        />
-                    </div>
-                </LemonField.Pure>
-                <LemonField.Pure label="Scheduled time" error={validationResult?.errors?.scheduled_at}>
+        <div className="flex flex-col gap-2 my-2">
+            <LemonField.Pure label="Which group?" error={validationResult?.errors?.cohort_id}>
+                <div>
+                    <PropertyFilters
+                        orFiltering={true}
+                        pageKey={`workflows-batch-trigger-property-filters-${action.id}`}
+                        propertyFilters={config.filters.properties}
+                        logicalRowDivider
+                        addText="Add condition"
+                        onChange={(properties) =>
+                            partialSetWorkflowActionConfig(action.id, {
+                                filters: {
+                                    properties,
+                                },
+                            })
+                        }
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.FeatureFlags,
+                            TaxonomicFilterGroupType.Metadata,
+                        ]}
+                        taxonomicFilterOptionsFromProp={{
+                            [TaxonomicFilterGroupType.Metadata]: [
+                                { name: 'distinct_id', propertyFilterType: PropertyFilterType.Person },
+                            ],
+                        }}
+                        hasRowOperator={false}
+                        sendAllKeyUpdates
+                        allowRelativeDateOptions
+                        exactMatchFeatureFlagCohortOperators={true}
+                        hideBehavioralCohorts={true}
+                    />
+                </div>
+            </LemonField.Pure>
+            <LemonDivider />
+            <div className="flex gap-2">
+                <span className="font-semibold">Schedule for later?</span>
+                <LemonCheckbox
+                    checked={Boolean(config.scheduled_at)}
+                    onChange={(checked) =>
+                        partialSetWorkflowActionConfig(action.id, {
+                            scheduled_at: checked ? dayjs().add(5, 'minutes').toISOString() : undefined,
+                        })
+                    }
+                />
+            </div>
+            {config.scheduled_at && (
+                <LemonField.Pure label="Run this workflow at" error={validationResult?.errors?.scheduled_at}>
                     <div className="flex flex-col gap-2">
                         <LemonCalendarSelectInput
                             value={scheduledDateTime}
                             onChange={(date) => {
-                                setWorkflowActionConfig(action.id, {
-                                    type: 'cohort',
-                                    cohort_id: config.cohort_id,
+                                partialSetWorkflowActionConfig(action.id, {
                                     scheduled_at: date ? date.toISOString() : undefined,
                                 })
                             }}
@@ -470,8 +472,8 @@ function StepTriggerConfigurationBatch({
                         )}
                     </div>
                 </LemonField.Pure>
-            </div>
-        </>
+            )}
+        </div>
     )
 }
 
