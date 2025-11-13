@@ -90,34 +90,34 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             null as SessionData | null,
             {
                 loadSessionData: async () => {
+                    // First get the session data
                     const sessionQuery = hogql`
                         SELECT
-                            sessions.session_id,
-                            sessions.distinct_id,
-                            persons.properties,
-                            sessions.$start_timestamp,
-                            sessions.$end_timestamp,
-                            sessions.$entry_current_url,
-                            sessions.$end_current_url,
-                            sessions.$urls,
-                            sessions.$num_uniq_urls,
-                            sessions.$pageview_count,
-                            sessions.$autocapture_count,
-                            sessions.$screen_count,
-                            sessions.$session_duration,
-                            sessions.$channel_type,
-                            sessions.$is_bounce,
-                            sessions.$entry_hostname,
-                            sessions.$entry_pathname,
-                            sessions.$entry_utm_source,
-                            sessions.$entry_utm_campaign,
-                            sessions.$entry_utm_medium,
-                            sessions.$entry_referring_domain,
-                            sessions.$last_external_click_url
+                            session_id,
+                            distinct_id,
+                            $start_timestamp,
+                            $end_timestamp,
+                            $entry_current_url,
+                            $end_current_url,
+                            $urls,
+                            $num_uniq_urls,
+                            $pageview_count,
+                            $autocapture_count,
+                            $screen_count,
+                            $session_duration,
+                            $channel_type,
+                            $is_bounce,
+                            $entry_hostname,
+                            $entry_pathname,
+                            $entry_utm_source,
+                            $entry_utm_campaign,
+                            $entry_utm_medium,
+                            $entry_referring_domain,
+                            $last_external_click_url
                         FROM sessions
-                        LEFT JOIN person_distinct_ids ON person_distinct_ids.distinct_id = sessions.distinct_id
-                        LEFT JOIN persons ON persons.id = person_distinct_ids.person_id
-                        WHERE sessions.session_id = ${props.sessionId}
+                        WHERE $start_timestamp >= UUIDv7ToDateTime(toUUID(${props.sessionId}))
+                            AND $start_timestamp <= UUIDv7ToDateTime(toUUID(${props.sessionId})) + INTERVAL 1 HOUR
+                            AND session_id = ${props.sessionId}
                         LIMIT 1
                     `
 
@@ -128,29 +128,56 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                         return null
                     }
 
+                    const distinct_id = row[1]
+
+                    // Second query: get person properties if we have a distinct_id
+                    let person_properties: Record<string, any> | null = null
+                    if (distinct_id && distinct_id !== '$posthog_cookieless') {
+                        try {
+                            const personQuery = hogql`
+                                SELECT properties
+                                FROM persons
+                                WHERE id IN (
+                                    SELECT person_id 
+                                    FROM person_distinct_ids 
+                                    WHERE distinct_id = ${distinct_id}
+                                    LIMIT 1
+                                )
+                                LIMIT 1
+                            `
+                            const personResponse = await api.queryHogQL(personQuery)
+                            const personRow = personResponse.results?.[0]
+                            if (personRow && personRow[0]) {
+                                person_properties = JSON.parse(personRow[0])
+                            }
+                        } catch (e) {
+                            console.error('Failed to fetch person properties:', e)
+                        }
+                    }
+
                     return {
                         session_id: row[0],
                         distinct_id: row[1],
-                        person_properties: row[2] ? JSON.parse(row[2]) : null,
-                        start_timestamp: row[3],
-                        end_timestamp: row[4],
-                        entry_current_url: row[5],
-                        end_current_url: row[6],
-                        urls: row[7] || [],
-                        num_uniq_urls: row[8] || 0,
-                        pageview_count: row[9] || 0,
-                        autocapture_count: row[10] || 0,
-                        screen_count: row[11] || 0,
-                        session_duration: row[12] || 0,
-                        channel_type: row[13],
-                        is_bounce: row[14] || false,
-                        entry_hostname: row[15],
-                        entry_pathname: row[16],
-                        entry_utm_source: row[17],
-                        entry_utm_campaign: row[18],
-                        entry_utm_medium: row[19],
-                        entry_referring_domain: row[20],
-                        last_external_click_url: row[21],
+                        start_timestamp: row[2],
+                        end_timestamp: row[3],
+                        entry_current_url: row[4],
+                        end_current_url: row[5],
+                        urls: row[6] || [],
+                        num_uniq_urls: row[7] || 0,
+                        pageview_count: row[8] || 0,
+                        autocapture_count: row[9] || 0,
+                        screen_count: row[10] || 0,
+                        session_duration: row[11] || 0,
+                        channel_type: row[12],
+                        is_bounce: row[13] || false,
+                        entry_hostname: row[14],
+                        entry_pathname: row[15],
+                        entry_utm_source: row[16],
+                        entry_utm_campaign: row[17],
+                        entry_utm_medium: row[18],
+                        entry_referring_domain: row[19],
+                        last_external_click_url: row[20],
+                        person_properties,
                     }
                 },
             },
@@ -527,12 +554,14 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             },
         ],
         isInitialLoading: [
-            (s) => [s.sessionDataLoading, s.sessionEventsLoading, s.sessionEvents],
+            (s) => [s.sessionDataLoading, s.sessionEventsLoading, s.sessionData, s.sessionEvents],
             (
                 sessionDataLoading: boolean,
                 sessionEventsLoading: boolean,
+                sessionData: SessionData | null,
                 sessionEvents: SessionEventType[] | null
-            ): boolean => (sessionDataLoading || sessionEventsLoading) && sessionEvents === null,
+            ): boolean =>
+                (sessionDataLoading && sessionData === null) || (sessionEventsLoading && sessionEvents === null),
         ],
         isLoadingMore: [
             (s) => [s.sessionEventsLoading, s.sessionEvents],

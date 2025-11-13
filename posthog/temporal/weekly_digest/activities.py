@@ -452,6 +452,7 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
 
 
 RECORD_BATCH_SIZE = 100
+DIGEST_ITEM_COUNT_THRESHOLD = 4
 
 
 @activity.defn(name="send-weekly-digest-batch")
@@ -486,9 +487,9 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         )
                         continue
 
-                    org_digest = OrganizationDigest.model_validate_json(raw_digest)
+                    org_digest: OrganizationDigest = OrganizationDigest.model_validate_json(raw_digest)
 
-                    if org_digest.is_empty():
+                    if org_digest.is_empty() or org_digest.count_items() < DIGEST_ITEM_COUNT_THRESHOLD:
                         logger.warning(
                             "Got empty digest for organization, skipping...", organization_id=organization.id
                         )
@@ -512,7 +513,10 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         )
                         user_specific_digest: OrganizationDigest = org_digest.filter_for_user(user_notify_teams)
 
-                        if user_specific_digest.is_empty():
+                        if (
+                            user_specific_digest.is_empty()
+                            or user_specific_digest.count_items() < DIGEST_ITEM_COUNT_THRESHOLD
+                        ):
                             logger.warning(
                                 "Got empty digest for user, skipping...",
                                 organization_id=organization.id,

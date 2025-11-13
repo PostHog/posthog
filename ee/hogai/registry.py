@@ -31,5 +31,5 @@ def get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
 
     try:
         return CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantTool(tool_name)]
-    except KeyError:
+    except (KeyError, ValueError):
         return None
