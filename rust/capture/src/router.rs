@@ -2,20 +2,17 @@ use std::future::ready;
 use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
-use axum::http::{Method, StatusCode};
+use axum::http::Method;
 use axum::{
-    response::IntoResponse,
     routing::{get, post},
     Router,
 };
 use chrono::{DateTime, Duration, Utc};
 use health::HealthRegistry;
-use std::time::Duration as StdDuration;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use crate::metrics_middleware::track_metrics;
 use crate::test_endpoint;
 use crate::v0_request::DataType;
 use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
@@ -24,6 +21,7 @@ use limiters::token_dropper::TokenDropper;
 
 use crate::config::CaptureMode;
 use crate::limiters::CaptureQuotaLimiter;
+use crate::metrics_middleware::{apply_request_timeout, track_metrics};
 use crate::prometheus::setup_metrics_recorder;
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
@@ -79,42 +77,6 @@ impl HistoricalConfig {
 
 async fn index() -> &'static str {
     "capture"
-}
-
-pub fn apply_request_timeout_middleware<S>(
-    router: Router<S>,
-    request_timeout_seconds: Option<u64>,
-) -> Router<S>
-where
-    S: Clone + Send + Sync + 'static,
-{
-    if let Some(request_timeout_seconds) = request_timeout_seconds {
-        let timeout_duration = StdDuration::from_secs(request_timeout_seconds);
-
-        return router.layer(axum::middleware::from_fn(
-            move |req: axum::extract::Request, next: axum::middleware::Next| async move {
-                let start = std::time::Instant::now();
-                match tokio::time::timeout(timeout_duration, next.run(req)).await {
-                    Ok(response) => response,
-                    Err(_) => {
-                        let elapsed = start.elapsed();
-                        metrics::counter!("capture_request_timeouts_total").increment(1);
-                        tracing::warn!(
-                            timeout_seconds = request_timeout_seconds,
-                            elapsed_seconds = elapsed.as_secs_f64(),
-                            "Request timed out"
-                        );
-                        // This should be a 408 Request Timeout, but we need to set it to
-                        // a >500 status code to avoid breaking SDK integrations.
-                        (StatusCode::GATEWAY_TIMEOUT, "Request timeout").into_response()
-                    }
-                }
-            },
-        ));
-    }
-
-    // no timeout configured
-    router
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -309,7 +271,7 @@ pub fn router<
     router = router.merge(status_router);
 
     // apply request timeout middleware if request_timeout_seconds is set
-    router = apply_request_timeout_middleware(router, request_timeout_seconds);
+    router = apply_request_timeout(router, request_timeout_seconds);
 
     let router = router
         .layer(TraceLayer::new_for_http())
@@ -352,7 +314,7 @@ mod tests {
         // Use a 1 second timeout - the slow handler sleeps for 2 seconds, so it should timeout
         // Create router with test route included before timeout middleware is applied
         let router = Router::new().route("/slow", get(slow_handler));
-        let router = apply_request_timeout_middleware(router, Some(1));
+        let router = apply_request_timeout(router, Some(1));
 
         let client = TestClient::new(router);
         let response = client.get("/slow").send().await;
@@ -366,7 +328,7 @@ mod tests {
     async fn test_normal_request_completes_within_timeout() {
         // Use a longer timeout (1 second) so normal requests complete
         let router = Router::new().route("/fast", get(fast_handler));
-        let router = apply_request_timeout_middleware(router, Some(1));
+        let router = apply_request_timeout(router, Some(1));
 
         let client = TestClient::new(router);
         let response = client.get("/fast").send().await;
@@ -380,7 +342,7 @@ mod tests {
     async fn test_timeout_configuration_works() {
         // Test with 1 second timeout - should timeout on slow handler (which sleeps 2 seconds)
         let router = Router::new().route("/slow", get(slow_handler));
-        let router = apply_request_timeout_middleware(router, Some(1));
+        let router = apply_request_timeout(router, Some(1));
 
         let client = TestClient::new(router);
         let start = std::time::Instant::now();
@@ -397,7 +359,7 @@ mod tests {
     async fn test_no_timeout_when_none_specified() {
         // Test when None is specified - should complete without timeout
         let router = Router::new().route("/slow", get(slow_handler));
-        let router = apply_request_timeout_middleware(router, None);
+        let router = apply_request_timeout(router, None);
 
         let client = TestClient::new(router);
         let start = std::time::Instant::now();
@@ -431,7 +393,7 @@ mod tests {
         }
 
         let router = Router::new().route("/test", post(body_reading_handler));
-        let router = apply_request_timeout_middleware(router, Some(1));
+        let router = apply_request_timeout(router, Some(1));
 
         // Bind to a random port
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
