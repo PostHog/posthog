@@ -21,6 +21,7 @@ import {
     LemonLabel,
     LemonSelect,
     LemonTag,
+    Spinner,
     Tooltip,
     lemonToast,
 } from '@posthog/lemon-ui'
@@ -34,6 +35,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyNumber } from 'lib/utils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 
 import { PropertyFilterType } from '~/types'
@@ -41,6 +43,7 @@ import { PropertyFilterType } from '~/types'
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters } from '../filters/HogFlowFilters'
 import { HogFlowAction } from '../types'
+import { batchTriggerLogic } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 
 export function StepTriggerConfiguration({
@@ -392,6 +395,25 @@ function StepTriggerConfigurationSchedule({
     )
 }
 
+function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; filters: any }): JSX.Element {
+    const logic = batchTriggerLogic({ id: actionId, filters })
+    const { blastRadiusLoading, affectedUsers, totalUsers } = useValues(logic)
+
+    if (blastRadiusLoading) {
+        return <Spinner />
+    }
+
+    if (affectedUsers !== undefined && totalUsers !== null) {
+        return (
+            <div className="text-muted">
+                Affects approximately {humanFriendlyNumber(affectedUsers)} of {humanFriendlyNumber(totalUsers)} users.
+            </div>
+        )
+    }
+
+    return null
+}
+
 function StepTriggerConfigurationBatch({
     action,
     config,
@@ -410,11 +432,15 @@ function StepTriggerConfigurationBatch({
             <LemonField.Pure label="Which group?" error={validationResult?.errors?.cohort_id}>
                 <div>
                     <PropertyFilters
-                        orFiltering={true}
                         pageKey={`workflows-batch-trigger-property-filters-${action.id}`}
                         propertyFilters={config.filters.properties}
-                        logicalRowDivider
                         addText="Add condition"
+                        orFiltering
+                        sendAllKeyUpdates
+                        allowRelativeDateOptions
+                        exactMatchFeatureFlagCohortOperators
+                        hideBehavioralCohorts
+                        logicalRowDivider
                         onChange={(properties) =>
                             partialSetWorkflowActionConfig(action.id, {
                                 filters: {
@@ -434,13 +460,10 @@ function StepTriggerConfigurationBatch({
                             ],
                         }}
                         hasRowOperator={false}
-                        sendAllKeyUpdates
-                        allowRelativeDateOptions
-                        exactMatchFeatureFlagCohortOperators={true}
-                        hideBehavioralCohorts={true}
                     />
                 </div>
             </LemonField.Pure>
+            <StepTriggerAffectedUsers actionId={action.id} filters={config.filters} />
             <LemonDivider />
             <div className="flex gap-2">
                 <span className="font-semibold">Schedule for later?</span>
@@ -454,7 +477,7 @@ function StepTriggerConfigurationBatch({
                 />
             </div>
             {config.scheduled_at && (
-                <LemonField.Pure label="Run this workflow at" error={validationResult?.errors?.scheduled_at}>
+                <LemonField.Pure label="Scheduled time" error={validationResult?.errors?.scheduled_at}>
                     <div className="flex flex-col gap-2">
                         <LemonCalendarSelectInput
                             value={scheduledDateTime}
