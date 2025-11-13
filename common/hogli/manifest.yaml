@@ -94,14 +94,14 @@ core:
             - clickhouse
     dev:reset:
         steps:
-            - docker:services:down
+            - docker:services:remove
             - docker:services:up
             - check:postgres
             - check:clickhouse
             - migrations:run
             - dev:demo-data
             - migrations:sync-flags
-        description: Full reset - stop services, migrate, load demo data, sync flags
+        description: Full reset - wipe volumes, migrate, load demo data, sync flags
 health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up
@@ -262,8 +262,13 @@ docker:
             - redis
             - kafka
     docker:services:down:
+        cmd: docker compose -f docker-compose.dev.yml down
+        description: Stop Docker infrastructure services
+        services:
+            - docker
+    docker:services:remove:
         cmd: docker compose -f docker-compose.dev.yml down -v
-        description: Stop Docker infrastructure services and remove volumes
+        description: Stop Docker infrastructure services and remove all volumes (complete wipe)
         services:
             - docker
     docker:deprecated:
