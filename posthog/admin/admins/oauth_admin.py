@@ -60,7 +60,6 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
         "user_link",
         "organization_link",
         "authorization_grant_type",
-        "authorize_example_link",
     )
     list_display_links = ("id", "name")
     list_filter = ("authorization_grant_type",)
