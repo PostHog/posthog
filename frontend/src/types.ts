@@ -376,6 +376,7 @@ export interface UserType extends UserBaseType {
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
     hedgehog_config?: Partial<HedgehogConfig>
+    allow_sidebar_suggestions?: boolean
     role_at_organization?: string
 }
 

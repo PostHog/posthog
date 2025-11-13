@@ -76,7 +76,7 @@ export const userLogic = kea<userLogicType>([
                     }
                     try {
                         const response = await api.update<UserType>('api/users/@me/', user)
-                        successCallback && successCallback()
+                        successCallback?.()
                         return response
                     } catch (error: any) {
                         console.error(error)
