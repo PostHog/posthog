@@ -1,5 +1,6 @@
 import os
 import subprocess
+from urllib.parse import quote_plus
 
 import pytest
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
@@ -159,31 +160,44 @@ def run_persons_sqlx_migrations():
     db_host = db_config["HOST"]
     db_port = db_config["PORT"]
 
-    # Handle password in URL (may be empty)
-    password_part = f":{db_password}" if db_password else ""
+    # URL encode password to handle special characters
+    password_part = f":{quote_plus(db_password)}" if db_password else ""
     database_url = f"postgres://{db_user}{password_part}@{db_host}:{db_port}/{db_name}"
 
     # Get path to migrations (relative to this file)
-    migrations_path = os.path.join(os.path.dirname(__file__), "..", "rust", "persons_migrations")
+    # conftest.py is at posthog/conftest.py, need to go up two levels to repo root
+    migrations_path = os.path.join(os.path.dirname(__file__), "..", "..", "rust", "persons_migrations")
     migrations_path = os.path.abspath(migrations_path)
 
     env = {**os.environ, "DATABASE_URL": database_url}
 
     # Create database if it doesn't exist (idempotent)
-    subprocess.run(
-        ["sqlx", "database", "create"],
-        env=env,
-        check=True,
-        capture_output=True,
-    )
+    try:
+        subprocess.run(
+            ["sqlx", "database", "create"],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"Failed to create test database with sqlx. "
+            f"Ensure sqlx-cli is installed. Error: {e.stderr.decode() if e.stderr else str(e)}"
+        ) from e
 
     # Run migrations
-    subprocess.run(
-        ["sqlx", "migrate", "run", "--source", migrations_path],
-        env=env,
-        check=True,
-        capture_output=True,
-    )
+    try:
+        subprocess.run(
+            ["sqlx", "migrate", "run", "--source", migrations_path],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"Failed to run sqlx migrations from {migrations_path}. "
+            f"Error: {e.stderr.decode() if e.stderr else str(e)}"
+        ) from e
 
 
 @pytest.fixture(scope="package")
