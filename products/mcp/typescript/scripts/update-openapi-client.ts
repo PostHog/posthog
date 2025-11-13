@@ -1,5 +1,4 @@
 #!/usr/bin/env tsx
-
 import { execSync } from 'node:child_process'
 import * as fs from 'node:fs'
 
@@ -37,7 +36,7 @@ function generateClient() {
     }
 }
 
-function cleanup() {
+function cleanup(): void {
     try {
         if (fs.existsSync(TEMP_SCHEMA_PATH)) {
             fs.unlinkSync(TEMP_SCHEMA_PATH)
@@ -47,7 +46,7 @@ function cleanup() {
     }
 }
 
-async function main() {
+async function main(): Promise<void> {
     const schemaFetched = await fetchSchema()
     if (!schemaFetched) {
         process.exit(1)

@@ -19,11 +19,11 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
     const { children, nodeId } = useValues(notebookNodeLogic)
     const { updateAttributes } = useActions(notebookNodeLogic)
 
-    const startTime = dayjs(session.events[0].timestamp)
-    const endTime = dayjs(session.events[session.events.length - 1].timestamp)
+    const startTime = dayjs(session.events[session.events.length - 1].timestamp)
+    const endTime = dayjs(session.events[0].timestamp)
     const durationSeconds = endTime.diff(startTime, 'second')
 
-    const [isFolded, setIsFolded] = useState(false)
+    const [isFolded, setIsFolded] = useState(true)
 
     const onOpenReplay = (): void => {
         const newChildren = [...(children || [])]

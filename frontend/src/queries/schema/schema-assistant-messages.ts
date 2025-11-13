@@ -273,7 +273,6 @@ export type AssistantTool =
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
     | 'create_message_template'
-    | 'navigate'
     | 'filter_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
     | 'error_tracking_explain_issue'

@@ -5129,10 +5129,44 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="blue_search_term_button")
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="green_search_term_button", active=False)
 
+        # Test searching by flag key
         filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=true&search=search_term")
         response = filtered_flags_list.json()
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == "blue_search_term_button"
+
+        # Test searching by experiment name
+        flag_with_experiment = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="experiment_flag", active=True
+        )
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="unique_experiment_name",
+            feature_flag=flag_with_experiment,
+            deleted=False,
+        )
+
+        filtered_by_experiment = self.client.get(f"/api/projects/@current/feature_flags?search=unique_experiment_name")
+        response = filtered_by_experiment.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "experiment_flag"
+
+        # Test that deleted experiments are not included in search
+        deleted_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="deleted_experiment_flag", active=True
+        )
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="deleted_unique_experiment",
+            feature_flag=deleted_flag,
+            deleted=True,
+        )
+
+        filtered_deleted = self.client.get(f"/api/projects/@current/feature_flags?search=deleted_unique_experiment")
+        response = filtered_deleted.json()
+        assert len(response["results"]) == 0
 
     def test_get_flags_with_stale_filter(self):
         # Create a stale flag (100% rollout with no properties and 30+ days old)
