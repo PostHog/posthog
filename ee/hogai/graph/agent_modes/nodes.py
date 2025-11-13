@@ -42,9 +42,9 @@ from ee.hogai.utils.types.base import NodePath
 
 from .compaction_manager import AnthropicConversationCompactionManager
 from .prompts import (
+    AGENT_CORE_MEMORY_PROMPT,
     AGENT_PROMPT,
     BASIC_FUNCTIONALITY_PROMPT,
-    CORE_MEMORY_INSTRUCTIONS_PROMPT,
     DOING_TASKS_PROMPT,
     PROACTIVENESS_PROMPT,
     ROLE_PROMPT,
@@ -187,12 +187,18 @@ class AgentExecutable(BaseAgentExecutable):
         start_id = state.start_id
 
         # Summarize the conversation if it's too long.
-        if await self._window_manager.should_compact_conversation(
+        current_token_count = await self._window_manager.calculate_token_count(
             model, langchain_messages, tools=tools, thinking_config=self.THINKING_CONFIG
-        ):
+        )
+        if current_token_count > self._window_manager.CONVERSATION_WINDOW_SIZE:
             # Exclude the last message if it's the first turn.
             messages_to_summarize = langchain_messages[:-1] if self._is_first_turn(state) else langchain_messages
-            summary = await AnthropicConversationSummarizer(self._team, self._user).summarize(messages_to_summarize)
+            summary = await AnthropicConversationSummarizer(
+                self._team,
+                self._user,
+                extend_context_window=current_token_count > 195_000,
+            ).summarize(messages_to_summarize)
+
             summary_message = ContextMessage(
                 content=ROOT_CONVERSATION_SUMMARY_PROMPT.format(summary=summary),
                 id=str(uuid4()),
@@ -212,6 +218,7 @@ class AgentExecutable(BaseAgentExecutable):
         system_prompts = ChatPromptTemplate.from_messages(
             [
                 ("system", self._get_system_prompt(state, config)),
+                ("system", AGENT_CORE_MEMORY_PROMPT),
             ],
             template_format="mustache",
         ).format_messages(
@@ -221,7 +228,7 @@ class AgentExecutable(BaseAgentExecutable):
         )
 
         # Mark the longest default prefix as cacheable
-        add_cache_control(system_prompts[-1])
+        add_cache_control(system_prompts[0], ttl="1h")
 
         message = await model.ainvoke(system_prompts + langchain_messages, config)
         assistant_message = self._process_output_message(message)
@@ -263,7 +270,6 @@ class AgentExecutable(BaseAgentExecutable):
         - `{{{task_management}}}`
         - `{{{doing_tasks}}}`
         - `{{{tool_usage_policy}}}`
-        - `{{{core_memory_instructions}}}`
 
         The variables from above can have the following nested variables that will be injected:
         - `{{{groups}}}` – a prompt containing the description of the groups.
@@ -291,7 +297,6 @@ class AgentExecutable(BaseAgentExecutable):
             task_management=TASK_MANAGEMENT_PROMPT,
             doing_tasks=DOING_TASKS_PROMPT,
             tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,
-            core_memory_instructions=CORE_MEMORY_INSTRUCTIONS_PROMPT,
         )
 
     async def _get_billing_prompt(self) -> str:
