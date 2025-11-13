@@ -56,7 +56,7 @@ import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter, UserBasi
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'
-import { CompactUniversalFiltersDisplay } from './RecordingsUniversalFiltersDisplay'
+import { CompactUniversalFiltersDisplay } from './CompactUniversalFiltersDisplay'
 
 export function InsightDetailSectionDisplay({
     icon,
