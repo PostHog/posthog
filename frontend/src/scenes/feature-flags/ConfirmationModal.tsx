@@ -11,7 +11,9 @@ interface ConfirmationModalProps {
     type: ConfirmationModalType
     activeNewValue?: boolean // Only for flag-status type
     changes?: string[] // Only for multi-changes type
-    customMessages?: string[] // Custom message(s) for multi-changes type
+    customConfirmationMessage?: string // Custom confirmation message to replace default message
+    extraMessages?: string[] // Additional messages to display after the main message
+    featureFlagConfirmationEnabled?: boolean // Whether the team has feature flag confirmation enabled in settings
     onConfirm: () => void
 }
 
@@ -24,7 +26,9 @@ export function openConfirmationModal({
     type,
     activeNewValue,
     changes = [],
-    customMessages,
+    customConfirmationMessage,
+    extraMessages,
+    featureFlagConfirmationEnabled = false,
     onConfirm,
 }: ConfirmationModalProps): void {
     let title: string
@@ -72,7 +76,17 @@ export function openConfirmationModal({
             const defaultMessage =
                 '⚠️ These changes will immediately affect users matching the release conditions. Please ensure you understand the consequences before proceeding.'
 
-            const messagesToDisplay = customMessages && customMessages.length > 0 ? customMessages : [defaultMessage]
+            const allMessages: string[] = []
+
+            if (customConfirmationMessage) {
+                allMessages.push(customConfirmationMessage)
+            } else if (featureFlagConfirmationEnabled) {
+                allMessages.push(defaultMessage)
+            }
+
+            if (extraMessages && extraMessages.length > 0) {
+                allMessages.push(...extraMessages)
+            }
 
             description = (
                 <>
@@ -82,7 +96,7 @@ export function openConfirmationModal({
                             <li key={index}>{change}</li>
                         ))}
                     </ul>
-                    {messagesToDisplay.map((message, index) => (
+                    {allMessages.map((message, index) => (
                         <p key={index} className="mt-4">
                             {message}
                         </p>

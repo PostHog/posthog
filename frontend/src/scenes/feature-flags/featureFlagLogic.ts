@@ -706,22 +706,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             }
 
-            const customMessages: string[] = []
+            const extraMessages: string[] = []
             if (dependentFlagsWarning) {
-                customMessages.push(dependentFlagsWarning)
+                extraMessages.push(dependentFlagsWarning)
             }
-            if (values.currentTeam?.feature_flag_confirmation_enabled) {
-                const teamCustomMessage = values.currentTeam?.feature_flag_confirmation_message
-                if (teamCustomMessage) {
-                    customMessages.push(teamCustomMessage)
-                }
+
+            const featureFlagConfirmationEnabled = !!values.currentTeam?.feature_flag_confirmation_enabled
+            let customConfirmationMessage: string | undefined
+            if (featureFlagConfirmationEnabled) {
+                customConfirmationMessage = values.currentTeam?.feature_flag_confirmation_message
             }
+
+            const shouldDisplayConfirmation = featureFlagConfirmationEnabled || extraMessages.length > 0
 
             const confirmationShown = checkFeatureFlagConfirmation(
                 originalFlag,
                 updatedFlag as FeatureFlagType,
-                customMessages.length > 0,
-                customMessages,
+                shouldDisplayConfirmation,
+                customConfirmationMessage,
+                extraMessages,
+                featureFlagConfirmationEnabled,
                 onConfirm
             )
 

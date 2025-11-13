@@ -107,12 +107,14 @@ function detectFeatureFlagChanges(
 export function checkFeatureFlagConfirmation(
     originalFlag: FeatureFlagType | null,
     updatedFlag: FeatureFlagType,
-    confirmationEnabled: boolean,
-    customMessages: string[] | undefined,
+    shouldDisplayConfirmation: boolean,
+    customConfirmationMessage: string | undefined,
+    extraMessages: string[] | undefined,
+    featureFlagConfirmationEnabled: boolean,
     onConfirm: () => void
 ): boolean {
     // Check if confirmation is needed
-    const needsConfirmation = !!updatedFlag.id && confirmationEnabled
+    const needsConfirmation = !!updatedFlag.id && shouldDisplayConfirmation
 
     if (needsConfirmation) {
         const changes = detectFeatureFlagChanges(originalFlag, updatedFlag)
@@ -123,7 +125,9 @@ export function checkFeatureFlagConfirmation(
                 featureFlag: updatedFlag,
                 type: 'multi-changes',
                 changes: changes,
-                customMessages: customMessages,
+                customConfirmationMessage: customConfirmationMessage,
+                extraMessages: extraMessages,
+                featureFlagConfirmationEnabled: featureFlagConfirmationEnabled,
                 onConfirm: onConfirm,
             })
             return true // Confirmation modal shown, don't proceed with save
