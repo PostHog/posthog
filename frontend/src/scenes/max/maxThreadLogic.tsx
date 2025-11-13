@@ -311,10 +311,24 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             } catch (e) {
                 actions.setForAnotherAgenticIteration(false) // Cancel any next iteration
                 if (!(e instanceof DOMException) || e.name !== 'AbortError') {
+                    let releaseException = true
                     const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
 
-                    // Prevents parallel generation attempts. Total wait time is: 21 seconds.
                     if (e instanceof ApiError) {
+                        if (e.status === 400) {
+                            // Validation exception for non-retryable errors, such as idempotency conflict
+                            if (!e.data?.attr && e.data?.code === 'invalid_input') {
+                                releaseException = false
+                            }
+
+                            // Validation exception for the content length
+                            if (e.data?.attr === 'content') {
+                                relevantErrorMessage.content =
+                                    'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+                            }
+                        }
+
+                        // Prevents parallel generation attempts. Total wait time is: 21 seconds.
                         if (e.status === 409 && generationAttempt < 6) {
                             await breakpoint(1000 * (generationAttempt + 1))
                             actions.streamConversation(
@@ -332,11 +346,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         if (e.status === 429) {
                             relevantErrorMessage.content = `You've reached my usage limit for now. Please try again ${e.formattedRetryAfter}.`
                         }
-
-                        if (e.status === 400 && e.data?.attr === 'content') {
-                            relevantErrorMessage.content =
-                                'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
-                        }
                     } else if (e instanceof Error && e.message.toLowerCase() === 'network error') {
                         relevantErrorMessage.content =
                             'Oops! You appear to be offline. Please check your internet connection.'
@@ -345,10 +354,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         console.error(e)
                     }
 
-                    if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
-                        actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
-                    } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
-                        actions.addMessage(relevantErrorMessage)
+                    if (releaseException) {
+                        if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
+                            actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
+                        } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
+                            actions.addMessage(relevantErrorMessage)
+                        }
                     }
                 }
             }
