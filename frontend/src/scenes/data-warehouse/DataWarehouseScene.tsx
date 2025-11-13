@@ -71,7 +71,7 @@ export function DataWarehouseScene(): JSX.Element {
                     },
                     {
                         key: DataWarehouseTab.QUERIES,
-                        label: 'Queries',
+                        label: 'Views',
                         content: <QueriesTab />,
                     },
                 ]}
