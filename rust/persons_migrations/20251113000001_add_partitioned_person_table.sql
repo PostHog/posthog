@@ -26,6 +26,20 @@ BEGIN
     END LOOP;
 END $$;
 
+CREATE TABLE posthog_person_deletes_log (
+      id BIGINT NOT NULL,
+      deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+      team_id INTEGER NOT NULL,
+      uuid UUID NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE,
+      version BIGINT,
+      PRIMARY KEY (id, deleted_at)
+  );
+
+CREATE INDEX idx_person_deletes_log_deleted_at ON posthog_person_deletes_log(deleted_at);
+CREATE INDEX idx_person_deletes_log_team_id ON posthog_person_deletes_log(team_id);
+
+
 -- Trigger function to replicate writes from posthog_person to posthog_person_new
 CREATE OR REPLACE FUNCTION replicate_person_writes()
 RETURNS TRIGGER AS $$
