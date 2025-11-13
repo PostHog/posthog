@@ -201,7 +201,7 @@ impl KafkaSink {
             Codec::Zstandard(ZstandardSettings::default()),
         );
 
-        for row in rows {
+        for row in &rows {
             writer.append_ser(row)?;
         }
 
