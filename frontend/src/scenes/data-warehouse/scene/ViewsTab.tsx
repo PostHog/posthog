@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
 
-import { queriesTabLogic } from './queriesTabLogic'
+import { viewsTabLogic } from './viewsTabLogic'
 
 const STATUS_TAG_SETTINGS: Record<string, LemonTagType> = {
     Running: 'primary',
@@ -65,7 +65,7 @@ function DependencyCount({ count, loading }: { count?: number; loading?: boolean
     return <span>{count}</span>
 }
 
-export function QueriesTab(): JSX.Element {
+export function ViewsTab(): JSX.Element {
     const {
         filteredViews,
         filteredMaterializedViews,
@@ -75,9 +75,9 @@ export function QueriesTab(): JSX.Element {
         runHistoryMapLoading,
         materializedViewsCurrentPage,
         viewsCurrentPage,
-    } = useValues(queriesTabLogic)
+    } = useValues(viewsTabLogic)
     const { setSearchTerm, deleteView, runMaterialization, setMaterializedViewsPage, setViewsPage } =
-        useActions(queriesTabLogic)
+        useActions(viewsTabLogic)
 
     return (
         <div className="space-y-4">

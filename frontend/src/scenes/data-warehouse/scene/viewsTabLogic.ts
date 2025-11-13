@@ -13,12 +13,12 @@ import {
 } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import type { queriesTabLogicType } from './queriesTabLogicType'
+import type { viewsTabLogicType } from './viewsTabLogicType'
 
 const PAGE_SIZE = 10
 
-export const queriesTabLogic = kea<queriesTabLogicType>([
-    path(['scenes', 'data-warehouse', 'scene', 'queriesTabLogic']),
+export const viewsTabLogic = kea<viewsTabLogicType>([
+    path(['scenes', 'data-warehouse', 'scene', 'viewsTabLogic']),
     connect(() => ({
         values: [dataWarehouseViewsLogic, ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueriesLoading']],
         actions: [dataWarehouseViewsLogic, ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery']],
