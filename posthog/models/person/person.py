@@ -11,6 +11,9 @@ from .missing_person import uuidFromDistinctId
 MAX_LIMIT_DISTINCT_IDS = 2500
 PERSON_ID_CUTOFF = 1000000000  # IDs < 1B in old table, >= 1B in new table
 
+# Dual-table read preference: "old" = try old table first, "new" = try new table first
+DUAL_TABLE_READ_PREFERENCE = "old"
+
 if "persons_db_reader" in connections:
     READ_DB_FOR_PERSONS = "persons_db_reader"
 elif "replica" in connections:
@@ -58,25 +61,88 @@ class PersonNew(models.Model):
 
 
 class DualPersonManager(models.Manager):
-    """Manager that reads from both person tables based on ID cutoff.
+    """Manager that reads from both person tables during migration.
 
-    For now, this primarily provides helper methods for ID-based routing.
-    The default queryset continues to use the Person model (pointing to
-    posthog_person table) to maintain compatibility with existing code
-    that relies on reverse relations like persondistinctid_set.
+    Provides dual-table read support by:
+    - get(): Tries preferred table first (configurable), falls back to other
+    - filter(): Returns UNION of both tables (QuerySet, but limited operations)
+    - Helper methods for explicit routing (get_by_id, get_by_uuid)
     """
 
+    def get(self, *args, **kwargs):
+        """Get person from either table, trying preferred table first.
+
+        Supports special cases:
+        - pk=X where X >= 1B: MUST be in new table (can route directly)
+        - pk=X where X < 1B: Could be in either, check preferred first
+        - Other kwargs: try preferred table first, fallback to other
+        """
+        # If pk >= cutoff, we KNOW it's in new table
+        if "pk" in kwargs and kwargs["pk"] >= PERSON_ID_CUTOFF:
+            person = PersonNew.objects.get(*args, **kwargs)
+            person.__class__ = Person
+            return person
+
+        # Otherwise try preferred table first
+        first_model = PersonOld if DUAL_TABLE_READ_PREFERENCE == "old" else PersonNew
+        second_model = PersonNew if DUAL_TABLE_READ_PREFERENCE == "old" else PersonOld
+
+        try:
+            person = first_model.objects.get(*args, **kwargs)
+            person.__class__ = Person
+            return person
+        except first_model.DoesNotExist:
+            try:
+                person = second_model.objects.get(*args, **kwargs)
+                person.__class__ = Person
+                return person
+            except second_model.DoesNotExist:
+                raise Person.DoesNotExist()
+
+    def filter(self, *args, **kwargs):
+        """Filter across both tables, returning UNION QuerySet.
+
+        Note: Union QuerySets have limited operations:
+        - Can iterate (for loops work)
+        - Can't chain most filters after union
+        - Can't use .count(), .update(), .delete() on union
+        - Can't use .prefetch_related(), .select_related()
+
+        Call sites needing these operations should use get_by_id() or
+        query tables individually.
+        """
+        old_qs = PersonOld.objects.filter(*args, **kwargs)
+        new_qs = PersonNew.objects.filter(*args, **kwargs)
+        return old_qs.union(new_qs)
+
     def get_by_id(self, person_id: int, team_id: Optional[int] = None):
-        """Get person by ID, routing to correct table based on ID cutoff."""
-        if person_id < PERSON_ID_CUTOFF:
-            query = PersonOld.objects.filter(id=person_id)
-        else:
+        """Get person by ID, routing based on ID cutoff.
+
+        IDs >= cutoff MUST be in new table.
+        IDs < cutoff could be in either, check preferred first.
+        """
+        if person_id >= PERSON_ID_CUTOFF:
+            # MUST be in new table
             query = PersonNew.objects.filter(id=person_id)
+            if team_id is not None:
+                query = query.filter(team_id=team_id)
+            result = query.first()
+        else:
+            # Could be in either, try preferred first
+            first_model = PersonOld if DUAL_TABLE_READ_PREFERENCE == "old" else PersonNew
+            second_model = PersonNew if DUAL_TABLE_READ_PREFERENCE == "old" else PersonOld
 
-        if team_id is not None:
-            query = query.filter(team_id=team_id)
+            query = first_model.objects.filter(id=person_id)
+            if team_id is not None:
+                query = query.filter(team_id=team_id)
+            result = query.first()
 
-        result = query.first()
+            if not result:
+                query = second_model.objects.filter(id=person_id)
+                if team_id is not None:
+                    query = query.filter(team_id=team_id)
+                result = query.first()
+
         # Convert to Person instance for compatibility with FK relations
         if result:
             result.__class__ = Person
