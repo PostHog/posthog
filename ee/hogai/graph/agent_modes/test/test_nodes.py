@@ -479,13 +479,12 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(await node._get_billing_prompt(), expected_prompt)
 
     @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
-    @patch(
-        "ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation"
-    )
+    @patch("ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
     @patch("ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize")
-    async def test_conversation_summarization_flow(self, mock_summarize, mock_should_compact, mock_model):
+    async def test_conversation_summarization_flow(self, mock_summarize, mock_calculate_tokens, mock_model):
         """Test that conversation is summarized when it gets too long"""
-        mock_should_compact.return_value = True
+        # Return a token count higher than CONVERSATION_WINDOW_SIZE (100,000)
+        mock_calculate_tokens.return_value = 150_000
         mock_summarize.return_value = "This is a summary of the conversation so far."
 
         mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response after summary")])
@@ -513,13 +512,12 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         self.assertIn("This is a summary of the conversation so far.", context_messages[0].content)
 
     @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
-    @patch(
-        "ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation"
-    )
+    @patch("ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
     @patch("ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize")
-    async def test_conversation_summarization_on_first_turn(self, mock_summarize, mock_should_compact, mock_model):
+    async def test_conversation_summarization_on_first_turn(self, mock_summarize, mock_calculate_tokens, mock_model):
         """Test that on first turn, the last message is excluded from summarization"""
-        mock_should_compact.return_value = True
+        # Return a token count higher than CONVERSATION_WINDOW_SIZE (100,000)
+        mock_calculate_tokens.return_value = 150_000
         mock_summarize.return_value = "Summary without last message"
 
         mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
