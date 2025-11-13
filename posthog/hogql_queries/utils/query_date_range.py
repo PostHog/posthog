@@ -79,6 +79,9 @@ class QueryDateRange:
             self._interval = IntervalType.MINUTE
             self._interval_count *= 60
 
+        if self._date_range and self._date_range.explicitDate:
+            self._exact_timerange = True
+
         if not isinstance(self._interval, IntervalType):
             raise ValueError(f"Value {repr(interval)} is not an instance of IntervalType")
         if self._interval == IntervalType.WEEK and self._interval_count > 1:
@@ -147,8 +150,8 @@ class QueryDateRange:
     def now_with_timezone(self) -> datetime:
         return self._now_without_timezone.astimezone(self._timezone_info)
 
-    def format_date(self, datetime) -> str:
-        return datetime.strftime("%Y-%m-%d %H:%M:%S")
+    def format_date(self, date_value: datetime) -> str:
+        return date_value.strftime("%Y-%m-%d %H:%M:%S")
 
     @cached_property
     def date_to_str(self) -> str:

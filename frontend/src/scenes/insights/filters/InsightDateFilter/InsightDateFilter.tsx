@@ -20,11 +20,14 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
         <DateFilter
             dateTo={dateRange?.date_to ?? undefined}
             dateFrom={dateRange?.date_from ?? '-7d'}
+            explicitDate={dateRange?.explicitDate ?? false}
             allowTimePrecision
             disabled={disabled}
             disabledReason={editingDisabledReason}
             onChange={(date_from, date_to, explicit_date) => {
-                updateDateRange({ date_from, date_to, explicitDate: explicit_date })
+                // Prevent debouncing when toggling the exact time range tootle as it glitches the animation
+                const ignoreDebounce = dateRange?.explicitDate !== explicit_date
+                updateDateRange({ date_from, date_to, explicitDate: explicit_date }, ignoreDebounce)
             }}
             dateOptions={dateMapping}
             allowedRollingDateOptions={isTrends ? ['hours', 'days', 'weeks', 'months', 'years'] : undefined}
