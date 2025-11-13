@@ -165,8 +165,8 @@ def run_persons_sqlx_migrations():
     database_url = f"postgres://{db_user}{password_part}@{db_host}:{db_port}/{db_name}"
 
     # Get path to migrations (relative to this file)
-    # conftest.py is at posthog/conftest.py, need to go up two levels to repo root
-    migrations_path = os.path.join(os.path.dirname(__file__), "..", "..", "rust", "persons_migrations")
+    # conftest.py is at posthog/conftest.py, go up one level to repo root
+    migrations_path = os.path.join(os.path.dirname(__file__), "..", "rust", "persons_migrations")
     migrations_path = os.path.abspath(migrations_path)
 
     env = {**os.environ, "DATABASE_URL": database_url}
