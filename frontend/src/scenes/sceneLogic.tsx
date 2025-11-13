@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -271,6 +271,7 @@ const productsNotDependingOnEventIngestion: ProductKey[] = [ProductKey.DATA_WARE
 
 const pathPrefixesOnboardingNotRequiredFor = [
     urls.onboarding(''),
+    urls.useCaseSelection(),
     urls.products(),
     '/settings',
     urls.organizationBilling(),
@@ -1122,13 +1123,22 @@ export const sceneLogic = kea<sceneLogicType>([
                                 ) &&
                                 !teamLogic.values.currentTeam?.ingested_event
                             ) {
-                                console.warn('No onboarding completed, redirecting to /products')
-
                                 const nextUrl =
                                     getRelativeNextPath(params.searchParams.next, location) ??
                                     removeProjectIdIfPresent(location.pathname)
 
-                                router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
+                                // Default to false (products page) if feature flags haven't loaded yet
+                                const useUseCaseSelection =
+                                    values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === true
+
+                                if (useUseCaseSelection) {
+                                    router.actions.replace(
+                                        urls.useCaseSelection(),
+                                        nextUrl ? { next: nextUrl } : undefined
+                                    )
+                                } else {
+                                    router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
+                                }
                                 return
                             }
 
