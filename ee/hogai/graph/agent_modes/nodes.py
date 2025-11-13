@@ -187,12 +187,18 @@ class AgentExecutable(BaseAgentExecutable):
         start_id = state.start_id
 
         # Summarize the conversation if it's too long.
-        if await self._window_manager.should_compact_conversation(
+        current_token_count = await self._window_manager.calculate_token_count(
             model, langchain_messages, tools=tools, thinking_config=self.THINKING_CONFIG
-        ):
+        )
+        if current_token_count > self._window_manager.CONVERSATION_WINDOW_SIZE:
             # Exclude the last message if it's the first turn.
             messages_to_summarize = langchain_messages[:-1] if self._is_first_turn(state) else langchain_messages
-            summary = await AnthropicConversationSummarizer(self._team, self._user).summarize(messages_to_summarize)
+            summary = await AnthropicConversationSummarizer(
+                self._team,
+                self._user,
+                extend_context_window=current_token_count > 195_000,
+            ).summarize(messages_to_summarize)
+
             summary_message = ContextMessage(
                 content=ROOT_CONVERSATION_SUMMARY_PROMPT.format(summary=summary),
                 id=str(uuid4()),
