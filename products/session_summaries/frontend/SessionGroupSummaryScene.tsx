@@ -12,7 +12,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
-import { SessionDetailsModal } from './SessionDetailsModal'
+import { SessionGroupSummaryDetailsModal } from './SessionGroupSummaryDetailsModal'
 import { SessionGroupSummarySceneLogicProps, sessionGroupSummarySceneLogic } from './sessionGroupSummarySceneLogic'
 import {
     EnrichedSessionGroupSummaryPattern,
@@ -295,7 +295,11 @@ export function SessionGroupSummary(): JSX.Element {
             </div>
 
             {selectedEvent && (
-                <SessionDetailsModal isOpen={isModalOpen} onClose={handleCloseModal} event={selectedEvent} />
+                <SessionGroupSummaryDetailsModal
+                    isOpen={isModalOpen}
+                    onClose={handleCloseModal}
+                    event={selectedEvent}
+                />
             )}
         </SceneContent>
     )

@@ -16,7 +16,7 @@ interface SessionDetailsModalProps {
     event: PatternAssignedEventSegmentContext | null
 }
 
-export function SessionDetailsModal({ isOpen, onClose, event }: SessionDetailsModalProps): JSX.Element {
+export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: SessionDetailsModalProps): JSX.Element {
     const playerKey = 'session-details-modal'
     const sessionRecordingId = event?.target_event?.session_id
     const logicProps = {
