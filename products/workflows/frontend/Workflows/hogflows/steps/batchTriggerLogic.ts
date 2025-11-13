@@ -1,5 +1,5 @@
-import { actions, kea, key, path, props, propsChanged, reducers } from 'kea'
-import { lazyLoaders } from 'kea-loaders'
+import { actions, afterMount, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
@@ -24,7 +24,7 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
             setFilters: (_, { filters }) => filters,
         },
     })),
-    lazyLoaders(({ props }) => ({
+    loaders(({ props }) => ({
         blastRadius: [
             null as { users_affected: number; total_users: number } | null,
             {
@@ -34,8 +34,19 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
             },
         ],
     })),
+    selectors({
+        isBlastRadiusTooLarge: [
+            (s) => [s.blastRadius],
+            (blastRadius: { users_affected: number } | null) => blastRadius && blastRadius.users_affected > 1500,
+        ],
+    }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps || !objectsEqual(props.filters, oldProps.filters)) {
+            actions.loadBlastRadius()
+        }
+    }),
+    afterMount(({ actions, props }) => {
+        if (props.filters.properties.length > 0) {
             actions.loadBlastRadius()
         }
     }),

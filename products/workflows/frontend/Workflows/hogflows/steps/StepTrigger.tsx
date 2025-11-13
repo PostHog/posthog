@@ -10,6 +10,7 @@ import {
     IconPeople,
     IconPlusSmall,
     IconTarget,
+    IconWarning,
     IconWebhooks,
 } from '@posthog/icons'
 import {
@@ -202,7 +203,6 @@ export function StepTriggerConfiguration({
                                           type: 'batch',
                                           filters: {
                                               properties: [],
-                                              cohorts: [],
                                           },
                                           scheduled_at: undefined,
                                       })
@@ -411,7 +411,7 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
     if (users_affected !== undefined && total_users !== null) {
         return (
             <div className="text-muted">
-                approximately {humanFriendlyNumber(users_affected)} of {humanFriendlyNumber(total_users)} users.
+                approximately {humanFriendlyNumber(users_affected)} of {humanFriendlyNumber(total_users)} persons.
             </div>
         )
     }
@@ -429,6 +429,7 @@ function StepTriggerConfigurationBatch({
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const validationResult = actionValidationErrorsById[action.id]
+    const { isBlastRadiusTooLarge } = useValues(batchTriggerLogic({ id: action.id, filters: config.filters }))
 
     const scheduledDateTime = config.scheduled_at ? dayjs(config.scheduled_at) : null
 
@@ -438,6 +439,12 @@ function StepTriggerConfigurationBatch({
                 <span className="font-semibold">This batch will include</span>{' '}
                 <StepTriggerAffectedUsers actionId={action.id} filters={config.filters} />
             </div>
+            {isBlastRadiusTooLarge && (
+                <div className="text-danger text-sm mb-2">
+                    <IconWarning /> Batch workflow runs will be limited to 1,500 persons during the workflows beta. If
+                    your batch size exceeds this limit, batch runs will stop before completion.
+                </div>
+            )}
             <div>
                 <PropertyFilters
                     pageKey={`workflows-batch-trigger-property-filters-${action.id}`}
