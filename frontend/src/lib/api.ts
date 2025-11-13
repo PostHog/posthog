@@ -1951,7 +1951,7 @@ const api = {
         async delete(id: string): Promise<void> {
             return await new ApiRequest().userProductListDetail(id).delete()
         },
-        async bulkUpdate(data: { products: Array<{ product_path: string }> }): Promise<void> {
+        async bulkUpdate(data: { products: string[] }): Promise<void> {
             return await new ApiRequest().userProductList().withAction('bulk_update').create({ data })
         },
     },

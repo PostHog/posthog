@@ -125,11 +125,7 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
         save: async () => {
             actions.setSaving(true)
             try {
-                const products = Array.from<string>(values.selectedPaths).map((path) => ({
-                    product_path: path,
-                }))
-
-                await api.userProductList.bulkUpdate({ products })
+                await api.userProductList.bulkUpdate({ products: Array.from(values.selectedPaths) })
 
                 if (values.user && values.user.allow_sidebar_suggestions !== values.allowSidebarSuggestions) {
                     actions.updateUser({ allow_sidebar_suggestions: values.allowSidebarSuggestions })

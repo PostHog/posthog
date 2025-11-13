@@ -44,17 +44,7 @@ class UserProductListSerializer(serializers.ModelSerializer):
 
 
 class BulkUpdateUserProductListSerializer(serializers.Serializer):
-    products = serializers.ListField(
-        child=serializers.DictField(
-            child=serializers.CharField(),
-        )
-    )
-
-    def validate_products(self, value):
-        for product in value:
-            if "product_path" not in product:
-                raise serializers.ValidationError("Each product must have a 'product_path' field.")
-        return value
+    products = serializers.ListField(child=serializers.CharField())
 
 
 class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -70,14 +60,12 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = BulkUpdateUserProductListSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        products_data = serializer.validated_data["products"]
-
+        product_paths_to_keep = set(serializer.validated_data["products"])
         existing_products = {
             item.product_path: item for item in UserProductList.objects.filter(team=self.team, user=request.user)
         }
 
-        product_paths_to_keep = {product["product_path"] for product in products_data}
-
+        # Products we need to create
         for product_path in product_paths_to_keep:
             if product_path not in existing_products:
                 UserProductList.objects.create(
@@ -87,9 +75,9 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     enabled=True,
                 )
 
+        # Products that already exist, decide whether they should be enabled or disabled
         for product_path, item in existing_products.items():
-            if product_path not in product_paths_to_keep:
-                item.enabled = False
-                item.save()
+            item.enabled = product_path in product_paths_to_keep
+            item.save()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
