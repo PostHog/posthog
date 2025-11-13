@@ -220,10 +220,6 @@ migrate_volume() {
     ./bin/hogli db:restore "$BACKUP_FILE"
 
     echo ""
-    echo "Step 6: Starting all services..."
-    docker compose -f "$COMPOSE_FILE" up -d
-
-    echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "✅ PostgreSQL upgrade complete!"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
