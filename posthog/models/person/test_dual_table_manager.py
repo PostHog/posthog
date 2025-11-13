@@ -6,6 +6,7 @@ from django.db import connection
 
 from posthog.models import Person, PersonDistinctId, Team
 from posthog.models.person.person import PERSON_ID_CUTOFF
+from posthog.models.person.util import get_persons_by_distinct_ids
 
 
 class TestDualTablePersonManager(BaseTest):
@@ -29,6 +30,12 @@ class TestDualTablePersonManager(BaseTest):
                 CREATE TABLE IF NOT EXISTS posthog_person_new (
                     LIKE posthog_person INCLUDING DEFAULTS
                 )
+            """)
+            # Drop FK constraint to allow distinct IDs pointing to persons in both tables
+            # (mirrors production migration rust/persons_migrations/20251113000001_add_partitioned_person_table.sql)
+            cursor.execute("""
+                ALTER TABLE posthog_persondistinctid
+                DROP CONSTRAINT IF EXISTS posthog_persondistinctid_person_id_5d655bba_fk
             """)
 
     @classmethod
@@ -255,3 +262,91 @@ class TestDualTablePersonManager(BaseTest):
             self.assertEqual(distinct_ids[0].distinct_id, "test_distinct_id")
         finally:
             PersonDistinctId.objects.filter(distinct_id="test_distinct_id").delete()
+
+    # Test get_persons_by_distinct_ids() helper
+    def test_get_persons_by_distinct_ids_finds_old_table(self):
+        """Test get_persons_by_distinct_ids() finds persons in old table."""
+        # Create a distinct ID for old person
+        PersonDistinctId.objects.create(person_id=100, team_id=self.team.id, distinct_id="old_distinct_id")
+
+        try:
+            persons = get_persons_by_distinct_ids(self.team.id, ["old_distinct_id"])
+            self.assertEqual(len(persons), 1)
+            self.assertEqual(persons[0].id, 100)
+            self.assertEqual(type(persons[0]).__name__, "Person")
+        finally:
+            PersonDistinctId.objects.filter(distinct_id="old_distinct_id").delete()
+
+    def test_get_persons_by_distinct_ids_finds_new_table(self):
+        """Test get_persons_by_distinct_ids() finds persons in new table."""
+        # Create a distinct ID for new person using raw SQL (FK constraint doesn't allow ORM create)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO posthog_persondistinctid (person_id, team_id, distinct_id)
+                VALUES (%s, %s, %s)
+                """,
+                [PERSON_ID_CUTOFF + 100, self.team.id, "new_distinct_id"],
+            )
+
+        try:
+            persons = get_persons_by_distinct_ids(self.team.id, ["new_distinct_id"])
+            self.assertEqual(len(persons), 1)
+            self.assertEqual(persons[0].id, PERSON_ID_CUTOFF + 100)
+            self.assertEqual(type(persons[0]).__name__, "Person")
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM posthog_persondistinctid WHERE distinct_id = %s", ["new_distinct_id"])
+
+    def test_get_persons_by_distinct_ids_finds_both_tables(self):
+        """Test get_persons_by_distinct_ids() finds persons from both tables in one call."""
+        # Create distinct IDs for both persons (use raw SQL for new table person)
+        PersonDistinctId.objects.create(person_id=100, team_id=self.team.id, distinct_id="old_distinct_id_2")
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO posthog_persondistinctid (person_id, team_id, distinct_id)
+                VALUES (%s, %s, %s)
+                """,
+                [PERSON_ID_CUTOFF + 100, self.team.id, "new_distinct_id_2"],
+            )
+
+        try:
+            persons = get_persons_by_distinct_ids(self.team.id, ["old_distinct_id_2", "new_distinct_id_2"])
+            self.assertEqual(len(persons), 2)
+
+            person_ids = {p.id for p in persons}
+            self.assertEqual(person_ids, {100, PERSON_ID_CUTOFF + 100})
+
+            # Check all are Person type
+            for person in persons:
+                self.assertEqual(type(person).__name__, "Person")
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM posthog_persondistinctid WHERE distinct_id IN ('old_distinct_id_2', 'new_distinct_id_2')"
+                )
+
+    def test_get_persons_by_distinct_ids_has_prefetched_distinct_ids(self):
+        """Test that get_persons_by_distinct_ids() prefetches distinct_ids."""
+        # Create multiple distinct IDs for old person
+        PersonDistinctId.objects.create(person_id=100, team_id=self.team.id, distinct_id="distinct_1")
+        PersonDistinctId.objects.create(person_id=100, team_id=self.team.id, distinct_id="distinct_2")
+
+        try:
+            persons = get_persons_by_distinct_ids(self.team.id, ["distinct_1", "distinct_2"])
+            self.assertEqual(len(persons), 1)
+
+            person = persons[0]
+            # Access distinct_ids property - should use prefetch, not hit DB
+            distinct_ids = person.distinct_ids
+            self.assertEqual(len(distinct_ids), 2)
+            self.assertIn("distinct_1", distinct_ids)
+            self.assertIn("distinct_2", distinct_ids)
+        finally:
+            PersonDistinctId.objects.filter(distinct_id__in=["distinct_1", "distinct_2"]).delete()
+
+    def test_get_persons_by_distinct_ids_returns_empty_for_missing(self):
+        """Test get_persons_by_distinct_ids() returns empty list when no persons found."""
+        persons = get_persons_by_distinct_ids(self.team.id, ["nonexistent_distinct_id"])
+        self.assertEqual(len(persons), 0)

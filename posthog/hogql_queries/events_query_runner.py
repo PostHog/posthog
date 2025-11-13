@@ -3,7 +3,6 @@ from datetime import timedelta
 from functools import cached_property
 from typing import Optional, cast
 
-from django.db.models import Prefetch
 from django.utils.timezone import now
 
 import orjson
@@ -331,8 +330,8 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 for i in range(0, len(distinct_ids), batch_size):
                     batch_distinct_ids = distinct_ids[i : i + batch_size]
                     persons = get_persons_by_distinct_ids(self.team.pk, batch_distinct_ids)
-                    persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-                    for person in persons.iterator(chunk_size=1000):
+                    # Prefetch already done in get_persons_by_distinct_ids()
+                    for person in persons:
                         if person:
                             for person_distinct_id in person.distinct_ids:
                                 distinct_to_person[person_distinct_id] = person

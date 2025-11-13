@@ -16,7 +16,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID
 from posthog.models.person import Person, PersonDistinctId
-from posthog.models.person.person import READ_DB_FOR_PERSONS
+from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonNew, PersonOld
 from posthog.models.person.sql import (
     BULK_INSERT_PERSON_DISTINCT_ID2,
     INSERT_PERSON_BULK_SQL,
@@ -189,12 +189,62 @@ def create_person_distinct_id(
     )
 
 
-def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> QuerySet:
-    return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
-        team_id=team_id,
-        persondistinctid__team_id=team_id,
-        persondistinctid__distinct_id__in=distinct_ids,
+def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> list[Person]:
+    """Get persons by distinct IDs during dual-table migration period.
+
+    Queries both posthog_person (old) and posthog_person_new tables, combining results.
+    Results have persondistinctid_set prefetched for efficient distinct_ids access.
+
+    TODO(migration-cleanup): After migration completes (~2 weeks), remove dual-table logic:
+      1. Delete: PersonOld query and old loop
+      2. Keep: Only PersonNew query
+      3. Or revert to: Person.objects.filter(persondistinctid__distinct_id__in=distinct_ids)
+    """
+    # Step 1: Get person_ids from PersonDistinctId
+    # (FK constraints dropped, so person_id works for both tables)
+    person_ids = list(
+        PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+        .filter(team_id=team_id, distinct_id__in=distinct_ids)
+        .values_list("person_id", flat=True)
+        .distinct()
     )
+
+    if not person_ids:
+        return []
+
+    # Step 2: Query both tables
+    old_persons = list(PersonOld.objects.db_manager(READ_DB_FOR_PERSONS).filter(id__in=person_ids, team_id=team_id))
+    new_persons = list(PersonNew.objects.db_manager(READ_DB_FOR_PERSONS).filter(id__in=person_ids, team_id=team_id))
+
+    # Step 3: Manually prefetch PersonDistinctId for all persons
+    # (PersonOld/PersonNew don't have persondistinctid_set relation, so we manually attach it)
+    all_person_ids = [p.id for p in old_persons] + [p.id for p in new_persons]
+    if all_person_ids:
+        distinct_id_objects = list(
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+                person_id__in=all_person_ids, team_id=team_id
+            )
+        )
+
+        # Group by person_id
+        person_to_distinct_ids: dict[int, list] = {}
+        for did in distinct_id_objects:
+            person_to_distinct_ids.setdefault(did.person_id, []).append(did)
+
+        # Attach to persons as distinct_ids_cache
+        for person in old_persons + new_persons:
+            person.distinct_ids_cache = person_to_distinct_ids.get(person.id, [])
+
+    # Step 4: Cast to Person type and return
+    results = []
+    for person in old_persons:
+        person.__class__ = Person
+        results.append(person)
+    for person in new_persons:
+        person.__class__ = Person
+        results.append(person)
+
+    return results
 
 
 def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet:
