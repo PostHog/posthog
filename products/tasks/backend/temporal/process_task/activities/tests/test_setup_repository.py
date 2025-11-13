@@ -51,7 +51,11 @@ class TestSetupRepositoryActivity:
                 "products.tasks.backend.temporal.process_task.activities.setup_repository.Sandbox._get_setup_command"
             ) as mock_setup_cmd:
                 mock_setup_cmd.return_value = (
-                    "echo 'hello world' > test_setup.txt && git add test_setup.txt && git commit -m 'test setup'"
+                    "git config user.email 'test@example.com' && "
+                    "git config user.name 'Test User' && "
+                    "echo 'hello world' > test_setup.txt && "
+                    "git add test_setup.txt && "
+                    "git commit -m 'test setup'"
                 )
 
                 setup_input = SetupRepositoryInput(

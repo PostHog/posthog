@@ -158,7 +158,7 @@ class TestCloneRepositoryActivity:
         try:
             sandbox = Sandbox.create(config)
 
-            repos = ["PostHog/posthog-js", "PostHog/posthog.com"]
+            repos = ["PostHog/posthog-js", "PostHog/posthog-python"]
 
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
@@ -181,7 +181,7 @@ class TestCloneRepositoryActivity:
                 # Verify both repos exist
                 check_result = sandbox.execute("ls /tmp/workspace/repos/posthog/")
                 assert "posthog-js" in check_result.stdout
-                assert "posthog.com" in check_result.stdout
+                assert "posthog-python" in check_result.stdout
 
                 # Verify they're both git repositories
                 for repo in repos:
