@@ -8,7 +8,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
-import { AvailableFeature, SurveyAppearance, SurveyPosition, SurveyType, SurveyWidgetType } from '~/types'
+import { SurveyAppearance, SurveyPosition, SurveyType, SurveyWidgetType } from '~/types'
 
 import { SurveyPositionSelector } from './SurveyAppearancePositionSelector'
 
@@ -75,12 +75,7 @@ function SurveyAppearanceInput({ value, onChange, error, label, info }: SurveyAp
     const { surveysStylingAvailable } = useValues(surveysLogic)
 
     return (
-        <LemonField.Pure
-            label={label}
-            className="flex-1 gap-1"
-            info={info}
-            premiumFeature={AvailableFeature.SURVEYS_STYLING}
-        >
+        <LemonField.Pure label={label} className="flex-1 gap-1" info={info}>
             <LemonInput
                 value={value}
                 onChange={onChange}
@@ -138,7 +133,6 @@ export function SurveyContainerAppearance({
                         : undefined
                 }
                 className="gap-1 col-span-2"
-                premiumFeature={AvailableFeature.SURVEYS_STYLING}
             >
                 <div className="flex items-center gap-2">
                     <SurveyPositionSelector
@@ -181,7 +175,6 @@ export function SurveyContainerAppearance({
                 label="Font family"
                 info="Custom font selection requires at least version 1.223.4 of posthog-js"
                 className="gap-1"
-                premiumFeature={AvailableFeature.SURVEYS_STYLING}
             >
                 <LemonSelect
                     value={appearance?.fontFamily}
