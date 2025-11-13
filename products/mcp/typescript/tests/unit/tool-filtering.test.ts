@@ -1,20 +1,16 @@
+import { describe, expect, it } from 'vitest'
+
 import { SessionManager } from '@/lib/utils/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import { getToolsForFeatures } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
-import { describe, expect, it } from 'vitest'
 
 describe('Tool Filtering - Features', () => {
     const featureTests = [
         {
             features: undefined,
             description: 'all tools when no features specified',
-            expectedTools: [
-                'feature-flag-get-definition',
-                'dashboard-create',
-                'insights-get-all',
-                'organizations-get',
-            ],
+            expectedTools: ['feature-flag-get-definition', 'dashboard-create', 'insights-get-all', 'organizations-get'],
         },
         {
             features: [],
@@ -160,11 +156,7 @@ describe('Tool Filtering - API Scopes', () => {
     })
 
     it('should return multiple scope tools when user has multiple scopes', async () => {
-        const context = createMockContext([
-            'dashboard:read',
-            'feature_flag:write',
-            'organization:read',
-        ])
+        const context = createMockContext(['dashboard:read', 'feature_flag:write', 'organization:read'])
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 

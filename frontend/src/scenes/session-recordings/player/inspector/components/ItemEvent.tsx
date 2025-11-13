@@ -4,6 +4,7 @@ import { IconShare } from '@posthog/icons'
 import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
 import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
+import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes } from 'lib/components/Errors/utils'
 import { EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -218,7 +219,12 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                         </>
                                     )
                                 case 'error_display':
-                                    return <ErrorDisplay eventProperties={properties} eventId={idFrom(event)} />
+                                    return (
+                                        <ErrorDisplay
+                                            eventProperties={properties}
+                                            eventId={idFrom(event as ErrorEventType)}
+                                        />
+                                    )
                                 default:
                                     return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
                             }

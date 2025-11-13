@@ -1,10 +1,9 @@
 #!/usr/bin/env tsx
-
 // Generates JSON schema from Zod tool-inputs schemas for Python Pydantic schema generation
-
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { zodToJsonSchema } from 'zod-to-json-schema'
+
 import * as schemas from '../src/schema/tool-inputs'
 
 const outputPath = path.join(__dirname, '../../schema/tool-inputs.json')

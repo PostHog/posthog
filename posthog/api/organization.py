@@ -4,7 +4,6 @@ from functools import cached_property
 from typing import Any, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
-from django.dispatch import receiver
 from django.shortcuts import get_object_or_404
 
 import posthoganalytics
@@ -28,7 +27,7 @@ from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
-from posthog.models.signals import model_activity_signal, mute_selected_signals
+from posthog.models.signals import model_activity_signal, mutable_receiver, mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
@@ -448,7 +447,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response({"success": True, "message": "Migration started"}, status=202)
 
 
-@receiver(model_activity_signal, sender=Organization)
+@mutable_receiver(model_activity_signal, sender=Organization)
 def handle_organization_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
@@ -488,7 +487,7 @@ class OrganizationInviteContext(ActivityContextBase):
     level: str
 
 
-@receiver(model_activity_signal, sender=OrganizationMembership)
+@mutable_receiver(model_activity_signal, sender=OrganizationMembership)
 def handle_organization_membership_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
@@ -533,7 +532,7 @@ def handle_organization_membership_change(
     )
 
 
-@receiver(model_activity_signal, sender=OrganizationInvite)
+@mutable_receiver(model_activity_signal, sender=OrganizationInvite)
 def handle_organization_invite_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

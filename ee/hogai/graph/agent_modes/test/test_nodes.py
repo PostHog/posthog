@@ -13,7 +13,6 @@ from langchain_core.messages import (
 )
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import RunnableConfig
-from langgraph.errors import NodeInterrupt
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -34,6 +33,7 @@ from posthog.models.organization import OrganizationMembership
 from products.replay.backend.max_tools import SearchSessionRecordingsTool
 
 from ee.hogai.context import AssistantContextManager
+from ee.hogai.tool_errors import MaxToolError, MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.tools.read_taxonomy import ReadEvents
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -871,40 +871,6 @@ class TestAgentToolsNode(BaseTest):
             self.assertEqual(len(result.messages), 1)
             self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
 
-    async def test_navigate_tool_call_raises_node_interrupt(self):
-        """Test that navigate tool calls raise NodeInterrupt to pause graph execution"""
-        node = _create_agent_tools_node(self.team, self.user)
-
-        state = AssistantState(
-            messages=[
-                AssistantMessage(
-                    content="I'll help you navigate to insights",
-                    id="test-id",
-                    tool_calls=[AssistantToolCall(id="nav-123", name="navigate", args={"page_key": "insights"})],
-                )
-            ],
-            root_tool_call_id="nav-123",
-        )
-
-        mock_navigate_tool = AsyncMock()
-        mock_navigate_tool.ainvoke.return_value = LangchainToolMessage(
-            content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
-        )
-
-        # The navigate tool call should raise NodeInterrupt
-        with self.assertRaises(NodeInterrupt) as cm:
-            await node(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
-
-        # Verify the NodeInterrupt contains the expected message
-        # NodeInterrupt wraps the message in an Interrupt object
-        interrupt_data = cm.exception.args[0]
-        if isinstance(interrupt_data, list):
-            interrupt_data = interrupt_data[0].value
-        self.assertIsInstance(interrupt_data, AssistantToolCallMessage)
-        self.assertIn("Navigated to **insights**.", interrupt_data.content)
-        self.assertEqual(interrupt_data.tool_call_id, "nav-123")
-        self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
-
     async def test_arun_tool_returns_wrong_type_returns_error_message(self):
         """Test that tool returning wrong type returns an error message"""
         node = _create_agent_tools_node(self.team, self.user)
@@ -955,3 +921,163 @@ class TestAgentToolsNode(BaseTest):
             assert isinstance(result.messages[0], AssistantToolCallMessage)
             self.assertEqual(result.messages[0].tool_call_id, "tool-123")
             self.assertIn("does not exist", result.messages[0].content)
+
+    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    async def test_max_tool_fatal_error_returns_error_message(self, read_taxonomy_mock):
+        """Test that MaxToolFatalError is caught and converted to tool message."""
+        read_taxonomy_mock.side_effect = MaxToolFatalError(
+            "Configuration error: INKEEP_API_KEY environment variable is not set"
+        )
+
+        node = _create_agent_tools_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Using tool that will fail",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="tool-123", name="read_taxonomy", args={"query": {"kind": "events"}})
+                    ],
+                )
+            ],
+            root_tool_call_id="tool-123",
+        )
+
+        result = await node.arun(state, {})
+
+        self.assertIsInstance(result, PartialAssistantState)
+        assert result is not None
+        self.assertEqual(len(result.messages), 1)
+        assert isinstance(result.messages[0], AssistantToolCallMessage)
+        self.assertEqual(result.messages[0].tool_call_id, "tool-123")
+        self.assertIn("Configuration error", result.messages[0].content)
+        self.assertIn("INKEEP_API_KEY", result.messages[0].content)
+        self.assertNotIn("retry", result.messages[0].content.lower())
+
+    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    async def test_max_tool_retryable_error_returns_error_with_retry_hint(self, read_taxonomy_mock):
+        """Test that MaxToolRetryableError includes retry hint for adjusted inputs."""
+        read_taxonomy_mock.side_effect = MaxToolRetryableError(
+            "Invalid entity kind: 'unknown_entity'. Must be one of: person, session, organization"
+        )
+
+        node = _create_agent_tools_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Using tool with invalid input",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="tool-123", name="read_taxonomy", args={"query": {"kind": "events"}})
+                    ],
+                )
+            ],
+            root_tool_call_id="tool-123",
+        )
+
+        result = await node.arun(state, {})
+
+        self.assertIsInstance(result, PartialAssistantState)
+        assert result is not None
+        self.assertEqual(len(result.messages), 1)
+        assert isinstance(result.messages[0], AssistantToolCallMessage)
+        self.assertEqual(result.messages[0].tool_call_id, "tool-123")
+        self.assertIn("Invalid entity kind", result.messages[0].content)
+        self.assertIn("retry with adjusted inputs", result.messages[0].content.lower())
+
+    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    async def test_max_tool_transient_error_returns_error_with_once_retry_hint(self, read_taxonomy_mock):
+        """Test that MaxToolTransientError includes hint to retry once without changes."""
+        read_taxonomy_mock.side_effect = MaxToolTransientError("Rate limit exceeded. Please try again in a few moments")
+
+        node = _create_agent_tools_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Using tool that hits rate limit",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="tool-123", name="read_taxonomy", args={"query": {"kind": "events"}})
+                    ],
+                )
+            ],
+            root_tool_call_id="tool-123",
+        )
+
+        result = await node.arun(state, {})
+
+        self.assertIsInstance(result, PartialAssistantState)
+        assert result is not None
+        self.assertEqual(len(result.messages), 1)
+        assert isinstance(result.messages[0], AssistantToolCallMessage)
+        self.assertEqual(result.messages[0].tool_call_id, "tool-123")
+        self.assertIn("Rate limit exceeded", result.messages[0].content)
+        self.assertIn("retry this operation once without changes", result.messages[0].content.lower())
+
+    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    async def test_generic_exception_returns_internal_error_message(self, read_taxonomy_mock):
+        """Test that generic exceptions are caught and return internal error message."""
+        read_taxonomy_mock.side_effect = RuntimeError("Unexpected internal error")
+
+        node = _create_agent_tools_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Using tool that crashes unexpectedly",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="tool-123", name="read_taxonomy", args={"query": {"kind": "events"}})
+                    ],
+                )
+            ],
+            root_tool_call_id="tool-123",
+        )
+
+        result = await node.arun(state, {})
+
+        self.assertIsInstance(result, PartialAssistantState)
+        assert result is not None
+        self.assertEqual(len(result.messages), 1)
+        assert isinstance(result.messages[0], AssistantToolCallMessage)
+        self.assertEqual(result.messages[0].tool_call_id, "tool-123")
+        self.assertIn("internal error", result.messages[0].content.lower())
+        self.assertIn("do not immediately retry", result.messages[0].content.lower())
+
+    @parameterized.expand(
+        [
+            ("fatal", MaxToolFatalError("Fatal error"), "never"),
+            ("transient", MaxToolTransientError("Transient error"), "once"),
+            ("retryable", MaxToolRetryableError("Retryable error"), "adjusted"),
+        ]
+    )
+    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    async def test_all_error_types_are_logged_with_retry_strategy(
+        self, name, error, expected_strategy, read_taxonomy_mock
+    ):
+        """Test that all MaxToolError types are logged with their retry strategy."""
+        read_taxonomy_mock.side_effect = error
+
+        node = _create_agent_tools_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Using tool",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="tool-123", name="read_taxonomy", args={"query": {"kind": "events"}})
+                    ],
+                )
+            ],
+            root_tool_call_id="tool-123",
+        )
+
+        with patch("ee.hogai.graph.agent_modes.nodes.capture_exception") as mock_capture:
+            _ = await node.arun(state, {})
+
+            mock_capture.assert_called_once()
+            call_kwargs = mock_capture.call_args.kwargs
+            captured_error = mock_capture.call_args.args[0]
+
+            self.assertIsInstance(captured_error, MaxToolError)
+            self.assertEqual(call_kwargs["properties"]["retry_strategy"], expected_strategy)
+            self.assertEqual(call_kwargs["properties"]["tool"], "read_taxonomy")

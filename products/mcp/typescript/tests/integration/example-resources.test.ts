@@ -1,14 +1,15 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { describe, expect, it, beforeEach } from 'vitest'
+import { strFromU8, unzipSync } from 'fflate'
+import { beforeEach, describe, expect, it } from 'vitest'
+
 import { registerIntegrationResources } from '@/resources/integration'
-import { ResourceUri } from '@/resources/integration/index'
 import {
-    getSupportedFrameworks,
     EXAMPLES_MARKDOWN_URL,
     FRAMEWORK_MARKDOWN_FILES,
+    getSupportedFrameworks,
 } from '@/resources/integration/framework-mappings'
+import { ResourceUri } from '@/resources/integration/index'
 import type { Context } from '@/tools/types'
-import { unzipSync, strFromU8 } from 'fflate'
 
 const createMockContext = (): Context => ({
     api: {} as any,
@@ -41,7 +42,7 @@ describe('Example Resources - Markdown Artifact Loading', () => {
         const uint8Array = new Uint8Array(arrayBuffer)
         const unzipped = unzipSync(uint8Array)
 
-        expect(unzipped).toBeDefined()
+        expect(unzipped).toBeTruthy()
         expect(Object.keys(unzipped).length).toBeGreaterThan(0)
     }, 30000) // 30 second timeout for network request
 
@@ -54,10 +55,9 @@ describe('Example Resources - Markdown Artifact Loading', () => {
         const frameworks = getSupportedFrameworks()
 
         for (const framework of frameworks) {
-            const filename =
-                FRAMEWORK_MARKDOWN_FILES[framework as keyof typeof FRAMEWORK_MARKDOWN_FILES]
+            const filename = FRAMEWORK_MARKDOWN_FILES[framework as keyof typeof FRAMEWORK_MARKDOWN_FILES]
             const fileData = unzipped[filename]
-            expect(fileData).toBeDefined()
+            expect(fileData).toBeTruthy()
             expect(fileData!.length).toBeGreaterThan(0)
         }
     }, 30000)
@@ -71,10 +71,9 @@ describe('Example Resources - Markdown Artifact Loading', () => {
         const frameworks = getSupportedFrameworks()
 
         for (const framework of frameworks) {
-            const filename =
-                FRAMEWORK_MARKDOWN_FILES[framework as keyof typeof FRAMEWORK_MARKDOWN_FILES]
+            const filename = FRAMEWORK_MARKDOWN_FILES[framework as keyof typeof FRAMEWORK_MARKDOWN_FILES]
             const markdownData = unzipped[filename]
-            expect(markdownData).toBeDefined()
+            expect(markdownData).toBeTruthy()
 
             const markdown = strFromU8(markdownData!)
             expect(markdown).toBeTruthy()
@@ -95,17 +94,15 @@ describe('Example Resources - Markdown Artifact Loading', () => {
                 .startsWith(ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace('{framework}', ''))
         ) as any
 
-        expect(exampleTemplate).toBeDefined()
+        expect(exampleTemplate).toBeTruthy()
 
         const frameworks = getSupportedFrameworks()
 
         for (const framework of frameworks) {
-            const uri = new URL(
-                ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace('{framework}', framework)
-            )
+            const uri = new URL(ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace('{framework}', framework))
             const result = await exampleTemplate.readCallback(uri, { framework })
 
-            expect(result).toBeDefined()
+            expect(result).toBeTruthy()
             expect(result.contents).toHaveLength(1)
             expect(result.contents[0].text).toBeTruthy()
             expect(result.contents[0].text).toContain('# PostHog')
@@ -122,13 +119,11 @@ describe('Example Resources - Markdown Artifact Loading', () => {
         ) as any
 
         const invalidFramework = 'invalid-framework-xyz'
-        const uri = new URL(
-            ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace('{framework}', invalidFramework)
-        )
+        const uri = new URL(ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace('{framework}', invalidFramework))
 
-        await expect(
-            exampleTemplate.readCallback(uri, { framework: invalidFramework })
-        ).rejects.toThrow(/is not supported yet/)
+        await expect(exampleTemplate.readCallback(uri, { framework: invalidFramework })).rejects.toThrow(
+            /is not supported yet/
+        )
     }, 30000)
 
     it('should cache the markdown ZIP and reuse it', async () => {
@@ -142,16 +137,12 @@ describe('Example Resources - Markdown Artifact Loading', () => {
         const framework = 'nextjs-app-router'
 
         // First call should fetch and cache
-        const uri1 = new URL(
-            ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace('{framework}', framework)
-        )
+        const uri1 = new URL(ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace('{framework}', framework))
         const result1 = await exampleTemplate.readCallback(uri1, { framework })
         expect(result1.contents[0].text).toBeTruthy()
 
         // Second call should use cache (we can't directly verify caching, but we verify it works)
-        const uri2 = new URL(
-            ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace('{framework}', framework)
-        )
+        const uri2 = new URL(ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace('{framework}', framework))
         const result2 = await exampleTemplate.readCallback(uri2, { framework })
         expect(result2.contents[0].text).toBeTruthy()
 

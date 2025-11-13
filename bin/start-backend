@@ -25,4 +25,13 @@ else
     echo "🐧 Linux detected, binding to Docker bridge gateway: $HOST_BIND"
 fi
 
-python ${DEBUG:+ -m debugpy --listen 127.0.0.1:5678} -m uvicorn --reload posthog.asgi:application --host $HOST_BIND --log-level debug --reload-include "posthog/" --reload-include "ee/" --reload-include "products/"
+python ${DEBUG:+ -m debugpy --listen 127.0.0.1:5678} -m granian \
+    --interface asgi \
+    posthog.asgi:application \
+    --reload \
+    --reload-paths ./posthog \
+    --reload-paths ./ee \
+    --reload-paths ./products \
+    --host $HOST_BIND \
+    --log-level debug \
+    --workers 1

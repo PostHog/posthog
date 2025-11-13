@@ -129,6 +129,7 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
             "change": user_prompt,
             "output": None,
             "tool_progress_messages": [],
+            "billable": True,
             **self.context,
         }
 

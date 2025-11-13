@@ -13,7 +13,6 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langgraph.errors import NodeInterrupt
 from langgraph.types import Send
 from posthoganalytics import capture_exception
 
@@ -27,6 +26,7 @@ from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSu
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import ToolMessagesArtifact
+from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.tools import ReadDataTool, ReadTaxonomyTool, SearchTool, TodoWriteTool
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
@@ -323,6 +323,7 @@ class AgentExecutable(BaseAgentExecutable):
             max_tokens=8192,
             thinking=self.THINKING_CONFIG,
             conversation_start_dt=state.start_dt,
+            billable=True,
         )
 
         # The agent can operate in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
@@ -465,6 +466,30 @@ class AgentToolsExecutable(BaseAgentExecutable):
                 raise ValueError(
                     f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
                 )
+        except MaxToolError as e:
+            logger.exception(
+                "maxtool_error", extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy}
+            )
+            capture_exception(
+                e,
+                distinct_id=self._get_user_distinct_id(config),
+                properties={
+                    **self._get_debug_props(config),
+                    "tool": tool_call.name,
+                    "retry_strategy": e.retry_strategy,
+                },
+            )
+
+            content = f"Tool failed: {e.to_summary()}.{e.retry_hint}"
+            return PartialAssistantState(
+                messages=[
+                    AssistantToolCallMessage(
+                        content=content,
+                        id=str(uuid4()),
+                        tool_call_id=tool_call.id,
+                    )
+                ],
+            )
         except Exception as e:
             logger.exception("Error calling tool", extra={"tool_name": tool_call.name, "error": str(e)})
             capture_exception(
@@ -484,21 +509,6 @@ class AgentToolsExecutable(BaseAgentExecutable):
             return PartialAssistantState(
                 messages=result.artifact.messages,
             )
-
-        # If this is a navigation tool call, pause the graph execution
-        # so that the frontend can re-initialise Max with a new set of contextual tools.
-        if tool_call.name == "navigate":
-            navigate_message = AssistantToolCallMessage(
-                content=str(result.content) if result.content else "",
-                ui_payload={tool_call.name: result.artifact},
-                id=str(uuid4()),
-                tool_call_id=tool_call.id,
-            )
-            # Raising a `NodeInterrupt` ensures the assistant graph stops here and
-            # surfaces the navigation confirmation to the client. The next user
-            # interaction will resume the graph with potentially different
-            # contextual tools.
-            raise NodeInterrupt(navigate_message)
 
         tool_message = AssistantToolCallMessage(
             content=str(result.content) if result.content else "",
