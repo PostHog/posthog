@@ -134,7 +134,11 @@ function DashboardScene(): JSX.Element {
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
-                <div>
+                <div
+                    className={cn({
+                        '-mt-4': placement == DashboardPlacement.ProjectHomepage,
+                    })}
+                >
                     <DashboardOverridesBanner />
 
                     <SceneStickyBar showBorderBottom={false}>
@@ -144,6 +148,7 @@ function DashboardScene(): JSX.Element {
                                 DashboardPlacement.Export,
                                 DashboardPlacement.FeatureFlag,
                                 DashboardPlacement.Group,
+                                DashboardPlacement.Builtin,
                             ].includes(placement) &&
                                 dashboard && <DashboardEditBar />}
                             {[DashboardPlacement.FeatureFlag, DashboardPlacement.Group].includes(placement) &&
@@ -154,7 +159,7 @@ function DashboardScene(): JSX.Element {
                                             : 'Edit dashboard'}
                                     </LemonButton>
                                 )}
-                            {placement !== DashboardPlacement.Export && (
+                            {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
                                 <div
                                     className={clsx('flex shrink-0 deprecated-space-x-4 dashoard-items-actions', {
                                         'mt-7': hasVariables,

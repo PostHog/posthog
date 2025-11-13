@@ -14,6 +14,7 @@ import {
     ChartDisplayCategory,
     ChartDisplayType,
     CountPerActorMathType,
+    DataWarehouseSyncInterval,
     DataWarehouseViewLink,
     EventPropertyFilter,
     EventType,
@@ -78,6 +79,7 @@ export enum NodeKind {
     ActionsNode = 'ActionsNode',
     DataWarehouseNode = 'DataWarehouseNode',
     EventsQuery = 'EventsQuery',
+    SessionsQuery = 'SessionsQuery',
     PersonsNode = 'PersonsNode',
     HogQuery = 'HogQuery',
     HogQLQuery = 'HogQLQuery',
@@ -95,6 +97,7 @@ export enum NodeKind {
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
     ErrorTrackingSimilarIssuesQuery = 'ErrorTrackingSimilarIssuesQuery',
+    ErrorTrackingBreakdownsQuery = 'ErrorTrackingBreakdownsQuery',
     ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
     LogsQuery = 'LogsQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
@@ -170,6 +173,7 @@ export type AnyDataNode =
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
     | EventsQuery
+    | SessionsQuery
     | ActorsQuery
     | GroupsQuery
     | InsightActorsQuery
@@ -200,6 +204,7 @@ export type AnyDataNode =
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
     | ErrorTrackingSimilarIssuesQuery
+    | ErrorTrackingBreakdownsQuery
     | ErrorTrackingIssueCorrelationQuery
     | LogsQuery
     | ExperimentFunnelsQuery
@@ -221,6 +226,7 @@ export type QuerySchema =
     | PersonsNode // old persons API endpoint
     | DataWarehouseNode
     | EventsQuery
+    | SessionsQuery
     | ActorsQuery
     | GroupsQuery
     | InsightActorsQuery
@@ -236,6 +242,7 @@ export type QuerySchema =
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
     | ErrorTrackingSimilarIssuesQuery
+    | ErrorTrackingBreakdownsQuery
     | ErrorTrackingIssueCorrelationQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -325,6 +332,7 @@ export type AnyResponseType =
     | HogQLAutocompleteResponse
     | EventsNode['response']
     | EventsQueryResponse
+    | SessionsQueryResponse
     | ErrorTrackingQueryResponse
     | LogsQueryResponse
 
@@ -452,6 +460,8 @@ export interface HogQuery extends DataNode<HogQueryResponse> {
 export interface RecordingsQueryResponse {
     results: SessionRecordingType[]
     has_next: boolean
+    /** Cursor for the next page. Contains the ordering value and session_id from the last record. */
+    next_cursor?: string
 }
 
 export const VALID_RECORDING_ORDERS = [
@@ -515,6 +525,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     order_direction?: RecordingOrderDirection
     limit?: integer
     offset?: integer
+    /** Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page. */
+    after?: string
     user_modified_filters?: Record<string, any>
 }
 
@@ -617,6 +629,7 @@ export enum HogLanguage {
     hogQL = 'hogQL',
     hogQLExpr = 'hogQLExpr',
     hogTemplate = 'hogTemplate',
+    liquid = 'liquid',
 }
 
 export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
@@ -778,6 +791,48 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     orderBy?: string[]
 }
 
+export interface SessionsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
+    columns: any[]
+    types: string[]
+    hogql: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedSessionsQueryResponse = CachedQueryResponse<SessionsQueryResponse>
+
+export interface SessionsQuery extends DataNode<SessionsQueryResponse> {
+    kind: NodeKind.SessionsQuery
+    /** Return a limited set of data. Required. */
+    select: HogQLExpression[]
+    /** HogQL filters to apply on returned data */
+    where?: HogQLExpression[]
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?: AnyFilterLike[]
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
+    /**
+     * Number of rows to return
+     */
+    limit?: integer
+    /**
+     * Number of rows to skip before returning rows
+     */
+    offset?: integer
+    /** Show sessions for a given person */
+    personId?: string
+    /** Only fetch sessions that started before this timestamp */
+    before?: string
+    /** Only fetch sessions that started after this timestamp */
+    after?: string
+    /** Columns to order by */
+    orderBy?: string[]
+}
+
 /**
  * @deprecated Use `ActorsQuery` instead.
  */
@@ -815,6 +870,7 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
+                    | SessionsQuery
                     | RevenueAnalyticsGrossRevenueQuery
                     | RevenueAnalyticsMetricsQuery
                     | RevenueAnalyticsMRRQuery
@@ -849,6 +905,7 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
+        | SessionsQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
@@ -879,6 +936,7 @@ export interface GoalLine {
     borderColor?: string
     displayLabel?: boolean
     displayIfCrossed?: boolean
+    position?: 'start' | 'end'
 }
 
 export interface ChartAxis {
@@ -1372,6 +1430,8 @@ export type RetentionFilter = {
     cumulative?: RetentionFilterLegacy['cumulative']
     /** @description The time window mode to use for retention calculations */
     timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
+    /** @description Custom brackets for retention calculations */
+    retentionCustomBrackets?: number[]
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -1379,6 +1439,8 @@ export type RetentionFilter = {
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
     showTrendLines?: boolean
+    /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
+    selectedInterval?: integer | null
 }
 
 export interface RetentionValue {
@@ -1443,7 +1505,7 @@ export type PathsFilter = {
     localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters'] | null
     minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
     maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
-
+    showFullUrls?: boolean
     /** Relevant only within actors query */
     pathStartKey?: string
     /** Relevant only within actors query */
@@ -1566,6 +1628,10 @@ export interface EndpointRequest {
     query?: HogQLQuery | InsightQueryNode
     is_active?: boolean
     cache_age_seconds?: number
+    /** Whether this endpoint's query results are materialized to S3 */
+    is_materialized?: boolean
+    /** How frequently should the underlying materialized view be updated */
+    sync_frequency?: DataWarehouseSyncInterval
 }
 
 export interface EndpointRunRequest {
@@ -2244,6 +2310,15 @@ export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingS
     offset?: integer
 }
 
+export interface ErrorTrackingBreakdownsQuery extends DataNode<ErrorTrackingBreakdownsQueryResponse> {
+    kind: NodeKind.ErrorTrackingBreakdownsQuery
+    issueId: ErrorTrackingIssue['id']
+    breakdownProperties: string[]
+    dateRange?: DateRange
+    filterTestAccounts?: boolean
+    maxValuesPerProperty?: integer
+}
+
 export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {
     kind: NodeKind.ErrorTrackingIssueCorrelationQuery
     events: string[]
@@ -2314,13 +2389,17 @@ export interface ErrorTrackingRelationalIssue {
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
     last_seen: string
+    source?: string
+    function?: string
     first_event?: {
         uuid: string
+        distinct_id: string
         timestamp: string
         properties: string
     }
     last_event?: {
         uuid: string
+        distinct_id: string
         timestamp: string
         properties: string
     }
@@ -2359,6 +2438,12 @@ export type SimilarIssue = {
     library: string | null
     status: string
     first_seen: string
+    distance: number
+}
+
+export type BreakdownValue = {
+    value: string
+    count: number
 }
 
 export interface ErrorTrackingSimilarIssuesQueryResponse extends AnalyticsQueryResponseBase {
@@ -2368,6 +2453,11 @@ export interface ErrorTrackingSimilarIssuesQueryResponse extends AnalyticsQueryR
     offset?: integer
 }
 export type CachedErrorTrackingSimilarIssuesQueryResponse = CachedQueryResponse<ErrorTrackingSimilarIssuesQueryResponse>
+
+export interface ErrorTrackingBreakdownsQueryResponse extends AnalyticsQueryResponseBase {
+    results: Record<string, { values: BreakdownValue[]; total_count: number }>
+}
+export type CachedErrorTrackingBreakdownsQueryResponse = CachedQueryResponse<ErrorTrackingBreakdownsQueryResponse>
 
 export type EmbeddingModelName = 'text-embedding-3-small-1536' | 'text-embedding-3-large-3072'
 
@@ -2594,6 +2684,7 @@ export type FileSystemIconType =
     | 'apps'
     | 'live'
     | 'chat'
+    | 'search'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -2785,6 +2876,7 @@ export interface ExperimentMetricBaseProperties extends Node {
     goal?: ExperimentMetricGoal
     isSharedMetric?: boolean
     sharedMetricId?: number
+    breakdownFilter?: BreakdownFilter
 }
 
 export type ExperimentMetricOutlierHandling = {
@@ -2877,6 +2969,10 @@ export interface ExperimentQueryResponse {
     // New fields
     baseline?: ExperimentStatsBaseValidated
     variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+
+    // Breakdown fields
+    /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
+    breakdown_results?: ExperimentBreakdownResult[]
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -2936,9 +3032,24 @@ export interface ExperimentVariantResultBayesian extends ExperimentStatsBaseVali
     credible_interval?: [number, number]
 }
 
+/**
+ * Represents experiment results for a single breakdown combination.
+ * Each breakdown is treated as an independent A/B test with its own baseline and variants.
+ * For multiple breakdowns, values are in the same order as breakdownFilter.breakdowns.
+ */
+export interface ExperimentBreakdownResult {
+    /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) */
+    breakdown_value: BreakdownKeyType[]
+    /** Control variant stats for this breakdown */
+    baseline: ExperimentStatsBaseValidated
+    /** Test variant results with statistical comparisons for this breakdown */
+    variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+}
+
 export interface NewExperimentQueryResponse {
     baseline: ExperimentStatsBaseValidated
     variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+    breakdown_results?: ExperimentBreakdownResult[]
 }
 
 export interface ExperimentExposureTimeSeries {
@@ -3186,6 +3297,7 @@ export type DatabaseSchemaTableType =
     | 'batch_export'
     | 'materialized_view'
     | 'managed_view'
+    | 'endpoint'
 
 export interface DatabaseSchemaTableCommon {
     type: DatabaseSchemaTableType
@@ -3213,6 +3325,12 @@ export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommo
     type: 'managed_view'
     kind: DatabaseSchemaManagedViewTableKind
     source_id?: string
+}
+
+export interface DatabaseSchemaEndpointTable extends DatabaseSchemaTableCommon {
+    query: HogQLQuery
+    type: 'endpoint'
+    status?: string
 }
 
 export interface DatabaseSchemaMaterializedViewTable extends DatabaseSchemaTableCommon {
@@ -3250,6 +3368,7 @@ export type DatabaseSchemaTable =
     | DatabaseSchemaManagedViewTable
     | DatabaseSchemaBatchExportTable
     | DatabaseSchemaMaterializedViewTable
+    | DatabaseSchemaEndpointTable
 
 export interface DatabaseSchemaQueryResponse {
     tables: Record<string, DatabaseSchemaTable>
@@ -4237,6 +4356,7 @@ export interface SourceConfig {
 }
 
 export const externalDataSources = [
+    'CustomerIO',
     'Github',
     'Stripe',
     'Hubspot',

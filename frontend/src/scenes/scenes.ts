@@ -55,7 +55,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: true,
         defaultDocsPath: '/pricing',
     },
-    [Scene.BillingSection]: { name: 'Billing', hideProjectNotice: true, organizationBased: true },
+    [Scene.BillingSection]: { name: 'Billing', organizationBased: true },
     [Scene.Billing]: { hideProjectNotice: true, organizationBased: true, defaultDocsPath: '/pricing' },
     [Scene.Canvas]: {
         projectBased: true,
@@ -204,12 +204,26 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
             'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.',
         iconType: 'experiment',
     },
+    [Scene.Activity]: {
+        projectBased: true,
+        name: 'Activity',
+        defaultDocsPath: '/docs/data/events',
+        description: 'Explore your events or see real-time events from your app or website.',
+        iconType: 'event',
+    },
     [Scene.ExploreEvents]: {
         projectBased: true,
         name: 'Explore events',
         defaultDocsPath: '/docs/data/events',
         description: 'A catalog of all user interactions with your app or website.',
         iconType: 'event',
+    },
+    [Scene.ExploreSessions]: {
+        projectBased: true,
+        name: 'Explore sessions',
+        defaultDocsPath: '/docs/data/sessions',
+        description: 'A catalog of all user sessions with your app or website.',
+        iconType: 'session_replay',
     },
     [Scene.FeatureFlag]: {
         projectBased: true,
@@ -285,7 +299,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Login]: { onlyUnauthenticated: true },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw', hideProjectNotice: true },
     [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },
-    [Scene.NewTab]: { projectBased: true, name: 'New tab', hideProjectNotice: true, layout: 'app-raw' },
+    [Scene.NewTab]: {
+        projectBased: true,
+        name: 'Search',
+        iconType: 'search',
+        hideProjectNotice: true,
+        layout: 'app-raw',
+    },
     [Scene.Notebook]: {
         projectBased: true,
         name: 'Notebook',
@@ -344,7 +364,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ProjectHomepage]: {
         projectBased: true,
         name: 'Homepage',
-        layout: 'app-raw',
     },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
@@ -422,6 +441,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'product_analytics',
     },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
+    [Scene.SessionProfile]: { projectBased: true, name: 'Session profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
     [Scene.Signup]: { onlyUnauthenticated: true },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
@@ -538,7 +558,6 @@ export const redirects: Record<
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
-    '/home': urls.projectHomepage(),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/instance': urls.instanceStatus(),
     '/me/settings': urls.settings('user'),
@@ -615,6 +634,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dataManagementHistory()]: [Scene.DataManagement, 'dataManagementHistory'],
     [urls.database()]: [Scene.DataManagement, 'database'],
     [urls.activity(ActivityTab.ExploreEvents)]: [Scene.ExploreEvents, 'exploreEvents'],
+    [urls.activity(ActivityTab.ExploreSessions)]: [Scene.ExploreSessions, 'exploreSessions'],
     [urls.activity(ActivityTab.LiveEvents)]: [Scene.LiveEvents, 'liveEvents'],
     [urls.replay()]: [Scene.Replay, 'replay'],
     // One entry for every available tab
@@ -629,6 +649,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],
     [urls.replayPlaylist(':id')]: [Scene.ReplayPlaylist, 'replayPlaylist'],
     [urls.replaySettings()]: [Scene.ReplaySettings, 'replaySettings'],
+    [urls.sessionProfile(':id')]: [Scene.SessionProfile, 'sessionProfile'],
     [urls.personByDistinctId('*', false)]: [Scene.Person, 'personByDistinctId'],
     [urls.personByUUID('*', false)]: [Scene.Person, 'personByUUID'],
     [urls.persons()]: [Scene.Persons, 'persons'],

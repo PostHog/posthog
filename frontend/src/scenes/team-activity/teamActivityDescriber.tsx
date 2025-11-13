@@ -784,7 +784,7 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         suffix={changeSuffix}
                     />
                 ),

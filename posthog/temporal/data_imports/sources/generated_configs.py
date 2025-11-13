@@ -31,6 +31,12 @@ class BigQueryTemporaryDatasetConfig(config.Config):
 
 
 @config.config
+class BigQueryUseCustomRegionConfig(config.Config):
+    region: str
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
 class GoogleAdsIsMccAccountConfig(config.Config):
     mcc_client_id: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
@@ -58,6 +64,7 @@ class BigQuerySourceConfig(config.Config):
     temporary_dataset: BigQueryTemporaryDatasetConfig | None = config.value(
         alias="temporary-dataset", default_factory=lambda: None
     )
+    use_custom_region: BigQueryUseCustomRegionConfig | None = None
     dataset_project: BigQueryDatasetProjectConfig | None = None
 
 
@@ -70,6 +77,11 @@ class BrazeSourceConfig(config.Config):
 class ChargebeeSourceConfig(config.Config):
     api_key: str
     site_name: str
+
+
+@config.config
+class CustomerIOSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -249,6 +261,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
+        ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
         ExternalDataSourceType.GITHUB: GithubSourceConfig,
         ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,

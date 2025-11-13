@@ -513,7 +513,7 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        with self.assertNumQueries(25):
+        with self.assertNumQueries(26):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
@@ -1212,6 +1212,7 @@ class TestExternalDataSource(APIBaseTest):
                             "universe_domain": "dummy_universe_domain",
                         },
                         "dataset_id": "dummy_dataset_id",
+                        "use_custom_region": {"enabled": False, "region": ""},
                         "temporary-dataset": {"enabled": False, "temporary_dataset_id": ""},
                         "dataset_project": {"enabled": False, "dataset_project_id": ""},
                         "schemas": [
@@ -1245,6 +1246,8 @@ class TestExternalDataSource(APIBaseTest):
         assert bq_config.key_file.private_key_id == "dummy_private_key_id"
         assert bq_config.key_file.client_email == "dummy_client_email"
         assert bq_config.key_file.token_uri == "dummy_token_uri"
+        assert bq_config.use_custom_region is not None
+        assert bq_config.use_custom_region.enabled is False
         assert bq_config.temporary_dataset is not None
         assert bq_config.temporary_dataset.enabled is False
         assert bq_config.temporary_dataset.temporary_dataset_id == ""
@@ -1257,6 +1260,7 @@ class TestExternalDataSource(APIBaseTest):
                     "token_uri": "https://oauth2.googleapis.com/token",
                     "dataset_id": "dummy_dataset_id",
                     "project_id": "dummy_project_id",
+                    "region": "",
                     "client_email": "dummy_client_email",
                     "temporary-dataset": {"enabled": True, "temporary_dataset_id": "dummy_temporary_dataset_id"},
                     "dataset_project": {"enabled": False, "dataset_project_id": ""},
@@ -1290,6 +1294,8 @@ class TestExternalDataSource(APIBaseTest):
         assert bq_config.key_file.private_key_id == "dummy_private_key_id"
         assert bq_config.key_file.client_email == "dummy_client_email"
         assert bq_config.key_file.token_uri == "dummy_token_uri"
+        assert bq_config.use_custom_region is not None
+        assert bq_config.use_custom_region.enabled is False
         assert bq_config.temporary_dataset is not None
         assert bq_config.temporary_dataset.enabled is True
         assert bq_config.temporary_dataset.temporary_dataset_id == "dummy_temporary_dataset_id"
@@ -1302,6 +1308,7 @@ class TestExternalDataSource(APIBaseTest):
                     "token_uri": "https://oauth2.googleapis.com/token",
                     "dataset_id": "dummy_dataset_id",
                     "project_id": "dummy_project_id",
+                    "region": "",
                     "client_email": "dummy_client_email",
                     "temporary-dataset": {"enabled": False, "temporary_dataset_id": ""},
                     "dataset_project": {"enabled": True, "dataset_project_id": "other_project_id"},
@@ -1335,6 +1342,8 @@ class TestExternalDataSource(APIBaseTest):
         assert bq_config.key_file.private_key_id == "dummy_private_key_id"
         assert bq_config.key_file.client_email == "dummy_client_email"
         assert bq_config.key_file.token_uri == "dummy_token_uri"
+        assert bq_config.use_custom_region is not None
+        assert bq_config.use_custom_region.enabled is False
         assert bq_config.temporary_dataset is not None
         assert bq_config.temporary_dataset.enabled is False
         assert bq_config.dataset_project is not None

@@ -34,8 +34,7 @@ from ee.hogai.graph.deep_research.planner.prompts import (
     WRITE_RESULT_FAILED_TOOL_RESULT,
     WRITE_RESULT_TOOL_RESULT,
 )
-from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState
-from ee.hogai.graph.root.tools.todo_write import TodoItem
+from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState, TodoItem
 from ee.hogai.utils.types import InsightArtifact
 from ee.hogai.utils.types.base import TaskResult
 

@@ -65,6 +65,7 @@ function EvalsTabContentInner({
                         }}
                         loading={evaluationRunLoading}
                         disabledReason={!selectedEvaluationId ? 'Select an evaluation first' : undefined}
+                        data-attr="run-evaluation-manual"
                     >
                         Run Evaluation
                     </LemonButton>

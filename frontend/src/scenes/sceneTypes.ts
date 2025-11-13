@@ -56,6 +56,7 @@ export enum Scene {
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
     ExploreEvents = 'ExploreEvents',
+    ExploreSessions = 'ExploreSessions',
     FeatureFlag = 'FeatureFlag',
     FeatureFlags = 'FeatureFlags',
     Game368 = 'Game368',
@@ -75,6 +76,7 @@ export enum Scene {
     Link = 'Link',
     Links = 'Links',
     LiveDebugger = 'LiveDebugger',
+    Activity = 'Activity',
     LiveEvents = 'LiveEvents',
     Login = 'Login',
     Login2FA = 'Login2FA',
@@ -111,6 +113,7 @@ export enum Scene {
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
+    SessionProfile = 'SessionProfile',
     Settings = 'Settings',
     Signup = 'Signup',
     Site = 'Site',
@@ -188,6 +191,7 @@ export interface SceneTab {
     active: boolean
     customTitle?: string
     iconType: FileSystemIconType | 'loading' | 'blank'
+    pinned?: boolean
 
     sceneId?: string
     sceneKey?: string

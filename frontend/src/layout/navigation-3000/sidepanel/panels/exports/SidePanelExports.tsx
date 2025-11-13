@@ -139,21 +139,56 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
     )
 }
 
+const ExportsEmpty = (): JSX.Element => {
+    const { assetFormat } = useValues(sidePanelExportsLogic)
+
+    const getTTLMessage = (): string | null => {
+        if (!assetFormat) {
+            return 'Exports are automatically deleted after: CSV/XLSX (7 days), Video formats (12 months), Other formats (6 months)'
+        }
+
+        switch (assetFormat) {
+            case ExporterFormat.CSV:
+            case ExporterFormat.XLSX:
+                return 'CSV and XLSX exports are automatically deleted after 7 days'
+            case ExporterFormat.MP4:
+            case ExporterFormat.WEBM:
+            case ExporterFormat.GIF:
+                return 'Video exports are automatically deleted after 12 months'
+            case ExporterFormat.PNG:
+            case ExporterFormat.PDF:
+            case ExporterFormat.JSON:
+                return 'These exports are automatically deleted after 6 months'
+            default:
+                return null
+        }
+    }
+
+    const ttlMessage = getTTLMessage()
+
+    return (
+        <div className="flex flex-col gap-2 items-center justify-center mt-4">
+            <div className="border rounded bg-fill-primary p-4 text-center">
+                <p className="mb-2">No exports matching current filters</p>
+                {ttlMessage && <p className="text-xs text-secondary">{ttlMessage}</p>}
+            </div>
+        </div>
+    )
+}
+
 const ExportsContent = (): JSX.Element => {
     const { exports, exportsLoading } = useValues(sidePanelExportsLogic)
 
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
-            <div className="flex-1 overflow-y-auto px-2 py-1 flex flex-col gap-2">
+            <div className="flex-1 overflow-y-auto px-2 py-1 flex flex-col gap-2    ">
                 <ExportPanelHeader />
 
                 <ScreenShotEditor screenshotKey="exports" />
-                {exportsLoading ? (
+                {exportsLoading && exports.length === 0 ? (
                     <LemonSkeleton repeat={10} active={true} fade={true} />
                 ) : exports.length === 0 ? (
-                    <div className="flex justify-between mt-2 gap-2 border rounded bg-fill-primary items-center px-2 py-1">
-                        No exports matching current filters
-                    </div>
+                    <ExportsEmpty />
                 ) : (
                     exports.map((asset) => {
                         return <ExportRow asset={asset} key={asset.id} />

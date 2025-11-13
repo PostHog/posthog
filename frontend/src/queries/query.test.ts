@@ -79,24 +79,30 @@ describe('query', () => {
     })
 
     it('emits an event when a query is run', async () => {
-        jest.spyOn(posthog, 'capture')
+        const captureSpy = jest.spyOn(posthog, 'capture')
         const q: EventsQuery = setLatestVersionsOnQuery({
             kind: NodeKind.EventsQuery,
             select: ['timestamp'],
             limit: 100,
         })
+        captureSpy.mockClear()
         await performQuery(q)
-        expect(posthog.capture).toHaveBeenCalledWith('query completed', { query: q, duration: expect.any(Number) })
+        const queryCompletedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
+        expect(queryCompletedCalls).toHaveLength(1)
+        expect(queryCompletedCalls[0][1]).toMatchObject({ query: q, duration: expect.any(Number) })
     })
 
     it('emits a specific event on a HogQLQuery', async () => {
-        jest.spyOn(posthog, 'capture')
+        const captureSpy = jest.spyOn(posthog, 'capture')
         const q: HogQLQuery = setLatestVersionsOnQuery({
             kind: NodeKind.HogQLQuery,
             query: 'select * from events',
         })
+        captureSpy.mockClear()
         await performQuery(q)
-        expect(posthog.capture).toHaveBeenCalledWith('query completed', {
+        const queryCompletedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
+        expect(queryCompletedCalls).toHaveLength(1)
+        expect(queryCompletedCalls[0][1]).toMatchObject({
             query: q,
             duration: expect.any(Number),
             clickhouse_sql: expect.any(String),
@@ -105,16 +111,19 @@ describe('query', () => {
     })
 
     it('emits an event when a query errors', async () => {
-        jest.spyOn(posthog, 'capture')
+        const captureSpy = jest.spyOn(posthog, 'capture')
         const q: EventsQuery = setLatestVersionsOnQuery({
             kind: NodeKind.EventsQuery,
             select: ['error'],
             limit: 100,
         })
+        captureSpy.mockClear()
         await expect(async () => {
             await performQuery(q)
         }).rejects.toThrow(ApiError)
 
-        expect(posthog.capture).toHaveBeenCalledWith('query failed', { query: q, duration: expect.any(Number) })
+        const queryFailedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
+        expect(queryFailedCalls).toHaveLength(1)
+        expect(queryFailedCalls[0][1]).toMatchObject({ query: q, duration: expect.any(Number) })
     })
 })

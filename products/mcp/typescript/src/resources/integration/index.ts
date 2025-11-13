@@ -1,16 +1,16 @@
 import { type McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { type Unzipped, strFromU8, unzipSync } from 'fflate'
+
 import type { Context } from '@/tools/types'
+
 import {
+    EXAMPLES_MARKDOWN_URL,
     FRAMEWORK_DOCS,
-    EXAMPLES_MONOREPO_URL,
-    FRAMEWORK_EXAMPLE_PATHS,
-    isSupportedFramework,
+    FRAMEWORK_MARKDOWN_FILES,
     getSupportedFrameworks,
     getSupportedFrameworksList,
+    isSupportedFramework,
 } from './framework-mappings'
-import { convertSubfolderToMarkdown } from './repo-to-md'
-import { unzipSync, type Unzipped } from 'fflate'
-
 // Import workflow markdown files
 import workflowBegin from './workflow-guides/1.0-event-setup-begin.md'
 import workflowEdit from './workflow-guides/1.1-event-setup-edit.md'
@@ -36,16 +36,15 @@ export enum ResourceUri {
 /**
  * Message appended to workflow resources to indicate the next step
  */
-export const WORKFLOW_NEXT_STEP_MESSAGE =
-    'Upon completion, access the following resource to continue:'
+export const WORKFLOW_NEXT_STEP_MESSAGE = 'Upon completion, access the following resource to continue:'
 
 /**
  * URL to the identify() documentation
  */
 const IDENTIFY_USERS_DOCS_URL = 'https://posthog.com/docs/getting-started/identify-users.md'
 
-// Cache for the examples monorepo ZIP contents
-let cachedExamplesRepo: Unzipped | null = null
+// Cache for the examples markdown ZIP contents
+let cachedExamplesMarkdown: Unzipped | null = null
 
 /**
  * Fetches documentation content from a URL with error handling
@@ -61,26 +60,24 @@ async function fetchDocumentation(url: string): Promise<string> {
 }
 
 /**
- * Fetches and caches the examples monorepo ZIP at startup
+ * Fetches and caches the examples markdown ZIP at startup
  */
-async function fetchExamplesMonorepo(): Promise<Unzipped> {
-    if (cachedExamplesRepo) {
-        return cachedExamplesRepo
+async function fetchExamplesMarkdown(): Promise<Unzipped> {
+    if (cachedExamplesMarkdown) {
+        return cachedExamplesMarkdown
     }
 
-    console.log('Fetching PostHog examples monorepo...')
-    const response = await fetch(EXAMPLES_MONOREPO_URL)
+    const response = await fetch(EXAMPLES_MARKDOWN_URL)
 
     if (!response.ok) {
-        throw new Error(`Failed to fetch examples monorepo: ${response.statusText}`)
+        throw new Error(`Failed to fetch examples markdown: ${response.statusText}`)
     }
 
     const arrayBuffer = await response.arrayBuffer()
     const uint8Array = new Uint8Array(arrayBuffer)
-    cachedExamplesRepo = unzipSync(uint8Array)
-    console.log('Examples monorepo cached successfully')
+    cachedExamplesMarkdown = unzipSync(uint8Array)
 
-    return cachedExamplesRepo
+    return cachedExamplesMarkdown
 }
 
 // Define workflow sequence - automatically appends next step URI to each workflow
@@ -108,10 +105,11 @@ const workflowSequence = [
 /**
  * Registers all PostHog integration resources with the MCP server
  */
-export function registerIntegrationResources(server: McpServer, _context: Context) {
-    // Fetch examples monorepo at startup
-    fetchExamplesMonorepo().catch((error) => {
-        console.error('Failed to fetch examples monorepo:', error)
+// oxlint-disable-next-line @typescript-eslint/no-unused-vars
+export function registerIntegrationResources(server: McpServer, _context: Context): void {
+    // Fetch examples markdown at startup
+    fetchExamplesMarkdown().catch((error) => {
+        console.error('Failed to fetch examples markdown:', error)
     })
 
     // Register workflow resources with automatic next step appending
@@ -217,10 +215,7 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
                 const frameworks = getSupportedFrameworks()
                 return {
                     resources: frameworks.map((framework) => ({
-                        uri: ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace(
-                            '{framework}',
-                            framework
-                        ),
+                        uri: ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace('{framework}', framework),
                         name: `PostHog ${framework} example project`,
                         description: `Example project code for ${framework}`,
                         mimeType: 'text/markdown',
@@ -244,16 +239,17 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
                 )
             }
 
-            // Get the cached monorepo (or fetch if not yet cached)
-            const unzippedRepo = await fetchExamplesMonorepo()
-            const subfolderPath = FRAMEWORK_EXAMPLE_PATHS[frameworkStr]
+            // Get the cached markdown ZIP (or fetch if not yet cached)
+            const markdownZip = await fetchExamplesMarkdown()
+            const markdownFilename = FRAMEWORK_MARKDOWN_FILES[frameworkStr]
 
-            const markdown = convertSubfolderToMarkdown({
-                unzippedRepo,
-                subfolderPath,
-                frameworkName: frameworkStr,
-                repoUrl: EXAMPLES_MONOREPO_URL.replace('/archive/refs/heads/main.zip', ''),
-            })
+            // Read the markdown file from the ZIP
+            const markdownData = markdownZip[markdownFilename]
+            if (!markdownData) {
+                throw new Error(`Markdown file "${markdownFilename}" not found in examples archive`)
+            }
+
+            const markdown = strFromU8(markdownData)
 
             return {
                 contents: [

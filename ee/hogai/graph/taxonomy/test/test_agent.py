@@ -36,14 +36,13 @@ class TestTaxonomyAgent(BaseTest):
         self.mock_graph = Mock()
 
         # Patch StateGraph in the parent class where it's actually used
-        self.patcher = patch("ee.hogai.graph.graph.StateGraph")
+        self.patcher = patch("ee.hogai.graph.base.graph.StateGraph")
         mock_state_graph_class = self.patcher.start()
         mock_state_graph_class.return_value = self.mock_graph
 
         self.agent = ConcreteTaxonomyAgent(
             team=self.team,
             user=self.user,
-            tool_call_id="test_tool_call_id",
             loop_node_class=MockTaxonomyAgentNode,
             tools_node_class=MockTaxonomyAgentToolsNode,
             toolkit_class=MockTaxonomyAgentToolkit,
@@ -75,7 +74,6 @@ class TestTaxonomyAgent(BaseTest):
             NonGenericAgent(
                 team=self.team,
                 user=self.user,
-                tool_call_id="test_tool_call_id",
                 loop_node_class=MockTaxonomyAgentNode,
                 tools_node_class=MockTaxonomyAgentToolsNode,
                 toolkit_class=MockTaxonomyAgentToolkit,

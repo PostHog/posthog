@@ -130,7 +130,7 @@ def _export_to_png(exported_asset: ExportedAsset, max_height_pixels: Optional[in
         elif exported_asset.export_context and exported_asset.export_context.get("heatmap_url"):
             # Handle replay export using /exporter route (same as insights/dashboards)
             url_to_render = absolute_uri(
-                f"/exporter?token={access_token}&pageURL={exported_asset.export_context.get('heatmap_url')}"
+                f"/exporter?token={access_token}&pageURL={exported_asset.export_context.get('heatmap_url')}&dataURL={exported_asset.export_context.get('heatmap_data_url')}"
             )
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".heatmaps-ready")
             screenshot_width = exported_asset.export_context.get("width", 1400)

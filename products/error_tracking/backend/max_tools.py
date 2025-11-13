@@ -4,7 +4,6 @@ from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from posthog.schema import ErrorTrackingIssueFilteringToolOutput, ErrorTrackingIssueImpactToolOutput
@@ -18,6 +17,7 @@ from ee.hogai.graph.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
 from .prompts import (
@@ -82,7 +82,15 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True)
+        return MaxChatOpenAI(
+            model="gpt-4.1",
+            temperature=0.3,
+            disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
+            inject_context=False,
+        )
 
     def _parse_output(self, output: str) -> ErrorTrackingIssueFilteringToolOutput:
         match = re.search(r"<output>(.*?)</output>", output, re.DOTALL)
@@ -155,11 +163,10 @@ class ErrorTrackingIssueImpactToolsNode(
 class ErrorTrackingIssueImpactGraph(
     TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[ErrorTrackingIssueImpactToolOutput]]
 ):
-    def __init__(self, team: Team, user: User, tool_call_id: str):
+    def __init__(self, team: Team, user: User):
         super().__init__(
             team,
             user,
-            tool_call_id,
             loop_node_class=ErrorTrackingIssueImpactLoopNode,
             tools_node_class=ErrorTrackingIssueImpactToolsNode,
             toolkit_class=ErrorTrackingIssueImpactToolkit,
@@ -177,7 +184,7 @@ class ErrorTrackingIssueImpactTool(MaxTool):
     args_schema: type[BaseModel] = IssueImpactQueryArgs
 
     async def _arun_impl(self, instructions: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
-        graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user, tool_call_id=self._tool_call_id)
+        graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user)
 
         graph_context = {
             "change": f"Goal: {instructions}",

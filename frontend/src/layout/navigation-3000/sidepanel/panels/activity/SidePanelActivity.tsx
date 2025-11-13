@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconList, IconNotification } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
+import { IconBell, IconList, IconNotification } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonSkeleton, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
@@ -11,8 +12,11 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { HOG_FUNCTION_SUB_TEMPLATES } from 'scenes/hog-functions/sub-templates/sub-templates'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -22,11 +26,17 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AvailableFeature,
+    CyclotronJobFilterPropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelActivityMetalytics } from './SidePanelActivityMetalytics'
-import { SidePanelActivitySubscriptions } from './SidePanelActivitySubscriptions'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -54,6 +64,8 @@ export const SidePanelActivity = (): JSX.Element => {
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const hasAccess = userHasAccess(AccessControlResourceType.ActivityLog, AccessControlLevel.Viewer)
+
     useOnMountEffect(() => {
         loadImportantChanges(false)
 
@@ -80,6 +92,24 @@ export const SidePanelActivity = (): JSX.Element => {
     const hasItemContext = Boolean(contextFromPage?.scope && contextFromPage?.item_id)
     const hasListContext = Boolean(contextFromPage?.scope && !contextFromPage?.item_id)
     const hasAnyContext = hasItemContext || hasListContext
+
+    if (!hasAccess) {
+        return (
+            <>
+                <SidePanelPaneHeader title="Team activity" />
+                <div className="flex flex-col items-center justify-center gap-3 p-6 text-center h-full">
+                    <IconNotification className="text-5xl text-muted" />
+                    <div>
+                        <div className="font-semibold mb-1">Access denied</div>
+                        <div className="text-xs text-muted-alt">
+                            You don't have sufficient permissions to view activity logs. Please contact your project
+                            administrator.
+                        </div>
+                    </div>
+                </div>
+            </>
+        )
+    }
 
     return (
         <>
@@ -111,14 +141,6 @@ export const SidePanelActivity = (): JSX.Element => {
                                           },
                                       ]
                                     : []),
-                                ...(featureFlags[FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS]
-                                    ? [
-                                          {
-                                              key: SidePanelActivityTab.Subscriptions,
-                                              label: 'Subscriptions',
-                                          },
-                                      ]
-                                    : []),
                             ]}
                         />
                     </div>
@@ -136,13 +158,95 @@ export const SidePanelActivity = (): JSX.Element => {
                         </div>
                     ) : activeTab === SidePanelActivityTab.All && hasAnyContext ? (
                         <div className="flex items-center justify-between gap-2 px-2 pb-2 deprecated-space-y-2">
-                            <div>
+                            <div className="flex items-center gap-1">
                                 Activity on{' '}
                                 <strong>
                                     {hasItemContext
                                         ? `this ${humanizeScope(contextFromPage!.scope!, true).toLowerCase()}`
                                         : `all ${humanizeScope(contextFromPage!.scope!).toLowerCase()}`}{' '}
                                 </strong>
+                                {featureFlags[FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS] && (
+                                    <LemonMenu
+                                        placement="bottom-start"
+                                        items={
+                                            [
+                                                {
+                                                    items: HOG_FUNCTION_SUB_TEMPLATES['activity-log'].map(
+                                                        (subTemplate) => {
+                                                            // Build property filters based on context
+                                                            const properties: CyclotronJobFilterPropertyFilter[] = [
+                                                                {
+                                                                    key: 'scope',
+                                                                    type: PropertyFilterType.Event,
+                                                                    value: contextFromPage!.scope!,
+                                                                    operator: PropertyOperator.Exact,
+                                                                },
+                                                            ]
+
+                                                            // If we have item_id, add it to filters
+                                                            if (hasItemContext) {
+                                                                properties.push({
+                                                                    key: 'item_id',
+                                                                    type: PropertyFilterType.Event,
+                                                                    value: contextFromPage!.item_id,
+                                                                    operator: PropertyOperator.Exact,
+                                                                })
+                                                            }
+
+                                                            // Create filters with properties at the top level
+                                                            // HogFunctionFiltersInternal expects filters.properties, not filters.events[0].properties
+                                                            const filters = {
+                                                                events: subTemplate.filters?.events || [],
+                                                                properties,
+                                                            }
+
+                                                            const configurationOverrides = { filters }
+
+                                                            const configuration: Record<string, any> = {
+                                                                ...subTemplate,
+                                                                ...configurationOverrides,
+                                                            }
+
+                                                            const url = combineUrl(
+                                                                urls.hogFunctionNew(subTemplate.template_id),
+                                                                {},
+                                                                { configuration }
+                                                            ).url
+
+                                                            return {
+                                                                label: subTemplate.name || 'Subscribe',
+                                                                onClick: () => {
+                                                                    closeSidePanel()
+                                                                    router.actions.push(url)
+                                                                },
+                                                            }
+                                                        }
+                                                    ),
+                                                },
+                                                {
+                                                    items: [
+                                                        {
+                                                            label: 'View all notifications',
+                                                            onClick: () => {
+                                                                closeSidePanel()
+                                                                router.actions.push(
+                                                                    urls.settings(
+                                                                        'environment-activity-logs',
+                                                                        'activity-log-notifications'
+                                                                    )
+                                                                )
+                                                            },
+                                                        },
+                                                    ],
+                                                },
+                                            ] as LemonMenuItems
+                                        }
+                                    >
+                                        <LemonButton size="xsmall" type="secondary" tooltip="Subscribe">
+                                            <IconBell />
+                                        </LemonButton>
+                                    </LemonMenu>
+                                )}
                             </div>
                             <MemberSelect
                                 value={activeFilters?.user ?? null}
@@ -270,8 +374,6 @@ export const SidePanelActivity = (): JSX.Element => {
                                 )
                             ) : activeTab === SidePanelActivityTab.Metalytics ? (
                                 <SidePanelActivityMetalytics />
-                            ) : activeTab === SidePanelActivityTab.Subscriptions ? (
-                                <SidePanelActivitySubscriptions />
                             ) : null}
                         </ScrollableShadows>
                     </div>

@@ -67,6 +67,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
+from posthog.models.cohort.cohort import CohortPeople, CohortType
 from posthog.models.cohort.util import get_all_cohort_dependencies, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
@@ -77,6 +78,7 @@ from posthog.models.feature_flag.flag_matching import (
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.insight import Insight
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.models.property.property import Property, PropertyGroup
@@ -96,8 +98,6 @@ from posthog.utils import format_query_params_absolute_url
 def validate_filters_and_compute_realtime_support(
     filters_dict: dict, team: Team, current_cohort_type: str | None = None
 ) -> tuple[dict, str | None, list | None]:
-    from posthog.models.cohort.cohort import CohortType
-
     try:
         if not filters_dict:
             return filters_dict, current_cohort_type, None
@@ -138,6 +138,27 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
                 bytecode_str = json.dumps(bytecode, sort_keys=True)
                 condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
             return bytecode, None, condition_hash
+
+        # Check if it's a cohort filter referencing another cohort
+        if filter_data.get("type") == "cohort":
+            cohort_id = filter_data.get("value")
+            if cohort_id is None:
+                # If cohort_id is missing, don't generate bytecode
+                return None, None, None
+            # Type narrowing: cohort_id is not None at this point, and should be int
+            try:
+                cohort_id_int = int(cohort_id)
+            except (ValueError, TypeError):
+                return None, None, None
+            try:
+                referenced_cohort = Cohort.objects.get(team__project_id=team.project_id, id=cohort_id_int)
+                # Check if the referenced cohort is realtime
+                if referenced_cohort.cohort_type != CohortType.REALTIME:
+                    # Don't generate bytecode for non-realtime cohort references
+                    return None, None, None
+            except Cohort.DoesNotExist:
+                # If cohort doesn't exist, don't generate bytecode
+                return None, None, None
 
         property_obj = Property(**filter_data)
         expr = property_to_expr(property_obj, team)
@@ -782,6 +803,79 @@ class CohortSerializer(serializers.ModelSerializer):
                         "Please remove the cohort from these feature flags before deleting it."
                     )
 
+                # Check if cohort is used in test_account_filters
+                teams_with_cohort = Team.objects.filter(
+                    project_id=cohort.team.project_id, test_account_filters__contains=[{"type": "cohort"}]
+                )
+                teams_using_cohort = []
+                for team in teams_with_cohort:
+                    for filter_item in team.test_account_filters:
+                        if filter_item.get("type") == "cohort" and filter_item.get("value") == cohort.id:
+                            teams_using_cohort.append(team)
+                            break
+
+                if teams_using_cohort:
+                    team_names = [team.name for team in teams_using_cohort]
+                    raise ValidationError(
+                        f"This cohort is used in 'Filter out internal and test users' for {len(teams_using_cohort)} environment(s): {', '.join(team_names)}. "
+                        "Please remove the cohort from these test account filters before deleting it."
+                    )
+
+                # Check if cohort is used in insights
+
+                # Use PostgreSQL's jsonb_path_exists for recursive JSONB searching
+                # This finds cohort references at any depth in the JSON structure
+                insights_using_cohort = Insight.objects.filter(
+                    team_id=cohort.team_id,
+                    deleted=False,
+                ).extra(
+                    where=[
+                        """jsonb_path_exists(query, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)
+                        OR (query->'source'->'breakdownFilter'->>'breakdown_type' = 'cohort'
+                            AND query->'source'->'breakdownFilter'->'breakdown' @> '[%s]'::jsonb)"""
+                    ],
+                    params=[cohort.id, cohort.id, cohort.id],
+                )
+
+                if insights_using_cohort.exists():
+                    count = insights_using_cohort.count()
+                    insight_names = [
+                        insight.name or insight.derived_name or "Unnamed" for insight in insights_using_cohort[:5]
+                    ]
+                    names_str = ", ".join(insight_names)
+                    if count > 5:
+                        names_str = f"{names_str}, and {count - 5} more"
+                    raise ValidationError(
+                        f"This cohort is used in {count} insight(s): {names_str}. "
+                        "Please remove the cohort from these insights before deleting it."
+                    )
+
+                # Check if cohort is used as criteria in other cohorts
+                dependent_cohorts = (
+                    Cohort.objects.filter(
+                        team__project_id=cohort.team.project_id,
+                        deleted=False,
+                    )
+                    .exclude(id=cohort.id)
+                    .extra(
+                        where=[
+                            """jsonb_path_exists(filters, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)"""
+                        ],
+                        params=[cohort.id, cohort.id],
+                    )
+                )
+
+                if dependent_cohorts.exists():
+                    count = dependent_cohorts.count()
+                    cohort_names = [c.name for c in dependent_cohorts[:5]]
+                    names_str = ", ".join(cohort_names)
+                    if count > 5:
+                        names_str = f"{names_str}, and {count - 5} more"
+                    raise ValidationError(
+                        f"This cohort is used as criteria in {count} other cohort(s): {names_str}. "
+                        "Please remove this cohort from those cohort definitions before deleting it."
+                    )
+
             relevant_team_ids = Team.objects.filter(project_id=cohort.team.project_id).values_list("id", flat=True)
             cohort.deleted = deleted_state
             if deleted_state:
@@ -959,8 +1053,6 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         # For static cohorts, copy people directly instead of using the insight filter path
         if cohort.is_static:
-            from posthog.models.cohort.cohort import CohortPeople
-
             person_uuids = CohortPeople.objects.filter(cohort_id=cohort.pk).values_list("person__uuid", flat=True)
             serializer_data["_create_static_person_ids"] = [str(uuid) for uuid in person_uuids]
         else:
@@ -1180,13 +1272,6 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         serializer.save()
         instance = cast(Cohort, serializer.instance)
 
-        # Although there are no changes when creating a Cohort, we synthesize one here because
-        # it is helpful to show the list of people in the cohort when looking at the activity log.
-        people = instance.to_dict()["people"]
-        changes = dict_changes_between(
-            "Cohort", previous={"people": []}, new={"people": people}, use_field_exclusions=True
-        )
-
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
@@ -1195,7 +1280,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             item_id=instance.id,
             scope="Cohort",
             activity="created",
-            detail=Detail(changes=changes, name=instance.name),
+            detail=Detail(name=instance.name),
         )
 
     def perform_update(self, serializer):

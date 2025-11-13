@@ -14,15 +14,15 @@ import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import { ActivityTab, LiveEvent } from '~/types'
 
 import { EventName } from 'products/actions/frontend/components/EventName'
+
+import { useActivityTabs } from '../explore/utils'
 
 const columns: LemonTableColumns<LiveEvent> = [
     {
@@ -79,33 +79,18 @@ const columns: LemonTableColumns<LiveEvent> = [
 export function LiveEventsTable(): JSX.Element {
     const { events, stats, streamPaused, filters } = useValues(liveEventsTableLogic)
     const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsTableLogic)
+    const tabs = useActivityTabs()
 
     return (
         <SceneContent data-attr="manage-events-table">
-            <LemonTabs
-                activeKey={ActivityTab.LiveEvents}
-                tabs={[
-                    {
-                        key: ActivityTab.ExploreEvents,
-                        label: 'Explore',
-                        link: urls.activity(ActivityTab.ExploreEvents),
-                    },
-                    {
-                        key: ActivityTab.LiveEvents,
-                        label: 'Live',
-                        link: urls.activity(ActivityTab.LiveEvents),
-                    },
-                ]}
-                sceneInset
-            />
+            <LemonTabs activeKey={ActivityTab.LiveEvents} tabs={tabs} sceneInset className="mb-3" />
             <SceneTitleSection
-                name={sceneConfigurations[Scene.LiveEvents].name}
-                description={sceneConfigurations[Scene.LiveEvents].description}
+                name={sceneConfigurations[Scene.Activity].name}
+                description={sceneConfigurations[Scene.Activity].description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.LiveEvents].iconType || 'default_icon_type',
+                    type: sceneConfigurations[Scene.Activity].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
             <div className="mb-4 flex w-full justify-between items-center">
                 <div className="flex justify-center">
                     <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">
