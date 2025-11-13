@@ -193,8 +193,8 @@ export const MetricHeader = ({
                                                 <div className="text-sm text-secondary max-w-lg">
                                                     <p>
                                                         We'll take you to the form to customize and save this metric.
-                                                        Your new version will appear in your shared metrics, ready to
-                                                        add to your experiment.
+                                                        Your new version will appear in your shared metrics, ready to be
+                                                        added to your experiment.
                                                     </p>
                                                 </div>
                                             ),

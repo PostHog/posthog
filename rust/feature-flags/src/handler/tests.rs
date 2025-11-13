@@ -1151,9 +1151,12 @@ async fn test_fetch_and_filter_flags() {
     let flag_service = FlagService::new(
         redis_reader_client.clone(),
         redis_writer_client.clone(),
+        None, // No dedicated flags Redis in tests
+        None,
         reader.clone(),
         432000, // team_cache_ttl_seconds
         432000, // flags_cache_ttl_seconds
+        crate::config::DEFAULT_TEST_CONFIG.clone(),
     );
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await.unwrap();

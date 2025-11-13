@@ -1,4 +1,4 @@
-import { IconAtSign, IconBook, IconCompass, IconCreditCard, IconMemory, IconSearch } from '@posthog/icons'
+import { IconAtSign, IconBook, IconCreditCard, IconMemory, IconSearch } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Scene } from 'scenes/sceneTypes'
@@ -149,17 +149,6 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
                     return 'Reading data warehouse schema...'
                 },
             },
-        },
-    },
-    navigate: {
-        name: 'Navigate',
-        description: 'Navigate to other places in PostHog',
-        icon: <IconCompass />,
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Navigated to a different page'
-            }
-            return 'Navigating to a different page...'
         },
     },
     create_and_query_insight: {
@@ -347,15 +336,15 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         },
     },
     edit_current_dashboard: {
-        name: 'Add insight to the dashboard',
-        description: "Add insight to the dashboard you're viewing",
+        name: 'Add an insight to the dashboard',
+        description: "Add an insight to the dashboard you're viewing",
         product: Scene.Dashboard,
         icon: iconForType('dashboard'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Added insight to the dashboard'
+                return 'Added an insight to the dashboard'
             }
-            return 'Adding insight to the dashboard...'
+            return 'Adding an insight to the dashboard...'
         },
     },
     create_feature_flag: {

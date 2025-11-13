@@ -244,6 +244,7 @@ export enum ProductKey {
     MAX = 'max',
     LINKS = 'links',
     ENDPOINTS = 'endpoints',
+    CUSTOMER_ANALYTICS = 'customer_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -858,6 +859,7 @@ export enum ExperimentsTabs {
 
 export enum ActivityTab {
     ExploreEvents = 'explore',
+    ExploreSessions = 'sessions',
     LiveEvents = 'live',
 }
 
@@ -1587,6 +1589,10 @@ export interface RecordingEventType
     distinct_id?: EventType['distinct_id']
 }
 
+export interface SessionEventType extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp'> {
+    fullyLoaded: boolean
+    distinct_id?: EventType['distinct_id']
+}
 export interface PlaylistCollectionCount {
     count: number
     watched_count: number
@@ -2144,6 +2150,15 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
+export interface EndpointVersion {
+    id: string
+    version: number
+    query: HogQLQuery | InsightQueryNode
+    created_at: string
+    created_by: UserBasicType | null
+    change_summary: string
+}
+
 export interface EndpointType extends WithAccessControl {
     id: string
     name: string
@@ -2156,10 +2171,23 @@ export interface EndpointType extends WithAccessControl {
     updated_at: string
     created_by: UserBasicType | null
     cache_age_seconds: number
+    is_materialized: boolean
+    current_version: number
+    versions_count: number
     /** Purely local value to determine whether the query endpoint should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /** Last execution time from ClickHouse query_log table */
     last_executed_at?: string
+    materialization?: EndpointMaterializationType
+}
+
+export interface EndpointMaterializationType {
+    can_materialize: boolean
+    reason?: string
+    status?: string
+    error?: string
+    last_materialized_at?: string
+    sync_frequency?: DataWarehouseSyncInterval
 }
 
 export interface DashboardBasicType extends WithAccessControl {
@@ -2173,7 +2201,7 @@ export interface DashboardBasicType extends WithAccessControl {
     last_viewed_at?: string | null
     is_shared: boolean
     deleted: boolean
-    creation_mode: 'default' | 'template' | 'duplicate'
+    creation_mode: 'default' | 'template' | 'duplicate' | 'unlisted'
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
@@ -3680,6 +3708,7 @@ export enum DashboardPlacement {
     Export = 'export', // When the dashboard is being exported (alike to being printed)
     Person = 'person', // When the dashboard is being viewed on a person page
     Group = 'group', // When the dashboard is being viewed on a group page
+    Builtin = 'builtin', // Dashboard built into product UI with external controls provided by parent context
 }
 
 // Default mode is null
@@ -3925,6 +3954,14 @@ export interface Experiment {
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
     user_access_level: AccessControlLevel
+}
+
+export interface ExperimentVelocityStats {
+    launched_last_30d: number
+    launched_previous_30d: number
+    percent_change: number
+    active_experiments: number
+    completed_last_30d: number
 }
 
 export interface FunnelExperimentVariant {
@@ -5279,7 +5316,7 @@ export enum SDKKey {
 }
 
 export enum SDKTag {
-    RECOMMENDED = 'Recommended',
+    POPULAR = 'Most popular',
     WEB = 'Web',
     MOBILE = 'Mobile',
     SERVER = 'Server',
@@ -5368,6 +5405,7 @@ export type AvailableOnboardingProducts = Record<
 export type OnboardingProduct = {
     name: string
     breadcrumbsName?: string
+    description: string
     icon: string
     iconColor: string
     url: string

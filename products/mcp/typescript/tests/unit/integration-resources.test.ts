@@ -1,13 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { describe, expect, it, beforeEach } from 'vitest'
-import { registerIntegrationResources } from '@/resources/integration'
-import { ResourceUri, WORKFLOW_NEXT_STEP_MESSAGE } from '@/resources/integration/index'
-import { getSupportedFrameworks } from '@/resources/integration/framework-mappings'
-import type { Context } from '@/tools/types'
+import { beforeEach, describe, expect, it } from 'vitest'
 
+import { registerIntegrationResources } from '@/resources/integration'
+import { getSupportedFrameworks } from '@/resources/integration/framework-mappings'
+import { ResourceUri, WORKFLOW_NEXT_STEP_MESSAGE } from '@/resources/integration/index'
 import workflowBegin from '@/resources/integration/workflow-guides/1.0-event-setup-begin.md'
 import workflowEdit from '@/resources/integration/workflow-guides/1.1-event-setup-edit.md'
 import workflowRevise from '@/resources/integration/workflow-guides/1.2-event-setup-revise.md'
+import type { Context } from '@/tools/types'
 
 const FRAMEWORK_TEMPLATE_VARIABLE = '{framework}'
 
@@ -37,7 +37,7 @@ describe('Integration Resources - Workflow Sequence', () => {
     it('should append next step URI to first workflow', async () => {
         const resources = (server as any)._registeredResources
         const resource = resources[ResourceUri.WORKFLOW_SETUP_BEGIN]
-        expect(resource).toBeDefined()
+        expect(resource).toBeTruthy()
 
         const result = await resource.readCallback(new URL(ResourceUri.WORKFLOW_SETUP_BEGIN))
         const content = result.contents[0].text
@@ -50,7 +50,7 @@ describe('Integration Resources - Workflow Sequence', () => {
     it('should append next step URI to middle workflow', async () => {
         const resources = (server as any)._registeredResources
         const resource = resources[ResourceUri.WORKFLOW_SETUP_EDIT]
-        expect(resource).toBeDefined()
+        expect(resource).toBeTruthy()
 
         const result = await resource.readCallback(new URL(ResourceUri.WORKFLOW_SETUP_EDIT))
         const content = result.contents[0].text
@@ -63,7 +63,7 @@ describe('Integration Resources - Workflow Sequence', () => {
     it('should not append next step URI to last workflow', async () => {
         const resources = (server as any)._registeredResources
         const resource = resources[ResourceUri.WORKFLOW_SETUP_REVISE]
-        expect(resource).toBeDefined()
+        expect(resource).toBeTruthy()
 
         const result = await resource.readCallback(new URL(ResourceUri.WORKFLOW_SETUP_REVISE))
         const content = result.contents[0].text
@@ -78,13 +78,9 @@ describe('Integration Resources - Workflow Sequence', () => {
         const editResource = resources[ResourceUri.WORKFLOW_SETUP_EDIT]
         const reviseResource = resources[ResourceUri.WORKFLOW_SETUP_REVISE]
 
-        const beginResult = await beginResource.readCallback(
-            new URL(ResourceUri.WORKFLOW_SETUP_BEGIN)
-        )
+        const beginResult = await beginResource.readCallback(new URL(ResourceUri.WORKFLOW_SETUP_BEGIN))
         const editResult = await editResource.readCallback(new URL(ResourceUri.WORKFLOW_SETUP_EDIT))
-        const reviseResult = await reviseResource.readCallback(
-            new URL(ResourceUri.WORKFLOW_SETUP_REVISE)
-        )
+        const reviseResult = await reviseResource.readCallback(new URL(ResourceUri.WORKFLOW_SETUP_REVISE))
 
         expect(beginResult.contents[0].text).toContain(workflowBegin)
         expect(editResult.contents[0].text).toContain(workflowEdit)
@@ -113,10 +109,10 @@ describe('Integration Resources - Resource Templates', () => {
                     .toString()
                     .startsWith(ResourceUri.DOCS_FRAMEWORK.replace(FRAMEWORK_TEMPLATE_VARIABLE, ''))
             ) as any
-            expect(template).toBeDefined()
+            expect(template).toBeTruthy()
 
             const completeCallback = template.resourceTemplate.completeCallback('framework')
-            expect(completeCallback).toBeDefined()
+            expect(completeCallback).toBeTruthy()
 
             const frameworks = await completeCallback('')
             const expectedFrameworks = getSupportedFrameworks()
@@ -130,17 +126,12 @@ describe('Integration Resources - Resource Templates', () => {
             const template = templates.find((t: any) =>
                 t.resourceTemplate.uriTemplate
                     .toString()
-                    .startsWith(
-                        ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace(
-                            FRAMEWORK_TEMPLATE_VARIABLE,
-                            ''
-                        )
-                    )
+                    .startsWith(ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace(FRAMEWORK_TEMPLATE_VARIABLE, ''))
             ) as any
-            expect(template).toBeDefined()
+            expect(template).toBeTruthy()
 
             const completeCallback = template.resourceTemplate.completeCallback('framework')
-            expect(completeCallback).toBeDefined()
+            expect(completeCallback).toBeTruthy()
 
             const frameworks = await completeCallback('')
             const expectedFrameworks = getSupportedFrameworks()
@@ -158,10 +149,10 @@ describe('Integration Resources - Resource Templates', () => {
                     .toString()
                     .startsWith(ResourceUri.DOCS_FRAMEWORK.replace(FRAMEWORK_TEMPLATE_VARIABLE, ''))
             ) as any
-            expect(template).toBeDefined()
+            expect(template).toBeTruthy()
 
             const listCallback = template.resourceTemplate.listCallback
-            expect(listCallback).toBeDefined()
+            expect(listCallback).toBeTruthy()
 
             const result = await listCallback({})
             const frameworks = getSupportedFrameworks()
@@ -169,12 +160,9 @@ describe('Integration Resources - Resource Templates', () => {
             expect(result.resources).toHaveLength(frameworks.length)
 
             for (const framework of frameworks) {
-                const expectedUri = ResourceUri.DOCS_FRAMEWORK.replace(
-                    FRAMEWORK_TEMPLATE_VARIABLE,
-                    framework
-                )
+                const expectedUri = ResourceUri.DOCS_FRAMEWORK.replace(FRAMEWORK_TEMPLATE_VARIABLE, framework)
                 const resource = result.resources.find((r: any) => r.uri === expectedUri)
-                expect(resource).toBeDefined()
+                expect(resource).toBeTruthy()
             }
         })
 
@@ -183,17 +171,12 @@ describe('Integration Resources - Resource Templates', () => {
             const template = templates.find((t: any) =>
                 t.resourceTemplate.uriTemplate
                     .toString()
-                    .startsWith(
-                        ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace(
-                            FRAMEWORK_TEMPLATE_VARIABLE,
-                            ''
-                        )
-                    )
+                    .startsWith(ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace(FRAMEWORK_TEMPLATE_VARIABLE, ''))
             ) as any
-            expect(template).toBeDefined()
+            expect(template).toBeTruthy()
 
             const listCallback = template.resourceTemplate.listCallback
-            expect(listCallback).toBeDefined()
+            expect(listCallback).toBeTruthy()
 
             const result = await listCallback({})
             const frameworks = getSupportedFrameworks()
@@ -206,7 +189,7 @@ describe('Integration Resources - Resource Templates', () => {
                     framework
                 )
                 const resource = result.resources.find((r: any) => r.uri === expectedUri)
-                expect(resource).toBeDefined()
+                expect(resource).toBeTruthy()
             }
         })
 
@@ -220,12 +203,7 @@ describe('Integration Resources - Resource Templates', () => {
             const examplesTemplate = templates.find((t: any) =>
                 t.resourceTemplate.uriTemplate
                     .toString()
-                    .startsWith(
-                        ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace(
-                            FRAMEWORK_TEMPLATE_VARIABLE,
-                            ''
-                        )
-                    )
+                    .startsWith(ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace(FRAMEWORK_TEMPLATE_VARIABLE, ''))
             ) as any
 
             const docsResult = await docsTemplate.resourceTemplate.listCallback({})
@@ -233,23 +211,16 @@ describe('Integration Resources - Resource Templates', () => {
 
             const frameworks = getSupportedFrameworks()
             for (const framework of frameworks) {
-                const expectedDocsUri = ResourceUri.DOCS_FRAMEWORK.replace(
-                    FRAMEWORK_TEMPLATE_VARIABLE,
-                    framework
-                )
-                const docsResource = docsResult.resources.find(
-                    (r: any) => r.uri === expectedDocsUri
-                )
-                expect(docsResource).toBeDefined()
+                const expectedDocsUri = ResourceUri.DOCS_FRAMEWORK.replace(FRAMEWORK_TEMPLATE_VARIABLE, framework)
+                const docsResource = docsResult.resources.find((r: any) => r.uri === expectedDocsUri)
+                expect(docsResource).toBeTruthy()
 
                 const expectedExamplesUri = ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace(
                     FRAMEWORK_TEMPLATE_VARIABLE,
                     framework
                 )
-                const examplesResource = examplesResult.resources.find(
-                    (r: any) => r.uri === expectedExamplesUri
-                )
-                expect(examplesResource).toBeDefined()
+                const examplesResource = examplesResult.resources.find((r: any) => r.uri === expectedExamplesUri)
+                expect(examplesResource).toBeTruthy()
             }
         })
     })

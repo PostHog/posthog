@@ -576,7 +576,7 @@ def mysql_source(
 
     return SourceResponse(
         name=name,
-        items=get_rows(),
+        items=get_rows,
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,

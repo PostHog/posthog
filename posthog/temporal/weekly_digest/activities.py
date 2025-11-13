@@ -8,12 +8,13 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 import redis.asyncio as redis
+from posthoganalytics import Posthog
 from pydantic import ValidationError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.models.messaging import MessagingRecord, get_email_hash
-from posthog.ph_client import ph_async_scoped_capture
+from posthog.ph_client import get_regional_ph_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.sync import database_sync_to_async
@@ -340,16 +341,11 @@ async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput)
             async for team in query_teams_for_digest()[batch_start:batch_end]:
                 try:
                     async for user in await database_sync_to_async(team.all_users_with_access)():
-                        if team.id == 2:
-                            logger.info(f"Processing PH user {user.id}")
-
                         if should_send_notification(user, NotificationSetting.WEEKLY_PROJECT_DIGEST.value, team.id):
                             key: str = f"{input.digest.key}-user-notify-{user.id}"
                             await r.sadd(key, team.id)
                             await r.expire(key, input.common.redis_ttl)
-                        else:
-                            if team.id == 2:
-                                logger.info(f"PH user {user.id} has disabled notifications")
+
                         user_count += 1
                     team_count += 1
                 except Exception as e:
@@ -455,6 +451,10 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
         )
 
 
+RECORD_BATCH_SIZE = 100
+DIGEST_ITEM_COUNT_THRESHOLD = 4
+
+
 @activity.defn(name="send-weekly-digest-batch")
 async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
     async with Heartbeater():
@@ -466,7 +466,15 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
         empty_org_digest_count = 0
         empty_user_digest_count = 0
 
-        async with ph_async_scoped_capture() as capture_event, redis.from_url(_redis_url(input.common)) as r:
+        ph_client: Posthog = get_regional_ph_client(sync_mode=True)
+
+        if not ph_client and not input.dry_run:
+            logger.error("Failed to set up Posthog client")
+            return
+
+        messaging_record_batch: list[MessagingRecord] = []
+
+        async with redis.from_url(_redis_url(input.common)) as r:
             batch_start, batch_end = input.batch
             async for organization in query_orgs_for_digest()[batch_start:batch_end]:
                 partial = False
@@ -479,24 +487,24 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         )
                         continue
 
-                    org_digest = OrganizationDigest.model_validate_json(raw_digest)
+                    org_digest: OrganizationDigest = OrganizationDigest.model_validate_json(raw_digest)
 
-                    if org_digest.is_empty():
+                    if org_digest.is_empty() or org_digest.count_items() < DIGEST_ITEM_COUNT_THRESHOLD:
                         logger.warning(
                             "Got empty digest for organization, skipping...", organization_id=organization.id
                         )
                         empty_org_digest_count += 1
                         continue
 
-                    messaging_record, _ = await MessagingRecord.objects.aget_or_create(
+                    messaging_record, created = await MessagingRecord.objects.aget_or_create(
                         email_hash=get_email_hash(f"org_{organization.id}"), campaign_key=input.digest.key
                     )
 
-                    # if not created and messaging_record.sent_at:
-                    #    logger.info(
-                    #        f"Digest already sent for organization, skipping...", organization_id=organization.id
-                    #    )
-                    #    continue
+                    if not created and messaging_record.sent_at:
+                        logger.info(
+                            f"Digest already sent for organization, skipping...", organization_id=organization.id
+                        )
+                        continue
 
                     async for member in query_org_members(organization):
                         user = member.user
@@ -505,7 +513,10 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         )
                         user_specific_digest: OrganizationDigest = org_digest.filter_for_user(user_notify_teams)
 
-                        if user_specific_digest.is_empty():
+                        if (
+                            user_specific_digest.is_empty()
+                            or user_specific_digest.count_items() < DIGEST_ITEM_COUNT_THRESHOLD
+                        ):
                             logger.warning(
                                 "Got empty digest for user, skipping...",
                                 organization_id=organization.id,
@@ -514,25 +525,25 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             empty_user_digest_count += 1
                             continue
 
+                        payload = user_specific_digest.render_payload(input.digest)
+
                         if input.dry_run:
                             logger.info(
                                 "DRY RUN - would send digest",
-                                digest=user_specific_digest.render_payload(),
+                                digest=payload,
                                 user_email=user.email,
                             )
                         else:
-                            if user.email == "tue@posthog.com":
-                                logger.info("Match - sending digest")
-                                partial = True
-                                capture_event(
-                                    distinct_id=user.distinct_id,
-                                    event="transactional email",
-                                    properties=user_specific_digest.render_payload(),
-                                    groups={
-                                        "organization": str(organization.id),
-                                        "instance": settings.SITE_URL,
-                                    },
-                                )
+                            partial = True
+                            ph_client.capture(
+                                distinct_id=user.distinct_id,
+                                event="transactional email",
+                                properties=payload,
+                                groups={
+                                    "organization": str(organization.id),
+                                    "instance": settings.SITE_URL,
+                                },
+                            )
 
                         sent_digest_count += 1
                 except Exception as e:
@@ -545,7 +556,14 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                 finally:
                     if not input.dry_run and partial:
                         messaging_record.sent_at = timezone.now()
-                        await messaging_record.asave()
+                        messaging_record_batch.append(messaging_record)
+
+                    if len(messaging_record_batch) >= RECORD_BATCH_SIZE:
+                        await MessagingRecord.objects.abulk_update(messaging_record_batch, ["sent_at"])
+                        messaging_record_batch = []
+
+        if len(messaging_record_batch) > 0:
+            await MessagingRecord.objects.abulk_update(messaging_record_batch, ["sent_at"])
 
         logger.info(
             "Finished sending weekly digest batch",

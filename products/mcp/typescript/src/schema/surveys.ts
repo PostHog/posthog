@@ -1,4 +1,5 @@
 import { z } from 'zod'
+
 import { FilterGroupsSchema } from './flags.js'
 
 // Survey question types
@@ -29,9 +30,7 @@ const ChoiceResponseBranching = z
                 "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
             ),
     })
-    .describe(
-        'For single choice questions: use choice indices as string keys ("0", "1", "2", etc.)'
-    )
+    .describe('For single choice questions: use choice indices as string keys ("0", "1", "2", etc.)')
 
 // NPS sentiment branching - uses sentiment categories
 const NPSSentimentBranching = z
@@ -41,9 +40,7 @@ const NPSSentimentBranching = z
             .record(
                 z
                     .enum(['detractors', 'passives', 'promoters'])
-                    .describe(
-                        'NPS sentiment categories: detractors (0-6), passives (7-8), promoters (9-10)'
-                    ),
+                    .describe('NPS sentiment categories: detractors (0-6), passives (7-8), promoters (9-10)'),
                 z.union([z.number(), z.literal('end')])
             )
             .describe(
@@ -95,12 +92,7 @@ const ChoiceBranching = z.union([
     SpecificQuestionBranching,
 ])
 
-const NPSBranching = z.union([
-    NextQuestionBranching,
-    EndBranching,
-    NPSSentimentBranching,
-    SpecificQuestionBranching,
-])
+const NPSBranching = z.union([NextQuestionBranching, EndBranching, NPSSentimentBranching, SpecificQuestionBranching])
 
 const RatingBranching = z.union([
     NextQuestionBranching,
@@ -129,14 +121,8 @@ const RatingQuestion = BaseSurveyQuestionSchema.extend({
         .union([z.literal(3), z.literal(5), z.literal(7)])
         .optional()
         .describe('Rating scale can be one of 3, 5, or 7'),
-    lowerBoundLabel: z
-        .string()
-        .optional()
-        .describe("Label for the lowest rating (e.g., 'Very Poor')"),
-    upperBoundLabel: z
-        .string()
-        .optional()
-        .describe("Label for the highest rating (e.g., 'Excellent')"),
+    lowerBoundLabel: z.string().optional().describe("Label for the lowest rating (e.g., 'Very Poor')"),
+    upperBoundLabel: z.string().optional().describe("Label for the highest rating (e.g., 'Excellent')"),
     branching: RatingBranching.optional(),
 }).superRefine((data, ctx) => {
     // Validate display-specific scale constraints
@@ -178,14 +164,8 @@ const NPSRatingQuestion = BaseSurveyQuestionSchema.extend({
     type: z.literal('rating'),
     display: z.literal('number').describe('NPS questions always use numeric scale'),
     scale: z.literal(10).describe('NPS questions always use 0-10 scale'),
-    lowerBoundLabel: z
-        .string()
-        .optional()
-        .describe("Label for 0 rating (typically 'Not at all likely')"),
-    upperBoundLabel: z
-        .string()
-        .optional()
-        .describe("Label for 10 rating (typically 'Extremely likely')"),
+    lowerBoundLabel: z.string().optional().describe("Label for 0 rating (typically 'Not at all likely')"),
+    upperBoundLabel: z.string().optional().describe("Label for 10 rating (typically 'Extremely likely')"),
     branching: NPSBranching.optional(),
 }).superRefine((data, ctx) => {
     // Validate response-based branching for NPS rating questions
@@ -212,13 +192,8 @@ const SingleChoiceQuestion = BaseSurveyQuestionSchema.extend({
         .array(z.string().min(1, 'Choice text cannot be empty'))
         .min(2, 'Must have at least 2 choices')
         .max(20, 'Cannot have more than 20 choices')
-        .describe(
-            'Array of choice options. Choice indices (0, 1, 2, etc.) are used for branching logic'
-        ),
-    shuffleOptions: z
-        .boolean()
-        .optional()
-        .describe('Whether to randomize the order of choices for each respondent'),
+        .describe('Array of choice options. Choice indices (0, 1, 2, etc.) are used for branching logic'),
+    shuffleOptions: z.boolean().optional().describe('Whether to randomize the order of choices for each respondent'),
     hasOpenChoice: z
         .boolean()
         .optional()
@@ -269,13 +244,8 @@ const MultipleChoiceQuestion = BaseSurveyQuestionSchema.extend({
         .array(z.string().min(1, 'Choice text cannot be empty'))
         .min(2, 'Must have at least 2 choices')
         .max(20, 'Cannot have more than 20 choices')
-        .describe(
-            'Array of choice options. Multiple selections allowed. No branching logic supported.'
-        ),
-    shuffleOptions: z
-        .boolean()
-        .optional()
-        .describe('Whether to randomize the order of choices for each respondent'),
+        .describe('Array of choice options. Multiple selections allowed. No branching logic supported.'),
+    shuffleOptions: z.boolean().optional().describe('Whether to randomize the order of choices for each respondent'),
     hasOpenChoice: z
         .boolean()
         .optional()
@@ -360,10 +330,7 @@ const SurveyConditions = z.object({
         .optional(),
     deviceTypes: z.array(z.enum(['Desktop', 'Mobile', 'Tablet'])).optional(),
     deviceTypesMatchType: MatchTypeEnum.optional(),
-    linkedFlagVariant: z
-        .string()
-        .optional()
-        .describe('The variant of the feature flag linked to this survey'),
+    linkedFlagVariant: z.string().optional().describe('The variant of the feature flag linked to this survey'),
 })
 
 // Survey appearance customization - input schema
@@ -453,11 +420,7 @@ export const CreateSurveyInputSchema = z.object({
         .describe(
             'When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).'
         ),
-    linked_flag_id: z
-        .number()
-        .nullable()
-        .optional()
-        .describe('The feature flag linked to this survey'),
+    linked_flag_id: z.number().nullable().optional().describe('The feature flag linked to this survey'),
     targeting_flag_filters: FilterGroupsSchema.optional().describe(
         "Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 100}]}"
     ),
@@ -467,10 +430,7 @@ export const UpdateSurveyInputSchema = z.object({
     name: z.string().min(1, 'Survey name cannot be empty').optional(),
     description: z.string().optional(),
     type: z.enum(['popover', 'api', 'widget', 'external_survey']).optional(),
-    questions: z
-        .array(SurveyQuestionInputSchema)
-        .min(1, 'Survey must have at least one question')
-        .optional(),
+    questions: z.array(SurveyQuestionInputSchema).min(1, 'Survey must have at least one question').optional(),
     conditions: SurveyConditions.optional(),
     appearance: SurveyAppearance.optional(),
     schedule: z
@@ -483,16 +443,12 @@ export const UpdateSurveyInputSchema = z.object({
         .string()
         .datetime()
         .optional()
-        .describe(
-            'When the survey should start being shown to users. Setting this will launch the survey'
-        ),
+        .describe('When the survey should start being shown to users. Setting this will launch the survey'),
     end_date: z
         .string()
         .datetime()
         .optional()
-        .describe(
-            'When the survey stopped being shown to users. Setting this will complete the survey.'
-        ),
+        .describe('When the survey stopped being shown to users. Setting this will complete the survey.'),
     archived: z.boolean().optional(),
     responses_limit: z
         .number()
@@ -523,15 +479,8 @@ export const UpdateSurveyInputSchema = z.object({
         .describe(
             'When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).'
         ),
-    linked_flag_id: z
-        .number()
-        .nullable()
-        .optional()
-        .describe('The feature flag to link to this survey'),
-    targeting_flag_id: z
-        .number()
-        .optional()
-        .describe('An existing targeting flag to use for this survey'),
+    linked_flag_id: z.number().nullable().optional().describe('The feature flag to link to this survey'),
+    targeting_flag_id: z.number().optional().describe('An existing targeting flag to use for this survey'),
     targeting_flag_filters: FilterGroupsSchema.optional().describe(
         "Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 50}]}"
     ),
