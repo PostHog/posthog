@@ -3,7 +3,7 @@
  * Shows a formatted text representation with copy functionality and expandable truncated sections
  */
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
@@ -74,8 +74,8 @@ export function TextViewDisplay({
         }
     }, [popoutSegment])
 
-    const segments = parseTextSegments(textRepr || '')
-    const lineNumberPadding = calculateLineNumberPadding(textRepr || '')
+    const segments = useMemo(() => parseTextSegments(textRepr || ''), [textRepr])
+    const lineNumberPadding = useMemo(() => calculateLineNumberPadding(textRepr || ''), [textRepr])
 
     // Get indices of all expandable segments
     const allExpandableIndices = segments
