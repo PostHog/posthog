@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconGraph, IconLifecycle, IconPieChart, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
-import { Icon123, IconAreaChart, IconCumulativeChart, IconTableChart } from 'lib/lemon-ui/icons'
+import { Icon123, IconAreaChart, IconTableChart } from 'lib/lemon-ui/icons'
 
 import { ChartDisplayType } from '~/types'
 
@@ -53,16 +53,6 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     value: ChartDisplayType.ActionsStackedBar,
                     icon: <IconLifecycle />,
                     label: 'Stacked bar chart',
-                },
-            ],
-        },
-        {
-            title: 'Cumulative time series',
-            options: [
-                {
-                    value: ChartDisplayType.ActionsLineGraphCumulative,
-                    icon: <IconCumulativeChart />,
-                    label: 'Line chart (cumulative)',
                 },
             ],
         },

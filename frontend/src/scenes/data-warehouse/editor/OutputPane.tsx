@@ -733,36 +733,17 @@ function InternalDataTableVisualization(
         visualizationType === ChartDisplayType.ActionsBar ||
         visualizationType === ChartDisplayType.ActionsAreaGraph ||
         visualizationType === ChartDisplayType.ActionsStackedBar ||
-        visualizationType === ChartDisplayType.ActionsUnstackedBar ||
-        visualizationType === ChartDisplayType.ActionsLineGraphCumulative
+        visualizationType === ChartDisplayType.ActionsUnstackedBar
     ) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        let _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
-
-        // Transform data for cumulative line chart
-        if (visualizationType === ChartDisplayType.ActionsLineGraphCumulative && _yData) {
-            _yData = _yData.map((series) => {
-                let cumulative = 0
-                return {
-                    ...series,
-                    data: series.data.map((value) => {
-                        cumulative += value
-                        return cumulative
-                    }),
-                }
-            })
-        }
+        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
 
         component = (
             <LineGraph
                 className="p-2"
                 xData={_xData}
                 yData={_yData}
-                visualizationType={
-                    visualizationType === ChartDisplayType.ActionsLineGraphCumulative
-                        ? ChartDisplayType.ActionsLineGraph
-                        : visualizationType
-                }
+                visualizationType={visualizationType}
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
                 goalLines={goalLines}
