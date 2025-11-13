@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -66,6 +66,11 @@ export const textViewLogic = kea<textViewLogicType>([
     }),
     actions({
         triggerFallback: true,
+        setCopied: (copied: boolean) => ({ copied }),
+        toggleSegment: (index: number | string) => ({ index }),
+        setExpandedSegments: (segments: Set<number | string>) => ({ segments }),
+        setPopoutSegment: (index: number | string | null) => ({ index }),
+        resetUIState: true,
     }),
     loaders(({ props }) => ({
         textRepr: {
@@ -147,7 +152,42 @@ export const textViewLogic = kea<textViewLogicType>([
             },
         },
     })),
+    reducers({
+        copied: [
+            false,
+            {
+                setCopied: (_, { copied }) => copied,
+            },
+        ],
+        expandedSegments: [
+            new Set<number | string>(),
+            {
+                toggleSegment: (state, { index }) => {
+                    const next = new Set(state)
+                    if (next.has(index)) {
+                        next.delete(index)
+                    } else {
+                        next.add(index)
+                    }
+                    return next
+                },
+                setExpandedSegments: (_, { segments }) => segments,
+                resetUIState: () => new Set(),
+            },
+        ],
+        popoutSegment: [
+            null as number | string | null,
+            {
+                setPopoutSegment: (_, { index }) => index,
+                resetUIState: () => null,
+            },
+        ],
+    }),
     listeners(({ props, actions }) => ({
+        fetchTextRepr: () => {
+            // Reset UI state when fetching new text representation
+            actions.resetUIState()
+        },
         fetchTextReprFailure: async ({ error }) => {
             console.error('Error fetching text representation:', error)
             // Trigger fallback to standard view with a small delay
@@ -159,6 +199,14 @@ export const textViewLogic = kea<textViewLogicType>([
                 setTimeout(() => {
                     props.onFallback?.()
                 }, FALLBACK_DELAY_MS)
+            }
+        },
+        setCopied: ({ copied }) => {
+            // Automatically clear copied state after 2 seconds
+            if (copied) {
+                setTimeout(() => {
+                    actions.setCopied(false)
+                }, 2000)
             }
         },
     })),

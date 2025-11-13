@@ -20,9 +20,9 @@ interface SegmentRendererProps {
     onToggleExpand: (index: number) => void
     onTogglePopout: (index: number) => void
     expandedSegments: Set<number | string>
-    setExpandedSegments: React.Dispatch<React.SetStateAction<Set<number | string>>>
+    setExpandedSegments: (segments: Set<number | string>) => void
     popoutSegment: number | string | null
-    setPopoutSegment: React.Dispatch<React.SetStateAction<number | string | null>>
+    setPopoutSegment: (index: number | string | null) => void
     activeLineNumber?: number | null
     lineNumberPadding?: number
 }

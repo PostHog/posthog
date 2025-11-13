@@ -14,9 +14,9 @@ interface NestedContentRendererProps {
     traceId?: string
     parentKey: string
     expandedSegments: Set<number | string>
-    setExpandedSegments: React.Dispatch<React.SetStateAction<Set<number | string>>>
+    setExpandedSegments: (segments: Set<number | string>) => void
     popoutSegment: number | string | null
-    setPopoutSegment: React.Dispatch<React.SetStateAction<number | string | null>>
+    setPopoutSegment: (index: number | string | null) => void
     activeLineNumber?: number | null
     lineNumberPadding?: number
 }
@@ -36,20 +36,18 @@ export function NestedContentRenderer({
 
     const toggleNestedSegment = (nestedIndex: number): void => {
         const key = `${parentKey}-${nestedIndex}`
-        setExpandedSegments((prev) => {
-            const next = new Set(prev)
-            if (next.has(key)) {
-                next.delete(key)
-            } else {
-                next.add(key)
-            }
-            return next
-        })
+        const next = new Set(expandedSegments)
+        if (next.has(key)) {
+            next.delete(key)
+        } else {
+            next.add(key)
+        }
+        setExpandedSegments(next)
     }
 
     const toggleNestedPopout = (nestedIndex: number): void => {
         const key = `${parentKey}-${nestedIndex}`
-        setPopoutSegment((prev) => (prev === key ? null : key))
+        setPopoutSegment(popoutSegment === key ? null : key)
     }
 
     return (

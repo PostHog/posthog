@@ -3,7 +3,7 @@
  * Shows a formatted text representation with copy functionality and expandable truncated sections
  */
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
@@ -37,25 +37,19 @@ export function TextViewDisplay({
 }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
 
-    // Use Kea logic for text representation fetching
-    const { textRepr, textReprLoading } = useValues(
+    // Use Kea logic for text representation fetching and UI state
+    const { textRepr, textReprLoading, copied, expandedSegments, popoutSegment } = useValues(
         textViewLogic({ trace, event, tree, teamId: currentTeamId, onFallback })
     )
-    const { fetchTextRepr } = useActions(textViewLogic({ trace, event, tree, teamId: currentTeamId, onFallback }))
-
-    // UI state
-    const [copied, setCopied] = useState(false)
-    const [expandedSegments, setExpandedSegments] = useState<Set<number | string>>(new Set())
-    const [popoutSegment, setPopoutSegment] = useState<number | string | null>(null)
+    const { fetchTextRepr, setCopied, toggleSegment, setExpandedSegments, setPopoutSegment } = useActions(
+        textViewLogic({ trace, event, tree, teamId: currentTeamId, onFallback })
+    )
 
     // Get trace ID for event links
     const traceId = trace?.id
 
     // Fetch text representation when component mounts or key props change
     useEffect(() => {
-        // Reset expanded state when switching events
-        setExpandedSegments(new Set())
-        setPopoutSegment(null)
         fetchTextRepr()
     }, [event?.id, trace?.id, fetchTextRepr])
 
@@ -101,19 +95,10 @@ export function TextViewDisplay({
 
         copyToClipboard(textToCopy, 'generation text')
         setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
     }
 
-    const toggleSegment = (index: number): void => {
-        setExpandedSegments((prev) => {
-            const next = new Set(prev)
-            if (next.has(index)) {
-                next.delete(index)
-            } else {
-                next.add(index)
-            }
-            return next
-        })
+    const handleToggleSegment = (index: number): void => {
+        toggleSegment(index)
     }
 
     const toggleExpandAll = (): void => {
@@ -124,8 +109,8 @@ export function TextViewDisplay({
         }
     }
 
-    const togglePopout = (index: number): void => {
-        setPopoutSegment((prev) => (prev === index ? null : index))
+    const handleTogglePopout = (index: number): void => {
+        setPopoutSegment(popoutSegment === index ? null : index)
     }
 
     if (textReprLoading) {
@@ -188,8 +173,8 @@ export function TextViewDisplay({
                             traceId={traceId}
                             isExpanded={expandedSegments.has(index)}
                             isPopoutOpen={popoutSegment === index}
-                            onToggleExpand={toggleSegment}
-                            onTogglePopout={togglePopout}
+                            onToggleExpand={handleToggleSegment}
+                            onTogglePopout={handleTogglePopout}
                             expandedSegments={expandedSegments}
                             setExpandedSegments={setExpandedSegments}
                             popoutSegment={popoutSegment}
