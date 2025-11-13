@@ -1,3 +1,15 @@
+"""Dagster Slack alerts for job failures.
+
+This module implements intelligent alert routing for Dagster job failures. For most jobs,
+alerts are sent to the team's Slack channel based on the job's owner tag. However, the
+special case is __ASSET_JOB, which is Dagster's dynamically-created job for ad hoc
+materializations triggered from the UI. Since __ASSET_JOB can contain assets from multiple
+teams, we parse the error message to extract failed asset names and route alerts to each
+affected team separately.
+
+See: https://github.com/dagster-io/dagster/discussions/18819#discussioncomment-7909153
+"""
+
 import re
 from collections import defaultdict
 
@@ -8,6 +20,20 @@ import dagster_slack
 from dagster import DagsterRunStatus, RunsFilter
 
 from dags.common import JobOwners
+
+# Constants
+ASSET_JOB_NAME = "__ASSET_JOB"
+DEFAULT_OWNER = "unknown"
+DEFAULT_ENVIRONMENT = "unknown"
+
+# Regex patterns for parsing error messages
+STEPS_FAILED_PATTERN = r"Steps failed:.*?\[([^\]]+)\]"
+STEP_NAME_PATTERN = r"'([^']+)'"
+
+# Alert message templates
+ALERT_EMOJI = "❌"
+ALERT_HEADER_ASSET_JOB = "Ad hoc materialization failed"
+ALERT_HEADER_NAMED_JOB = "Dagster job `{job_name}` failed"
 
 notification_channel_per_team = {
     JobOwners.TEAM_ANALYTICS_PLATFORM.value: "#alerts-analytics-platform",
@@ -24,7 +50,7 @@ notification_channel_per_team = {
 # Asset name -> owner tag registry, populated at initialization
 ASSET_OWNER_REGISTRY: dict[str, str] = {}
 
-CONSECUTIVE_FAILURE_THRESHOLDS = {
+CONSECUTIVE_FAILURE_THRESHOLDS: dict[str, int] = {
     "web_pre_aggregate_current_day_hourly_job": 3,
     "web_pre_aggregate_job": 3,
     "web_pre_aggregate_daily_job": 3,
@@ -32,20 +58,27 @@ CONSECUTIVE_FAILURE_THRESHOLDS = {
 
 
 def build_asset_owner_registry(context: dagster.RunFailureSensorContext) -> None:
-    """Build a registry mapping asset names to their owner tags from all code locations."""
+    """Build a registry mapping asset names to their owner tags from the current repository.
+
+    Note: This builds the registry from assets in the current repository only. With
+    monitor_all_code_locations=True on the sensor, the context will include runs from all
+    locations, but we can only access asset definitions from the repository where this
+    sensor is defined.
+    """
     global ASSET_OWNER_REGISTRY
 
     if ASSET_OWNER_REGISTRY:
         return
 
     try:
-        external_assets = context.instance.get_all_asset_keys()
+        # Get all asset definitions from the repository
+        assets_by_key = context.repository_def.assets_defs_by_key
 
-        for asset_key in external_assets:
-            external_asset = context.instance.get_asset_node_from_cache(asset_key)
-            if external_asset:
-                owner = external_asset.tags.get("owner", "unknown")
-                ASSET_OWNER_REGISTRY[asset_key.to_user_string()] = owner
+        for asset_key, asset_def in assets_by_key.items():
+            owner = asset_def.tags.get("owner", DEFAULT_OWNER)
+            ASSET_OWNER_REGISTRY[asset_key.to_user_string()] = owner
+
+        context.log.info(f"Built asset owner registry with {len(ASSET_OWNER_REGISTRY)} assets")
     except Exception as e:
         context.log.exception(f"Failed to build asset owner registry: {str(e)}")
 
@@ -55,19 +88,18 @@ def get_failed_steps_by_owner(error_message: str) -> dict[str, list[str]]:
 
     Returns a dict mapping owner tag to list of failed asset names for that owner.
     """
-    steps_pattern = r"Steps failed:.*?\[([^\]]+)\]"
-    match = re.search(steps_pattern, error_message)
+    match = re.search(STEPS_FAILED_PATTERN, error_message)
 
     if not match:
         return {}
 
     steps_text = match.group(1)
-    step_names = re.findall(r"'([^']+)'", steps_text)
+    step_names = re.findall(STEP_NAME_PATTERN, steps_text)
 
     # Group failed steps by owner
     steps_by_owner = defaultdict(list)
     for step_name in step_names:
-        owner = ASSET_OWNER_REGISTRY.get(step_name, "unknown")
+        owner = ASSET_OWNER_REGISTRY.get(step_name, DEFAULT_OWNER)
         steps_by_owner[owner].append(step_name)
 
     return dict(steps_by_owner)
@@ -79,23 +111,24 @@ def get_owners_for_failed_job(failed_run: dagster.DagsterRun, error_message: str
     Returns dict mapping owner -> list of failed asset names:
     - For named jobs: {owner: []} - single owner, empty asset list (whole job failed)
     - For __ASSET_JOB: {owner1: [asset1, asset2], owner2: [asset3]} - grouped by owner
-
-    Note: __ASSET_JOB is the special job name that Dagster uses for ad hoc materializations
-    triggered from the UI. These are dynamically created jobs for selected assets, so they
-    don't have consistent owner tags. We look up each failed asset's owner from the registry
-    and group them to send targeted alerts to each team.
-
-    See: https://github.com/dagster-io/dagster/discussions/18819#discussioncomment-7909153
     """
-    if failed_run.job_name == "__ASSET_JOB":
+    if failed_run.job_name == ASSET_JOB_NAME:
         return get_failed_steps_by_owner(error_message)
     else:
         # Named job - use owner tag from run, no specific assets
-        owner = failed_run.tags.get("owner", "unknown")
+        owner = failed_run.tags.get("owner", DEFAULT_OWNER)
         return {owner: []}  # Empty list indicates this is a named job (no specific assets)
 
 
 def should_suppress_alert(context: dagster.RunFailureSensorContext, job_name: str, threshold: int) -> bool:
+    """Check if an alert should be suppressed based on consecutive failure threshold.
+
+    Returns True if the alert should be suppressed, False if it should be sent.
+    """
+    if threshold < 1:
+        context.log.warning(f"Invalid threshold {threshold} for job {job_name}, must be >= 1. Sending alert.")
+        return False
+
     try:
         run_records = context.instance.get_run_records(
             RunsFilter(
@@ -132,7 +165,7 @@ def send_failure_notification(
     run_id: str,
     error: str,
     owner: str,
-    tags: dict,
+    tags: dict[str, str],
     failed_assets: list[str] | None = None,
 ) -> None:
     """Send a single failure notification to a team's Slack channel."""
@@ -140,15 +173,17 @@ def send_failure_notification(
     run_url = f"https://{dagster_domain}/runs/{run_id}"
 
     environment = (
-        f"{settings.CLOUD_DEPLOYMENT} :flag-{settings.CLOUD_DEPLOYMENT}:" if settings.CLOUD_DEPLOYMENT else "unknown"
+        f"{settings.CLOUD_DEPLOYMENT} :flag-{settings.CLOUD_DEPLOYMENT}:"
+        if settings.CLOUD_DEPLOYMENT
+        else DEFAULT_ENVIRONMENT
     )
 
     # Build message header
     if failed_assets:
         asset_list = ", ".join(f"`{asset}`" for asset in failed_assets)
-        header = f"❌ *Ad hoc materialization failed*\n\n*Failed assets*: {asset_list}"
+        header = f"{ALERT_EMOJI} *{ALERT_HEADER_ASSET_JOB}*\n\n*Failed assets*: {asset_list}"
     else:
-        header = f"❌ *Dagster job `{job_name}` failed*"
+        header = f"{ALERT_EMOJI} *{ALERT_HEADER_NAMED_JOB.format(job_name=job_name)}*"
 
     blocks = [
         {
@@ -200,7 +235,7 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
             return
 
     # Build asset owner registry for __ASSET_JOB (no-op for named jobs)
-    if job_name == "__ASSET_JOB":
+    if job_name == ASSET_JOB_NAME:
         build_asset_owner_registry(context)
 
     # Get owners and failed assets for this job

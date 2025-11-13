@@ -98,34 +98,27 @@ class TestSlackAlertsRouting:
 class TestAssetOwnerRegistry:
     def test_build_asset_owner_registry_from_context(self):
         mock_context = mock.MagicMock(spec=dagster.RunFailureSensorContext)
-        mock_instance = mock.MagicMock()
-        mock_context.instance = mock_instance
+        mock_repository_def = mock.MagicMock()
+        mock_context.repository_def = mock_repository_def
 
         asset_key1 = AssetKey(["web_analytics_bounces_hourly"])
         asset_key2 = AssetKey(["clickhouse_table"])
         asset_key3 = AssetKey(["no_owner_asset"])
 
-        mock_instance.get_all_asset_keys.return_value = [asset_key1, asset_key2, asset_key3]
+        mock_asset_def1 = mock.MagicMock()
+        mock_asset_def1.tags = {"owner": JobOwners.TEAM_WEB_ANALYTICS.value}
 
-        mock_node1 = mock.MagicMock()
-        mock_node1.tags = {"owner": JobOwners.TEAM_WEB_ANALYTICS.value}
+        mock_asset_def2 = mock.MagicMock()
+        mock_asset_def2.tags = {"owner": JobOwners.TEAM_CLICKHOUSE.value}
 
-        mock_node2 = mock.MagicMock()
-        mock_node2.tags = {"owner": JobOwners.TEAM_CLICKHOUSE.value}
+        mock_asset_def3 = mock.MagicMock()
+        mock_asset_def3.tags = {}
 
-        mock_node3 = mock.MagicMock()
-        mock_node3.tags = {}
-
-        def get_asset_node(asset_key):
-            if asset_key == asset_key1:
-                return mock_node1
-            elif asset_key == asset_key2:
-                return mock_node2
-            elif asset_key == asset_key3:
-                return mock_node3
-            return None
-
-        mock_instance.get_asset_node_from_cache.side_effect = get_asset_node
+        mock_repository_def.assets_defs_by_key = {
+            asset_key1: mock_asset_def1,
+            asset_key2: mock_asset_def2,
+            asset_key3: mock_asset_def3,
+        }
 
         ASSET_OWNER_REGISTRY.clear()
         build_asset_owner_registry(mock_context)
@@ -136,16 +129,18 @@ class TestAssetOwnerRegistry:
 
     def test_build_asset_owner_registry_only_once(self):
         mock_context = mock.MagicMock(spec=dagster.RunFailureSensorContext)
-        mock_instance = mock.MagicMock()
-        mock_context.instance = mock_instance
+        mock_repository_def = mock.MagicMock()
+        mock_context.repository_def = mock_repository_def
 
         ASSET_OWNER_REGISTRY.clear()
         ASSET_OWNER_REGISTRY["existing_asset"] = "existing_owner"
 
         build_asset_owner_registry(mock_context)
 
-        mock_instance.get_all_asset_keys.assert_not_called()
+        # Verify we didn't try to access assets_defs_by_key (registry already populated)
+        mock_repository_def.assets_defs_by_key.__getitem__.assert_not_called()
         assert ASSET_OWNER_REGISTRY["existing_asset"] == "existing_owner"
+        assert len(ASSET_OWNER_REGISTRY) == 1  # No new assets added
 
 
 class TestFailedStepsByOwner:
