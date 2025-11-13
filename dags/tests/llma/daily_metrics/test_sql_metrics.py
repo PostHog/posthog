@@ -356,6 +356,7 @@ def test_pageview_counts_logic(template_context: dict, mock_events_data: list, e
     assert "LIKE" in rendered, "Should use LIKE for URL matching"
 
     # Verify pageview mappings are used
+    assert config.pageview_mappings is not None
     for url_path, _ in config.pageview_mappings:
         assert url_path in rendered, f"Should include pageview mapping for {url_path}"
 
