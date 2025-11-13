@@ -8,41 +8,16 @@ import { dayjs } from 'lib/dayjs'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-interface SessionKeyAction {
-    event_id: string
-    event_uuid: string
-    session_id: string
-    description: string
-    abandonment: boolean
-    confusion: boolean
-    exception: string | null
-    timestamp: string
-    milliseconds_since_start: number
-    window_id: string
-    current_url: string
-    event: string
-    event_type: string | null
-    event_index: number
-}
-
-interface SessionEvent {
-    segment_name: string
-    segment_outcome: string
-    segment_success: boolean
-    segment_index: number
-    previous_events_in_segment: SessionKeyAction[]
-    target_event: SessionKeyAction
-    next_events_in_segment: SessionKeyAction[]
-}
+import { PatternAssignedEventSegmentContext } from './types'
 
 interface SessionDetailsModalProps {
     isOpen: boolean
     onClose: () => void
-    event: SessionEvent | null
+    event: PatternAssignedEventSegmentContext | null
 }
 
 export function SessionDetailsModal({ isOpen, onClose, event }: SessionDetailsModalProps): JSX.Element {
-    if (!event) {
+    if (!event || !event.target_event) {
         return <></>
     }
 
