@@ -28,12 +28,10 @@ TWENTY_FOUR_HOURS = 60 * 60 * 24
 PERSONAL_API_KEY_LEAKED_COUNTER = Counter(
     "github_secrets_scanning_personal_api_key_leaked",
     "Number of valid Personal API Keys identified by GitHub secrets scanning",
-    labelnames=["key_id", "user_id"],
 )
 PROJECT_SECRET_API_KEY_LEAKED_COUNTER = Counter(
     "github_secrets_scanning_project_secret_api_key_leaked",
     "Number of valid Project Secret API Keys identified by GitHub secrets scanning",
-    labelnames=["key_id", "team_id"],
 )
 
 
@@ -172,7 +170,7 @@ class SecretAlert(APIView):
                     key, _ = key_lookup
                     old_mask_value = key.mask_value
 
-                    PERSONAL_API_KEY_LEAKED_COUNTER.labels(key_id=key.id, user_id=key.user.id).inc()
+                    PERSONAL_API_KEY_LEAKED_COUNTER.inc()
 
                     serializer = PersonalAPIKeySerializer(instance=key)
                     serializer.roll(key)
@@ -180,14 +178,11 @@ class SecretAlert(APIView):
 
             elif item["type"] == "posthog_feature_flags_secure_api_key":
                 try:
-                    team = Team.objects.get(
-                        Q(secret_api_token=item["token"]) | Q(secret_api_token_backup=item["token"])
-                    )
+                    _ = Team.objects.get(Q(secret_api_token=item["token"]) | Q(secret_api_token_backup=item["token"]))
                     # TODO send email to team members
                     result["label"] = "true_positive"
 
-                    # use a static key id to identify these keys as belonging to the legacy "feature flags secure api key"
-                    PROJECT_SECRET_API_KEY_LEAKED_COUNTER.labels(key_id="feature_flags", team_id=team.id).inc()
+                    PROJECT_SECRET_API_KEY_LEAKED_COUNTER.inc()
 
                 except Team.DoesNotExist:
                     pass
