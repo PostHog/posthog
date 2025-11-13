@@ -96,9 +96,14 @@ export default defineConfig(({ mode }) => {
         server: {
             port: 8234,
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
+            allowedHosts: process.env.NGROK_ORIGIN ? ['.ngrok-free.dev', '.ngrok.io'] : undefined,
             cors: {
-                // Allow Django backend to access Vite dev server
-                origin: ['http://localhost:8000', 'http://localhost:8010'],
+                // Allow Django backend and ngrok (if configured) to access Vite dev server
+                origin: [
+                    'http://localhost:8000',
+                    'http://localhost:8010',
+                    ...(process.env.NGROK_ORIGIN ? [process.env.NGROK_ORIGIN] : []),
+                ],
             },
             // Configure origin for proper asset URL generation
             origin: 'http://localhost:8234',
