@@ -34,8 +34,9 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
         toggleProduct: (productPath: string) => ({ productPath }),
         setAllowSidebarSuggestions: (value: boolean) => ({ value }),
         setSelectedPaths: (paths: Set<string>) => ({ paths }),
-        save: true,
-        setSaving: (saving: boolean) => ({ saving }),
+        setProductLoading: (productPath: string, loading: boolean) => ({ productPath, loading }),
+        setSidebarSuggestionsLoading: (loading: boolean) => ({ loading }),
+        toggleSidebarSuggestions: true,
         openModal: true,
         closeModal: true,
     }),
@@ -50,28 +51,44 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
         selectedPaths: [
             new Set<string>(),
             {
-                toggleProduct: (state, { productPath }) => {
-                    const newSelected = new Set(state)
-                    if (newSelected.has(productPath)) {
-                        newSelected.delete(productPath)
-                    } else {
-                        newSelected.add(productPath)
-                    }
-                    return newSelected
-                },
                 setSelectedPaths: (_, { paths }) => paths,
+                toggleProduct: (state, { productPath }) => {
+                    const newState = new Set(state)
+                    if (newState.has(productPath)) {
+                        newState.delete(productPath)
+                    } else {
+                        newState.add(productPath)
+                    }
+                    return newState
+                },
             },
         ],
         allowSidebarSuggestions: [
             false,
             {
                 setAllowSidebarSuggestions: (_, { value }) => value,
+                toggleSidebarSuggestions: (state) => !state,
             },
         ],
-        saving: [
+        sidebarSuggestionsLoading: [
             false,
             {
-                setSaving: (_, { saving }) => saving,
+                setSidebarSuggestionsLoading: (_, { loading }) => loading,
+                toggleSidebarSuggestions: () => true,
+            },
+        ],
+        productLoading: [
+            {} as Record<string, boolean>,
+            {
+                setProductLoading: (state, { productPath, loading }) => {
+                    const newState = { ...state }
+                    if (loading) {
+                        newState[productPath] = true
+                    } else {
+                        delete newState[productPath]
+                    }
+                    return newState
+                },
             },
         ],
     }),
@@ -111,32 +128,37 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
     }),
     listeners(({ actions, values }) => ({
         loadCustomProductsSuccess: ({ customProducts }) => {
-            if (customProducts.length > 0) {
-                actions.setSelectedPaths(
-                    new Set(customProducts.map((item: { product_path: string }) => item.product_path))
-                )
-            }
+            actions.setSelectedPaths(new Set(customProducts.map((item: { product_path: string }) => item.product_path)))
         },
         loadUserSuccess: ({ user }) => {
             if (user) {
                 actions.setAllowSidebarSuggestions(user.allow_sidebar_suggestions ?? false)
             }
         },
-        save: async () => {
-            actions.setSaving(true)
+        toggleProduct: async ({ productPath }) => {
+            // State is updated already in the store
+            const newEnabledState = values.selectedPaths.has(productPath)
+
             try {
-                await api.userProductList.bulkUpdate({ products: Array.from(values.selectedPaths) })
-
-                if (values.user && values.user.allow_sidebar_suggestions !== values.allowSidebarSuggestions) {
-                    actions.updateUser({ allow_sidebar_suggestions: values.allowSidebarSuggestions })
-                }
-
-                actions.loadCustomProducts()
+                actions.setProductLoading(productPath, true)
+                await api.userProductList.updateByPath({ product_path: productPath, enabled: newEnabledState })
             } catch (error) {
-                console.error('Failed to save custom products:', error)
-                lemonToast.error('Failed to save custom products. Try again?')
+                console.error('Failed to toggle product:', error)
+                lemonToast.error('Failed to toggle product. Try again?')
             } finally {
-                actions.setSaving(false)
+                actions.loadCustomProducts()
+                actions.setProductLoading(productPath, false)
+            }
+        },
+        toggleSidebarSuggestions: () => {
+            try {
+                actions.setSidebarSuggestionsLoading(true)
+                actions.updateUser({ allow_sidebar_suggestions: values.allowSidebarSuggestions }) // Store is updated already
+            } catch (error) {
+                console.error('Failed to save sidebar suggestions preference:', error)
+                lemonToast.error('Failed to save preference. Try again?')
+            } finally {
+                actions.setSidebarSuggestionsLoading(false)
             }
         },
     })),

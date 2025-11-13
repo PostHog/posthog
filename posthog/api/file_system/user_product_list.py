@@ -18,6 +18,7 @@ class UserProductListSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "product_path",
+            "enabled",
             "created_at",
             "updated_at",
         ]
@@ -35,16 +36,14 @@ class UserProductListSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> UserProductList:
         request = self.context["request"]
         team = self.context["get_team"]()
+
         user_product_list = UserProductList.objects.create(
             team=team,
             user=request.user,
             **validated_data,
         )
+
         return user_product_list
-
-
-class BulkUpdateUserProductListSerializer(serializers.Serializer):
-    products = serializers.ListField(child=serializers.CharField())
 
 
 class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -55,29 +54,24 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team=self.team, user=self.request.user, enabled=True).order_by(Lower("product_path"))
 
-    @action(methods=["POST"], detail=False, url_path="bulk_update")
-    def bulk_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = BulkUpdateUserProductListSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+    @action(methods=["PATCH"], detail=False, url_path="update_by_path")
+    def update_by_path(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        product_path = request.data.get("product_path")
+        if not product_path:
+            return Response({"error": "product_path is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        product_paths_to_keep = set(serializer.validated_data["products"])
-        existing_products = {
-            item.product_path: item for item in UserProductList.objects.filter(team=self.team, user=request.user)
-        }
+        existing_item = UserProductList.objects.filter(
+            team=self.team, user=request.user, product_path=product_path
+        ).first()
 
-        # Products we need to create
-        for product_path in product_paths_to_keep:
-            if product_path not in existing_products:
-                UserProductList.objects.create(
-                    team=self.team,
-                    user=request.user,
-                    product_path=product_path,
-                    enabled=True,
-                )
-
-        # Products that already exist, decide whether they should be enabled or disabled
-        for product_path, item in existing_products.items():
-            item.enabled = product_path in product_paths_to_keep
-            item.save()
-
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        if existing_item:
+            serializer = self.get_serializer(existing_item, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data)
+        else:
+            # Create new item - need to explicitly set product_path since it's read-only
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
