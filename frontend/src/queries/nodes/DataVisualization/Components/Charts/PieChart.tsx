@@ -92,6 +92,7 @@ export function PieChart({
                     },
                 },
                 plugins: {
+                    crosshair: false,
                     datalabels: {
                         color: 'white',
                         anchor: 'end',

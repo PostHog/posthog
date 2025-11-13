@@ -69,6 +69,10 @@ export function BarValue({ xData, yData, chartSettings, presetChartHeight, class
             maintainAspectRatio: false,
             indexAxis: 'y', // This makes it horizontal
             plugins: {
+                crosshair: false,
+                datalabels: {
+                    display: false,
+                },
                 legend: {
                     display: false,
                 },
