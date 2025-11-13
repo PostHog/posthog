@@ -72,8 +72,8 @@ export const SeriesTab = (): JSX.Element => {
         ),
     }))
 
-    const xAxisLabel = isTotalValueChart ? 'Labels' : 'X-axis'
-    const xAxisTooltip = isTotalValueChart ? 'Column used to create pie slices (categories)' : undefined
+    const xAxisLabel = isTotalValueChart ? 'Dimension' : 'X-axis'
+    const xAxisTooltip = isTotalValueChart ? 'Single column used to create pie slices (categories)' : undefined
 
     const yAxisLabel = isTotalValueChart ? 'Values' : 'Y-axis'
     const yAxisTooltip = isTotalValueChart
@@ -97,7 +97,7 @@ export const SeriesTab = (): JSX.Element => {
                     }
                 }}
             />
-            {!hideAddSeriesBreakdown && (
+            {!hideAddSeriesBreakdown && !isTotalValueChart && (
                 <LemonButton
                     className="mt-1"
                     type="tertiary"
@@ -108,7 +108,7 @@ export const SeriesTab = (): JSX.Element => {
                     Add series breakdown
                 </LemonButton>
             )}
-            {showSeriesBreakdown && <SeriesBreakdownSelector />}
+            {showSeriesBreakdown && !isTotalValueChart && <SeriesBreakdownSelector />}
 
             <LemonLabel className="mt-4 mb-1" info={yAxisTooltip}>
                 {yAxisLabel}
