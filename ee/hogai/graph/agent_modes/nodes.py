@@ -15,6 +15,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Send
 from posthoganalytics import capture_exception
+from pydantic import ValidationError
 
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMessage, FailureMessage, HumanMessage
 
@@ -490,6 +491,20 @@ class AgentToolsExecutable(BaseAgentExecutable):
                 messages=[
                     AssistantToolCallMessage(
                         content=content,
+                        id=str(uuid4()),
+                        tool_call_id=tool_call.id,
+                    )
+                ],
+            )
+        except ValidationError as e:
+            logger.exception("Validation error calling tool", extra={"tool_name": tool_call.name, "error": str(e)})
+            capture_exception(
+                e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
+            )
+            return PartialAssistantState(
+                messages=[
+                    AssistantToolCallMessage(
+                        content="There was a validation error calling the tool: " + str(e),
                         id=str(uuid4()),
                         tool_call_id=tool_call.id,
                     )
