@@ -36,7 +36,8 @@ def clone_repository(input: CloneRepositoryInput) -> str:
         except Exception as e:
             raise GitHubAuthenticationError(
                 f"Failed to get GitHub token for integration {input.github_integration_id}",
-                {"github_integration_id": input.github_integration_id, "error": str(e)},
+                {"github_integration_id": input.github_integration_id, "task_id": input.task_id, "error": str(e)},
+                cause=e,
             )
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
@@ -46,7 +47,13 @@ def clone_repository(input: CloneRepositoryInput) -> str:
         except Exception as e:
             raise RepositoryCloneError(
                 f"Failed to clone repository {input.repository}",
-                {"repository": input.repository, "sandbox_id": input.sandbox_id, "error": str(e)},
+                {
+                    "repository": input.repository,
+                    "sandbox_id": input.sandbox_id,
+                    "task_id": input.task_id,
+                    "error": str(e),
+                },
+                cause=e,
             )
 
         if result.exit_code != 0:
@@ -56,7 +63,9 @@ def clone_repository(input: CloneRepositoryInput) -> str:
                     "repository": input.repository,
                     "exit_code": result.exit_code,
                     "stderr": result.stderr[:500],
+                    "task_id": input.task_id,
                 },
+                cause=RuntimeError(f"Git clone exited with code {result.exit_code}: {result.stderr[:200]}"),
             )
 
         # NOTE: git clone returns it's output in stderr

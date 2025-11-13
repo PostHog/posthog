@@ -146,7 +146,9 @@ class Sandbox:
 
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")
-            raise SandboxProvisionError(f"Failed to create sandbox", {"config": config, "error": str(e)})
+            raise SandboxProvisionError(
+                f"Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
+            )
 
     @staticmethod
     def get_by_id(sandbox_id: str) -> "Sandbox":
@@ -159,8 +161,9 @@ class Sandbox:
 
         except Exception as e:
             logger.exception(f"Failed to retrieve sandbox {sandbox_id}: {e}")
-            capture_exception(e)
-            raise SandboxNotFoundError(f"Sandbox {sandbox_id} not found", {"sandbox_id": sandbox_id, "error": str(e)})
+            raise SandboxNotFoundError(
+                f"Sandbox {sandbox_id} not found", {"sandbox_id": sandbox_id, "error": str(e)}, cause=e
+            )
 
     def get_status(self) -> SandboxStatus:
         return SandboxStatus.RUNNING if self._sandbox.poll() is None else SandboxStatus.SHUTDOWN
@@ -174,6 +177,7 @@ class Sandbox:
             raise SandboxExecutionError(
                 f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
             )
 
         if timeout_seconds is None:
@@ -201,6 +205,7 @@ class Sandbox:
             raise SandboxTimeoutError(
                 f"Execution timed out after {timeout_seconds} seconds",
                 {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
+                cause=e,
             )
         except Exception as e:
             capture_exception(e)
@@ -208,6 +213,7 @@ class Sandbox:
             raise SandboxExecutionError(
                 f"Failed to execute command",
                 {"sandbox_id": self.id, "command": command, "error": str(e)},
+                cause=e,
             )
 
     def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
@@ -299,6 +305,7 @@ class Sandbox:
             raise SandboxExecutionError(
                 f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
             )
 
         try:
@@ -312,7 +319,9 @@ class Sandbox:
 
         except Exception as e:
             logger.exception(f"Failed to create snapshot: {e}")
-            raise SnapshotCreationError(f"Failed to create snapshot: {e}", {"sandbox_id": self.id, "error": str(e)})
+            raise SnapshotCreationError(
+                f"Failed to create snapshot: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
+            )
 
     @staticmethod
     def delete_snapshot(external_id: str) -> None:
@@ -328,7 +337,9 @@ class Sandbox:
             logger.info(f"Destroyed sandbox {self.id}")
         except Exception as e:
             logger.exception(f"Failed to destroy sandbox: {e}")
-            raise SandboxCleanupError(f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)})
+            raise SandboxCleanupError(
+                f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
+            )
 
     def __enter__(self):
         return self

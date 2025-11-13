@@ -41,7 +41,11 @@ def _create_personal_api_key(task: Task) -> tuple[str, PersonalAPIKey]:
     secure_value = hash_key_value(value)
 
     if not task.created_by:
-        raise TaskInvalidStateError(f"Task {task.id} has no created_by user", {"task_id": task.id})
+        raise TaskInvalidStateError(
+            f"Task {task.id} has no created_by user",
+            {"task_id": task.id},
+            cause=RuntimeError(f"Task {task.id} missing created_by field"),
+        )
 
     assert task.created_by is not None
 
@@ -89,26 +93,35 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
     ):
         try:
             snapshot = SandboxSnapshot.objects.get(id=input.snapshot_id)
-        except SandboxSnapshot.DoesNotExist:
-            raise SnapshotNotFoundError(f"Snapshot {input.snapshot_id} not found", {"snapshot_id": input.snapshot_id})
+        except SandboxSnapshot.DoesNotExist as e:
+            raise SnapshotNotFoundError(
+                f"Snapshot {input.snapshot_id} not found", {"snapshot_id": input.snapshot_id}, cause=e
+            )
 
         if snapshot.status != SandboxSnapshot.Status.COMPLETE:
             raise SnapshotNotReadyError(
                 f"Snapshot {input.snapshot_id} is not ready (status: {snapshot.status})",
                 {"snapshot_id": input.snapshot_id, "status": snapshot.status},
+                cause=RuntimeError(f"Snapshot status is {snapshot.status}, expected COMPLETE"),
             )
 
         try:
             task = Task.objects.select_related("created_by").get(id=input.task_id)
-        except Task.DoesNotExist:
-            raise TaskNotFoundError(f"Task {input.task_id} not found", {"task_id": input.task_id})
+        except Task.DoesNotExist as e:
+            raise TaskNotFoundError(f"Task {input.task_id} not found", {"task_id": input.task_id}, cause=e)
 
         try:
             github_token = get_github_token(input.github_integration_id) or ""
         except Exception as e:
             raise GitHubAuthenticationError(
                 f"Failed to get GitHub token for integration {input.github_integration_id}",
-                {"github_integration_id": input.github_integration_id, "error": str(e)},
+                {
+                    "github_integration_id": input.github_integration_id,
+                    "task_id": input.task_id,
+                    "team_id": input.team_id,
+                    "error": str(e),
+                },
+                cause=e,
             )
 
         try:
@@ -116,7 +129,8 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
         except Exception as e:
             raise PersonalAPIKeyError(
                 f"Failed to create personal API key for task {input.task_id}",
-                {"task_id": input.task_id, "error": str(e)},
+                {"task_id": input.task_id, "team_id": input.team_id, "error": str(e)},
+                cause=e,
             )
 
         environment_variables = {

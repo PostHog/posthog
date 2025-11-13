@@ -47,7 +47,13 @@ def execute_task_in_sandbox(input: ExecuteTaskInput) -> ExecuteTaskOutput:
         except Exception as e:
             raise SandboxExecutionError(
                 f"Failed to execute task in sandbox",
-                {"task_id": input.task_id, "sandbox_id": input.sandbox_id, "error": str(e)},
+                {
+                    "task_id": input.task_id,
+                    "sandbox_id": input.sandbox_id,
+                    "repository": input.repository,
+                    "error": str(e),
+                },
+                cause=e,
             )
 
         if result.exit_code != 0:

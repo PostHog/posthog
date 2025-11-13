@@ -44,7 +44,11 @@ def _create_personal_api_key(task: Task) -> tuple[str, PersonalAPIKey]:
     secure_value = hash_key_value(value)
 
     if not task.created_by:
-        raise TaskInvalidStateError(f"Task {task.id} has no created_by user", {"task_id": task.id})
+        raise TaskInvalidStateError(
+            f"Task {task.id} has no created_by user",
+            {"task_id": task.id},
+            cause=RuntimeError(f"Task {task.id} missing created_by field"),
+        )
 
     assert task.created_by is not None
 
@@ -89,15 +93,20 @@ def get_sandbox_for_setup(input: GetSandboxForSetupInput) -> GetSandboxForSetupO
 
         try:
             task = Task.objects.select_related("created_by").get(id=input.task_id)
-        except Task.DoesNotExist:
-            raise TaskNotFoundError(f"Task {input.task_id} not found", {"task_id": input.task_id})
+        except Task.DoesNotExist as e:
+            raise TaskNotFoundError(f"Task {input.task_id} not found", {"task_id": input.task_id}, cause=e)
 
         try:
             github_token = get_github_token(input.github_integration_id) or ""
         except Exception as e:
             raise GitHubAuthenticationError(
                 f"Failed to get GitHub token for integration {input.github_integration_id}",
-                {"github_integration_id": input.github_integration_id, "error": str(e)},
+                {
+                    "github_integration_id": input.github_integration_id,
+                    "task_id": input.task_id,
+                    "error": str(e),
+                },
+                cause=e,
             )
 
         try:
@@ -106,6 +115,7 @@ def get_sandbox_for_setup(input: GetSandboxForSetupInput) -> GetSandboxForSetupO
             raise PersonalAPIKeyError(
                 f"Failed to create personal API key for task {input.task_id}",
                 {"task_id": input.task_id, "error": str(e)},
+                cause=e,
             )
 
         environment_variables = {

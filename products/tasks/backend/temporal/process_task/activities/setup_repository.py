@@ -35,13 +35,25 @@ def setup_repository(input: SetupRepositoryInput) -> str:
         except Exception as e:
             raise RetryableRepositorySetupError(
                 f"Failed to setup repository {input.repository}",
-                {"repository": input.repository, "sandbox_id": input.sandbox_id, "error": str(e)},
+                {
+                    "repository": input.repository,
+                    "sandbox_id": input.sandbox_id,
+                    "task_id": input.task_id,
+                    "error": str(e),
+                },
+                cause=e,
             )
 
         if result.exit_code != 0:
             raise RetryableRepositorySetupError(
                 f"Repository setup failed with exit code {result.exit_code}",
-                {"repository": input.repository, "exit_code": result.exit_code, "stderr": result.stderr[:500]},
+                {
+                    "repository": input.repository,
+                    "exit_code": result.exit_code,
+                    "stderr": result.stderr[:500],
+                    "task_id": input.task_id,
+                },
+                cause=RuntimeError(f"Setup exited with code {result.exit_code}: {result.stderr[:200]}"),
             )
 
         is_clean, status_output = sandbox.is_git_clean(input.repository)
@@ -51,8 +63,10 @@ def setup_repository(input: SetupRepositoryInput) -> str:
                 "Repository setup left uncommitted changes. Cannot snapshot with modified git state.",
                 {
                     "repository": input.repository,
+                    "task_id": input.task_id,
                     "uncommitted_changes": status_output[:500],
                 },
+                cause=RuntimeError(f"Uncommitted changes: {status_output[:200]}"),
             )
 
         return result.stdout
