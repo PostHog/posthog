@@ -1,3 +1,4 @@
+import equal from 'fast-deep-equal'
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -14,7 +15,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ceilMsToClosestSecond, eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
+import { ceilMsToClosestSecond, eventToDescription, humanizeBytes, toParams } from 'lib/utils'
 import { getText } from 'scenes/comments/Comment'
 import {
     InspectorListItemPerformance,
@@ -673,7 +674,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     rawConsoleLogs: consoleLogs,
                 }
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         notebookCommentItems: [
@@ -704,7 +705,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
                 return items
             },
-            { resultEqualityCheck: objectsEqual },
+            {
+                resultEqualityCheck: equal,
+            },
         ],
 
         commentItems: [
@@ -738,7 +741,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
                 return items
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         allContextItems: [
@@ -790,7 +793,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 return items
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         allItems: [
@@ -985,7 +988,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     itemsByType,
                 }
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         filteredItems: [
@@ -1028,7 +1031,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     return acc
                 }, [] as InspectorListItem[])
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         seekbarItems: [
@@ -1115,7 +1118,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 return eventAndCommentItems
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         inspectorDataState: [
@@ -1231,7 +1234,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
                 return fuse.search(searchQuery).map((x) => x.item)
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         allItemsList: [(s) => [s.allItems], (allItemsData): InspectorListItem[] => allItemsData.items],
@@ -1276,7 +1279,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         },
     })),
     propsChanged(({ actions, props }, oldProps) => {
-        if (!objectsEqual(props.matchingEventsMatchType, oldProps.matchingEventsMatchType)) {
+        if (!equal(props.matchingEventsMatchType, oldProps.matchingEventsMatchType)) {
             actions.loadMatchingEvents()
         }
     }),

@@ -7,10 +7,12 @@ from uuid import uuid4
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
+    AIMessage as LangchainAIMessage,
     BaseMessage,
     HumanMessage as LangchainHumanMessage,
 )
 from langchain_core.tools import BaseTool
+from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel
 
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMessage, HumanMessage
@@ -36,7 +38,7 @@ class ConversationCompactionManager(ABC):
     Manages conversation window boundaries, message filtering, and summarization decisions.
     """
 
-    CONVERSATION_WINDOW_SIZE = 64000
+    CONVERSATION_WINDOW_SIZE = 100_000
     """
     Determines the maximum number of tokens allowed in the conversation window.
     """
@@ -54,7 +56,7 @@ class ConversationCompactionManager(ABC):
         new_window_id: str | None = None
         for message in reversed(messages):
             # Handle limits before assigning the window ID.
-            max_tokens -= self._get_estimated_tokens(message)
+            max_tokens -= self._get_estimated_assistant_message_tokens(message)
             max_messages -= 1
             if max_tokens < 0 or max_messages < 0:
                 break
@@ -83,12 +85,20 @@ class ConversationCompactionManager(ABC):
         Determine if the conversation should be summarized based on token count.
         Avoids summarizing if there are only two human messages or fewer.
         """
+        return await self.calculate_token_count(model, messages, tools, **kwargs) > self.CONVERSATION_WINDOW_SIZE
+
+    async def calculate_token_count(
+        self, model: BaseChatModel, messages: list[BaseMessage], tools: LangchainTools | None = None, **kwargs
+    ) -> int:
+        """
+        Calculate the token count for a conversation.
+        """
         # Avoid summarizing the conversation if there is only two human messages.
         human_messages = [message for message in messages if isinstance(message, LangchainHumanMessage)]
         if len(human_messages) <= 2:
-            return False
-        token_count = await self._get_token_count(model, messages, tools, **kwargs)
-        return token_count > self.CONVERSATION_WINDOW_SIZE
+            tool_tokens = self._get_estimated_tools_tokens(tools) if tools else 0
+            return sum(self._get_estimated_langchain_message_tokens(message) for message in messages) + tool_tokens
+        return await self._get_token_count(model, messages, tools, **kwargs)
 
     def update_window(
         self, messages: Sequence[T], summary_message: ContextMessage, start_id: str | None = None
@@ -134,7 +144,7 @@ class ConversationCompactionManager(ABC):
             updated_window_start_id=window_start_id_candidate,
         )
 
-    def _get_estimated_tokens(self, message: AssistantMessageUnion) -> int:
+    def _get_estimated_assistant_message_tokens(self, message: AssistantMessageUnion) -> int:
         """
         Estimate token count for a message using character/4 heuristic.
         """
@@ -149,6 +159,24 @@ class ConversationCompactionManager(ABC):
             char_count = len(message.content)
         return round(char_count / self.APPROXIMATE_TOKEN_LENGTH)
 
+    def _get_estimated_langchain_message_tokens(self, message: BaseMessage) -> int:
+        """
+        Estimate token count for a message using character/4 heuristic.
+        """
+        char_count = 0
+        if isinstance(message.content, str):
+            char_count = len(message.content)
+        else:
+            for content in message.content:
+                if isinstance(content, str):
+                    char_count += len(content)
+                elif isinstance(content, dict):
+                    char_count += self._count_json_tokens(content)
+        if isinstance(message, LangchainAIMessage) and message.tool_calls:
+            for tool_call in message.tool_calls:
+                char_count += len(json.dumps(tool_call, separators=(",", ":")))
+        return round(char_count / self.APPROXIMATE_TOKEN_LENGTH)
+
     def _get_conversation_window(self, messages: Sequence[T], start_id: str) -> Sequence[T]:
         """
         Get messages from the start_id onwards.
@@ -157,6 +185,22 @@ class ConversationCompactionManager(ABC):
             if message.id == start_id:
                 return messages[idx:]
         return messages
+
+    def _get_estimated_tools_tokens(self, tools: LangchainTools) -> int:
+        """
+        Estimate token count for tools by converting them to JSON schemas.
+        """
+        if not tools:
+            return 0
+
+        total_chars = 0
+        for tool in tools:
+            tool_schema = convert_to_openai_tool(tool)
+            total_chars += self._count_json_tokens(tool_schema)
+        return round(total_chars / self.APPROXIMATE_TOKEN_LENGTH)
+
+    def _count_json_tokens(self, json_data: dict) -> int:
+        return len(json.dumps(json_data, separators=(",", ":")))
 
     @abstractmethod
     async def _get_token_count(

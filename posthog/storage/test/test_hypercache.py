@@ -1,9 +1,11 @@
 import json
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import Mock
 
 from django.core.cache import cache
+from django.test import override_settings
 
 from posthog.storage import object_storage
 from posthog.storage.hypercache import DEFAULT_CACHE_MISS_TTL, DEFAULT_CACHE_TTL, HyperCache, HyperCacheStoreMissing
@@ -105,7 +107,7 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
         hc = HyperCache(namespace="test", value="value", load_fn=load_fn_store_missing)
 
         # Clear both Redis and S3
-        self.hypercache.clear_cache(self.team_id, kinds=["redis", "s3"])
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
 
         result, source = hc.get_from_cache_with_source(self.team_id)
 
@@ -244,3 +246,169 @@ class TestHyperCacheEdgeCases(HyperCacheTestBase):
 
         assert result == large_data
         assert source == "db"
+
+
+class TestHyperCacheCustomCacheClient(BaseTest):
+    """Test custom cache_client parameter for HyperCache"""
+
+    @property
+    def sample_data(self) -> dict:
+        return {"key": "value", "nested": {"data": "test"}}
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "default-test-cache",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "flags-dedicated-test-cache",
+            },
+        }
+    )
+    def test_custom_cache_client_isolation(self):
+        """Test that custom cache_client writes to dedicated cache, not default"""
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        def load_fn(team):
+            return self.sample_data
+
+        # Create HyperCache with custom cache client
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=load_fn,
+            cache_client=caches["flags_dedicated"],
+        )
+
+        team_id = self.team.id
+
+        # Write to cache
+        hc.set_cache_value(team_id, self.sample_data)
+
+        # Verify data is in dedicated cache
+        cache_key = hc.get_cache_key(team_id)
+        dedicated_value = caches["flags_dedicated"].get(cache_key)
+        assert dedicated_value == json.dumps(self.sample_data)
+
+        # Verify data is NOT in default cache
+        default_value = caches["default"].get(cache_key)
+        assert default_value is None
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "default-test-cache",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "flags-dedicated-test-cache",
+            },
+        }
+    )
+    def test_custom_cache_client_reads_from_dedicated(self):
+        """Test that reads use the custom cache client"""
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        def load_fn(team):
+            return {"fallback": "data"}
+
+        # Create HyperCache with custom cache client
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=load_fn,
+            cache_client=caches["flags_dedicated"],
+        )
+
+        team_id = self.team.id
+
+        # Manually set data only in dedicated cache
+        cache_key = hc.get_cache_key(team_id)
+        caches["flags_dedicated"].set(cache_key, json.dumps(self.sample_data))
+
+        # Get from cache should read from dedicated cache
+        result, source = hc.get_from_cache_with_source(team_id)
+
+        assert result == self.sample_data
+        assert source == "redis"
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "default-test-cache",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "flags-dedicated-test-cache",
+            },
+        }
+    )
+    def test_clear_cache_uses_custom_client(self):
+        """Test that clear_cache targets the custom cache client"""
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        def load_fn(team):
+            return self.sample_data
+
+        # Create HyperCache with custom cache client
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=load_fn,
+            cache_client=caches["flags_dedicated"],
+        )
+
+        team_id = self.team.id
+
+        # Write to both caches manually to test clearing
+        cache_key = hc.get_cache_key(team_id)
+        caches["flags_dedicated"].set(cache_key, json.dumps(self.sample_data))
+        caches["default"].set(cache_key, json.dumps(self.sample_data))
+
+        # Clear cache (redis only)
+        hc.clear_cache(team_id, kinds=["redis"])
+
+        # Verify dedicated cache was cleared
+        dedicated_value = caches["flags_dedicated"].get(cache_key)
+        assert dedicated_value is None
+
+        # Verify default cache still has data (not touched)
+        default_value = caches["default"].get(cache_key)
+        assert default_value == json.dumps(self.sample_data)
+
+    def test_default_cache_client_backward_compatibility(self):
+        """Test that HyperCache without cache_client uses default cache"""
+
+        def load_fn(team):
+            return self.sample_data
+
+        # Create HyperCache without cache_client (should use default)
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=load_fn,
+        )
+
+        team_id = self.team.id
+        cache.clear()
+
+        # Write to cache
+        hc.set_cache_value(team_id, self.sample_data)
+
+        # Verify data is in default cache
+        cache_key = hc.get_cache_key(team_id)
+        default_value = cache.get(cache_key)
+        assert default_value == json.dumps(self.sample_data)

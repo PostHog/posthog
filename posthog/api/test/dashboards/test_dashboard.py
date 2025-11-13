@@ -1968,3 +1968,49 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(sse_dashboard["persisted_filters"], dashboard_filters)
         self.assertEqual(regular_response["persisted_variables"], dashboard_variables)
         self.assertEqual(sse_dashboard["persisted_variables"], dashboard_variables)
+
+    def test_create_unlisted_dashboard_creates_tags_without_tagging_feature(self):
+        """Test that unlisted dashboards get tags even if org doesn't have TAGGING feature"""
+        # Remove TAGGING feature from organization
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        # Verify org doesn't have tagging
+        self.assertFalse(self.organization.is_feature_available(AvailableFeature.TAGGING))
+
+        # Create unlisted dashboard
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
+            {"tag": "llm-analytics"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        dashboard = Dashboard.objects.get(id=response.json()["id"])
+
+        # Verify dashboard was created with unlisted mode
+        self.assertEqual(dashboard.creation_mode, "unlisted")
+        self.assertEqual(dashboard.name, "LLM Analytics Default")
+
+        # Verify tags were created despite org lacking TAGGING feature
+        tags = list(dashboard.tagged_items.values_list("tag__name", flat=True))
+        self.assertEqual(tags, ["llm-analytics"])
+
+    def test_create_unlisted_dashboard_enforces_uniqueness(self):
+        """Test that creating duplicate unlisted dashboards returns 409"""
+        # Create first dashboard
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
+            {"tag": "llm-analytics"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Try to create duplicate
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
+            {"tag": "llm-analytics"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn("already exists", response.json()["error"])
