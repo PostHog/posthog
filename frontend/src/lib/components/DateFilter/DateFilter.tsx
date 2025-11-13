@@ -32,6 +32,7 @@ export interface DateFilterProps {
     makeLabel?: (key: React.ReactNode, startOfRange?: React.ReactNode) => React.ReactNode
     className?: string
     onChange?: (fromDate: string | null, toDate: string | null, explicitDate?: boolean) => void
+    disabled?: boolean
     disabledReason?: string | null
     dateOptions?: DateMappingOption[]
     isDateFormatted?: boolean
