@@ -127,6 +127,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'setAutoRun',
                 'loadConversationHistorySuccess',
             ],
+            maxGlobalLogic,
+            ['loadConversation'],
         ],
     })),
 
@@ -242,6 +244,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     newMap.set(update.tool_call_id, [...currentValue, update.content])
                     return newMap
                 },
+            },
+        ],
+
+        cancelLoading: [
+            false,
+            {
+                stopGeneration: () => true,
+                setCancelLoading: (_, { cancelLoading }) => cancelLoading,
             },
         ],
     })),
@@ -419,6 +429,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             } catch (e: any) {
                 lemonToast.error(e?.data?.detail || 'Failed to cancel the generation.')
             }
+
+            try {
+                await actions.loadConversation(values.conversation.id)
+            } catch {}
+
+            actions.setCancelLoading(false)
         },
 
         reconnectToStream: () => {
