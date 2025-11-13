@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import React from 'react'
 
-import { IconCalendar, IconCode2, IconFilter, IconGraph, IconPencil, IconSort, IconUser } from '@posthog/icons'
+import { IconCalculator, IconCalendar, IconCode2, IconFilter, IconPencil, IconSort, IconUser } from '@posthog/icons'
 import { Lettermark, LettermarkColor } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -16,6 +16,7 @@ import { IconCalculate } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
+import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { MathCategory, MathDefinition, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
@@ -252,10 +253,10 @@ export function SeriesSummary({
     query: InsightQueryNode | HogQLQuery
     heading?: JSX.Element | null
 }): JSX.Element {
-    const Icon = isHogQLQuery(query) ? IconCode2 : IconGraph
+    const IconComponent = QUERY_TYPES_METADATA[query.kind].icon
 
     return (
-        <InsightDetailSectionDisplay icon={<Icon />} label={heading !== null ? heading || 'Query' : ''}>
+        <InsightDetailSectionDisplay icon={<IconComponent />} label={heading !== null ? heading || 'Query' : ''}>
             {isHogQLQuery(query) ? (
                 <CodeSnippet language={Language.SQL} maxLinesWithoutExpansion={8} compact>
                     {query.query}
@@ -477,7 +478,7 @@ export const InsightDetails = React.memo(
                             </div>
                         </InsightDetailSectionDisplay>
                         {footerInfo.last_refresh && (
-                            <InsightDetailSectionDisplay icon={<IconCalendar />} label="Last computed">
+                            <InsightDetailSectionDisplay icon={<IconCalculator />} label="Last computed">
                                 <TZLabel time={footerInfo.last_refresh} />
                             </InsightDetailSectionDisplay>
                         )}

@@ -89,9 +89,9 @@ export function CompactUniversalFiltersDisplay({
                     return (
                         <React.Fragment key={index}>
                             {index > 0 && (
-                                <span className="text-[11px] font-semibold leading-5">
+                                <em className="text-[11px] font-semibold leading-5">
                                     {filterType === FilterLogicalOperator.Or ? 'OR' : 'AND'}
-                                </span>
+                                </em>
                             )}
                             <CompactUniversalFiltersDisplay groupFilter={filterOrGroup} embedded={embedded} />
                         </React.Fragment>
@@ -125,7 +125,7 @@ export function CompactUniversalFiltersDisplay({
                         <span>
                             {isFirstFilterOverall && embedded ? 'where ' : null}
                             {index > 0 ? (
-                                <strong>{filterType === FilterLogicalOperator.Or ? <em>or </em> : 'and '}</strong>
+                                <strong>{filterType === FilterLogicalOperator.Or ? 'or ' : 'and '}</strong>
                             ) : null}
                             {isCohortPropertyFilter(filterOrGroup) ? (
                                 <>
