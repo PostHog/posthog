@@ -1615,12 +1615,13 @@ def list_recordings_from_query(
                     recordings.append(s3_persisted_recording)
                 else:
                     # Try to load from ClickHouse
-                    # Remove date filters since we're fetching a specific recording by ID
+                    # Optimize query by searching only within the team's retention period
+                    retention_period = team.session_recording_retention_period or "90d"
                     ch_query_result = SessionRecordingListFromQuery(
                         query=RecordingsQuery(
                             kind=NodeKind.RECORDINGS_QUERY,
                             session_ids=[session_recording_id_to_prepend],
-                            date_from=None,  # No date filter when fetching by ID
+                            date_from=f"-{retention_period}",
                             date_to=None,
                         ),
                         team=team,
