@@ -335,7 +335,7 @@ def google_ads_source(
 
     return SourceResponse(
         name=name,
-        items=get_rows(),
+        items=get_rows,
         primary_keys=table.primary_key,
         partition_count=1 if table.requires_filter else None,  # this enables partitioning
         partition_size=1 if table.requires_filter else None,  # this enables partitioning

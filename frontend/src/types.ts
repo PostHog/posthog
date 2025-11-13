@@ -244,6 +244,8 @@ export enum ProductKey {
     MAX = 'max',
     LINKS = 'links',
     ENDPOINTS = 'endpoints',
+    CUSTOMER_ANALYTICS = 'customer_analytics',
+    LOGS = 'logs',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -312,6 +314,7 @@ export enum AccessControlResourceType {
     Survey = 'survey',
     Experiment = 'experiment',
     WebAnalytics = 'web_analytics',
+    ActivityLog = 'activity_log',
 }
 
 interface UserBaseType {
@@ -858,6 +861,7 @@ export enum ExperimentsTabs {
 
 export enum ActivityTab {
     ExploreEvents = 'explore',
+    ExploreSessions = 'sessions',
     LiveEvents = 'live',
 }
 
@@ -1587,6 +1591,10 @@ export interface RecordingEventType
     distinct_id?: EventType['distinct_id']
 }
 
+export interface SessionEventType extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp'> {
+    fullyLoaded: boolean
+    distinct_id?: EventType['distinct_id']
+}
 export interface PlaylistCollectionCount {
     count: number
     watched_count: number

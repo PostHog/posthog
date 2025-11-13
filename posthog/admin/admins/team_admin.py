@@ -119,6 +119,16 @@ class TeamAdmin(admin.ModelAdmin):
             },
         ),
         (
+            "Surveys",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    "surveys_opt_in",
+                    "survey_config",
+                ],
+            },
+        ),
+        (
             "Filters",
             {
                 "classes": ["collapse"],

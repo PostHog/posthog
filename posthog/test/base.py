@@ -65,14 +65,6 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
-from posthog.models.behavioral_cohorts.sql import (
-    BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL,
-    BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL,
-    BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL,
-    DROP_BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL,
-    DROP_BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL,
-    DROP_BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL,
-)
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -81,6 +73,16 @@ from posthog.models.channel_type.sql import (
     DROP_CHANNEL_DEFINITION_TABLE_SQL,
 )
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
+from posthog.models.cohortmembership.sql import (
+    COHORT_MEMBERSHIP_MV_SQL,
+    COHORT_MEMBERSHIP_TABLE_SQL,
+    COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL,
+    DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL,
+    DROP_COHORT_MEMBERSHIP_MV_SQL,
+    DROP_COHORT_MEMBERSHIP_TABLE_SQL,
+    DROP_COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL,
+    KAFKA_COHORT_MEMBERSHIP_TABLE_SQL,
+)
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_TABLE_SQL,
     DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
@@ -109,6 +111,16 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
 from posthog.models.person.util import bulk_create_persons, create_person
+from posthog.models.precalculated_events.sql import (
+    DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
+    DROP_PRECALCULATED_EVENTS_MV_SQL,
+    DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL,
+    DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
+    KAFKA_PRECALCULATED_EVENTS_TABLE_SQL,
+    PRECALCULATED_EVENTS_MV_SQL,
+    PRECALCULATED_EVENTS_SHARDED_TABLE_SQL,
+    PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
+)
 from posthog.models.project import Project
 from posthog.models.property_definition import DROP_PROPERTY_DEFINITIONS_TABLE_SQL, PROPERTY_DEFINITIONS_TABLE_SQL
 from posthog.models.raw_sessions.sessions_v2 import (
@@ -1283,9 +1295,14 @@ def reset_clickhouse_database() -> None:
             DROP_WEB_BOUNCES_HOURLY_SQL(),
             DROP_WEB_STATS_STAGING_SQL(),
             DROP_WEB_BOUNCES_STAGING_SQL(),
-            DROP_BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL(),
-            DROP_BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL(),
-            DROP_BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL(),
+            DROP_COHORT_MEMBERSHIP_TABLE_SQL(),
+            DROP_COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
+            DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL(),
+            DROP_COHORT_MEMBERSHIP_MV_SQL(),
+            DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
+            DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
+            DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL(),
+            DROP_PRECALCULATED_EVENTS_MV_SQL(),
             TRUNCATE_COHORTPEOPLE_TABLE_SQL,
             TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
             TRUNCATE_GROUPS_TABLE_SQL,
@@ -1322,6 +1339,8 @@ def reset_clickhouse_database() -> None:
             WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
             QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name=QUERY_LOG_ARCHIVE_DATA_TABLE),
+            COHORT_MEMBERSHIP_TABLE_SQL(),
+            PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1340,9 +1359,10 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name=QUERY_LOG_ARCHIVE_MV, dest_table=QUERY_LOG_ARCHIVE_DATA_TABLE),
-            BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL(),
-            BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL(),
-            BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL(),
+            COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
+            KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
+            PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
+            KAFKA_PRECALCULATED_EVENTS_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1360,6 +1380,8 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_VIEW(include_counters=True),
             WEB_STATS_COMBINED_VIEW_SQL(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
+            COHORT_MEMBERSHIP_MV_SQL(),
+            PRECALCULATED_EVENTS_MV_SQL(),
         ]
     )
 
