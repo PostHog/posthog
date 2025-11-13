@@ -20,7 +20,7 @@ const TriggerPopover = ({
 }): JSX.Element => {
     const logic = hogFlowManualTriggerButtonLogic(props)
     const { workflow, variableValues, inputs } = useValues(logic)
-    const { setInput, clearInputs, triggerManualWorkflow } = useActions(logic)
+    const { setInput, clearInputs, triggerManualWorkflow, triggerBatchWorkflow } = useActions(logic)
 
     const isScheduleTrigger = workflow?.trigger?.type === 'schedule'
 
@@ -85,7 +85,13 @@ const TriggerPopover = ({
                     status="alt"
                     onClick={() => {
                         const scheduledAt = isScheduleTrigger ? (workflow?.trigger as any)?.scheduled_at : undefined
-                        triggerManualWorkflow(variableValues, scheduledAt)
+
+                        if (workflow?.trigger?.type === 'batch') {
+                            triggerBatchWorkflow(variableValues, scheduledAt)
+                        } else {
+                            triggerManualWorkflow(variableValues, scheduledAt)
+                        }
+
                         setPopoverVisible(false)
                         clearInputs()
                     }}

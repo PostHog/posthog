@@ -35,7 +35,7 @@ export const hogFlowManualTriggerButtonLogic = kea<hogFlowManualTriggerButtonLog
     key((props) => props.id || 'new'),
     connect((props: WorkflowLogicProps) => ({
         values: [userLogic, ['user'], teamLogic, ['timezone'], workflowLogic(props), ['workflow']],
-        actions: [workflowLogic(props), ['triggerManualWorkflow']],
+        actions: [workflowLogic(props), ['triggerManualWorkflow', 'triggerBatchWorkflow']],
     })),
     actions({
         setInput: (key: string, value: string) => ({ key, value }),

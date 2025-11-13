@@ -453,6 +453,15 @@ export const workflowLogic = kea<workflowLogicType>([
                 },
             })
         },
+        triggerBatchWorkflow: async ({}) => {
+            // Similar to triggerManualWorkflow but for batch workflows
+            if (!values.workflow.id || values.workflow.id === 'new') {
+                lemonToast.error('You need to save the workflow before triggering it manually.')
+                return
+            }
+
+            lemonToast.info('Batch workflow runs coming soon...')
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadWorkflow()
