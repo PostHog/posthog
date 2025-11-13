@@ -26954,6 +26954,9 @@
                 "surveyPopupDelaySeconds": {
                     "type": "number"
                 },
+                "tabPosition": {
+                    "$ref": "#/definitions/SurveyTabPosition"
+                },
                 "textColor": {
                     "type": "string"
                 },
@@ -27205,6 +27208,10 @@
         },
         "SurveyQuestionType": {
             "enum": ["open", "multiple_choice", "single_choice", "rating", "link"],
+            "type": "string"
+        },
+        "SurveyTabPosition": {
+            "enum": ["top", "left", "right", "bottom"],
             "type": "string"
         },
         "SurveyType": {
