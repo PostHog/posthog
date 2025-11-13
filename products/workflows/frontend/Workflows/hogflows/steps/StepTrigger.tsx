@@ -198,7 +198,10 @@ export function StepTriggerConfiguration({
                                     ? setWorkflowActionConfig(node.id, {
                                           type: 'batch',
                                           template_id: 'template-source-webhook-batch',
-                                          filters: {},
+                                          filters: {
+                                              properties: [],
+                                              cohorts: [],
+                                          },
                                           scheduled_at: undefined,
                                       })
                                     : value === 'tracking_pixel'
