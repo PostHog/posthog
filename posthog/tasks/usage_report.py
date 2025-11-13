@@ -15,6 +15,7 @@ from django.db.models import Count, F, Q, Sum
 
 import requests
 import structlog
+import posthoganalytics
 from cachetools import cached
 from celery import shared_task
 from dateutil import parser
@@ -166,6 +167,8 @@ class UsageReportCounters:
     exceptions_captured_in_period: int
     # LLM Analytics
     ai_event_count_in_period: int
+    # AI Billing Credits (PostHog AI feature usage)
+    ai_credits_used_in_period: int
     # CDP Delivery
     hog_function_calls_in_period: int
     hog_function_fetch_calls_in_period: int
@@ -932,6 +935,67 @@ def get_teams_with_ai_event_count_in_period(
     return results
 
 
+# AI billing markup: 20% markup on top of cost (1 USD = 100 cents + 20% = 120 cents = 120 credits)
+AI_COST_MARKUP_PERCENT = 0.2
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_ai_credits_used_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    """
+    Calculate AI credits used in the period for billable AI generations.
+
+    Conversion logic:
+    1. Extract $ai_total_cost_usd from billable $ai_generation events
+    2. Filter out negative or zero costs (defensive)
+    3. Convert to cents (multiply by 100)
+    4. Add markup
+    6. Convert 1:1 to credits
+
+    Only counts generations where $ai_billable is true and cost > 0.
+    """
+    results = sync_execute(
+        """
+        WITH
+            accurateCastOrNull(
+                replaceRegexpAll(
+                    nullIf(nullIf(JSONExtractRaw(properties, '$ai_total_cost_usd'), ''), 'null'),
+                    '^"|"$',
+                    ''
+                ),
+                'Float64'
+            ) AS cost_usd
+        SELECT
+            team_id,
+            toInt64(roundBankers(
+                sumIf(cost_usd * 100 * %(markup_multiplier)s,
+                      coalesce(JSONExtractBool(properties, '$ai_billable'), 0) = 1
+                      AND cost_usd > 0)
+            )) AS ai_credits
+        FROM events
+        WHERE
+            timestamp >= %(begin)s
+            AND timestamp < %(end)s
+            AND event = '$ai_generation'
+            AND team_id = 2
+        GROUP BY team_id
+        HAVING ai_credits > 0
+    """,
+        {
+            "begin": begin,
+            "end": end,
+            "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
+        },
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
 dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
 dwh_pricing_free_period_end = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
 
@@ -1290,6 +1354,11 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     all_metrics = get_all_event_metrics_in_period(period_start, period_end)
     api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
 
+    # Check if AI billing usage report is enabled
+    is_ai_billing_enabled = posthoganalytics.feature_enabled(
+        "posthog-ai-billing-usage-report", "internal_billing_events"
+    )
+
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
             period_start, period_end, count_distinct=True
@@ -1490,6 +1559,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
+        "teams_with_ai_credits_used_in_period": (
+            get_teams_with_ai_credits_used_in_period(period_start, period_end) if is_ai_billing_enabled else []
+        ),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
     }
@@ -1604,6 +1676,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         elixir_events_count_in_period=all_data["teams_with_elixir_events_count_in_period"].get(team.id, 0),
         exceptions_captured_in_period=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
+        ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         active_hog_destinations_in_period=all_data["teams_with_active_hog_destinations_in_period"].get(team.id, 0),
         active_hog_transformations_in_period=all_data["teams_with_active_hog_transformations_in_period"].get(
             team.id, 0

@@ -3415,3 +3415,112 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(len(all_data["teams_with_event_count_in_period"]), 1)
         self.assertEqual(next(iter(all_data["teams_with_event_count_in_period"].keys())), self.team.id)
         self.assertEqual(all_data["teams_with_event_count_in_period"][self.team.id], 20)
+
+    def test_get_teams_with_ai_credits_used_in_period(self) -> None:
+        """Test AI credits calculation with various scenarios."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        # Create billable AI generation events with valid costs
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="user_1",
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={
+                "$ai_total_cost_usd": 1.0,
+                "$ai_billable": True,
+            },
+        )
+
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="user_2",
+            timestamp=self.begin + relativedelta(hours=2),
+            properties={
+                "$ai_total_cost_usd": 0.50,
+                "$ai_billable": True,
+            },
+        )
+
+        # Create non-billable event (should not be counted)
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="user_3",
+            timestamp=self.begin + relativedelta(hours=3),
+            properties={
+                "$ai_total_cost_usd": 2.0,
+                "$ai_billable": False,
+            },
+        )
+
+        # Create event with zero cost (should not be counted)
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="user_4",
+            timestamp=self.begin + relativedelta(hours=4),
+            properties={
+                "$ai_total_cost_usd": 0.0,
+                "$ai_billable": True,
+            },
+        )
+
+        # Create event with negative cost (should not be counted)
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="user_5",
+            timestamp=self.begin + relativedelta(hours=5),
+            properties={
+                "$ai_total_cost_usd": -1.0,
+                "$ai_billable": True,
+            },
+        )
+
+        # Create event without cost property (should not be counted)
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="user_6",
+            timestamp=self.begin + relativedelta(hours=6),
+            properties={
+                "$ai_billable": True,
+            },
+        )
+
+        # Create event without billable property (should not be counted, defaults to false)
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="user_7",
+            timestamp=self.begin + relativedelta(hours=7),
+            properties={
+                "$ai_total_cost_usd": 3.0,
+            },
+        )
+
+        # Create event outside the period (should not be counted)
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="user_8",
+            timestamp=self.begin - relativedelta(hours=1),
+            properties={
+                "$ai_total_cost_usd": 5.0,
+                "$ai_billable": True,
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(self.begin, self.end)
+
+        # Expected calculation:
+        # Event 1: 1.0 USD * 100 * 1.2 = 120 credits
+        # Event 2: 0.50 USD * 100 * 1.2 = 60 credits
+        # Total: 180 credits
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.team.id)
+        self.assertEqual(result[0][1], 180)
