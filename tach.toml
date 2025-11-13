@@ -1,4 +1,27 @@
+# ============================================================================
+# NOTE: Tach is currently NOT enforced in CI
+# ============================================================================
+# This config documents existing coupling and provides infrastructure for future isolation.
+#
+# Current state:
+# - All existing products in 'non_isolated' layer (can import from each other)
+# - Core (posthog/ee) explicitly coupled to products (legacy mess, we accept this)
+# - Zero violations = current code is blessed as-is
+#
+# For new isolated products:
+# - Add with layer="products" to prevent coupling
+# - See commented example at bottom of file
+#
+# Local development usage:
+#   tach check        # Verify you haven't violated boundaries
+#   tach test         # Run only tests affected by your changes
+#   tach sync         # Update dependencies from actual imports
+#
+# To enforce in CI: Add to GitHub Actions workflow after team alignment
+# ============================================================================
+
 interfaces = []
+
 # Two-tier layer system for products only:
 # Layers listed from highest to lowest
 # - products: NEW products (highest - strictly isolated, can only import from non_isolated)
@@ -262,3 +285,22 @@ depends_on = [
     "posthog",
 ]
 layer = "non_isolated"
+
+# ============================================================================
+# Template for New Isolated Products
+# ============================================================================
+# When creating a new product that should be isolated from existing products,
+# add it with the "products" layer. This prevents it from importing from
+# non_isolated products or other products in the same layer.
+#
+# Example:
+# [[modules]]
+# path = "products.new_feature"
+# depends_on = ["posthog"]  # Can only depend on core infrastructure
+# layer = "products"        # Isolated from all other products
+#
+# This enables:
+# - ✅ Import from posthog/ee (core infrastructure)
+# - ❌ Import from other products (enforced isolation)
+# - ✅ Isolated testing with 'tach test' (only runs affected tests)
+# ============================================================================
