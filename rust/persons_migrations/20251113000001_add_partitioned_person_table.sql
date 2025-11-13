@@ -26,61 +26,24 @@ BEGIN
     END LOOP;
 END $$;
 
-CREATE TABLE posthog_person_deletes_log (
-      id BIGINT NOT NULL,
-      deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-      team_id INTEGER NOT NULL,
-      uuid UUID NOT NULL,
-      created_at TIMESTAMP WITH TIME ZONE,
-      version BIGINT,
-      PRIMARY KEY (id, deleted_at)
-  );
+-- Drop foreign key constraints to allow writes to both old and new person tables
+-- This is required during the migration period when persons may exist in either table
+-- The index is kept for join performance
 
-CREATE INDEX idx_person_deletes_log_deleted_at ON posthog_person_deletes_log(deleted_at);
-CREATE INDEX idx_person_deletes_log_team_id ON posthog_person_deletes_log(team_id);
+-- Drop FK from posthog_persondistinctid to posthog_person
+ALTER TABLE posthog_persondistinctid
+    DROP CONSTRAINT IF EXISTS posthog_persondistinctid_person_id_fkey;
 
+-- Drop FK from posthog_featureflaghashkeyoverride to posthog_person
+ALTER TABLE posthog_featureflaghashkeyoverride
+    DROP CONSTRAINT IF EXISTS posthog_featureflaghashkeyoverride_person_id_fkey;
 
--- Trigger function to replicate writes from posthog_person to posthog_person_new
-CREATE OR REPLACE FUNCTION replicate_person_writes()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF (TG_OP = 'DELETE') THEN
-        DELETE FROM posthog_person_new WHERE id = OLD.id;
-        RETURN OLD;
-    ELSE
-        -- Handle both INSERT and UPDATE
-        INSERT INTO posthog_person_new VALUES (NEW.*)
-        ON CONFLICT (team_id, id) DO UPDATE SET
-            created_at = EXCLUDED.created_at,
-            properties = EXCLUDED.properties,
-            is_user_id = EXCLUDED.is_user_id,
-            is_identified = EXCLUDED.is_identified,
-            uuid = EXCLUDED.uuid,
-            properties_last_updated_at = EXCLUDED.properties_last_updated_at,
-            properties_last_operation = EXCLUDED.properties_last_operation,
-            version = EXCLUDED.version;
-        RETURN NEW;
-    END IF;
-END;
-$$ LANGUAGE plpgsql;
+-- Drop FK from posthog_cohortpeople to posthog_person
+ALTER TABLE posthog_cohortpeople
+    DROP CONSTRAINT IF EXISTS posthog_cohortpeople_person_id_fkey;
 
--- Delete logging trigger function
-CREATE OR REPLACE FUNCTION log_person_deletes()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO posthog_person_deletes_log (id, team_id, uuid, created_at, version)
-    VALUES (OLD.id, OLD.team_id, OLD.uuid, OLD.created_at, OLD.version)
-    ON CONFLICT (id, deleted_at) DO NOTHING;
-    RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
+-- Note: Indexes on person_id columns are preserved for join performance
+-- - posthog_persondistinctid_person_id_5d655bba (kept)
+-- - posthog_featureflaghashkeyoverride_person_id_7e517f7c (kept)
+-- - posthog_cohortpeople_person_id_33da7d3f (kept)
 
--- Create trigger to replicate writes from posthog_person to posthog_person_new
-CREATE TRIGGER replicate_person_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON posthog_person
-    FOR EACH ROW EXECUTE FUNCTION replicate_person_writes();
-
--- Create trigger to log deletes from posthog_person
-CREATE TRIGGER log_person_deletes_trigger
-    AFTER DELETE ON posthog_person
-    FOR EACH ROW EXECUTE FUNCTION log_person_deletes();
